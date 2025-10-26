@@ -1,7 +1,50 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+
+const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
+
+// Get current workspace ID from cookie
+export async function getCurrentWorkspaceId(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value || null;
+}
+
+// Update current workspace cookie
+export async function updateCurrentWorkspace(workspaceId: string) {
+  const cookieStore = await cookies();
+  
+  // Verify user has access to this workspace
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    return { error: "Not authenticated" };
+  }
+  
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .single();
+  
+  if (!membership) {
+    return { error: "You don't have access to this workspace" };
+  }
+  
+  // Set cookie (expires in 1 year)
+  cookieStore.set(CURRENT_WORKSPACE_COOKIE, workspaceId, {
+    maxAge: 60 * 60 * 24 * 365, // 1 year
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  });
+  
+  return { success: true };
+}
 //create workspace action 
 export async function createWorkspace(name: string) {
   const supabase = await createClient()
