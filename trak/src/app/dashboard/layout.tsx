@@ -1,4 +1,5 @@
 import { getUserWorkspaces } from "@/app/actions/workspace";
+import { getCurrentUser } from "@/app/actions/auth";
 import DashboardLayoutClient from "./layout-client";
 import { WorkspaceProvider } from "./workspace-context";
 
@@ -9,16 +10,19 @@ export default async function DashboardLayout({
 }) {
   // Fetch user's workspaces
   const workspacesResult = await getUserWorkspaces();
-  
   const workspaces = workspacesResult.data || [];
-  const currentWorkspace = workspaces[0] || null; // Use first workspace as current for now
+  const currentWorkspace = workspaces[0] || null;
+
+  // Fetch current user
+  const userResult = await getCurrentUser();
+  const user = userResult.data || null;
 
   return (
     <WorkspaceProvider
       initialWorkspaces={workspaces}
       initialCurrentWorkspace={currentWorkspace}
     >
-      <DashboardLayoutClient>
+      <DashboardLayoutClient currentUser={user}>
         {children}
       </DashboardLayoutClient>
     </WorkspaceProvider>
