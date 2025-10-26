@@ -22,10 +22,10 @@ export default function TestDashboard() {
   
           <a 
             href="/test/project" 
-            className="block p-6 border rounded-lg hover:bg-gray-50 opacity-50"
+            className="block p-6 border rounded-lg hover:bg-gray-50"
           >
-            <h2 className="text-xl font-semibold mb-2">Task 1.3: Project Management (Coming Soon)</h2>
-            <p className="text-gray-600">Test project operations and workflows</p>
+            <h2 className="text-xl font-semibold mb-2">Task 1.3: Project Management</h2>
+            <p className="text-gray-600">Test project CRUD operations and workflows/relationships</p>
           </a>
         </div>
       </div>
