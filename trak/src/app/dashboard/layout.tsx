@@ -1,4 +1,4 @@
-import { getUserWorkspaces, getCurrentWorkspaceId, updateCurrentWorkspace } from "@/app/actions/workspace";
+import { getUserWorkspaces, getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getCurrentUser } from "@/app/actions/auth";
 import DashboardLayoutClient from "./layout-client";
 import { WorkspaceProvider } from "./workspace-context";
@@ -8,28 +8,26 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  type Workspace = { id: string; name: string; role: string };
   // Fetch user's workspaces
   const workspacesResult = await getUserWorkspaces();
   const workspacesData = workspacesResult.data || [];
   
-  // Transform workspace data to match expected format
-  const workspaces = workspacesData.map((w: any) => ({
-    id: w.workspace_id,
-    name: w.workspace_name,
+  // Transform workspace data to expected format
+  const workspaces: Workspace[] = ((workspacesData ?? []) as unknown as Workspace[]).map((w: Workspace) => ({
+    id: w.id,
+    name: w.name,
     role: w.role,
   }));
 
-  // Get current workspace from cookie
-  let currentWorkspaceId = await getCurrentWorkspaceId();
+  // Get current workspace from cookie (READ ONLY - don't set)
+  const currentWorkspaceId = await getCurrentWorkspaceId();
   
-  // If no cookie set and user has workspaces, set cookie to first workspace
-  if (!currentWorkspaceId && workspaces.length > 0) {
-    await updateCurrentWorkspace(workspaces[0].id);
-    currentWorkspaceId = workspaces[0].id;
-  }
-  
-  // Find the current workspace object
-  const currentWorkspace = workspaces.find((w: any) => w.id === currentWorkspaceId) || workspaces[0] || null;
+  // Find the current workspace object, or use first workspace if no cookie
+  const currentWorkspace = 
+    workspaces.find((w: Workspace) => w.id === currentWorkspaceId) || 
+    workspaces[0] || 
+    null;
 
   // Fetch current user
   const userResult = await getCurrentUser();

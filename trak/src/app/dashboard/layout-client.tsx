@@ -22,6 +22,12 @@ interface User {
   name: string;
 }
 
+interface Workspace {
+  id: string;
+  name: string;
+  role: string;
+}
+
 export default function DashboardLayoutClient({
   children,
   currentUser,
@@ -57,7 +63,8 @@ function Sidebar({ currentUser }: { currentUser: User | null }) {
   const userDropdownRef = useRef<HTMLDivElement>(null);
 
   // Get workspace initials
-  const getInitials = (name: string) => {
+  const getInitials = (name?: string | null) => {
+    if (!name) return 'W';
     return name
       .split(' ')
       .map(word => word[0])
@@ -68,7 +75,7 @@ function Sidebar({ currentUser }: { currentUser: User | null }) {
 
   // Get user initials
   const getUserInitials = () => {
-    if (!currentUser) return 'U';
+    if (!currentUser || !currentUser.name) return 'U';
     return currentUser.name
       .split(' ')
       .map(word => word[0])
@@ -91,7 +98,7 @@ function Sidebar({ currentUser }: { currentUser: User | null }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleWorkspaceSwitch = async (workspace: any) => {
+  const handleWorkspaceSwitch = async (workspace: Workspace) => {
     await switchWorkspace(workspace);
     setWorkspaceDropdownOpen(false);
   };
