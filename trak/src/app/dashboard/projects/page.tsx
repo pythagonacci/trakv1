@@ -3,39 +3,47 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import ProjectsTable from "./projects-table";
 
 export default async function ProjectsPage() {
-  type Project = {
-    id: string;
-    name: string;
-    status: "not_started" | "in_progress" | "complete";
-    due_date_date: string | null;
-    due_date_text: string | null;
-    client_id: string | null;
-    created_at: string;
-    client?: { id: string; name: string | null; company?: string | null } | null;
-  };
   // Get current workspace ID from cookie
   const workspaceId = await getCurrentWorkspaceId();
   
   if (!workspaceId) {
     return (
-      <div className="text-center text-neutral-500">
-        <p>No workspace selected</p>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-neutral-500">No workspace selected</p>
+        </div>
       </div>
     );
   }
 
   // Fetch all projects for the workspace
   const projectsResult = await getAllProjects(workspaceId);
+  
+  if (projectsResult.error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-red-500">{projectsResult.error}</p>
+        </div>
+      </div>
+    );
+  }
 
-  // Map nested client object to the shape expected by the table (client_name)
-  const projects = ((projectsResult.data || []) as Project[]).map((p: Project) => ({
-    ...p,
-    client_name: p?.client?.name ?? null,
+  // Map nested client object to the shape expected by the table
+  const mappedProjects = (projectsResult.data || []).map((project: any) => ({
+    id: project.id,
+    name: project.name,
+    status: project.status,
+    due_date_date: project.due_date_date,
+    due_date_text: project.due_date_text,
+    client_id: project.client_id,
+    client_name: project.client?.name || null,
+    created_at: project.created_at,
   }));
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <ProjectsTable projects={projects} />
+    <div className="p-8">
+      <ProjectsTable projects={mappedProjects} workspaceId={workspaceId} />
     </div>
   );
 }

@@ -1,27 +1,39 @@
-"use client";
+interface EmptyStateProps {
+  onCreateClick: () => void;
+}
 
-import { FolderOpen, Plus } from "lucide-react";
-
-export default function EmptyState() {
+export default function EmptyState({ onCreateClick }: EmptyStateProps) {
   return (
-    <div className="flex items-center justify-center min-h-[400px]">
-      <div className="text-center max-w-md">
-        <div className="mb-4 flex justify-center">
-          <div className="w-20 h-20 rounded-2xl bg-neutral-100 flex items-center justify-center">
-            <FolderOpen className="w-10 h-10 text-neutral-400" />
-          </div>
+    <div className="flex flex-col items-center justify-center min-h-[400px] bg-white/50 backdrop-blur-sm border border-neutral-200/40 rounded-2xl p-12">
+      <div className="text-center space-y-4 max-w-md">
+        <div className="w-16 h-16 mx-auto bg-neutral-100 rounded-2xl flex items-center justify-center">
+          <svg
+            className="w-8 h-8 text-neutral-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
+          </svg>
         </div>
         
-        <h3 className="text-lg font-medium text-neutral-900 mb-2">
-          No projects yet
-        </h3>
-        <p className="text-sm text-neutral-500 mb-6">
-          Get started by creating your first project to organize your work and collaborate with your team.
-        </p>
-        
-        <button className="px-4 py-2 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl flex items-center gap-2 mx-auto transition-colors">
-          <Plus className="w-4 h-4" />
-          Create your first project
+        <div className="space-y-2">
+          <h3 className="text-lg font-medium text-neutral-900">No projects yet</h3>
+          <p className="text-sm text-neutral-500">
+            Get started by creating your first project. Projects help you organize work for your clients.
+          </p>
+        </div>
+
+        <button
+          onClick={onCreateClick}
+          className="px-6 py-2.5 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors"
+        >
+          Create Your First Project
         </button>
       </div>
     </div>
