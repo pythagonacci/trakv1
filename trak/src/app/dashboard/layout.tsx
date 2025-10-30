@@ -3,6 +3,9 @@ import { getCurrentUser } from "@/app/actions/auth";
 import DashboardLayoutClient from "./layout-client";
 import { WorkspaceProvider } from "./workspace-context";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function DashboardLayout({
   children,
 }: {

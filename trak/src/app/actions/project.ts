@@ -19,6 +19,7 @@ type ProjectData = {
 type ProjectFilters = {
   status?: ProjectStatus
   client_id?: string
+  search?: string  // NEW: Search by project name or client name
   sort_by?: 'created_at' | 'updated_at' | 'due_date_date' | 'name'
   sort_order?: 'asc' | 'desc'
 }
@@ -84,7 +85,7 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
   return { data: project }
 }
 
-// 2. GET ALL PROJECTS (with filters)
+// 2. GET ALL PROJECTS (with filters and search)
 export async function getAllProjects(workspaceId: string, filters?: ProjectFilters) {
   const supabase = await createClient()
 
@@ -119,13 +120,22 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
     `)
     .eq('workspace_id', workspaceId)
 
-  // Apply filters
+  // Apply status filter
   if (filters?.status) {
     query = query.eq('status', filters.status)
   }
 
+  // Apply client filter
   if (filters?.client_id) {
     query = query.eq('client_id', filters.client_id)
+  }
+
+  // Apply search filter (search in project name or client name)
+  // Note: Since client name is in a joined table, we'll filter after fetch
+  // For better performance at scale, consider using PostgreSQL full-text search
+  if (filters?.search) {
+    // Search in project name using ilike (case-insensitive)
+    query = query.ilike('name', `%${filters.search}%`)
   }
 
   // Apply sorting
@@ -140,7 +150,18 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
     return { error: fetchError.message }
   }
 
-  return { data: projects }
+  // If search exists, also filter by client name (post-fetch filtering)
+  let filteredProjects = projects
+  if (filters?.search && projects) {
+    const searchLower = filters.search.toLowerCase()
+    filteredProjects = projects.filter(project => 
+      project.name.toLowerCase().includes(searchLower) ||
+      project.client?.name?.toLowerCase().includes(searchLower) ||
+      project.client?.company?.toLowerCase().includes(searchLower)
+    )
+  }
+
+  return { data: filteredProjects }
 }
 
 // 3. GET SINGLE PROJECT (with full details)

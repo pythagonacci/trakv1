@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2 } from "lucide-react";
+import React, { useEffect, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import ProjectDialog from "./project-dialog";
 import ConfirmDialog from "./confirm-dialog";
@@ -30,6 +30,10 @@ interface Client {
 interface ProjectsTableProps {
   projects: Project[];
   workspaceId: string;
+  currentSort: {
+    sort_by: string;
+    sort_order: 'asc' | 'desc';
+  };
 }
 
 interface FormData {
@@ -39,12 +43,17 @@ interface FormData {
   due_date: string;
 }
 
-export default function ProjectsTable({ projects: initialProjects, workspaceId }: ProjectsTableProps) {
+export default function ProjectsTable({ projects: initialProjects, workspaceId, currentSort }: ProjectsTableProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const searchParams = useSearchParams();
   
   // Local state
   const [projects, setProjects] = useState(initialProjects);
+  // Sync local projects when server-provided projects change (e.g., search/filter/sort)
+  useEffect(() => {
+    setProjects(initialProjects);
+  }, [initialProjects]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   
@@ -59,6 +68,33 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
   
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Handle column sort
+  const handleSort = (column: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    
+    // If clicking the same column, toggle order
+    if (currentSort.sort_by === column) {
+      const newOrder = currentSort.sort_order === 'asc' ? 'desc' : 'asc';
+      params.set('sort_order', newOrder);
+    } else {
+      // New column, default to descending
+      params.set('sort_by', column);
+      params.set('sort_order', 'desc');
+    }
+
+    router.push(`/dashboard/projects?${params.toString()}`);
+  };
+
+  // Get sort indicator for a column
+  const getSortIndicator = (column: string) => {
+    if (currentSort.sort_by !== column) return null;
+    return currentSort.sort_order === 'asc' ? (
+      <ArrowUp className="w-3 h-3 inline ml-1" />
+    ) : (
+      <ArrowDown className="w-3 h-3 inline ml-1" />
+    );
+  };
 
   // Open create dialog
   const handleOpenCreate = () => {
@@ -312,18 +348,30 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
           <div className="bg-white/50 backdrop-blur-sm border border-neutral-200/40 rounded-2xl">
             {/* Table Header */}
             <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-neutral-200/40 bg-neutral-50/50 rounded-t-2xl">
-              <div className="col-span-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                Client
-              </div>
-              <div className="col-span-4 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                Project
-              </div>
-              <div className="col-span-2 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                Status
-              </div>
-              <div className="col-span-2 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                Due Date
-              </div>
+              <button
+                onClick={() => handleSort('client_id')}
+                className="col-span-3 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
+              >
+                Client {getSortIndicator('client_id')}
+              </button>
+              <button
+                onClick={() => handleSort('name')}
+                className="col-span-4 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
+              >
+                Project {getSortIndicator('name')}
+              </button>
+              <button
+                onClick={() => handleSort('status')}
+                className="col-span-2 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
+              >
+                Status {getSortIndicator('status')}
+              </button>
+              <button
+                onClick={() => handleSort('due_date_date')}
+                className="col-span-2 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
+              >
+                Due Date {getSortIndicator('due_date_date')}
+              </button>
               <div className="col-span-1"></div>
             </div>
 
