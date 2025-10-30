@@ -2,9 +2,10 @@
 
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, X } from "lucide-react";
-import { createProject } from "@/app/actions/project";
-import { getAllClients } from "@/app/actions/client";
+import { MoreHorizontal, Edit, Trash2 } from "lucide-react";
+import { createProject, updateProject } from "@/app/actions/project";
+import ProjectDialog from "./project-dialog";
+import Toast from "./toast";
 import EmptyState from "./empty-state";
 import StatusBadge from "./status-badge";
 
@@ -30,6 +31,13 @@ interface ProjectsTableProps {
   workspaceId: string;
 }
 
+interface FormData {
+  name: string;
+  client_id: string;
+  status: "not_started" | "in_progress" | "complete";
+  due_date: string;
+}
+
 export default function ProjectsTable({ projects: initialProjects, workspaceId }: ProjectsTableProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -37,62 +45,50 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
   // Local state
   const [projects, setProjects] = useState(initialProjects);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
-  const [clientsLoaded, setClientsLoaded] = useState(false);
   
-  // Form state
-  const [formData, setFormData] = useState({
-    name: "",
-    client_id: "",
-    status: "not_started" as const,
-    due_date: "",
-  });
-  const [formError, setFormError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Dialog state
+  const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Load clients when dialog opens
-  const handleOpenDialog = async () => {
-    setIsCreateDialogOpen(true);
-    
-    if (!clientsLoaded) {
-      const result = await getAllClients(workspaceId);
-      if (result.data) {
-        setClients(result.data);
-        setClientsLoaded(true);
-      }
-    }
+  // Open create dialog
+  const handleOpenCreate = () => {
+    setDialogMode("create");
+    setEditingProject(null);
   };
 
-  // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError("");
+  // Open edit dialog
+  const handleOpenEdit = (project: Project) => {
+    setDialogMode("edit");
+    setEditingProject(project);
+    setOpenMenuId(null); // Close menu
+  };
 
-    // Validation
-    if (!formData.name.trim()) {
-      setFormError("Project name is required");
-      return;
-    }
+  // Close dialog
+  const handleCloseDialog = () => {
+    setDialogMode(null);
+    setEditingProject(null);
+  };
 
-    setIsSubmitting(true);
-
-    // Parse due date - if it's a valid date, use due_date_date, otherwise use due_date_text
+  // Handle create submit
+  const handleCreateSubmit = async (formData: FormData) => {
+    // Parse due date
     let due_date_date = null;
     let due_date_text = null;
 
     if (formData.due_date.trim()) {
       const dateTest = new Date(formData.due_date);
       if (!isNaN(dateTest.getTime())) {
-        // Valid date
         due_date_date = formData.due_date;
       } else {
-        // Text like "quarterly", "weekly", etc.
         due_date_text = formData.due_date;
       }
     }
 
-    // Optimistic update - add temporary project
+    // Optimistic update
     const tempId = `temp-${Date.now()}`;
     const optimisticProject: Project = {
       id: tempId,
@@ -119,28 +115,95 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
     if (result.error) {
       // Remove optimistic project on error
       setProjects(projects);
-      setFormError(result.error);
-      setIsSubmitting(false);
+      setToast({ message: result.error, type: "error" });
+      throw new Error(result.error);
     } else {
       // Replace temporary project with real one
       setProjects(prev => 
         prev.map(p => p.id === tempId ? { ...result.data, client_name: optimisticProject.client_name } : p)
       );
       
-      // Close dialog and reset form
-      setIsCreateDialogOpen(false);
-      setFormData({
-        name: "",
-        client_id: "",
-        status: "not_started",
-        due_date: "",
-      });
-      setIsSubmitting(false);
+      // Show success toast
+      setToast({ message: "Project created successfully ✓", type: "success" });
+      
+      // Close dialog
+      handleCloseDialog();
 
       // Refresh server data
       startTransition(() => {
         router.refresh();
       });
+    }
+  };
+
+  // Handle edit submit
+  const handleEditSubmit = async (formData: FormData) => {
+    if (!editingProject) return;
+
+    // Parse due date
+    let due_date_date = null;
+    let due_date_text = null;
+
+    if (formData.due_date.trim()) {
+      const dateTest = new Date(formData.due_date);
+      if (!isNaN(dateTest.getTime())) {
+        due_date_date = formData.due_date;
+      } else {
+        due_date_text = formData.due_date;
+      }
+    }
+
+    // Prepare updates
+    const updates = {
+      name: formData.name,
+      client_id: formData.client_id || null,
+      status: formData.status,
+      due_date_date,
+      due_date_text,
+    };
+
+    // Optimistic update
+    const previousProjects = [...projects];
+    setProjects(prev =>
+      prev.map(p =>
+        p.id === editingProject.id
+          ? {
+              ...p,
+              ...updates,
+              client_name: clients.find(c => c.id === formData.client_id)?.name || null,
+            }
+          : p
+      )
+    );
+
+    // Call server action
+    const result = await updateProject(editingProject.id, updates);
+
+    if (result.error) {
+      // Revert on error
+      setProjects(previousProjects);
+      setToast({ message: result.error, type: "error" });
+      throw new Error(result.error);
+    } else {
+      // Show success toast
+      setToast({ message: "Project updated successfully ✓", type: "success" });
+      
+      // Close dialog
+      handleCloseDialog();
+
+      // Refresh server data
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+  };
+
+  // Handle dialog submit (routes to create or edit)
+  const handleDialogSubmit = async (formData: FormData) => {
+    if (dialogMode === "create") {
+      await handleCreateSubmit(formData);
+    } else if (dialogMode === "edit") {
+      await handleEditSubmit(formData);
     }
   };
 
@@ -175,8 +238,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
   };
 
   // Empty state
-  if (projects.length === 0 && !isCreateDialogOpen) {
-    return <EmptyState onCreateClick={handleOpenDialog} />;
+  if (projects.length === 0 && dialogMode === null) {
+    return <EmptyState onCreateClick={handleOpenCreate} />;
   }
 
   return (
@@ -186,14 +249,14 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-medium text-neutral-900">All Projects</h2>
           <button 
-            onClick={handleOpenDialog}
+            onClick={handleOpenCreate}
             className="px-4 py-2 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors"
           >
             New Project
           </button>
         </div>
 
-        {/* Table - Fixed overflow issue */}
+        {/* Table */}
         <div className="relative">
           <div className="bg-white/50 backdrop-blur-sm border border-neutral-200/40 rounded-2xl">
             {/* Table Header */}
@@ -280,10 +343,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button
-                                onClick={() => {
-                                  console.log("Edit project:", project.id);
-                                  setOpenMenuId(null);
-                                }}
+                                onClick={() => handleOpenEdit(project)}
                                 className="w-full px-3 py-2 flex items-center gap-2 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors"
                               >
                                 <Edit className="w-4 h-4" />
@@ -312,135 +372,25 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
         </div>
       </div>
 
-      {/* Create Project Dialog */}
-      {isCreateDialogOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            {/* Dialog Header */}
-            <div className="flex items-center justify-between p-6 border-b border-neutral-200">
-              <h2 className="text-xl font-semibold text-neutral-900">New Project</h2>
-              <button
-                onClick={() => {
-                  setIsCreateDialogOpen(false);
-                  setFormData({ name: "", client_id: "", status: "not_started", due_date: "" });
-                  setFormError("");
-                }}
-                className="p-1 hover:bg-neutral-100 rounded-lg transition-colors"
-                disabled={isSubmitting}
-              >
-                <X className="w-5 h-5 text-neutral-500" />
-              </button>
-            </div>
+      {/* Project Dialog (Reusable for Create & Edit) */}
+      <ProjectDialog
+        mode={dialogMode || "create"}
+        isOpen={dialogMode !== null}
+        onClose={handleCloseDialog}
+        onSubmit={handleDialogSubmit}
+        initialData={editingProject || undefined}
+        workspaceId={workspaceId}
+        clients={clients}
+        onClientsLoad={setClients}
+      />
 
-            {/* Dialog Body */}
-            <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              {/* Error Message */}
-              {formError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{formError}</p>
-                </div>
-              )}
-
-              {/* Project Name */}
-              <div>
-                <label htmlFor="project-name" className="block text-sm font-medium text-neutral-700 mb-2">
-                  Project Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="project-name"
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Enter project name"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
-                  disabled={isSubmitting}
-                  autoFocus
-                />
-              </div>
-
-              {/* Client Selector */}
-              <div>
-                <label htmlFor="client" className="block text-sm font-medium text-neutral-700 mb-2">
-                  Client <span className="text-neutral-400 text-xs">(optional)</span>
-                </label>
-                <select
-                  id="client"
-                  value={formData.client_id}
-                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
-                  disabled={isSubmitting}
-                >
-                  <option value="">No client</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name} {client.company && `(${client.company})`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Status */}
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-neutral-700 mb-2">
-                  Status
-                </label>
-                <select
-                  id="status"
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
-                  disabled={isSubmitting}
-                >
-                  <option value="not_started">Not Started</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="complete">Complete</option>
-                </select>
-              </div>
-
-              {/* Due Date */}
-              <div>
-                <label htmlFor="due-date" className="block text-sm font-medium text-neutral-700 mb-2">
-                  Due Date <span className="text-neutral-400 text-xs">(date or text like "quarterly")</span>
-                </label>
-                <input
-                  id="due-date"
-                  type="text"
-                  value={formData.due_date}
-                  onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                  placeholder="2024-12-31 or 'quarterly'"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
-                  disabled={isSubmitting}
-                />
-                <p className="mt-1 text-xs text-neutral-500">
-                  Enter a date (YYYY-MM-DD) or text like "quarterly", "weekly", etc.
-                </p>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreateDialogOpen(false);
-                    setFormData({ name: "", client_id: "", status: "not_started", due_date: "" });
-                    setFormError("");
-                  }}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors"
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Creating..." : "Create Project"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </>
   );
