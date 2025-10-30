@@ -3,8 +3,9 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal, Edit, Trash2 } from "lucide-react";
-import { createProject, updateProject } from "@/app/actions/project";
+import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import ProjectDialog from "./project-dialog";
+import ConfirmDialog from "./confirm-dialog";
 import Toast from "./toast";
 import EmptyState from "./empty-state";
 import StatusBadge from "./status-badge";
@@ -51,6 +52,11 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   
+  // Delete confirmation state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -71,6 +77,51 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
   const handleCloseDialog = () => {
     setDialogMode(null);
     setEditingProject(null);
+  };
+
+  // Open delete confirmation
+  const handleOpenDeleteConfirm = (project: Project) => {
+    setDeletingProject(project);
+    setDeleteConfirmOpen(true);
+    setOpenMenuId(null); // Close menu
+  };
+
+  // Close delete confirmation
+  const handleCloseDeleteConfirm = () => {
+    setDeleteConfirmOpen(false);
+    setDeletingProject(null);
+  };
+
+  // Handle delete confirmation
+  const handleConfirmDelete = async () => {
+    if (!deletingProject) return;
+
+    setIsDeleting(true);
+
+    // Optimistic update - remove from UI
+    const previousProjects = [...projects];
+    setProjects(prev => prev.filter(p => p.id !== deletingProject.id));
+
+    // Call server action
+    const result = await deleteProject(deletingProject.id);
+
+    if (result.error) {
+      // Revert on error
+      setProjects(previousProjects);
+      setToast({ message: result.error, type: "error" });
+    } else {
+      // Show success toast
+      setToast({ message: "Project deleted successfully ✓", type: "success" });
+
+      // Refresh server data
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+
+    // Close confirmation dialog
+    setIsDeleting(false);
+    handleCloseDeleteConfirm();
   };
 
   // Handle create submit
@@ -350,10 +401,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
                                 Edit
                               </button>
                               <button
-                                onClick={() => {
-                                  console.log("Delete project:", project.id);
-                                  setOpenMenuId(null);
-                                }}
+                                onClick={() => handleOpenDeleteConfirm(project)}
                                 className="w-full px-3 py-2 flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -382,6 +430,18 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId }
         workspaceId={workspaceId}
         clients={clients}
         onClientsLoad={setClients}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        onClose={handleCloseDeleteConfirm}
+        onConfirm={handleConfirmDelete}
+        title="Delete Project"
+        message={`Are you sure you want to delete "${deletingProject?.name}"? This action cannot be undone.`}
+        confirmText="Delete Project"
+        confirmButtonVariant="danger"
+        isLoading={isDeleting}
       />
 
       {/* Toast Notification */}
