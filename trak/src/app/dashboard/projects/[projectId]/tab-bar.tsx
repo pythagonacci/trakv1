@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import CreateTabDialog from "./create-tab-dialog";
 import DeleteTabDialog from "./delete-tab-dialog";
 import { updateTab } from "@/app/actions/tab";
+import { useWorkspace } from "@/app/dashboard/workspace-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ interface TabBarProps {
 export default function TabBar({ tabs, projectId }: TabBarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { currentWorkspace } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createDialogParentId, setCreateDialogParentId] = useState<string | undefined>(undefined);
@@ -40,6 +42,9 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
   const [editName, setEditName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Check if user can delete tabs (only admins and owners)
+  const canDeleteTabs = currentWorkspace?.role === "owner" || currentWorkspace?.role === "admin";
 
   // Determine active tab from URL
   const activeTabId = pathname.split("/tabs/")[1]?.split("/")[0];
@@ -249,14 +254,18 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
                           <Plus className="w-4 h-4 mr-2" />
                           Add sub-tab
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => handleContextMenuDelete(tab)}
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
+                        {canDeleteTabs && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => handleContextMenuDelete(tab)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
