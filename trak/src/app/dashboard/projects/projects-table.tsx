@@ -297,7 +297,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   // Handle row click
   const handleRowClick = (projectId: string) => {
     if (!projectId.startsWith('temp-')) {
-      router.push(`/project/${projectId}`);
+      router.push(`/dashboard/projects/${projectId}`);
     }
   };
 
