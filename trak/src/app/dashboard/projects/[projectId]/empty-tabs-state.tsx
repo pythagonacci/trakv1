@@ -1,15 +1,26 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { FileText, Plus } from "lucide-react";
+import CreateTabDialog from "./create-tab-dialog";
 
 interface EmptyTabsStateProps {
   projectId: string;
 }
 
 export default function EmptyTabsState({ projectId }: EmptyTabsStateProps) {
+  const router = useRouter();
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+
   const handleCreateFirstTab = () => {
-    // TODO: Open create tab dialog
-    console.log("Create first tab for project:", projectId);
+    setIsCreateDialogOpen(true);
+  };
+
+  const handleDialogSuccess = () => {
+    // Refresh the page to show the new tab in the tab bar
+    // Note: We don't navigate to the tab route yet since that's Task 2.5 (Page/Canvas Foundation)
+    router.refresh();
   };
 
   return (
@@ -44,6 +55,14 @@ export default function EmptyTabsState({ projectId }: EmptyTabsStateProps) {
           You can also create sub-tabs within tabs for deeper organization
         </p>
       </div>
+
+      {/* Create Tab Dialog */}
+      <CreateTabDialog
+        isOpen={isCreateDialogOpen}
+        onClose={() => setIsCreateDialogOpen(false)}
+        projectId={projectId}
+        onSuccess={handleDialogSuccess}
+      />
     </div>
   );
 }
