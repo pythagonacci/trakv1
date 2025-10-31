@@ -78,11 +78,36 @@ export default function CreateTabDialog({
     }
   }, [isOpen, isSubTab, projectId, availableParents.length, isLoadingParents]);
 
-  // Flatten hierarchical tabs for dropdown (only top-level for now)
-  const flatParents = availableParents.map((tab) => ({
-    id: tab.id,
-    name: tab.name,
-  }));
+  // Flatten hierarchical tabs for dropdown (include all tabs recursively)
+  const flattenTabsWithDepth = (
+    tabs: TabWithChildren[],
+    depth: number = 0,
+    excludeTabId?: string // Exclude a tab (to prevent making a tab its own parent)
+  ): Array<{ id: string; name: string; depth: number }> => {
+    const result: Array<{ id: string; name: string; depth: number }> = [];
+    
+    tabs.forEach((tab) => {
+      // Skip the tab being excluded
+      if (tab.id === excludeTabId) return;
+      
+      // Add current tab with indentation indicator
+      const indent = "  ".repeat(depth); // 2 spaces per level
+      result.push({
+        id: tab.id,
+        name: depth > 0 ? `${indent}└─ ${tab.name}` : tab.name,
+        depth,
+      });
+      
+      // Recursively add children
+      if (tab.children && tab.children.length > 0) {
+        result.push(...flattenTabsWithDepth(tab.children, depth + 1, excludeTabId));
+      }
+    });
+    
+    return result;
+  };
+
+  const flatParents = flattenTabsWithDepth(availableParents, 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

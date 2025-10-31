@@ -7,20 +7,16 @@ export default function WhoAmIPage() {
   const [info, setInfo] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function loadInfo() {
-      setLoading(true)
-      const result = await getMyInfo()
-      setInfo(result)
-      setLoading(false)
-    }
-    loadInfo()
-  }, [])
-
+  async function loadInfo() {
+    setLoading(true)
     const result = await getMyInfo()
     setInfo(result)
     setLoading(false)
   }
+
+  useEffect(() => {
+    loadInfo()
+  }, [])
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -67,7 +63,7 @@ export default function WhoAmIPage() {
             </h2>
             
             {info.data.workspaces.length === 0 ? (
-              <p className="text-gray-600">You're not a member of any workspaces yet.</p>
+              <p className="text-gray-600">You&apos;re not a member of any workspaces yet.</p>
             ) : (
               <div className="space-y-4">
                 {info.data.workspaces.map((workspace: any, index: number) => (

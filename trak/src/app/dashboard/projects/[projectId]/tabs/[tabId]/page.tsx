@@ -2,19 +2,20 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
-import ProjectHeader from "./project-header";
-import TabBar from "./tab-bar";
-import EmptyTabsState from "./empty-tabs-state";
+import { getTabBlocks } from "@/app/actions/block";
+import ProjectHeader from "../../project-header";
+import TabBar from "../../tab-bar";
+import TabCanvas from "./tab-canvas";
 
-export default async function ProjectPage({
+export default async function TabPage({
   params,
 }: {
-  params: Promise<{ projectId: string }>; // ← Changed to Promise
+  params: Promise<{ projectId: string; tabId: string }>;
 }) {
   const supabase = await createClient();
 
   // Await params in Next.js 15
-  const { projectId } = await params;
+  const { projectId, tabId } = await params;
 
   // 1. Auth check
   const {
@@ -48,32 +49,43 @@ export default async function ProjectPage({
     notFound();
   }
 
-  // 4. Fetch tabs for this project (hierarchical structure)
+  // 4. Verify tab exists and belongs to this project
+  const { data: tab, error: tabError } = await supabase
+    .from("tabs")
+    .select("id, name, project_id")
+    .eq("id", tabId)
+    .eq("project_id", projectId)
+    .single();
+
+  if (tabError || !tab) {
+    notFound();
+  }
+
+  // 5. Fetch hierarchical tabs for tab bar
   const tabsResult = await getProjectTabs(projectId);
   const hierarchicalTabs = tabsResult.data || [];
 
+  // 6. Fetch blocks for this tab
+  const blocksResult = await getTabBlocks(tabId);
+  const blocks = blocksResult.data || [];
+
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-6xl mx-auto p-6">
         {/* Project Header */}
         <ProjectHeader project={project} />
 
         {/* Tab Navigation & Content */}
-        {hierarchicalTabs.length > 0 ? (
-          <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-800 mt-6">
-            <TabBar tabs={hierarchicalTabs} projectId={projectId} />
-            
-            {/* Tab content will be rendered in child routes */}
-            <div className="p-6">
-              <div className="text-center text-neutral-500 py-12">
-                Select a tab above to view its content
-              </div>
-            </div>
+        <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-800 mt-6">
+          <TabBar tabs={hierarchicalTabs} projectId={projectId} />
+
+          {/* Canvas Content */}
+          <div className="p-6">
+            <TabCanvas tabId={tabId} projectId={projectId} blocks={blocks} />
           </div>
-        ) : (
-          <EmptyTabsState projectId={projectId} />
-        )}
+        </div>
       </div>
     </div>
   );
 }
+
