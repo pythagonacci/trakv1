@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import {
@@ -20,12 +22,34 @@ interface BlockWrapperProps {
   isDragging?: boolean;
 }
 
-export default function BlockWrapper({ block, children, onDelete, onConvert, isDragging }: BlockWrapperProps) {
+export default function BlockWrapper({ block, children, onDelete, onConvert, isDragging: externalIsDragging }: BlockWrapperProps) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Don't show hover UI if it's a divider
+  // Use sortable hook for drag and drop
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging: isDraggingInternal,
+  } = useSortable({
+    id: block.id,
+    disabled: block.type === "divider", // Disable dragging for divider blocks
+  });
+
+  const isDragging = externalIsDragging || isDraggingInternal;
+
+  // Don't show hover UI if it's a divider or dragging
   const showHoverUI = block.type !== "divider" && hovered && !isDragging;
+
+  // Apply transform styles for drag animation
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   return (
     <div
@@ -35,12 +59,29 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
     >
       {block.type !== "divider" ? (
         <div
-          className={cn(
-            "relative",
-            isDragging && "opacity-75"
-          )}
+          ref={setNodeRef}
+          style={style}
+          className="relative"
         >
           <div className="flex gap-4 min-w-0">
+            {/* Drag Handle - Left Side */}
+            <div
+              className={cn(
+                "flex items-center justify-center w-8 shrink-0 opacity-0 transition-opacity",
+                showHoverUI ? "opacity-100" : "opacity-0",
+                isDragging && "opacity-100"
+              )}
+            >
+              <button
+                {...attributes}
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors touch-none"
+                aria-label="Drag to reorder"
+              >
+                <GripVertical className="w-4 h-4 text-neutral-400" />
+              </button>
+            </div>
+
             <div
               className={cn(
                 "flex-1 rounded-lg border transition-all min-w-0 overflow-hidden",
@@ -49,7 +90,7 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
                   : "border-neutral-200 dark:border-neutral-800"
               )}
             >
-              {/* Hover Actions */}
+              {/* Hover Actions - Right Side */}
               <div
                 className={cn(
                   "absolute -top-3 right-2 flex items-center gap-1 opacity-0 transition-opacity",
@@ -57,10 +98,6 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
                   isDragging && "pointer-events-none"
                 )}
               >
-                {/* Drag Handle */}
-                <span className="inline-flex items-center gap-1 text-xs text-neutral-500 bg-white/80 dark:bg-neutral-900/80 backdrop-blur rounded-full border border-neutral-200 dark:border-neutral-700 px-2 py-1 shadow-sm">
-                  <GripVertical className="w-3.5 h-3.5" /> drag
-                </span>
 
                 {/* Three-dot Menu */}
                 <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>

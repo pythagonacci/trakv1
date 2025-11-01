@@ -1,6 +1,22 @@
 "use client";
 
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { type Block, deleteBlock, updateBlock } from "@/app/actions/block";
 import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
@@ -9,12 +25,26 @@ import BlockRenderer from "./block-renderer";
 interface TabCanvasProps {
   tabId: string;
   projectId: string;
-  workspaceId: string; // NEW: Added workspaceId
+  workspaceId: string;
   blocks: Block[];
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks }: TabCanvasProps) {
   const router = useRouter();
+  const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Configure sensors for drag and drop (mouse, touch, keyboard)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px movement before drag starts
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const handleUpdate = () => {
     router.refresh();
@@ -32,7 +62,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: Tab
 
   const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline") => {
     // Determine default content for the new type
-    let newContent: Record<string, any> = {};
+    let newContent: Record<string, unknown> = {};
     if (newType === "text") {
       newContent = { text: "" };
     } else if (newType === "task") {
@@ -79,23 +109,93 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: Tab
     router.refresh();
   };
 
+  // Handle drag end - reorder blocks
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setIsDragging(false);
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = blocks.findIndex((block) => block.id === active.id);
+    const newIndex = blocks.findIndex((block) => block.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
+      return;
+    }
+
+    // Optimistic update - reorder blocks immediately
+    const reorderedBlocks = arrayMove(blocks, oldIndex, newIndex);
+    setBlocks(reorderedBlocks);
+
+    // Calculate new positions for all affected blocks
+    // Update all blocks with their new positions
+    const updates: Array<{ blockId: string; position: number }> = [];
+    
+    reorderedBlocks.forEach((block, index) => {
+      // Only update if position actually changed
+      const originalPosition = blocks.findIndex(b => b.id === block.id);
+      if (originalPosition !== index) {
+        updates.push({ blockId: block.id, position: index });
+      }
+    });
+
+    // Update all affected blocks on server
+    try {
+      const updatePromises = updates.map(({ blockId, position }) =>
+        updateBlock({ blockId, position })
+      );
+
+      await Promise.all(updatePromises);
+
+      // Refresh to ensure consistency
+      router.refresh();
+    } catch (error) {
+      console.error("Failed to update block positions:", error);
+      // Revert optimistic update on error
+      setBlocks(blocks);
+      alert("Failed to reorder blocks. Please try again.");
+    }
+  };
+
+  // Handle drag start
+  const handleDragStart = () => {
+    setIsDragging(true);
+  };
+
+  // Sync blocks when props change (e.g., after server refresh)
+  useEffect(() => {
+    setBlocks(initialBlocks);
+  }, [initialBlocks]);
+
+  const blockIds = blocks.map((block) => block.id);
+
   return (
     <div className="space-y-6">
       {blocks.length === 0 ? (
         <EmptyCanvasState tabId={tabId} projectId={projectId} />
       ) : (
-        <>
-          {blocks.map((block) => (
-            <BlockRenderer
-              key={block.id}
-              block={block}
-              workspaceId={workspaceId} // NEW: Pass workspaceId
-              onUpdate={handleUpdate}
-              onDelete={handleDelete}
-              onConvert={handleConvert}
-            />
-          ))}
-        </>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
+            {blocks.map((block) => (
+              <BlockRenderer
+                key={block.id}
+                block={block}
+                workspaceId={workspaceId}
+                onUpdate={handleUpdate}
+                onDelete={handleDelete}
+                onConvert={handleConvert}
+                isDragging={isDragging}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
       )}
 
       {/* Add Block Button */}

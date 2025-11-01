@@ -11,13 +11,14 @@ import TimelineBlock from "./timeline-block";
 
 interface BlockRendererProps {
   block: Block;
-  workspaceId: string; // NEW: Added workspaceId
+  workspaceId: string;
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline") => void;
+  isDragging?: boolean;
 }
 
-export default function BlockRenderer({ block, workspaceId, onUpdate, onDelete, onConvert }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, onUpdate, onDelete, onConvert, isDragging }: BlockRendererProps) {
   const renderBlockContent = () => {
     switch (block.type) {
       case "text":
@@ -42,7 +43,7 @@ export default function BlockRenderer({ block, workspaceId, onUpdate, onDelete, 
   };
 
   return (
-    <BlockWrapper block={block} onDelete={onDelete} onConvert={onConvert}>
+    <BlockWrapper block={block} onDelete={onDelete} onConvert={onConvert} isDragging={isDragging}>
       {renderBlockContent()}
     </BlockWrapper>
   );
