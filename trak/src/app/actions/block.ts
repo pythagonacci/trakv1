@@ -217,3 +217,188 @@ export async function createBlock(data: {
   }
 }
 
+// ============================================================================
+// 3. UPDATE BLOCK
+// ============================================================================
+
+export async function updateBlock(data: {
+  blockId: string;
+  content?: Record<string, any>;
+  type?: BlockType;
+  position?: number;
+}) {
+  try {
+    const supabase = await createClient();
+
+    // 1. Auth check
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { error: "Unauthorized" };
+    }
+
+    // 2. Get block and verify it exists
+    const { data: block, error: blockError } = await supabase
+      .from("blocks")
+      .select("id, tab_id")
+      .eq("id", data.blockId)
+      .single();
+
+    if (blockError || !block) {
+      return { error: "Block not found" };
+    }
+
+    // 3. Get tab to get project_id
+    const { data: tab, error: tabError } = await supabase
+      .from("tabs")
+      .select("project_id")
+      .eq("id", block.tab_id)
+      .single();
+
+    if (tabError || !tab) {
+      return { error: "Tab not found" };
+    }
+
+    const projectId = tab.project_id;
+
+    // 3. Get project to get workspace_id
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, workspace_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError || !project) {
+      return { error: "Project not found" };
+    }
+
+    // 4. Verify user is member of the project's workspace
+    const { data: member, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", project.workspace_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (memberError || !member) {
+      return { error: "Not a member of this workspace" };
+    }
+
+    // 6. Build update object
+    const updates: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (data.content !== undefined) updates.content = data.content;
+    if (data.type !== undefined) updates.type = data.type;
+    if (data.position !== undefined) updates.position = data.position;
+
+    // 7. Update the block
+    const { data: updatedBlock, error: updateError } = await supabase
+      .from("blocks")
+      .update(updates)
+      .eq("id", data.blockId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("Update block error:", updateError);
+      return { error: updateError.message || "Failed to update block" };
+    }
+
+    // 8. Revalidate the tab page path
+    revalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+
+    return { data: updatedBlock };
+  } catch (error) {
+    console.error("Update block exception:", error);
+    return { error: "Failed to update block" };
+  }
+}
+
+// ============================================================================
+// 4. DELETE BLOCK
+// ============================================================================
+
+export async function deleteBlock(blockId: string) {
+  try {
+    const supabase = await createClient();
+
+    // 1. Auth check
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { error: "Unauthorized" };
+    }
+
+    // 2. Get block and verify it exists
+    const { data: block, error: blockError } = await supabase
+      .from("blocks")
+      .select("id, tab_id")
+      .eq("id", blockId)
+      .single();
+
+    if (blockError || !block) {
+      return { error: "Block not found" };
+    }
+
+    // 3. Get tab to get project_id
+    const { data: tab, error: tabError } = await supabase
+      .from("tabs")
+      .select("project_id")
+      .eq("id", block.tab_id)
+      .single();
+
+    if (tabError || !tab) {
+      return { error: "Tab not found" };
+    }
+
+    const projectId = tab.project_id;
+
+    // 4. Get project to get workspace_id
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, workspace_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError || !project) {
+      return { error: "Project not found" };
+    }
+
+    // 5. Verify user is member of the project's workspace
+    const { data: member, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", project.workspace_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (memberError || !member) {
+      return { error: "Not a member of this workspace" };
+    }
+
+    // 6. Delete the block
+    const { error: deleteError } = await supabase
+      .from("blocks")
+      .delete()
+      .eq("id", blockId);
+
+    if (deleteError) {
+      console.error("Delete block error:", deleteError);
+      return { error: deleteError.message || "Failed to delete block" };
+    }
+
+    // 7. Revalidate the tab page path
+    revalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Delete block exception:", error);
+    return { error: "Failed to delete block" };
+  }
+}
+
