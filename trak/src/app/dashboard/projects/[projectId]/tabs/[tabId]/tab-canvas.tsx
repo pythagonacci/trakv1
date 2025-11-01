@@ -9,10 +9,11 @@ import BlockRenderer from "./block-renderer";
 interface TabCanvasProps {
   tabId: string;
   projectId: string;
+  workspaceId: string; // NEW: Added workspaceId
   blocks: Block[];
 }
 
-export default function TabCanvas({ tabId, projectId, blocks }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: TabCanvasProps) {
   const router = useRouter();
 
   const handleUpdate = () => {
@@ -66,6 +67,7 @@ export default function TabCanvas({ tabId, projectId, blocks }: TabCanvasProps) 
             <BlockRenderer
               key={block.id}
               block={block}
+              workspaceId={workspaceId} // NEW: Pass workspaceId
               onUpdate={handleUpdate}
               onDelete={handleDelete}
               onConvert={handleConvert}
@@ -81,4 +83,3 @@ export default function TabCanvas({ tabId, projectId, blocks }: TabCanvasProps) 
     </div>
   );
 }
-

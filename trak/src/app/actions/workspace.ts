@@ -349,3 +349,75 @@ export async function removeMember(workspaceId: string, memberId: string) {
     
     return { data: { success: true, message: 'Member removed successfully' } }
 }
+
+// Get all workspace members (for assignee dropdowns, etc.)
+export async function getWorkspaceMembers(workspaceId: string) {
+  const supabase = await createClient()
+  
+  // 1. Get authenticated user
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  
+  if (authError || !user) {
+    return { error: 'Unauthorized' }
+  }
+  
+  // 2. Verify user is member of the workspace
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .single()
+  
+  if (!membership) {
+    return { error: 'Not a member of this workspace' }
+  }
+  
+  // 3. Get all workspace members
+  const { data: members, error } = await supabase
+    .from('workspace_members')
+    .select('user_id, role, created_at')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+  
+  if (error) {
+    return { error: error.message }
+  }
+
+  if (!members || members.length === 0) {
+    return { data: [] }
+  }
+
+  // 4. Get profile info for each user
+  const userIds = members.map(m => m.user_id)
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('id, email, name')
+    .in('id', userIds)
+
+  if (profilesError) {
+    console.error('Error fetching profiles:', profilesError)
+    // Fallback: return members without profile info
+    const transformedMembers = members.map(member => ({
+      id: member.user_id,
+      email: '',
+      name: 'Unknown',
+      role: member.role,
+    }))
+    return { data: transformedMembers }
+  }
+
+  // 5. Transform data to combine members with profiles
+  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+  const transformedMembers = members.map(member => {
+    const profile = profileMap.get(member.user_id)
+    return {
+      id: member.user_id,
+      email: profile?.email || '',
+      name: profile?.name || profile?.email || 'Unknown',
+      role: member.role,
+    }
+  })
+  
+  return { data: transformedMembers }
+}

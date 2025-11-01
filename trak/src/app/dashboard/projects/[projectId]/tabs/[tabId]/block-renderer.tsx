@@ -9,18 +9,19 @@ import DividerBlock from "./divider-block";
 
 interface BlockRendererProps {
   block: Block;
+  workspaceId: string; // NEW: Added workspaceId
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider") => void;
 }
 
-export default function BlockRenderer({ block, onUpdate, onDelete, onConvert }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, onUpdate, onDelete, onConvert }: BlockRendererProps) {
   const renderBlockContent = () => {
     switch (block.type) {
       case "text":
         return <TextBlock block={block} onUpdate={onUpdate} />;
       case "task":
-        return <TaskBlock block={block} onUpdate={onUpdate} />;
+        return <TaskBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} />; // NEW: Pass workspaceId
       case "link":
         return <LinkBlock block={block} />;
       case "divider":
@@ -40,4 +41,3 @@ export default function BlockRenderer({ block, onUpdate, onDelete, onConvert }: 
     </BlockWrapper>
   );
 }
-

@@ -81,11 +81,15 @@ export default async function TabPage({
 
           {/* Canvas Content */}
           <div className="p-6">
-            <TabCanvas tabId={tabId} projectId={projectId} blocks={blocks} />
+            <TabCanvas 
+              tabId={tabId} 
+              projectId={projectId} 
+              workspaceId={workspaceId} 
+              blocks={blocks} 
+            />
           </div>
         </div>
       </div>
     </div>
   );
 }
-
