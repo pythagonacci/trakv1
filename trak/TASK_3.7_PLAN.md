@@ -1,4 +1,4 @@
-# Task 3.7: Drag and Drop for Blocks Implementation Plan
+# Task 3.7: Drag and Drop for Blocks Implementation Plande
 
 ## Overview
 Implement drag and drop functionality for blocks within tabs, allowing users to reorder blocks by dragging them. Blocks already have a `position` field and the UI shows a "drag" handle, but the drag functionality is not yet implemented.
