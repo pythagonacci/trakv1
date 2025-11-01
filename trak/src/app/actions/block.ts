@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline";
 
 export interface Block {
   id: string;
@@ -195,6 +195,18 @@ export async function createBlock(data: {
               ["", "", ""],
             ],
             columnWidths: [150, 150, 150],
+          };
+          break;
+        case "timeline":
+          const now = new Date();
+          const startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 7); // 7 days ago
+          const endDate = new Date(now);
+          endDate.setDate(endDate.getDate() + 30); // 30 days ahead
+          content = {
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            events: [],
           };
           break;
       }

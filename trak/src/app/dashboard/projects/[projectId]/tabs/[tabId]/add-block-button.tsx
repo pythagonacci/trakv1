@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar } from "lucide-react";
 import { createBlock, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -48,6 +48,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "Table",
     icon: <Table className="w-4 h-4" />,
     description: "Editable table with rows and columns",
+  },
+  {
+    type: "timeline",
+    label: "Timeline",
+    icon: <Calendar className="w-4 h-4" />,
+    description: "Timeline for project milestones and events",
   },
 ];
 

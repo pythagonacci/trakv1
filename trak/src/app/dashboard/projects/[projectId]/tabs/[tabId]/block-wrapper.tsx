@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table } from "lucide-react";
+import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import {
@@ -16,7 +16,7 @@ interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline") => void;
   isDragging?: boolean;
 }
 
@@ -40,10 +40,10 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
             isDragging && "opacity-75"
           )}
         >
-          <div className="flex gap-4">
+          <div className="flex gap-4 min-w-0">
             <div
               className={cn(
-                "flex-1 rounded-lg border transition-all",
+                "flex-1 rounded-lg border transition-all min-w-0 overflow-hidden",
                 hovered
                   ? "border-neutral-300 dark:border-neutral-600 shadow-sm"
                   : "border-neutral-200 dark:border-neutral-800"
@@ -115,6 +115,16 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
                     >
                       <Table className="w-4 h-4" />
                       Table
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "timeline");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Calendar className="w-4 h-4" />
+                      Timeline
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem

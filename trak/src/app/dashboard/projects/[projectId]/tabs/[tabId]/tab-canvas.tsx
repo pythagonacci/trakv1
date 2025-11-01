@@ -30,7 +30,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: Tab
     router.refresh();
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline") => {
     // Determine default content for the new type
     let newContent: Record<string, any> = {};
     if (newType === "text") {
@@ -51,6 +51,17 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: Tab
           ["", "", ""],
         ],
         columnWidths: [150, 150, 150],
+      };
+    } else if (newType === "timeline") {
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 7);
+      const endDate = new Date(now);
+      endDate.setDate(endDate.getDate() + 30);
+      newContent = {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        events: [],
       };
     }
 
