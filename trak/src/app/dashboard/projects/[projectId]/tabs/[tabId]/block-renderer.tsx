@@ -6,13 +6,14 @@ import TextBlock from "./text-block";
 import TaskBlock from "./task-block";
 import LinkBlock from "./link-block";
 import DividerBlock from "./divider-block";
+import TableBlock from "./table-block";
 
 interface BlockRendererProps {
   block: Block;
   workspaceId: string; // NEW: Added workspaceId
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table") => void;
 }
 
 export default function BlockRenderer({ block, workspaceId, onUpdate, onDelete, onConvert }: BlockRendererProps) {
@@ -26,6 +27,8 @@ export default function BlockRenderer({ block, workspaceId, onUpdate, onDelete, 
         return <LinkBlock block={block} />;
       case "divider":
         return <DividerBlock block={block} />;
+      case "table":
+        return <TableBlock block={block} onUpdate={onUpdate} />;
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">

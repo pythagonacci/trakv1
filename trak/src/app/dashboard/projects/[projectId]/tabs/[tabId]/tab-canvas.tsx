@@ -30,7 +30,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: Tab
     router.refresh();
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table") => {
     // Determine default content for the new type
     let newContent: Record<string, any> = {};
     if (newType === "text") {
@@ -41,6 +41,17 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks }: Tab
       newContent = { title: "", url: "", description: "" };
     } else if (newType === "divider") {
       newContent = {};
+    } else if (newType === "table") {
+      newContent = {
+        rows: 3,
+        cols: 3,
+        cells: [
+          ["", "", ""],
+          ["", "", ""],
+          ["", "", ""],
+        ],
+        columnWidths: [150, 150, 150],
+      };
     }
 
     const result = await updateBlock({

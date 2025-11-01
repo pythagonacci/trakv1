@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table } from "lucide-react";
 import { createBlock, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "Divider",
     icon: <Minus className="w-4 h-4" />,
     description: "Horizontal divider line",
+  },
+  {
+    type: "table",
+    label: "Table",
+    icon: <Table className="w-4 h-4" />,
+    description: "Editable table with rows and columns",
   },
 ];
 

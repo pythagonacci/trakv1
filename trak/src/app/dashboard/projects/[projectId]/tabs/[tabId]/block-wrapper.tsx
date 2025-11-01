@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2 } from "lucide-react";
+import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import {
@@ -16,7 +16,7 @@ interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table") => void;
   isDragging?: boolean;
 }
 
@@ -105,6 +105,16 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
                     >
                       <Link2 className="w-4 h-4" />
                       Link
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "table");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Table className="w-4 h-4" />
+                      Table
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem

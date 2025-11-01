@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider";
+export type BlockType = "text" | "task" | "link" | "divider" | "table";
 
 export interface Block {
   id: string;
@@ -184,6 +184,18 @@ export async function createBlock(data: {
           break;
         case "divider":
           content = {};
+          break;
+        case "table":
+          content = {
+            rows: 3,
+            cols: 3,
+            cells: [
+              ["", "", ""],
+              ["", "", ""],
+              ["", "", ""],
+            ],
+            columnWidths: [150, 150, 150],
+          };
           break;
       }
     }
