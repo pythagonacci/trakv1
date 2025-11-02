@@ -439,6 +439,11 @@ export async function createFileRecord(data: {
       'svg': 'image/svg+xml',
       'pdf': 'application/pdf',
       'txt': 'text/plain',
+      'mp4': 'video/mp4',
+      'webm': 'video/webm',
+      'ogg': 'video/ogg',
+      'mov': 'video/quicktime',
+      'avi': 'video/x-msvideo',
     };
     fileType = extensionMap[extension] || `application/octet-stream`;
     console.log(`🔧 Normalized file type for ${data.fileName}: ${data.fileType} -> ${fileType}`);

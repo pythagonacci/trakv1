@@ -10,15 +10,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import AttachedFilesList from "./attached-files-list";
 
 interface TextBlockProps {
   block: Block;
+  workspaceId?: string;
+  projectId?: string;
   onUpdate?: () => void;
 }
 
 type SaveStatus = "idle" | "saving" | "saved";
 
-export default function TextBlock({ block, onUpdate }: TextBlockProps) {
+export default function TextBlock({ block, workspaceId, projectId, onUpdate }: TextBlockProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState((block.content?.text as string) || "");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -349,10 +352,16 @@ export default function TextBlock({ block, onUpdate }: TextBlockProps) {
   const formatted = formatText(content);
 
   return (
-    <div
-      onClick={handleEdit}
-      className="p-5 cursor-text text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: formatted }}
-    />
+    <div>
+      <div
+        onClick={handleEdit}
+        className="p-5 cursor-text text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: formatted }}
+      />
+      {/* Attached Files List */}
+      {workspaceId && projectId && (
+        <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />
+      )}
+    </div>
   );
 }

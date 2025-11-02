@@ -61,7 +61,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     router.refresh();
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "embed") => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {
@@ -96,6 +96,10 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       };
     } else if (newType === "file") {
       newContent = { files: [] };
+    } else if (newType === "image") {
+      newContent = { fileId: null, caption: "", width: 400 };
+    } else if (newType === "embed") {
+      newContent = { url: "", displayMode: "inline" };
     }
 
     const result = await updateBlock({

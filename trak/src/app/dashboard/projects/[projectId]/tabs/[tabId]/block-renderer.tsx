@@ -9,6 +9,9 @@ import DividerBlock from "./divider-block";
 import TableBlock from "./table-block";
 import TimelineBlock from "./timeline-block";
 import FileBlock from "./file-block";
+import VideoBlock from "./video-block";
+import ImageBlock from "./image-block";
+import EmbedBlock from "./embed-block";
 
 interface BlockRendererProps {
   block: Block;
@@ -16,7 +19,7 @@ interface BlockRendererProps {
   projectId: string;
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed") => void;
   isDragging?: boolean;
 }
 
@@ -37,6 +40,12 @@ export default function BlockRenderer({ block, workspaceId, projectId, onUpdate,
         return <TimelineBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} />;
       case "file":
         return <FileBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "image":
+        return <ImageBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "video":
+        return <VideoBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "embed":
+        return <EmbedBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">

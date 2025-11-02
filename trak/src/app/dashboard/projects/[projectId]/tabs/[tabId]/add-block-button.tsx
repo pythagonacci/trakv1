@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image } from "lucide-react";
 import { createBlock, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -60,6 +60,24 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "File",
     icon: <Upload className="w-4 h-4" />,
     description: "Upload and manage files",
+  },
+  {
+    type: "video",
+    label: "Video",
+    icon: <Video className="w-4 h-4" />,
+    description: "Upload and play MP4 videos",
+  },
+  {
+    type: "image",
+    label: "Image",
+    icon: <Image className="w-4 h-4" />,
+    description: "Upload and display images with captions",
+  },
+  {
+    type: "embed",
+    label: "Embed",
+    icon: <Maximize2 className="w-4 h-4" />,
+    description: "Embed external content (YouTube, Figma, etc.)",
   },
 ];
 
