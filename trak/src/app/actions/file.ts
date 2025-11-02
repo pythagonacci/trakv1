@@ -56,7 +56,7 @@ export async function uploadFile(
     const storagePath = `${workspaceId}/${projectId}/${fileId}.${fileExtension}`;
 
     // 6. Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('files')
       .upload(storagePath, file, {
         contentType: file.type,
@@ -100,8 +100,9 @@ export async function uploadFile(
 
     revalidatePath('/dashboard/projects');
     return { data: fileRecord };
-  } catch (error: any) {
-    return { error: error.message };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { error: errorMessage };
   }
 }
 
@@ -272,8 +273,9 @@ export async function deleteFile(fileId: string) {
 
     revalidatePath('/dashboard/projects');
     return { data: { success: true } };
-  } catch (error: any) {
-    return { error: error.message };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { error: errorMessage };
   }
 }
 
@@ -346,7 +348,7 @@ export async function detachFileFromBlock(attachmentId: string) {
   // Get attachment to verify permissions
   const { data: attachment, error: attachError } = await supabase
     .from('file_attachments')
-    .select('file_id, files(workspace_id)')
+    .select('file_id, files!inner(workspace_id)')
     .eq('id', attachmentId)
     .single();
 
@@ -355,7 +357,12 @@ export async function detachFileFromBlock(attachmentId: string) {
   }
 
   // Verify workspace membership
-  const workspaceId = (attachment.files as any).workspace_id;
+  const files = attachment.files as { workspace_id: string } | { workspace_id: string }[];
+  const workspaceId = Array.isArray(files) ? files[0]?.workspace_id : files.workspace_id;
+  
+  if (!workspaceId) {
+    return { error: 'Workspace not found' };
+  }
   const { data: membership } = await supabase
     .from('workspace_members')
     .select('role')
@@ -379,4 +386,98 @@ export async function detachFileFromBlock(attachmentId: string) {
 
   revalidatePath('/dashboard/projects');
   return { data: { success: true } };
+}
+
+/**
+ * Create file record after storage upload (used by client-side upload)
+ * This is called after the file is uploaded to Supabase Storage via client-side
+ */
+export async function createFileRecord(data: {
+  fileId: string;
+  workspaceId: string;
+  projectId: string;
+  blockId: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  storagePath: string;
+}) {
+  const supabase = await createClient();
+
+  // 1. Validate authentication
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // 2. Validate workspace membership
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', data.workspaceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership) {
+    return { error: 'Not authorized to upload to this workspace' };
+  }
+
+  // 3. Normalize file type (fallback to extension-based detection if missing)
+  let fileType = data.fileType;
+  if (!fileType || fileType === 'application/octet-stream' || fileType === '') {
+    // Detect file type from extension
+    const extension = data.fileName.split('.').pop()?.toLowerCase() || '';
+    const extensionMap: Record<string, string> = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+      'svg': 'image/svg+xml',
+      'pdf': 'application/pdf',
+      'txt': 'text/plain',
+    };
+    fileType = extensionMap[extension] || `application/octet-stream`;
+    console.log(`🔧 Normalized file type for ${data.fileName}: ${data.fileType} -> ${fileType}`);
+  }
+
+  // 3. Create file record
+  const { data: fileRecord, error: dbError } = await supabase
+    .from('files')
+    .insert({
+      id: data.fileId,
+      workspace_id: data.workspaceId,
+      project_id: data.projectId,
+      uploaded_by: user.id,
+      file_name: data.fileName,
+      file_size: data.fileSize,
+      file_type: fileType,
+      storage_path: data.storagePath,
+    })
+    .select()
+    .single();
+
+  if (dbError) {
+    return { error: `Database error: ${dbError.message}` };
+  }
+
+  // 4. Attach to block
+  const { error: attachError } = await supabase
+    .from('file_attachments')
+    .insert({
+      file_id: data.fileId,
+      block_id: data.blockId,
+      display_mode: 'inline',
+    });
+
+  if (attachError) {
+    // File created but attachment failed - still return success
+    console.error('Attachment failed:', attachError);
+  }
+
+  revalidatePath('/dashboard/projects');
+  return { data: fileRecord };
 }

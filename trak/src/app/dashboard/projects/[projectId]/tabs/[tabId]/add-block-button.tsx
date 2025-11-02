@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload } from "lucide-react";
 import { createBlock, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -54,6 +54,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "Timeline",
     icon: <Calendar className="w-4 h-4" />,
     description: "Timeline for project milestones and events",
+  },
+  {
+    type: "file",
+    label: "File",
+    icon: <Upload className="w-4 h-4" />,
+    description: "Upload and manage files",
   },
 ];
 

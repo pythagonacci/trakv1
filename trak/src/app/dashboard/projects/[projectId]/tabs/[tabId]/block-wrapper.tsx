@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar } from "lucide-react";
+import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar, Paperclip } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
@@ -13,18 +13,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import FileAttachmentDialog from "./file-attachment-dialog";
 
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
+  workspaceId?: string;
+  projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file") => void;
+  onUpdate?: () => void;
   isDragging?: boolean;
 }
 
-export default function BlockWrapper({ block, children, onDelete, onConvert, isDragging: externalIsDragging }: BlockWrapperProps) {
+export default function BlockWrapper({ block, children, workspaceId, projectId, onDelete, onConvert, onUpdate, isDragging: externalIsDragging }: BlockWrapperProps) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [attachmentDialogOpen, setAttachmentDialogOpen] = useState(false);
 
   // Use sortable hook for drag and drop
   const {
@@ -164,6 +169,21 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
                       Timeline
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    {workspaceId && projectId && (
+                      <>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setAttachmentDialogOpen(true);
+                            setMenuOpen(false);
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <Paperclip className="w-4 h-4" />
+                          Attach File
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuItem
                       variant="destructive"
                       onClick={() => {
@@ -194,6 +214,20 @@ export default function BlockWrapper({ block, children, onDelete, onConvert, isD
               {children}
             </div>
           </div>
+          
+          {/* File Attachment Dialog */}
+          {workspaceId && projectId && (
+            <FileAttachmentDialog
+              isOpen={attachmentDialogOpen}
+              onClose={() => setAttachmentDialogOpen(false)}
+              workspaceId={workspaceId}
+              projectId={projectId}
+              blockId={block.id}
+              onUploadComplete={() => {
+                onUpdate?.();
+              }}
+            />
+          )}
         </div>
       ) : (
         // Divider blocks render without wrapper

@@ -33,6 +33,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const router = useRouter();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
   // Configure sensors for drag and drop (mouse, touch, keyboard)
   const sensors = useSensors(
@@ -60,7 +61,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     router.refresh();
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file") => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {
@@ -93,6 +94,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         endDate: endDate.toISOString(),
         events: [],
       };
+    } else if (newType === "file") {
+      newContent = { files: [] };
     }
 
     const result = await updateBlock({
@@ -169,12 +172,31 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     setBlocks(initialBlocks);
   }, [initialBlocks]);
 
+  // Only mount DnD on client to avoid hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const blockIds = blocks.map((block) => block.id);
 
   return (
     <div className="space-y-6">
       {blocks.length === 0 ? (
         <EmptyCanvasState tabId={tabId} projectId={projectId} />
+      ) : !isMounted ? (
+        // Render without DnD during SSR to avoid hydration mismatch
+        blocks.map((block) => (
+          <BlockRenderer
+            key={block.id}
+            block={block}
+            workspaceId={workspaceId}
+            projectId={projectId}
+            onUpdate={handleUpdate}
+            onDelete={handleDelete}
+            onConvert={handleConvert}
+            isDragging={false}
+          />
+        ))
       ) : (
         <DndContext
           sensors={sensors}
@@ -188,6 +210,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                 key={block.id}
                 block={block}
                 workspaceId={workspaceId}
+                projectId={projectId}
                 onUpdate={handleUpdate}
                 onDelete={handleDelete}
                 onConvert={handleConvert}

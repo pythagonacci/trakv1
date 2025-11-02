@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file";
 
 export interface Block {
   id: string;
@@ -208,6 +208,9 @@ export async function createBlock(data: {
             endDate: endDate.toISOString(),
             events: [],
           };
+          break;
+        case "file":
+          content = { files: [] };
           break;
       }
     }
