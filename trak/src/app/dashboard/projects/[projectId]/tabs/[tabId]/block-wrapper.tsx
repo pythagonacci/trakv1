@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar, Paperclip } from "lucide-react";
+import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar, Paperclip, Video, Image, Maximize2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ interface BlockWrapperProps {
   workspaceId?: string;
   projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed") => void;
   onUpdate?: () => void;
   isDragging?: boolean;
 }
@@ -167,6 +167,36 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
                     >
                       <Calendar className="w-4 h-4" />
                       Timeline
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "video");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Video className="w-4 h-4" />
+                      Video
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "image");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Image className="w-4 h-4" />
+                      Image
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "embed");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                      Embed
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {workspaceId && projectId && (

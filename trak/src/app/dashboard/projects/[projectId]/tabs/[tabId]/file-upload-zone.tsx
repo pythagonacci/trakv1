@@ -13,6 +13,7 @@ interface FileUploadZoneProps {
   onUploadComplete?: (files: UploadedFile[]) => void;
   compact?: boolean;
   maxFiles?: number;
+  accept?: string; // Optional file type filter (e.g., "video/*", "video/mp4")
 }
 
 interface UploadingFile {
@@ -76,6 +77,7 @@ export default function FileUploadZone({
   onUploadComplete,
   compact = false,
   maxFiles,
+  accept = "*/*",
 }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -203,6 +205,7 @@ export default function FileUploadZone({
   const uploadMultipleFiles = useCallback(
     async (files: File[]) => {
       const validFiles = files.filter((file) => {
+        // Validate file size
         if (file.size > MAX_FILE_SIZE) {
           // Add as error immediately
           const fileId = crypto.randomUUID();
@@ -218,6 +221,34 @@ export default function FileUploadZone({
           ]);
           return false;
         }
+        
+        // Validate file type if accept prop is set
+        if (accept && accept !== "*/*") {
+          const acceptedTypes = accept.split(",").map(t => t.trim());
+          const matches = acceptedTypes.some(type => {
+            if (type.endsWith("/*")) {
+              const baseType = type.slice(0, -2);
+              return file.type.startsWith(baseType);
+            }
+            return file.type === type;
+          });
+          
+          if (!matches) {
+            const fileId = crypto.randomUUID();
+            setUploadingFiles((prev) => [
+              ...prev,
+              {
+                id: fileId,
+                file,
+                progress: 0,
+                status: "error",
+                error: `File type not accepted. Expected: ${accept}`,
+              },
+            ]);
+            return false;
+          }
+        }
+        
         return true;
       });
 
@@ -262,7 +293,7 @@ export default function FileUploadZone({
         }
       }
     },
-    [uploadFileWithProgress]
+    [uploadFileWithProgress, accept]
   );
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -345,7 +376,7 @@ export default function FileUploadZone({
             multiple
             className="hidden"
             onChange={handleFileSelect}
-            accept="*/*"
+            accept={accept}
           />
           <div className="flex flex-col items-center justify-center text-center space-y-2">
             <Upload
