@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf";
 
 export interface Block {
   id: string;
@@ -220,6 +220,9 @@ export async function createBlock(data: {
           break;
         case "embed":
           content = { url: "", displayMode: "inline" };
+          break;
+        case "pdf":
+          content = { fileId: null };
           break;
       }
     }

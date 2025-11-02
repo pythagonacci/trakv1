@@ -21,7 +21,7 @@ interface BlockWrapperProps {
   workspaceId?: string;
   projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf") => void;
   onUpdate?: () => void;
   isDragging?: boolean;
 }
@@ -197,6 +197,16 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
                     >
                       <Maximize2 className="w-4 h-4" />
                       Embed
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "pdf");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4" />
+                      PDF
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {workspaceId && projectId && (

@@ -12,6 +12,7 @@ import FileBlock from "./file-block";
 import VideoBlock from "./video-block";
 import ImageBlock from "./image-block";
 import EmbedBlock from "./embed-block";
+import PdfBlock from "./pdf-block";
 
 interface BlockRendererProps {
   block: Block;
@@ -19,7 +20,7 @@ interface BlockRendererProps {
   projectId: string;
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf") => void;
   isDragging?: boolean;
 }
 
@@ -46,6 +47,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, onUpdate,
         return <VideoBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "embed":
         return <EmbedBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "pdf":
+        return <PdfBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">

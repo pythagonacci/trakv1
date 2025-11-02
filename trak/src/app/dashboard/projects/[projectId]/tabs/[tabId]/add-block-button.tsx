@@ -79,6 +79,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     icon: <Maximize2 className="w-4 h-4" />,
     description: "Embed external content (YouTube, Figma, etc.)",
   },
+  {
+    type: "pdf",
+    label: "PDF",
+    icon: <FileText className="w-4 h-4" />,
+    description: "Upload and view PDF documents",
+  },
 ];
 
 export default function AddBlockButton({ tabId, projectId, variant = "default" }: AddBlockButtonProps) {
