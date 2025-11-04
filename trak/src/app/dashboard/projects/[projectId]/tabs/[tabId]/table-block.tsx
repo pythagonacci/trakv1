@@ -7,6 +7,7 @@ import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 
 interface TableContent {
+  title?: string;
   rows: number;
   cols: number;
   cells: string[][];
@@ -20,11 +21,14 @@ interface TableBlockProps {
 
 export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   const content = (block.content || {}) as TableContent;
+  const title = content.title || "";
   const rows = content.rows || 3;
   const cols = content.cols || 3;
   const cells = content.cells || [];
   const columnWidths = content.columnWidths || Array(cols).fill(150);
 
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleValue, setTitleValue] = useState(title);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
@@ -34,6 +38,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   const [resizeStartWidth, setResizeStartWidth] = useState(0);
   const [tempColumnWidths, setTempColumnWidths] = useState<number[]>(columnWidths);
   const inputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Ensure cells array matches rows/cols dimensions
   useEffect(() => {
@@ -73,6 +78,21 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
       inputRef.current.select();
     }
   }, [editingCell]);
+
+  // Sync title value when content changes
+  useEffect(() => {
+    if (!editingTitle) {
+      setTitleValue(content.title || "");
+    }
+  }, [content.title, editingTitle]);
+
+  // Focus title input when editing starts
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitle]);
 
   const startEditing = (row: number, col: number) => {
     setEditingCell({ row, col });
@@ -243,16 +263,63 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
 
   const displayWidths = resizingCol !== null ? tempColumnWidths : columnWidths;
 
+  const handleTitleBlur = async () => {
+    setEditingTitle(false);
+    if (titleValue !== title) {
+      await updateBlock({
+        blockId: block.id,
+        content: {
+          ...content,
+          title: titleValue,
+        },
+      });
+      onUpdate?.();
+    }
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleTitleBlur();
+    } else if (e.key === "Escape") {
+      setTitleValue(title);
+      setEditingTitle(false);
+    }
+  };
+
   return (
     <div className="p-5">
+      {/* Table Title/Header */}
+      <div className="mb-4 pb-3 border-b border-neutral-200 dark:border-neutral-700">
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            type="text"
+            value={titleValue}
+            onChange={(e) => setTitleValue(e.target.value)}
+            onBlur={handleTitleBlur}
+            onKeyDown={handleTitleKeyDown}
+            placeholder="Table title..."
+            className="w-full text-lg font-semibold text-neutral-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1 placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+          />
+        ) : (
+          <div
+            onClick={() => setEditingTitle(true)}
+            className="text-lg font-semibold text-neutral-900 dark:text-white cursor-text hover:bg-neutral-50 dark:hover:bg-neutral-800/50 rounded px-2 py-1 -mx-2 -my-1 transition-colors min-h-[32px] flex items-center"
+          >
+            {title || <span className="text-neutral-400 dark:text-neutral-500 font-normal">Table title...</span>}
+          </div>
+        )}
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
-          <thead>
+          <thead className="border-b-2 border-neutral-300 dark:border-neutral-600">
             <tr>
               {Array.from({ length: cols }).map((_, colIndex) => (
                 <th
                   key={colIndex}
-                  className="relative border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 font-semibold text-sm text-neutral-900 dark:text-white p-2 text-left"
+                  className="relative border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/80 font-semibold text-sm text-neutral-900 dark:text-white px-4 py-3 text-left"
                   style={{ width: `${displayWidths[colIndex] || 150}px`, minWidth: "100px" }}
                   onMouseEnter={() => setHoveredCol(colIndex)}
                   onMouseLeave={() => setHoveredCol(null)}
@@ -266,14 +333,15 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                         onChange={(e) => setEditValue(e.target.value)}
                         onBlur={() => handleBlur(0, colIndex)}
                         onKeyDown={(e) => handleKeyDown(e, 0, colIndex)}
-                        className="flex-1 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 py-0.5 -mx-1 -my-0.5"
+                        placeholder="Header..."
+                        className="flex-1 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 py-0.5 -mx-1 -my-0.5 placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
                       />
                     ) : (
                       <div
                         onClick={() => startEditing(0, colIndex)}
-                        className="flex-1 cursor-text hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors min-h-[24px]"
+                        className="flex-1 cursor-text hover:bg-neutral-200 dark:hover:bg-neutral-700/50 rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors min-h-[24px]"
                       >
-                        {cells[0]?.[colIndex] || ""}
+                        {cells[0]?.[colIndex] || <span className="text-neutral-400 dark:text-neutral-500">Header...</span>}
                       </div>
                     )}
                     {/* Delete column button - shows on hover */}
