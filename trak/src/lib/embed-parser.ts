@@ -67,11 +67,32 @@ export function parseEmbedUrl(url: string): EmbedConfig | null {
       };
     }
 
-    const googleSheetsMatch = normalizedUrl.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    // Google Sheets - handle both /d/ and /d/e/ formats
+    // Published format: /d/e/SHEET_ID/pubhtml (from "Publish to web" -> Embed tab)
+    // Example: https://docs.google.com/spreadsheets/d/e/2PACX-1v.../pubhtml?widget=true&headers=false
+    // Regular format: /d/SHEET_ID/edit
+    // First normalize HTML entities (like &amp; to &)
+    const cleanedUrl = normalizedUrl.replace(/&amp;/g, '&');
+    
+    const googleSheetsMatch = cleanedUrl.match(/docs\.google\.com\/spreadsheets\/d\/(?:e\/)?([a-zA-Z0-9_-]+)/);
     if (googleSheetsMatch) {
       const sheetId = googleSheetsMatch[1];
-      // Use embed URL format for Google Sheets
-      const embedUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/preview?usp=sharing`;
+      const hasE = cleanedUrl.includes('/d/e/');
+      
+      // Check if URL already has pubhtml format (from "Publish to web")
+      if (cleanedUrl.includes('/pubhtml')) {
+        // If already pubhtml, use it as-is (Google provides the correct format)
+        return {
+          type: "google-sheets",
+          embedUrl: cleanedUrl,
+          originalUrl: normalizedUrl,
+        };
+      }
+      
+      // Build the embed URL - use /d/e/ format if original had it, otherwise use /d/
+      // The /d/e/ format is for published sheets
+      const basePath = hasE ? `d/e/${sheetId}` : `d/${sheetId}`;
+      const embedUrl = `https://docs.google.com/spreadsheets/${basePath}/pubhtml?widget=true&headers=false`;
       return {
         type: "google-sheets",
         embedUrl,
