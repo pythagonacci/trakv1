@@ -89,7 +89,7 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
 
             <div
               className={cn(
-                "flex-1 rounded-lg border transition-all min-w-0 overflow-hidden",
+                "flex-1 rounded-lg border transition-all min-w-0 overflow-x-auto overflow-y-visible",
                 hovered
                   ? "border-neutral-300 dark:border-neutral-600 shadow-sm"
                   : "border-neutral-200 dark:border-neutral-800"
