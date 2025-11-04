@@ -101,7 +101,7 @@ export default function FilterBar({ clients }: FilterBarProps) {
           onChange={(e) => {
             setSearch(e.target.value);
           }}
-          className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
+          className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
         />
         {isPending && (
           <div className="absolute right-3 top-1/2 transform -translate-y-1/2">

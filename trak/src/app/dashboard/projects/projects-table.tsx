@@ -333,11 +333,11 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     <>
       <div className="space-y-4">
         {/* Table Header */}
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-medium text-neutral-900">All Projects</h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-semibold text-neutral-900">All Projects</h2>
           <button 
             onClick={handleOpenCreate}
-            className="px-4 py-2 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors"
+            className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors"
           >
             New Project
           </button>
@@ -345,9 +345,9 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
 
         {/* Table */}
         <div className="relative">
-          <div className="bg-white/50 backdrop-blur-sm border border-neutral-200/40 rounded-2xl">
+          <div className="bg-white border border-neutral-200 rounded-lg">
             {/* Table Header */}
-            <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-neutral-200/40 bg-neutral-50/50 rounded-t-2xl">
+            <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-neutral-200 bg-neutral-50 rounded-t-lg">
               <button
                 onClick={() => handleSort('client_id')}
                 className="col-span-3 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
@@ -376,7 +376,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
             </div>
 
             {/* Table Rows */}
-            <div className="divide-y divide-neutral-200/40">
+            <div className="divide-y divide-neutral-200">
               {projects.map((project) => {
                 const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
                 const isTemp = project.id.startsWith('temp-');
@@ -384,7 +384,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                 return (
                   <div
                     key={project.id}
-                    className={`grid grid-cols-12 gap-4 px-6 py-4 hover:bg-neutral-50/80 transition-colors ${
+                    className={`grid grid-cols-12 gap-4 px-6 py-4 hover:bg-neutral-50 transition-colors ${
                       isTemp ? 'opacity-60' : 'cursor-pointer'
                     } group relative`}
                     onClick={() => handleRowClick(project.id)}
@@ -438,7 +438,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                           {/* Dropdown Menu */}
                           {openMenuId === project.id && (
                             <div
-                              className="absolute right-0 mt-1 w-40 bg-white border border-neutral-200/40 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.15)] overflow-hidden z-10"
+                              className="absolute right-0 mt-1 w-40 bg-white border border-neutral-200 rounded-lg shadow-lg overflow-hidden z-10"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button

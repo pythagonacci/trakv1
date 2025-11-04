@@ -77,7 +77,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   }));
 
   return (
-    <div className="p-8">
+    <div>
       <FilterBar clients={clients} />
       <ProjectsTable 
         projects={mappedProjects} 

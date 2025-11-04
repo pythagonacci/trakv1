@@ -44,7 +44,7 @@ export default function EmptyTabsState({ projectId }: EmptyTabsStateProps) {
         {/* Create First Tab Button */}
         <button
           onClick={handleCreateFirstTab}
-          className="flex items-center gap-2 px-6 py-3 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors font-medium"
+          className="flex items-center gap-2 px-6 py-3 bg-primary dark:bg-white text-white dark:text-neutral-900 rounded-lg hover:bg-primary/90 dark:hover:bg-neutral-100 transition-colors font-medium"
         >
           <Plus className="w-4 h-4" />
           Create Your First Tab

@@ -4,7 +4,7 @@ interface EmptyStateProps {
 
 export default function EmptyState({ onCreateClick }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] bg-white/50 backdrop-blur-sm border border-neutral-200/40 rounded-2xl p-12">
+    <div className="flex flex-col items-center justify-center min-h-[400px] bg-white border border-neutral-200 rounded-lg p-12">
       <div className="text-center space-y-4 max-w-md">
         <div className="w-16 h-16 mx-auto bg-neutral-100 rounded-2xl flex items-center justify-center">
           <svg
@@ -31,7 +31,7 @@ export default function EmptyState({ onCreateClick }: EmptyStateProps) {
 
         <button
           onClick={onCreateClick}
-          className="px-6 py-2.5 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors"
+          className="px-6 py-2.5 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors"
         >
           Create Your First Project
         </button>

@@ -40,7 +40,7 @@ export default function ConfirmDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-neutral-200">
           <div className="flex items-start gap-3">
@@ -70,7 +70,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={handleClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors"
+            className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 rounded-lg transition-colors"
             disabled={isLoading}
           >
             Cancel
@@ -81,7 +81,7 @@ export default function ConfirmDialog({
             className={`flex-1 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               confirmButtonVariant === "danger"
                 ? "bg-red-600 hover:bg-red-700"
-                : "bg-neutral-900 hover:bg-neutral-800"
+                : "bg-primary hover:bg-primary/90"
             }`}
             disabled={isLoading}
           >
