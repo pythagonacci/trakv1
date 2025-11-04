@@ -1,10 +1,10 @@
 export default function DashboardLoading() {
     return (
-      <div className="flex h-screen bg-neutral-100 p-4">
+      <div className="flex h-screen bg-neutral-50 p-4 gap-4">
         {/* Sidebar Skeleton */}
-        <aside className="w-64 border border-neutral-200/20 bg-neutral-50/50 backdrop-blur-md flex flex-col rounded-2xl overflow-hidden shadow-[0_4px_40px_rgba(0,0,0,0.25)]">
+        <aside className="w-64 bg-white border border-neutral-200 flex flex-col rounded-lg overflow-hidden shadow-sm">
           {/* Workspace Switcher Skeleton */}
-          <div className="p-4 border-b border-neutral-200/20">
+          <div className="p-4 border-b border-neutral-200">
             <div className="px-3 py-2 flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-neutral-200 animate-pulse shrink-0" />
               <div className="flex-1 space-y-2">
@@ -25,7 +25,7 @@ export default function DashboardLoading() {
           </nav>
   
           {/* User Menu Skeleton */}
-          <div className="p-3 border-t border-neutral-200/20">
+          <div className="p-3 border-t border-neutral-200">
             <div className="px-3 py-2 flex items-center gap-2">
               <div className="w-7 h-7 rounded-full bg-neutral-200 animate-pulse shrink-0" />
               <div className="h-3 bg-neutral-200 rounded animate-pulse w-24" />
@@ -34,15 +34,15 @@ export default function DashboardLoading() {
         </aside>
         
         {/* Main Content Skeleton */}
-        <div className="flex-1 flex flex-col min-w-0 ml-4">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Header Skeleton */}
-          <header className="h-14 border border-neutral-200/20 bg-white/50 backdrop-blur-md flex items-center justify-between px-6 rounded-2xl mb-4 shadow-[0_4px_40px_rgba(0,0,0,0.25)]">
+          <header className="h-14 bg-white border border-neutral-200 flex items-center justify-between px-6 rounded-lg mb-4 shadow-sm">
             <div className="h-5 bg-neutral-200 rounded animate-pulse w-32" />
-            <div className="w-9 h-9 bg-neutral-200 rounded-xl animate-pulse" />
+            <div className="w-9 h-9 bg-neutral-200 rounded-lg animate-pulse" />
           </header>
           
           {/* Content Area Skeleton */}
-          <main className="flex-1 overflow-auto p-6 bg-white/50 backdrop-blur-md border border-neutral-200/20 rounded-2xl shadow-[0_4px_40px_rgba(0,0,0,0.25)]">
+          <main className="flex-1 overflow-auto p-8 bg-white border border-neutral-200 rounded-lg shadow-sm">
             <div className="max-w-7xl mx-auto space-y-4">
               {/* Skeleton lines */}
               <div className="h-6 bg-neutral-200 rounded animate-pulse w-1/4" />
