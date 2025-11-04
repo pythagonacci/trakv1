@@ -17,6 +17,7 @@ export interface Block {
   type: BlockType;
   content: Record<string, any>; // JSONB content, varies by type
   position: number;
+  column: number; // Column index: 0, 1, or 2 (for up to 3 columns)
   created_at: string;
   updated_at: string;
 }
@@ -72,12 +73,13 @@ export async function getTabBlocks(tabId: string) {
       return { error: "Not a member of this workspace" };
     }
 
-    // 5. Get all blocks for this tab (top-level only for now, ordered by position)
+    // 5. Get all blocks for this tab (top-level only for now, ordered by column then position)
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
       .select("*")
       .eq("tab_id", tabId)
       .is("parent_block_id", null) // Only top-level blocks for now
+      .order("column", { ascending: true })
       .order("position", { ascending: true });
 
     if (blocksError) {
@@ -101,6 +103,7 @@ export async function createBlock(data: {
   type: BlockType;
   content?: Record<string, any>;
   position?: number;
+  column?: number; // Column index: 0, 1, or 2 (defaults to 0)
 }) {
   try {
     const supabase = await createClient();
@@ -148,14 +151,21 @@ export async function createBlock(data: {
       return { error: "Not a member of this workspace" };
     }
 
-    // 5. Calculate position if not provided
+    // 5. Determine column (default to 0 if not provided)
+    const column = data.column !== undefined ? data.column : 0;
+    if (column < 0 || column > 2) {
+      return { error: "Column must be between 0 and 2" };
+    }
+
+    // 6. Calculate position if not provided (per column)
     let position = data.position;
     if (position === undefined) {
-      // Get max position for this tab
+      // Get max position for this tab in the specified column
       const { data: maxBlock, error: maxError } = await supabase
         .from("blocks")
         .select("position")
         .eq("tab_id", data.tabId)
+        .eq("column", column)
         .is("parent_block_id", null)
         .order("position", { ascending: false })
         .limit(1)
@@ -169,7 +179,7 @@ export async function createBlock(data: {
       position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
     }
 
-    // 6. Create default content based on block type if not provided
+    // 7. Create default content based on block type if not provided
     let content = data.content;
     if (!content) {
       switch (data.type) {
@@ -227,7 +237,7 @@ export async function createBlock(data: {
       }
     }
 
-    // 7. Create the block
+    // 8. Create the block
     const { data: block, error: createError } = await supabase
       .from("blocks")
       .insert({
@@ -236,6 +246,7 @@ export async function createBlock(data: {
         type: data.type,
         content: content,
         position: position,
+        column: column,
       })
       .select()
       .single();
@@ -265,6 +276,7 @@ export async function updateBlock(data: {
   content?: Record<string, any>;
   type?: BlockType;
   position?: number;
+  column?: number; // Column index: 0, 1, or 2
 }) {
   try {
     const supabase = await createClient();
@@ -332,6 +344,12 @@ export async function updateBlock(data: {
     if (data.content !== undefined) updates.content = data.content;
     if (data.type !== undefined) updates.type = data.type;
     if (data.position !== undefined) updates.position = data.position;
+    if (data.column !== undefined) {
+      if (data.column < 0 || data.column > 2) {
+        return { error: "Column must be between 0 and 2" };
+      }
+      updates.column = data.column;
+    }
 
     // 7. Update the block
     const { data: updatedBlock, error: updateError } = await supabase
