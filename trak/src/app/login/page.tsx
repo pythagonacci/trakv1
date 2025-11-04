@@ -9,7 +9,7 @@ import { login } from "@/lib/auth/actions";
 export default function LoginPage() {
   return (
     <AuthShell title="Sign in" subtitle="Welcome back.">
-      <form action={login} className="space-y-4">
+      <form action={login} className="space-y-5">
         <input type="hidden" name="redirectTo" value="/" />
         <div>
           <Label htmlFor="email">Email</Label>
@@ -28,8 +28,8 @@ export default function LoginPage() {
         <Button type="submit" className="w-full">
           <LogIn className="w-4 h-4" /> Sign in
         </Button>
-        <p className="text-xs text-neutral-600 dark:text-neutral-400 text-center">
-          Don’t have an account? <a href="/signup" className="underline underline-offset-2">Create one</a>
+        <p className="text-xs text-neutral-600 text-center">
+          Don't have an account? <a href="/signup" className="font-medium hover:underline">Create one</a>
         </p>
       </form>
     </AuthShell>

@@ -9,7 +9,7 @@ import { signup } from "@/lib/auth/actions";
 export default function SignupPage() {
   return (
     <AuthShell title="Create account" subtitle="Start your workspace.">
-      <form action={signup} className="space-y-4">
+      <form action={signup} className="space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="firstName">First name</Label>
@@ -33,13 +33,13 @@ export default function SignupPage() {
             <Input id="password" name="password" type="password" placeholder="••••••••" required />
             <Lock className="w-4 h-4 absolute right-3 top-2.5 text-neutral-400" />
           </div>
-          <p className="mt-1 text-[11px] text-neutral-500">8+ chars, at least one number and symbol.</p>
+          <p className="mt-1 text-xs text-neutral-500">8+ chars, at least one number and symbol.</p>
         </div>
         <Button type="submit" className="w-full">
           <UserPlus className="w-4 h-4" /> Create account
         </Button>
-        <p className="text-xs text-neutral-600 dark:text-neutral-400 text-center">
-          Already have an account? <a href="/login" className="underline underline-offset-2">Sign in</a>
+        <p className="text-xs text-neutral-600 text-center">
+          Already have an account? <a href="/login" className="font-medium hover:underline">Sign in</a>
         </p>
       </form>
     </AuthShell>

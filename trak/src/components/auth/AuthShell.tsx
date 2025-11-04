@@ -2,15 +2,15 @@ import React from "react";
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
     return (
-      <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-        <div className="max-w-md mx-auto p-6">
-          <div className="mb-6">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">Track</div>
-            <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">{title}</h1>
-            {subtitle && <p className="text-sm text-neutral-600 dark:text-neutral-400">{subtitle}</p>}
+      <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-neutral-100 flex items-center justify-center p-6">
+        <div className="max-w-md w-full">
+          <div className="mb-8 text-center">
+            <div className="text-sm font-semibold text-neutral-600 mb-3">Track</div>
+            <h1 className="text-3xl font-bold text-neutral-900 mb-2">{title}</h1>
+            {subtitle && <p className="text-base text-neutral-600">{subtitle}</p>}
           </div>
-          <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-800">
-            <div className="p-6">{children}</div>
+          <div className="bg-white rounded-lg shadow-lg border border-neutral-200">
+            <div className="p-8">{children}</div>
           </div>
         </div>
       </div>
