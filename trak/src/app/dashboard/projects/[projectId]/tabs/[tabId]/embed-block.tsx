@@ -21,6 +21,7 @@ interface EmbedContent {
   embedType?: EmbedType;
   embedUrl?: string;
   displayMode?: DisplayMode;
+  caption?: string;
 }
 
 export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
@@ -34,9 +35,12 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [embedError, setEmbedError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [caption, setCaption] = useState(content.caption || "");
+  const [savingCaption, setSavingCaption] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const captionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize embed config from block content
   useEffect(() => {
@@ -188,6 +192,38 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
     }
   }, [content.url, isEditing]);
 
+  const handleCaptionChange = (value: string) => {
+    setCaption(value);
+    
+    // Clear existing timeout
+    if (captionTimeoutRef.current) {
+      clearTimeout(captionTimeoutRef.current);
+    }
+    
+    // Debounce save
+    setSavingCaption(true);
+    captionTimeoutRef.current = setTimeout(async () => {
+      await updateBlock({
+        blockId: block.id,
+        content: {
+          ...content,
+          caption: value,
+        },
+      });
+      setSavingCaption(false);
+      onUpdate?.();
+    }, 1000);
+  };
+
+  // Cleanup caption timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (captionTimeoutRef.current) {
+        clearTimeout(captionTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Editing mode
   if (isEditing) {
     return (
@@ -205,7 +241,7 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
               onPaste={handlePaste}
               onKeyDown={handleKeyDown}
               onBlur={handleBlur}
-              placeholder="Paste a Figma, Google Docs, YouTube, Loom, Calendly, or any URL..."
+              placeholder="Paste a Figma, Google Docs, YouTube, Loom, Calendly, or any URL... (Google Sheets must be published to web)"
               className="flex-1 px-3 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
             />
           </div>
@@ -219,6 +255,11 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
               <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
                 Detected: {embedConfig.type === "generic" ? "Web Page" : embedConfig.type}
               </p>
+              {embedConfig.type === "google-sheets" && (
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Tip: If embedding fails, paste the exact URL from File → Publish to web → Embed tab
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -345,6 +386,11 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
               <span className="text-xs text-red-600 dark:text-red-400">
                 Failed to load embed. Showing as link instead.
               </span>
+              {embedConfig?.type === "google-sheets" && (
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-2 max-w-sm">
+                  Make sure the sheet is published to web: File → Publish to web → Publish
+                </p>
+              )}
               <a
                 href={content.url}
                 target="_blank"
@@ -370,6 +416,21 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
             style={{ minHeight: embedConfig.type === "calendly" ? "700px" : "400px" }}
           />
         </div>
+      </div>
+      
+      {/* Caption Input */}
+      <div>
+        <input
+          type="text"
+          value={caption}
+          onChange={(e) => handleCaptionChange(e.target.value)}
+          placeholder="Add caption..."
+          onClick={(e) => e.stopPropagation()}
+          className="w-full px-2 py-1 text-sm border border-transparent rounded hover:border-neutral-300 dark:hover:border-neutral-700 focus:border-neutral-400 dark:focus:border-neutral-600 focus:outline-none bg-transparent text-neutral-600 dark:text-neutral-400"
+        />
+        {savingCaption && (
+          <span className="text-xs text-neutral-500 ml-2">Saving...</span>
+        )}
       </div>
     </div>
   );
