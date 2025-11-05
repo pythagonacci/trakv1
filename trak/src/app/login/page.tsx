@@ -6,11 +6,18 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { login } from "@/lib/auth/actions";
 
-export default function LoginPage() {
+interface PageProps {
+  searchParams: Promise<{ redirectedFrom?: string; error?: string; message?: string }>;
+}
+
+export default async function LoginPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const redirectTo = params?.redirectedFrom || "/dashboard";
+  
   return (
     <AuthShell title="Sign in" subtitle="Welcome back.">
       <form action={login} className="space-y-5">
-        <input type="hidden" name="redirectTo" value="/" />
+        <input type="hidden" name="redirectTo" value={redirectTo} />
         <div>
           <Label htmlFor="email">Email</Label>
           <div className="relative">

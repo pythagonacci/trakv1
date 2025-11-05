@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start --port ${PORT:-3000}",
     "lint": "eslint",
-    "format": "prettier --write .",
-    "postinstall": "next build"
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

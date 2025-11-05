@@ -19,7 +19,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { type Block, deleteBlock, updateBlock } from "@/app/actions/block";
+import { type Block, deleteBlock, updateBlock, createBlock } from "@/app/actions/block";
 import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
@@ -43,6 +43,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [isDragging, setIsDragging] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [draggedBlock, setDraggedBlock] = useState<Block | null>(null);
+  const [isCreatingBlock, setIsCreatingBlock] = useState(false);
 
   // Configure sensors for drag and drop (mouse, touch, keyboard)
   const sensors = useSensors(
@@ -380,10 +381,50 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   const hasBlocks = blocks.length > 0;
 
+  // Handle click on empty canvas to create text block
+  const handleEmptyCanvasClick = async () => {
+    if (hasBlocks || isCreatingBlock) return; // Don't create if blocks already exist or already creating
+    
+    setIsCreatingBlock(true);
+    try {
+      const result = await createBlock({
+        tabId,
+        type: "text",
+        content: { text: "" },
+      });
+
+      if (result.error) {
+        console.error("Failed to create text block:", result.error);
+        alert(`Error creating block: ${result.error}`);
+        setIsCreatingBlock(false);
+        return;
+      }
+
+      // Refresh to show the new block
+      router.refresh();
+    } catch (error) {
+      console.error("Create block exception:", error);
+      setIsCreatingBlock(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {!hasBlocks ? (
-        <EmptyCanvasState tabId={tabId} projectId={projectId} />
+        <div 
+          onClick={handleEmptyCanvasClick} 
+          className="cursor-text min-h-[400px]"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleEmptyCanvasClick();
+            }
+          }}
+        >
+          <EmptyCanvasState tabId={tabId} projectId={projectId} />
+        </div>
       ) : !isMounted ? (
         // Render without DnD during SSR to avoid hydration mismatch
         <div className="space-y-6">

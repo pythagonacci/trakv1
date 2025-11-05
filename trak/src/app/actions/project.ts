@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { createTab } from './tab'
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
@@ -79,6 +80,17 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
 
   if (createError) {
     return { error: createError.message }
+  }
+
+  // Automatically create a default tab named "Untitled"
+  const tabResult = await createTab({
+    projectId: project.id,
+    name: "Untitled",
+  });
+
+  if (tabResult.error) {
+    // Log error but don't fail project creation if tab creation fails
+    console.error("Failed to create default tab:", tabResult.error);
   }
 
   revalidatePath('/dashboard')

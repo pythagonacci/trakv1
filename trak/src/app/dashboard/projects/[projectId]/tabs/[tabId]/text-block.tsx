@@ -17,16 +17,28 @@ interface TextBlockProps {
   workspaceId?: string;
   projectId?: string;
   onUpdate?: () => void;
+  autoFocus?: boolean;
 }
 
 type SaveStatus = "idle" | "saving" | "saved";
 
-export default function TextBlock({ block, workspaceId, projectId, onUpdate }: TextBlockProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [content, setContent] = useState((block.content?.text as string) || "");
+export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
+  const initialContent = (block.content?.text as string) || "";
+  const isEmpty = !initialContent || initialContent.trim() === "";
+  const [isEditing, setIsEditing] = useState(autoFocus || isEmpty);
+  const [content, setContent] = useState(initialContent);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasAutoFocused = useRef(false);
+
+  // Auto-focus on mount if autoFocus is true or if block is empty (only once)
+  useEffect(() => {
+    if (!hasAutoFocused.current && (autoFocus || isEmpty)) {
+      hasAutoFocused.current = true;
+      setIsEditing(true);
+    }
+  }, [autoFocus, isEmpty]);
 
   // Focus textarea when editing starts
   useEffect(() => {

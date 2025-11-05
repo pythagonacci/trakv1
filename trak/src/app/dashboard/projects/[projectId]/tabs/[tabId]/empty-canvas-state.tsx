@@ -17,10 +17,10 @@ export default function EmptyCanvasState({ tabId, projectId }: EmptyCanvasStateP
         </div>
       </div>
       <h3 className="text-lg font-medium text-neutral-900 dark:text-white mb-2">
-        No blocks yet
+        Click to start typing
       </h3>
       <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6">
-        Start by adding your first block to organize your content
+        Click anywhere on this page to create a text block and start writing
       </p>
       <AddBlockButton tabId={tabId} projectId={projectId} variant="large" />
     </div>

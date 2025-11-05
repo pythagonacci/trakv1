@@ -52,27 +52,20 @@ export default async function ProjectPage({
   const tabsResult = await getProjectTabs(projectId);
   const hierarchicalTabs = tabsResult.data || [];
 
+  // 5. If tabs exist, redirect to the first tab
+  if (hierarchicalTabs.length > 0) {
+    const firstTab = hierarchicalTabs[0];
+    redirect(`/dashboard/projects/${projectId}/tabs/${firstTab.id}`);
+  }
+
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       <div className="max-w-7xl mx-auto">
         {/* Project Header */}
         <ProjectHeader project={project} />
 
-        {/* Tab Navigation & Content */}
-        {hierarchicalTabs.length > 0 ? (
-          <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-800 mt-6">
-            <TabBar tabs={hierarchicalTabs} projectId={projectId} />
-            
-            {/* Tab content will be rendered in child routes */}
-            <div className="p-6">
-              <div className="text-center text-neutral-500 py-12">
-                Select a tab above to view its content
-              </div>
-            </div>
-          </div>
-        ) : (
-          <EmptyTabsState projectId={projectId} />
-        )}
+        {/* Empty Tabs State */}
+        <EmptyTabsState projectId={projectId} />
       </div>
     </div>
   );
