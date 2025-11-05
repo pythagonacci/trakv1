@@ -20,6 +20,7 @@ interface Tab {
   id: string;
   name: string;
   position: number;
+  children?: Tab[];
 }
 
 interface TabBarProps {
@@ -36,6 +37,7 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
   const [createDialogParentId, setCreateDialogParentId] = useState<string | undefined>(undefined);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmTab, setDeleteConfirmTab] = useState<Tab | null>(null);
+  const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
   
   // Inline rename state
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
@@ -56,6 +58,21 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
       editInputRef.current.select();
     }
   }, [editingTabId]);
+
+  // Close expanded tabs when clicking outside
+  useEffect(() => {
+    if (!expandedTabId) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest(`[data-tab-id="${expandedTabId}"]`)) {
+        setExpandedTabId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [expandedTabId]);
 
   const handleTabClick = (tabId: string, e?: React.MouseEvent) => {
     // Don't navigate if we're currently editing
@@ -188,16 +205,22 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
 
   return (
     <>
-      {/* Desktop: Horizontal Tabs */}
-      <div className="hidden md:block border-b border-neutral-200 dark:border-neutral-800 px-6">
-        <div className="flex items-center gap-6 overflow-x-auto">
+      {/* Desktop: Horizontal Tabs - Minimal, elegant */}
+      <div className="hidden md:block px-16">
+        <div className="flex items-center gap-1 overflow-x-auto">
           {tabs.map((tab) => {
             const isEditing = editingTabId === tab.id;
             const isActive = activeTabId === tab.id;
+            const hasChildren = tab.children && tab.children.length > 0;
+            // Check if any child tab is active
+            const hasActiveChild = hasChildren && tab.children!.some(child => child.id === activeTabId);
+            // Auto-expand if a child is active
+            const shouldBeExpanded = expandedTabId === tab.id || hasActiveChild;
             
             return (
               <div
                 key={tab.id}
+                data-tab-id={tab.id}
                 className="relative flex items-center group"
               >
                 {isEditing ? (
@@ -210,26 +233,39 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
                     onKeyDown={handleRenameKeyDown}
                     disabled={isSaving}
                     className={cn(
-                      "py-4 px-0 text-sm font-medium border-b-2 -mb-px whitespace-nowrap bg-transparent outline-none focus:outline-none",
-                      "border-neutral-900 dark:border-white text-neutral-900 dark:text-white",
+                      "py-3 px-3 text-sm font-medium rounded-md whitespace-nowrap bg-transparent outline-none focus:outline-none focus:ring-2 focus:ring-neutral-200 dark:focus:ring-neutral-800",
+                      "text-neutral-900 dark:text-white",
                       isSaving && "opacity-50"
                     )}
                     style={{ width: `${Math.max(editName.length * 8, 60)}px` }}
                     maxLength={100}
                   />
                 ) : (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 relative">
                     <button
-                      onClick={(e) => handleTabClick(tab.id, e)}
+                      onClick={(e) => {
+                        if (hasChildren) {
+                          e.stopPropagation();
+                          setExpandedTabId(expandedTabId === tab.id ? null : tab.id);
+                        } else {
+                          handleTabClick(tab.id, e);
+                        }
+                      }}
                       onDoubleClick={(e) => handleDoubleClick(tab, e)}
                       className={cn(
-                        "py-4 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors cursor-pointer",
+                        "px-3 py-2.5 text-sm font-medium rounded-md whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5",
                         isActive
-                          ? "border-neutral-900 dark:border-white text-neutral-900 dark:text-white"
-                          : "border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300"
+                          ? "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-white"
+                          : "text-neutral-500 dark:text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-900/50"
                       )}
                     >
-                      {tab.name}
+                      <span>{tab.name}</span>
+                      {hasChildren && (
+                        <ChevronDown className={cn(
+                          "w-3 h-3 transition-transform",
+                          shouldBeExpanded && "rotate-180"
+                        )} />
+                      )}
                     </button>
                     
                     {/* Context Menu Trigger */}
@@ -270,17 +306,44 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
                     </DropdownMenu>
                   </div>
                 )}
+                
+                {/* Subtabs - Dropdown under parent */}
+                {hasChildren && shouldBeExpanded && (
+                  <div className="absolute top-full left-0 mt-1 flex flex-col gap-0.5 bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg p-1 z-20 min-w-[160px]">
+                    {tab.children!.map((childTab) => {
+                      const isChildActive = activeTabId === childTab.id;
+                      return (
+                        <button
+                          key={childTab.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTabClick(childTab.id, e);
+                            setExpandedTabId(null);
+                          }}
+                          className={cn(
+                            "px-3 py-2 text-sm font-medium rounded-md whitespace-nowrap transition-all cursor-pointer text-left",
+                            isChildActive
+                              ? "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-white"
+                              : "text-neutral-500 dark:text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-900/50"
+                          )}
+                        >
+                          {childTab.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {/* Add Tab Button */}
+          {/* Add Tab Button - Subtle */}
           <button
             onClick={handleAddTab}
-            className="py-4 text-sm font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 flex items-center gap-1 whitespace-nowrap transition-colors"
+            className="px-3 py-2.5 text-sm font-medium text-neutral-400 dark:text-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 rounded-md flex items-center gap-1.5 whitespace-nowrap transition-all"
           >
-            <Plus className="w-4 h-4" />
-            Add Tab
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add</span>
           </button>
         </div>
       </div>

@@ -49,54 +49,53 @@ export default function ProjectHeader({ project }: ProjectHeaderProps) {
   const dueDate = formatDueDate();
 
   return (
-    <div className="p-6">
-      {/* Back Button */}
+    <div className="px-16 pt-12 pb-8">
+      {/* Back Button - Subtle */}
       <button
         onClick={() => router.push("/dashboard/projects")}
-        className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white mb-4 transition-colors"
+        className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200 mb-8 transition-colors group"
       >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Projects
+        <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+        <span className="font-medium">Projects</span>
       </button>
 
-      {/* Project Info */}
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          {/* Client Name (small, above project name) */}
+      {/* Project Info - Clean, minimal */}
+      <div className="flex items-start justify-between group">
+        <div className="flex-1 min-w-0">
+          {/* Client Name - Subtle, small */}
           {project.client && (
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
-              Client: {project.client.name}
+            <div className="text-xs font-medium text-neutral-400 dark:text-neutral-600 mb-3 tracking-wide uppercase">
+              {project.client.name}
               {project.client.company && ` • ${project.client.company}`}
             </div>
           )}
 
-          {/* Project Name */}
-          <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-3">
+          {/* Project Name - Large, elegant */}
+          <h1 className="text-5xl font-semibold text-neutral-900 dark:text-white mb-6 tracking-tight leading-tight">
             {project.name}
           </h1>
 
-          {/* Status & Due Date */}
-          <div className="flex items-center gap-4 text-sm text-neutral-600 dark:text-neutral-400">
+          {/* Status & Due Date - Minimal dots */}
+          <div className="flex items-center gap-3 text-sm text-neutral-500 dark:text-neutral-500">
             <StatusBadge status={project.status} />
             {dueDate && (
               <>
-                <span>•</span>
-                <span>Due: {dueDate}</span>
+                <span className="text-neutral-300 dark:text-neutral-700">•</span>
+                <span className="font-medium">{dueDate}</span>
               </>
             )}
           </div>
         </div>
 
-        {/* Edit Button */}
+        {/* Edit Button - Ghost, minimal */}
         <button
           onClick={() => {
             // TODO: Open edit project dialog
             console.log("Edit project:", project.id);
           }}
-          className="flex items-center gap-2 px-4 py-2 text-sm border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-500 dark:text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-900 rounded-md transition-all opacity-0 group-hover:opacity-100"
         >
-          <Edit className="w-4 h-4" />
-          Edit Project
+          <Edit className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>

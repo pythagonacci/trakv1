@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar, Paperclip, Video, Image, Maximize2 } from "lucide-react";
+import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar, Paperclip, Video, Image, Maximize2, Layout } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ interface BlockWrapperProps {
   workspaceId?: string;
   projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section") => void;
   onUpdate?: () => void;
   isDragging?: boolean;
 }
@@ -68,11 +68,11 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
           style={style}
           className="relative"
         >
-          <div className="flex gap-4 min-w-0">
-            {/* Drag Handle - Left Side */}
+          <div className="flex gap-2 min-w-0 -ml-2">
+            {/* Drag Handle - Left Side - Subtle */}
             <div
               className={cn(
-                "flex items-center justify-center w-8 shrink-0 opacity-0 transition-opacity",
+                "flex items-start justify-center w-6 shrink-0 pt-2.5 opacity-0 transition-opacity",
                 showHoverUI ? "opacity-100" : "opacity-0",
                 isDragging && "opacity-100"
               )}
@@ -80,38 +80,39 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
               <button
                 {...attributes}
                 {...listeners}
-                className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors touch-none"
+                className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors touch-none"
                 aria-label="Drag to reorder"
               >
-                <GripVertical className="w-4 h-4 text-neutral-400" />
+                <GripVertical className="w-3.5 h-3.5 text-neutral-300 dark:text-neutral-700" />
               </button>
             </div>
 
+            {/* Block Container - Subtle containerization */}
             <div
               className={cn(
-                "flex-1 rounded-lg border transition-all min-w-0 overflow-x-auto overflow-y-visible",
+                "flex-1 rounded-lg transition-all min-w-0 overflow-x-auto overflow-y-visible border",
                 hovered
-                  ? "border-neutral-300 dark:border-neutral-600 shadow-sm"
-                  : "border-neutral-200 dark:border-neutral-800"
+                  ? "bg-white dark:bg-neutral-900/50 border-neutral-200 dark:border-neutral-800 shadow-sm"
+                  : "bg-white dark:bg-neutral-900/30 border-neutral-100 dark:border-neutral-900/50"
               )}
             >
-              {/* Hover Actions - Right Side */}
+              {/* Hover Actions - Right Side - Minimal */}
               <div
                 className={cn(
-                  "absolute -top-3 right-2 flex items-center gap-1 opacity-0 transition-opacity",
+                  "absolute -top-2 right-0 flex items-center gap-0.5 opacity-0 transition-opacity",
                   showHoverUI ? "opacity-100" : "opacity-0",
                   isDragging && "pointer-events-none"
                 )}
               >
 
-                {/* Three-dot Menu */}
+                {/* Three-dot Menu - Ghost button */}
                 <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                   <DropdownMenuTrigger asChild>
                     <button
                       onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-neutral-200 dark:border-neutral-700 bg-white/90 dark:bg-neutral-900/90 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                      className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors"
                     >
-                      <MoreHorizontal className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
+                      <MoreHorizontal className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-600" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-40">
@@ -208,6 +209,16 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
                       <FileText className="w-4 h-4" />
                       PDF
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        onConvert?.(block.id, "section");
+                        setMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Layout className="w-4 h-4" />
+                      Section
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {workspaceId && projectId && (
                       <>
@@ -238,15 +249,15 @@ export default function BlockWrapper({ block, children, workspaceId, projectId, 
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                {/* Delete Button */}
+                {/* Delete Button - Ghost */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete?.(block.id);
                   }}
-                  className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-neutral-200 dark:border-neutral-700 bg-white/90 dark:bg-neutral-900/90 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                  className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-neutral-400 dark:text-neutral-600 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
 

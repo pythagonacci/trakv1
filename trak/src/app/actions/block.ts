@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section";
 
 export interface Block {
   id: string;
@@ -95,6 +95,53 @@ export async function getTabBlocks(tabId: string) {
 }
 
 // ============================================================================
+// 1b. GET CHILD BLOCKS (for sections)
+// ============================================================================
+
+export async function getChildBlocks(parentBlockId: string) {
+  try {
+    const supabase = await createClient();
+
+    // 1. Auth check
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { error: "Unauthorized" };
+    }
+
+    // 2. Get parent block and verify it exists
+    const { data: parentBlock, error: parentError } = await supabase
+      .from("blocks")
+      .select("id, tab_id")
+      .eq("id", parentBlockId)
+      .single();
+
+    if (parentError || !parentBlock) {
+      return { error: "Parent block not found" };
+    }
+
+    // 3. Get all child blocks for this parent block
+    const { data: blocks, error: blocksError } = await supabase
+      .from("blocks")
+      .select("*")
+      .eq("parent_block_id", parentBlockId)
+      .order("position", { ascending: true });
+
+    if (blocksError) {
+      console.error("Get child blocks error:", blocksError);
+      return { error: "Failed to fetch child blocks" };
+    }
+
+    return { data: blocks || [] };
+  } catch (error) {
+    console.error("Get child blocks exception:", error);
+    return { error: "Failed to fetch child blocks" };
+  }
+}
+
+// ============================================================================
 // 2. CREATE BLOCK
 // ============================================================================
 
@@ -104,6 +151,7 @@ export async function createBlock(data: {
   content?: Record<string, any>;
   position?: number;
   column?: number; // Column index: 0, 1, or 2 (defaults to 0)
+  parentBlockId?: string | null; // Parent block ID for nested blocks (e.g., sections)
 }) {
   try {
     const supabase = await createClient();
@@ -151,32 +199,73 @@ export async function createBlock(data: {
       return { error: "Not a member of this workspace" };
     }
 
-    // 5. Determine column (default to 0 if not provided)
-    const column = data.column !== undefined ? data.column : 0;
-    if (column < 0 || column > 2) {
-      return { error: "Column must be between 0 and 2" };
-    }
-
-    // 6. Calculate position if not provided (per column)
-    let position = data.position;
-    if (position === undefined) {
-      // Get max position for this tab in the specified column
-      const { data: maxBlock, error: maxError } = await supabase
+    // 5. Handle parent_block_id
+    let parentBlockId = data.parentBlockId || null;
+    let column: number;
+    
+    // If parentBlockId is provided, verify it exists and belongs to the same tab
+    if (parentBlockId) {
+      const { data: parentBlock, error: parentError } = await supabase
         .from("blocks")
-        .select("position")
-        .eq("tab_id", data.tabId)
-        .eq("column", column)
-        .is("parent_block_id", null)
-        .order("position", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .select("id, tab_id")
+        .eq("id", parentBlockId)
+        .single();
 
-      if (maxError && maxError.code !== "PGRST116") {
-        // PGRST116 is "not found", which is fine for empty tables
-        console.error("Get max position error:", maxError);
+      if (parentError || !parentBlock) {
+        return { error: "Parent block not found" };
       }
 
-      position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
+      if (parentBlock.tab_id !== data.tabId) {
+        return { error: "Parent block must belong to the same tab" };
+      }
+
+      // For nested blocks, column is always 0 (single column layout)
+      column = 0;
+    } else {
+      // Determine column (default to 0 if not provided)
+      column = data.column !== undefined ? data.column : 0;
+      if (column < 0 || column > 2) {
+        return { error: "Column must be between 0 and 2" };
+      }
+    }
+
+    // 6. Calculate position if not provided
+    let position = data.position;
+    if (position === undefined) {
+      if (parentBlockId) {
+        // For nested blocks, get max position among children of the parent
+        const { data: maxBlock, error: maxError } = await supabase
+          .from("blocks")
+          .select("position")
+          .eq("parent_block_id", parentBlockId)
+          .order("position", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (maxError && maxError.code !== "PGRST116") {
+          console.error("Get max position for nested block error:", maxError);
+        }
+
+        position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
+      } else {
+        // For top-level blocks, get max position for this tab in the specified column
+        const { data: maxBlock, error: maxError } = await supabase
+          .from("blocks")
+          .select("position")
+          .eq("tab_id", data.tabId)
+          .eq("column", column)
+          .is("parent_block_id", null)
+          .order("position", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (maxError && maxError.code !== "PGRST116") {
+          // PGRST116 is "not found", which is fine for empty tables
+          console.error("Get max position error:", maxError);
+        }
+
+        position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
+      }
     }
 
     // 7. Create default content based on block type if not provided
@@ -234,6 +323,9 @@ export async function createBlock(data: {
         case "pdf":
           content = { fileId: null };
           break;
+        case "section":
+          content = { height: 400 }; // Default height in pixels
+          break;
       }
     }
 
@@ -242,7 +334,7 @@ export async function createBlock(data: {
       .from("blocks")
       .insert({
         tab_id: data.tabId,
-        parent_block_id: null, // Top-level for now
+        parent_block_id: parentBlockId,
         type: data.type,
         content: content,
         position: position,

@@ -196,8 +196,8 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   if (isEditing) {
     return (
       <div className="relative">
-        {/* Toolbar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+        {/* Toolbar - Minimal, elegant */}
+        <div className="flex items-center gap-1 px-2 py-1.5 mb-1 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-sm rounded-t-md">
           {/* Bold */}
           <button
             onMouseDown={(e) => {
@@ -282,15 +282,15 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
           </div>
         </div>
 
-        {/* Textarea */}
+        {/* Textarea - Seamless, elegant */}
         <textarea
           ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          className="w-full p-5 bg-transparent border-none focus:outline-none resize-none min-h-[200px] text-sm text-neutral-900 dark:text-white leading-relaxed"
-          placeholder="Start writing..."
+          className="w-full px-2 py-3 bg-transparent border-none focus:outline-none resize-none min-h-[120px] text-[15px] text-neutral-900 dark:text-white leading-relaxed font-normal"
+          placeholder="Type / for commands..."
         />
       </div>
     );
@@ -367,7 +367,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     <div>
       <div
         onClick={handleEdit}
-        className="p-5 cursor-text text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed"
+        className="px-2 py-3 cursor-text text-[15px] text-neutral-700 dark:text-neutral-300 leading-relaxed font-normal"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
       {/* Attached Files List */}

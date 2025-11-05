@@ -13,24 +13,26 @@ import VideoBlock from "./video-block";
 import ImageBlock from "./image-block";
 import EmbedBlock from "./embed-block";
 import PdfBlock from "./pdf-block";
+import SectionBlock from "./section-block";
 
 interface BlockRendererProps {
   block: Block;
   workspaceId: string;
   projectId: string;
+  tabId?: string;
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section") => void;
   isDragging?: boolean;
 }
 
-export default function BlockRenderer({ block, workspaceId, projectId, onUpdate, onDelete, onConvert, isDragging }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, isDragging }: BlockRendererProps) {
   const renderBlockContent = () => {
     switch (block.type) {
       case "text":
         return <TextBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "task":
-        return <TaskBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} />; // NEW: Pass workspaceId
+        return <TaskBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} />;
       case "link":
         return <LinkBlock block={block} />;
       case "divider":
@@ -49,6 +51,12 @@ export default function BlockRenderer({ block, workspaceId, projectId, onUpdate,
         return <EmbedBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "pdf":
         return <PdfBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "section":
+        return tabId ? (
+          <SectionBlock block={block} workspaceId={workspaceId} projectId={projectId} tabId={tabId} onUpdate={onUpdate} />
+        ) : (
+          <div className="p-5 text-sm text-neutral-500">Section requires tabId</div>
+        );
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">

@@ -129,7 +129,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     router.refresh();
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section") => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {
@@ -172,6 +172,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       newContent = { url: "", displayMode: "inline" };
     } else if (newType === "pdf") {
       newContent = { fileId: null };
+    } else if (newType === "section") {
+      newContent = { height: 400 };
     }
 
     const result = await updateBlock({
@@ -427,11 +429,11 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         </div>
       ) : !isMounted ? (
         // Render without DnD during SSR to avoid hydration mismatch
-        <div className="space-y-6">
+        <div className="space-y-4">
           {blockRows.map((row, rowIdx) => (
             <div 
               key={rowIdx} 
-              className={`grid gap-6 ${row.maxColumns === 1 ? 'grid-cols-1' : row.maxColumns === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
+              className={`grid gap-4 ${row.maxColumns === 1 ? 'grid-cols-1' : row.maxColumns === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
             >
               {row.blocks.map((block) => (
                 <div key={block.id} className="min-w-0 w-full">
@@ -439,6 +441,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                     block={block}
                     workspaceId={workspaceId}
                     projectId={projectId}
+                    tabId={tabId}
                     onUpdate={handleUpdate}
                     onDelete={handleDelete}
                     onConvert={handleConvert}
@@ -456,7 +459,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="space-y-6">
+          <div className="space-y-4">
             {blockRows.map((row, rowIdx) => {
               const rowBlockIds = row.blocks.map(b => b.id);
               return (
@@ -466,7 +469,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                   strategy={verticalListSortingStrategy}
                 >
                   <div 
-                    className={`grid gap-6 ${row.maxColumns === 1 ? 'grid-cols-1' : row.maxColumns === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
+                    className={`grid gap-4 ${row.maxColumns === 1 ? 'grid-cols-1' : row.maxColumns === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
                   >
                     {/* Render blocks, ensuring proper column placement */}
                     {Array.from({ length: row.maxColumns }).map((_, colIdx) => {
@@ -486,6 +489,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                             block={blockInThisColumn}
                             workspaceId={workspaceId}
                             projectId={projectId}
+                            tabId={tabId}
                             onUpdate={handleUpdate}
                             onDelete={handleDelete}
                             onConvert={handleConvert}
@@ -502,8 +506,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         </DndContext>
       )}
 
-      {/* Add Block Button */}
-      <div className="flex gap-2">
+      {/* Add Block Button - Subtle, minimal */}
+      <div className="flex gap-2 mt-4">
         <AddBlockButton tabId={tabId} projectId={projectId} />
       </div>
     </div>

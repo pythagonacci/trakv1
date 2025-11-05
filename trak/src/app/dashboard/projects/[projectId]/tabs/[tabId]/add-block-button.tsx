@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout } from "lucide-react";
 import { createBlock, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ interface AddBlockButtonProps {
   tabId: string;
   projectId: string;
   variant?: "default" | "large";
+  parentBlockId?: string | null;
+  onBlockCreated?: () => void;
 }
 
 const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode; description: string }> = [
@@ -85,9 +87,15 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     icon: <FileText className="w-4 h-4" />,
     description: "Upload and view PDF documents",
   },
+  {
+    type: "section",
+    label: "Section",
+    icon: <Layout className="w-4 h-4" />,
+    description: "Scrollable container for grouping blocks",
+  },
 ];
 
-export default function AddBlockButton({ tabId, projectId, variant = "default" }: AddBlockButtonProps) {
+export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated }: AddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
 
@@ -97,6 +105,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default" }
       const result = await createBlock({
         tabId,
         type,
+        parentBlockId: parentBlockId || null,
       });
 
       if (result.error) {
@@ -107,8 +116,12 @@ export default function AddBlockButton({ tabId, projectId, variant = "default" }
         return;
       }
 
-      // Refresh the page to show the new block
-      router.refresh();
+      // Call callback if provided, otherwise refresh
+      if (onBlockCreated) {
+        onBlockCreated();
+      } else {
+        router.refresh();
+      }
     } catch (error) {
       console.error("Create block exception:", error);
       setIsCreating(false);
@@ -120,13 +133,13 @@ export default function AddBlockButton({ tabId, projectId, variant = "default" }
       disabled={isCreating}
       className={cn(
         variant === "large"
-          ? "px-6 py-3 text-base font-medium"
-          : "px-3 py-2 text-sm",
-        "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg flex items-center gap-2 transition-colors border border-neutral-200 dark:border-neutral-700 disabled:opacity-50"
+          ? "px-4 py-2.5 text-sm font-medium"
+          : "px-3 py-1.5 text-sm",
+        "text-neutral-400 dark:text-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 rounded-md flex items-center gap-2 transition-all disabled:opacity-50 border border-transparent hover:border-neutral-200 dark:hover:border-neutral-800"
       )}
     >
-      <Plus className={variant === "large" ? "w-5 h-5" : "w-4 h-4"} />
-      Add Block
+      <Plus className={variant === "large" ? "w-4 h-4" : "w-3.5 h-3.5"} />
+      <span>{variant === "large" ? "Add block" : "Add"}</span>
     </button>
   );
 
