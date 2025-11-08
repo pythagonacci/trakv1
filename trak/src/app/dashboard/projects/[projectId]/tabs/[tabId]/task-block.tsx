@@ -13,13 +13,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-
-type TaskStatus = "todo" | "in-progress" | "done";
+import { clsx } from "clsx";
 
 interface Task {
   id: string | number;
   text: string;
-  status: TaskStatus;
+  status: "todo" | "in-progress" | "done";
   assignee?: string;
   dueDate?: string;
 }
@@ -39,7 +38,7 @@ interface TaskBlockProps {
 
 export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockProps) {
   const content = (block.content || {}) as { title?: string; tasks?: Task[] };
-  const title = content.title || "New Task List";
+  const title = content.title || "Task list";
   const tasks = content.tasks || [];
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -47,52 +46,30 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
   const [editingTaskId, setEditingTaskId] = useState<string | number | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [hoveredTaskId, setHoveredTaskId] = useState<string | number | null>(null);
 
-  // Load workspace members
   useEffect(() => {
-    if (!workspaceId) {
-      console.warn('⚠️ No workspaceId provided to TaskBlock');
-      return;
-    }
-
     const loadMembers = async () => {
-      console.log('📋 Loading members for workspace:', workspaceId);
       const result = await getWorkspaceMembers(workspaceId);
-      console.log('📋 getWorkspaceMembers result:', result);
       if (result.data) {
-        console.log('✅ Loaded members:', result.data);
-        console.log('✅ Members count:', result.data.length);
         setMembers(result.data);
-      } else if (result.error) {
-        console.error('❌ Error loading members:', result.error);
-        setMembers([]); // Set empty array on error
       }
     };
-
     loadMembers();
   }, [workspaceId]);
 
   const toggleTask = async (taskId: string | number) => {
-    const newTasks = tasks.map((t: Task) => {
-      if (t.id === taskId) {
-        // Cycle: todo -> in-progress -> done -> todo
-        if (t.status === "todo") return { ...t, status: "in-progress" as TaskStatus };
-        if (t.status === "in-progress") return { ...t, status: "done" as TaskStatus };
-        return { ...t, status: "todo" as TaskStatus };
-      }
-      return t;
+    const newTasks = tasks.map((task) => {
+      if (task.id !== taskId) return task;
+      if (task.status === "todo") return { ...task, status: "in-progress" } as Task;
+      if (task.status === "in-progress") return { ...task, status: "done" } as Task;
+      return { ...task, status: "todo" } as Task;
     });
 
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { ...content, tasks: newTasks },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to update task:", error);
-    }
+    await updateBlock({
+      blockId: block.id,
+      content: { ...content, tasks: newTasks },
+    });
+    onUpdate?.();
   };
 
   const addTask = async () => {
@@ -102,276 +79,135 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
       status: "todo",
     };
     const newTasks = [...tasks, newTask];
-
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { ...content, tasks: newTasks },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to add task:", error);
-    }
+    await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    onUpdate?.();
   };
 
   const deleteTask = async (taskId: string | number) => {
-    const newTasks = tasks.filter((t: Task) => t.id !== taskId);
-
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { ...content, tasks: newTasks },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to delete task:", error);
-    }
+    const newTasks = tasks.filter((task) => task.id !== taskId);
+    await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    onUpdate?.();
   };
 
-  const updateTaskText = async (taskId: string | number, newText: string) => {
-    const newTasks = tasks.map((t: Task) => (t.id === taskId ? { ...t, text: newText } : t));
-
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { ...content, tasks: newTasks },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to update task text:", error);
-    }
+  const updateTask = async (taskId: string | number, updates: Partial<Task>) => {
+    const newTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
+    await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    onUpdate?.();
   };
 
-  const updateTaskAssignee = async (taskId: string | number, assignee: string | undefined) => {
-    const newTasks = tasks.map((t: Task) => (t.id === taskId ? { ...t, assignee } : t));
-
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { ...content, tasks: newTasks },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to update task assignee:", error);
-    }
-  };
-
-  const updateTaskDueDate = async (taskId: string | number, dueDate: string | undefined) => {
-    const newTasks = tasks.map((t: Task) => (t.id === taskId ? { ...t, dueDate } : t));
-
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { ...content, tasks: newTasks },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to update task due date:", error);
-    }
-  };
-
-  const updateTitle = async () => {
-    setEditingTitle(false);
-    if (titleValue !== title) {
-      try {
-        await updateBlock({
-          blockId: block.id,
-          content: { ...content, title: titleValue },
-        });
-        onUpdate?.();
-      } catch (error) {
-        console.error("Failed to update title:", error);
-      }
-    }
-  };
-
-  const startEditingTask = (taskId: string | number, currentText: string) => {
-    setEditingTaskId(taskId);
-    setEditingTaskText(currentText);
-  };
-
-  const finishEditingTask = async (taskId: string | number) => {
-    setEditingTaskId(null);
-    if (editingTaskText.trim()) {
-      await updateTaskText(taskId, editingTaskText);
-    }
-  };
-
-  const getStatusIcon = (status: TaskStatus) => {
-    if (status === "done") {
-      return <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500" />;
-    }
-    if (status === "in-progress") {
-      return <Clock className="w-5 h-5 text-blue-600 dark:text-blue-500" />;
-    }
-    return <Circle className="w-5 h-5 text-neutral-300 dark:text-neutral-600" />;
-  };
+  const getStatusIcon = (status: Task["status"]) =>
+    status === "done" ? (
+      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+    ) : status === "in-progress" ? (
+      <Clock className="w-5 h-5 text-[#1d4ed8]" />
+    ) : (
+      <Circle className="w-5 h-5 text-neutral-300 dark:text-neutral-600" />
+    );
 
   return (
-    <div className="p-5">
-      {/* Title - Editable */}
-      {editingTitle ? (
-        <input
-          type="text"
-          value={titleValue}
-          onChange={(e) => setTitleValue(e.target.value)}
-          onBlur={updateTitle}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") updateTitle();
-            if (e.key === "Escape") {
-              setTitleValue(title);
-              setEditingTitle(false);
-            }
-          }}
-          autoFocus
-          className="font-semibold text-neutral-900 dark:text-white mb-4 w-full bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1"
-        />
-      ) : (
-        <div
-          onClick={() => setEditingTitle(true)}
-          className="font-semibold text-neutral-900 dark:text-white mb-4 cursor-text hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
-        >
-          {title}
-        </div>
-      )}
-
-      {/* Tasks */}
-      <div className="space-y-3">
+    <div className="p-4">
+      <div className="mb-3 font-semibold text-[var(--foreground)] text-sm uppercase tracking-wide">{title}</div>
+      <div className="space-y-2.5">
         {tasks.map((task: Task) => (
-          <div
-            key={task.id}
-            className="flex items-start gap-3 group"
-            onMouseEnter={() => setHoveredTaskId(task.id)}
-            onMouseLeave={() => setHoveredTaskId(null)}
-          >
-            {/* Status Icon */}
+          <div key={task.id} className="flex items-start gap-3">
             <button
               onClick={() => toggleTask(task.id)}
-              className="mt-px shrink-0"
-              aria-label={`Toggle task: ${task.text}`}
+              className="mt-1 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]"
+              aria-label="Toggle task"
             >
               {getStatusIcon(task.status)}
             </button>
 
-            {/* Task Content */}
-            <div className="flex-1 min-w-0">
-              {/* Task Text - Editable */}
+            <div className="flex-1 space-y-2">
               {editingTaskId === task.id ? (
                 <input
-                  type="text"
                   value={editingTaskText}
                   onChange={(e) => setEditingTaskText(e.target.value)}
-                  onBlur={() => finishEditingTask(task.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") finishEditingTask(task.id);
-                    if (e.key === "Escape") setEditingTaskId(null);
+                  onBlur={() => {
+                    setEditingTaskId(null);
+                    if (editingTaskText.trim()) {
+                      updateTask(task.id, { text: editingTaskText.trim() });
+                    }
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.currentTarget.blur();
+                    }
+                    if (e.key === "Escape") {
+                      setEditingTaskId(null);
+                    }
+                  }}
+                  className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
                   autoFocus
-                  className="text-sm w-full bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1"
                 />
               ) : (
-                <div
-                  onClick={() => startEditingTask(task.id, task.text)}
-                  className={cn(
-                    "text-sm leading-snug cursor-text hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded px-2 py-1 -mx-2 -my-1 transition-colors",
+                <button
+                  onClick={() => {
+                    setEditingTaskId(task.id);
+                    setEditingTaskText(task.text);
+                  }}
+                  className={clsx(
+                    "text-sm leading-snug",
                     task.status === "done"
-                      ? "line-through text-neutral-400 dark:text-neutral-500"
-                      : "text-neutral-900 dark:text-white"
+                      ? "line-through text-neutral-400"
+                      : "text-[var(--foreground)]"
                   )}
                 >
                   {task.text}
-                </div>
+                </button>
               )}
 
-              {/* Assignee & Due Date */}
-              <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 mt-1.5">
-                {/* Assignee Selector */}
+              <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--tertiary-foreground)] mt-1">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-white transition-colors">
-                      <User className="w-3 h-3" />
-                      <span>{task.assignee || "Unassigned"}</span>
-                      <ChevronDown className="w-3 h-3" />
+                    <button className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]">
+                      <User className="h-3.5 w-3.5" />
+                      {task.assignee || "Assign"}
+                      <ChevronDown className="h-3 w-3" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent 
-                    align="start" 
-                    className="w-56 max-h-64 overflow-y-auto z-50"
-                    sideOffset={5}
-                  >
-                    <DropdownMenuItem
-                      onClick={() => updateTaskAssignee(task.id, undefined)}
-                      className="text-neutral-500"
-                    >
-                      Unassigned
-                    </DropdownMenuItem>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuItem onClick={() => updateTask(task.id, { assignee: undefined })}>Unassigned</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {members.length > 0 ? (
-                      members.map((member) => (
-                        <DropdownMenuItem
-                          key={member.id}
-                          onClick={() => updateTaskAssignee(task.id, member.name)}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                              {member.name[0]?.toUpperCase() || "?"}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm truncate">{member.name}</div>
-                              <div className="text-xs text-neutral-500 truncate">{member.email}</div>
-                            </div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <DropdownMenuItem disabled className="text-neutral-400">
-                        Loading members...
+                    {members.map((member) => (
+                      <DropdownMenuItem key={member.id} onClick={() => updateTask(task.id, { assignee: member.name })}>
+                        {member.name}
                       </DropdownMenuItem>
-                    )}
+                    ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                {/* Due Date Picker */}
-                <div className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
+                <div className="inline-flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5" />
                   <input
                     type="date"
                     value={task.dueDate || ""}
-                    onChange={(e) => updateTaskDueDate(task.id, e.target.value || undefined)}
-                    className="bg-transparent border-none text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 cursor-pointer hover:text-neutral-900 dark:hover:text-white transition-colors"
+                    onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
+                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
                   />
                   {task.dueDate && (
-                    <button
-                      onClick={() => updateTaskDueDate(task.id, undefined)}
-                      className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-                      title="Clear due date"
-                    >
-                      <X className="w-3 h-3" />
+                    <button onClick={() => updateTask(task.id, { dueDate: undefined })} className="text-[var(--tertiary-foreground)]">
+                      <X className="h-3 w-3" />
                     </button>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Delete Button */}
-            {hoveredTaskId === task.id && (
-              <button
-                onClick={() => deleteTask(task.id)}
-                className="shrink-0 p-1 text-neutral-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                aria-label="Delete task"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              onClick={() => deleteTask(task.id)}
+              className="hidden h-8 w-8 items-center justify-center rounded-full border border-transparent text-[var(--tertiary-foreground)] transition-colors hover:border-[var(--border)] hover:text-red-500 group-hover:flex"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         ))}
 
-        {/* Add Task Button */}
         <button
           onClick={addTask}
-          className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white flex items-center gap-1.5 mt-2 transition-colors"
+          className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
-          <Plus className="w-4 h-4" /> Add task
+          <Plus className="w-3.5 h-3.5" /> Add task
         </button>
       </div>
     </div>

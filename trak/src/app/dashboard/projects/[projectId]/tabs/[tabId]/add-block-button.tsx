@@ -133,12 +133,12 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       disabled={isCreating}
       className={cn(
         variant === "large"
-          ? "px-4 py-2.5 text-sm font-medium"
+          ? "px-3 py-1.75 text-sm font-medium"
           : "px-3 py-1.5 text-sm",
-        "text-neutral-400 dark:text-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 rounded-md flex items-center gap-2 transition-all disabled:opacity-50 border border-transparent hover:border-neutral-200 dark:hover:border-neutral-800"
+        "flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
       )}
     >
-      <Plus className={variant === "large" ? "w-4 h-4" : "w-3.5 h-3.5"} />
+      <Plus className={variant === "large" ? "h-3.5 w-3.5" : "h-3 w-3"} />
       <span>{variant === "large" ? "Add block" : "Add"}</span>
     </button>
   );
@@ -148,17 +148,19 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       <DropdownMenuTrigger asChild>
         {triggerButton}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="start" className="w-60">
         {blockTypes.map((blockType) => (
           <DropdownMenuItem
             key={blockType.type}
             onClick={() => handleCreateBlock(blockType.type)}
-            className="flex items-center gap-3 px-3 py-2 cursor-pointer"
+            className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
           >
-            <div className="text-neutral-500 dark:text-neutral-400">{blockType.icon}</div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--foreground)]">
+              {blockType.icon}
+            </div>
             <div className="flex-1">
-              <div className="text-sm font-medium text-neutral-900 dark:text-white">{blockType.label}</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">{blockType.description}</div>
+              <div className="font-medium text-[var(--foreground)]">{blockType.label}</div>
+              <div className="text-xs text-[var(--tertiary-foreground)]">{blockType.description}</div>
             </div>
           </DropdownMenuItem>
         ))}

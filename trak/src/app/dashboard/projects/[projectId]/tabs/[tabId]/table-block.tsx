@@ -37,7 +37,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   const [resizeStartX, setResizeStartX] = useState(0);
   const [resizeStartWidth, setResizeStartWidth] = useState(0);
   const [tempColumnWidths, setTempColumnWidths] = useState<number[]>(columnWidths);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Ensure cells array matches rows/cols dimensions
@@ -117,8 +117,8 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
     [cells, block.id, content, onUpdate]
   );
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, row: number, col: number) => {
-    if (e.key === "Enter") {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, row: number, col: number) => {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       saveCell(row, col, editValue);
       setEditingCell(null);
@@ -129,6 +129,9 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
       } else if (row < rows - 1) {
         startEditing(row + 1, 0);
       }
+    } else if (e.key === "Enter" && e.shiftKey) {
+      // Shift+Enter: insert newline (default behavior, don't prevent)
+      // The textarea will handle this naturally
     } else if (e.key === "Escape") {
       setEditingCell(null);
       setEditValue("");
@@ -288,58 +291,67 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   };
 
   return (
-    <div className="p-5">
+    <div className="space-y-6 rounded-xl border border-[var(--border)] bg-white/95 p-6 shadow-sm dark:bg-[#121212]">
       {/* Table Title/Header */}
-      <div className="mb-4 pb-3 border-b border-neutral-200 dark:border-neutral-700">
+      <div className="mb-6 border-b border-[var(--border)] pb-4">
         {editingTitle ? (
           <input
-            ref={titleInputRef}
+            id="tab-name"
             type="text"
             value={titleValue}
             onChange={(e) => setTitleValue(e.target.value)}
             onBlur={handleTitleBlur}
             onKeyDown={handleTitleKeyDown}
             placeholder="Table title..."
-            className="w-full text-lg font-semibold text-neutral-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1 placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+            className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+            disabled={false}
+            autoFocus
+            maxLength={100}
           />
         ) : (
           <div
             onClick={() => setEditingTitle(true)}
-            className="text-lg font-semibold text-neutral-900 dark:text-white cursor-text hover:bg-neutral-50 dark:hover:bg-neutral-800/50 rounded px-2 py-1 -mx-2 -my-1 transition-colors min-h-[32px] flex items-center"
+            className="flex min-h-[32px] items-center rounded-lg px-3 py-2 text-lg font-semibold text-[var(--foreground)] transition-colors hover:bg-surface-hover"
           >
             {title || <span className="text-neutral-400 dark:text-neutral-500 font-normal">Table title...</span>}
           </div>
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
         <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
-          <thead className="border-b-2 border-neutral-300 dark:border-neutral-600">
+          <thead className="bg-surface">
             <tr>
               {Array.from({ length: cols }).map((_, colIndex) => (
                 <th
                   key={colIndex}
-                  className="relative border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/80 font-semibold text-sm text-neutral-900 dark:text-white px-4 py-3 text-left"
+                  className="relative border-r border-[var(--border)] bg-white px-4 py-3 text-left text-sm font-semibold text-[var(--muted-foreground)] last:border-r-0"
                   style={{ width: `${displayWidths[colIndex] || 150}px`, minWidth: "100px" }}
                   onMouseEnter={() => setHoveredCol(colIndex)}
                   onMouseLeave={() => setHoveredCol(null)}
                 >
                   <div className="flex items-center justify-between">
                     {editingCell?.row === 0 && editingCell?.col === colIndex ? (
-                      <input
+                      <textarea
                         ref={inputRef}
-                        type="text"
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onBlur={() => handleBlur(0, colIndex)}
                         onKeyDown={(e) => handleKeyDown(e, 0, colIndex)}
                         placeholder="Header..."
-                        className="flex-1 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 py-0.5 -mx-1 -my-0.5 placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+                        className="min-h-[20px] w-full resize-none rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] placeholder:text-[var(--tertiary-foreground)]"
+                        rows={1}
+                        style={{ overflow: 'hidden' }}
+                        onInput={(e) => {
+                          const target = e.target as HTMLTextAreaElement;
+                          target.style.height = 'auto';
+                          target.style.height = `${target.scrollHeight}px`;
+                        }}
                       />
                     ) : (
                       <div
                         onClick={() => startEditing(0, colIndex)}
-                        className="flex-1 cursor-text hover:bg-neutral-200 dark:hover:bg-neutral-700/50 rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors min-h-[24px]"
+                        className="flex-1 cursor-text rounded-md px-2 py-1 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-surface-hover"
                       >
                         {cells[0]?.[colIndex] || <span className="text-neutral-400 dark:text-neutral-500">Header...</span>}
                       </div>
@@ -351,7 +363,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                           e.stopPropagation();
                           deleteColumn(colIndex);
                         }}
-                        className="ml-2 p-1 text-neutral-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                        className="ml-2 rounded-md p-1 text-[var(--tertiary-foreground)] transition-colors hover:bg-red-50 hover:text-red-500"
                         title="Delete column"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -362,18 +374,18 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                   <div
                     onMouseDown={(e) => handleResizeStart(colIndex, e)}
                     className={cn(
-                      "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-10",
-                      resizingCol === colIndex && "bg-blue-500"
+                      "absolute top-0 right-0 w-1 h-full cursor-col-resize transition-colors",
+                      resizingCol === colIndex ? "bg-[var(--foreground)]" : "bg-transparent hover:bg-[var(--surface-muted)]"
                     )}
-                    style={{ marginRight: "-2px" }}
+                    style={{ marginRight: "-1px" }}
                   />
                 </th>
               ))}
               {/* Add column button */}
-              <th className="border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 p-2 w-12">
+              <th className="w-12 border-t border-[var(--border)] bg-surface px-3 py-2 text-center">
                 <button
                   onClick={addColumn}
-                  className="w-full h-full flex items-center justify-center text-neutral-500 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors"
+                  className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
                   title="Add column"
                 >
                   <Plus className="w-4 h-4" />
@@ -394,23 +406,29 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                   {Array.from({ length: cols }).map((_, colIndex) => (
                     <td
                       key={colIndex}
-                      className="border border-neutral-200 dark:border-neutral-800 p-2 text-sm text-neutral-900 dark:text-white"
+                      className="border border-[var(--border)] p-2 text-sm text-[var(--foreground)]"
                       style={{ width: `${displayWidths[colIndex] || 150}px` }}
                     >
                       {editingCell?.row === actualRowIndex && editingCell?.col === colIndex ? (
-                        <input
+                        <textarea
                           ref={inputRef}
-                          type="text"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => handleBlur(actualRowIndex, colIndex)}
                           onKeyDown={(e) => handleKeyDown(e, actualRowIndex, colIndex)}
-                          className="w-full bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 py-0.5 -mx-1 -my-0.5"
+                          className="min-h-[24px] w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+                          rows={1}
+                          style={{ overflow: 'hidden' }}
+                          onInput={(e) => {
+                            const target = e.target as HTMLTextAreaElement;
+                            target.style.height = 'auto';
+                            target.style.height = `${target.scrollHeight}px`;
+                          }}
                         />
                       ) : (
                         <div
                           onClick={() => startEditing(actualRowIndex, colIndex)}
-                          className="cursor-text hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors min-h-[24px]"
+                          className="min-h-[24px] cursor-text rounded-md px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
                         >
                           {cells[actualRowIndex]?.[colIndex] || ""}
                         </div>
@@ -424,21 +442,21 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         </table>
 
         {/* Add row button */}
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={addRow}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors border border-neutral-200 dark:border-neutral-700"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             Add row
           </button>
           {/* Delete row button - shows on hover */}
           {hoveredRow !== null && hoveredRow > 0 && rows > 1 && (
             <button
               onClick={() => deleteRow(hoveredRow)}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors border border-red-200 dark:border-red-800"
+              className="inline-flex items-center gap-1.5 rounded-md border border-red-100 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:border-red-200 hover:bg-red-100"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
               Delete row
             </button>
           )}

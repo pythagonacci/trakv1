@@ -23,6 +23,7 @@ import { type Block, deleteBlock, updateBlock, createBlock } from "@/app/actions
 import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
+import { cn } from "@/lib/utils";
 
 interface TabCanvasProps {
   tabId: string;
@@ -411,11 +412,11 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-2">
       {!hasBlocks ? (
-        <div 
-          onClick={handleEmptyCanvasClick} 
-          className="cursor-text min-h-[400px]"
+        <div
+          onClick={handleEmptyCanvasClick}
+          className="cursor-text rounded-2xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
           role="button"
           tabIndex={0}
           onKeyDown={(e) => {
@@ -428,15 +429,17 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           <EmptyCanvasState tabId={tabId} projectId={projectId} />
         </div>
       ) : !isMounted ? (
-        // Render without DnD during SSR to avoid hydration mismatch
-        <div className="space-y-4">
+        <div className="space-y-8">
           {blockRows.map((row, rowIdx) => (
-            <div 
-              key={rowIdx} 
-              className={`grid gap-4 ${row.maxColumns === 1 ? 'grid-cols-1' : row.maxColumns === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
+            <div
+              key={rowIdx}
+              className={cn(
+                "grid gap-6",
+                row.maxColumns === 1 ? "grid-cols-1" : row.maxColumns === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+              )}
             >
               {row.blocks.map((block) => (
-                <div key={block.id} className="min-w-0 w-full">
+                <div key={block.id} className="min-w-0">
                   <BlockRenderer
                     block={block}
                     workspaceId={workspaceId}
@@ -459,32 +462,33 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="space-y-4">
+          <div className="space-y-6">
             {blockRows.map((row, rowIdx) => {
-              const rowBlockIds = row.blocks.map(b => b.id);
+              const rowBlockIds = row.blocks.map((b) => b.id);
               return (
-                <SortableContext
-                  key={rowIdx}
-                  items={rowBlockIds}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div 
-                    className={`grid gap-4 ${row.maxColumns === 1 ? 'grid-cols-1' : row.maxColumns === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
+                <SortableContext key={rowIdx} items={rowBlockIds} strategy={verticalListSortingStrategy}>
+                  <div
+                    className={cn(
+                      "grid gap-6",
+                      row.maxColumns === 1
+                        ? "grid-cols-1"
+                        : row.maxColumns === 2
+                        ? "grid-cols-1 md:grid-cols-2"
+                        : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+                    )}
                   >
-                    {/* Render blocks, ensuring proper column placement */}
                     {Array.from({ length: row.maxColumns }).map((_, colIdx) => {
-                      const blockInThisColumn = row.blocks.find(block => {
+                      const blockInThisColumn = row.blocks.find((block) => {
                         const col = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
                         return col === colIdx;
                       });
-                      
+
                       if (!blockInThisColumn) {
-                        // Empty slot - render nothing or a placeholder
-                        return <div key={`empty-${colIdx}`} />;
+                        return <div key={`empty-${rowIdx}-${colIdx}`} className="hidden md:block" />;
                       }
-                      
+
                       return (
-                        <div key={blockInThisColumn.id} className="min-w-0 w-full">
+                        <div key={blockInThisColumn.id} className="min-w-0">
                           <BlockRenderer
                             block={blockInThisColumn}
                             workspaceId={workspaceId}
@@ -506,8 +510,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         </DndContext>
       )}
 
-      {/* Add Block Button - Subtle, minimal */}
-      <div className="flex gap-2 mt-4">
+      <div className="flex gap-3 pt-4">
         <AddBlockButton tabId={tabId} projectId={projectId} />
       </div>
     </div>

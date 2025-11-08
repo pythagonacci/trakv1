@@ -1,22 +1,23 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { 
-  Folder, 
-  Users, 
-  CreditCard, 
+import {
+  Folder,
+  Users,
+  CreditCard,
   ChevronDown,
   Plus,
   Check,
   LogOut,
   Loader2,
   Menu,
-  X
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWorkspace } from "./workspace-context";
 import { logout } from "@/app/actions/auth";
+import { cn } from "@/lib/utils";
 
 interface User {
   id: string;
@@ -40,17 +41,12 @@ export default function DashboardLayoutClient({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className="flex h-screen bg-neutral-50 p-4 gap-4">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-[var(--surface)] text-[var(--foreground)]">
       <Sidebar currentUser={currentUser} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
-      
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 transition-all duration-300">
-        {/* Header */}
+
+      <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
-        
-        {/* Content Area */}
-        <main className="flex-1 overflow-auto p-8 bg-white border border-neutral-200 rounded-lg shadow-sm">
+        <main className="flex-1 overflow-y-auto px-3 py-4 md:px-4 lg:px-5 lg:py-5">
           {children}
         </main>
       </div>
@@ -58,7 +54,15 @@ export default function DashboardLayoutClient({
   );
 }
 
-function Sidebar({ currentUser, collapsed, setCollapsed }: { currentUser: User | null; collapsed: boolean; setCollapsed: (collapsed: boolean) => void }) {
+function Sidebar({
+  currentUser,
+  collapsed,
+  setCollapsed,
+}: {
+  currentUser: User | null;
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+}) {
   const pathname = usePathname();
   const { currentWorkspace, workspaces, switchWorkspace, isSwitching } = useWorkspace();
   const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
@@ -66,29 +70,26 @@ function Sidebar({ currentUser, collapsed, setCollapsed }: { currentUser: User |
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Get workspace initials
   const getInitials = (name?: string | null) => {
-    if (!name) return 'W';
+    if (!name) return "W";
     return name
-      .split(' ')
-      .map(word => word[0])
-      .join('')
+      .split(" ")
+      .map((word) => word[0])
+      .join("")
       .toUpperCase()
       .slice(0, 2);
   };
 
-  // Get user initials
   const getUserInitials = () => {
-    if (!currentUser || !currentUser.name) return 'U';
+    if (!currentUser || !currentUser.name) return "U";
     return currentUser.name
-      .split(' ')
-      .map(word => word[0])
-      .join('')
+      .split(" ")
+      .map((word) => word[0])
+      .join("")
       .toUpperCase()
       .slice(0, 2);
   };
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (workspaceDropdownRef.current && !workspaceDropdownRef.current.contains(event.target as Node)) {
@@ -112,174 +113,167 @@ function Sidebar({ currentUser, collapsed, setCollapsed }: { currentUser: User |
   };
 
   return (
-    <aside className={`${collapsed ? 'w-16' : 'w-64'} bg-white border border-neutral-200 flex flex-col rounded-lg overflow-hidden shadow-sm transition-all duration-300`}>
-      {/* Toggle Button */}
-      <div className="p-4 border-b border-neutral-200">
+    <aside
+      className={cn(
+        "flex h-screen flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-all duration-200 ease-out",
+        collapsed ? "w-16" : "w-56"
+      )}
+    >
+      <div className="flex items-center justify-between px-3.5 py-2.5">
+        {!collapsed && (
+          <span className="text-[11px] font-medium uppercase tracking-[0.38em] text-[var(--tertiary-foreground)]">
+            Trak
+          </span>
+        )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center p-2 hover:bg-neutral-100 rounded-lg transition-colors"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? <Menu className="w-5 h-5 text-neutral-700" /> : <X className="w-5 h-5 text-neutral-700" />}
+          {collapsed ? <Menu className="h-4 w-4" /> : <X className="h-4 w-4" />}
         </button>
       </div>
 
-      {/* Workspace Switcher */}
-      {!collapsed && (
-        <div className="p-4 border-b border-neutral-200" ref={workspaceDropdownRef}>
-          <button 
-            onClick={() => setWorkspaceDropdownOpen(!workspaceDropdownOpen)}
-            disabled={isSwitching}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-neutral-100 rounded-xl transition-colors disabled:opacity-50"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                {isSwitching ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                ) : (
-                  <span className="text-sm font-semibold text-white">
-                    {currentWorkspace ? getInitials(currentWorkspace.name) : 'W'}
-                  </span>
-                )}
+      <div className="flex-1 overflow-y-auto">
+        {!collapsed && (
+          <div className="px-3.5 pb-2" ref={workspaceDropdownRef}>
+            <button
+              onClick={() => setWorkspaceDropdownOpen(!workspaceDropdownOpen)}
+              disabled={isSwitching}
+              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left shadow-sm transition-all duration-150 ease-out hover:shadow-md disabled:opacity-60"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[10px] font-semibold text-[var(--foreground)]">
+                {isSwitching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : getInitials(currentWorkspace?.name)}
               </div>
-              <div className="flex flex-col items-start min-w-0">
-                <span className="text-sm font-medium text-neutral-900 truncate">
-                  {currentWorkspace?.name || 'No Workspace'}
-                </span>
-                <span className="text-xs text-neutral-500 capitalize">
-                  {currentWorkspace?.role || 'N/A'}
-                </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--foreground)]">
+                  {currentWorkspace?.name || "No Workspace"}
+                </p>
+                <p className="truncate text-[11px] uppercase tracking-[0.12em] text-[var(--tertiary-foreground)]">
+                  {currentWorkspace?.role || "Unknown"}
+                </p>
               </div>
-            </div>
-            {workspaces.length > 1 && (
-              <ChevronDown className={`w-4 h-4 text-neutral-500 shrink-0 transition-transform ${workspaceDropdownOpen ? 'rotate-180' : ''}`} />
-            )}
-          </button>
+              {workspaces.length > 1 && (
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 text-[var(--tertiary-foreground)] transition-transform",
+                    workspaceDropdownOpen && "rotate-180"
+                  )}
+                />
+              )}
+            </button>
 
-          {/* Workspace Dropdown Menu */}
-          {workspaceDropdownOpen && workspaces.length > 1 && (
-            <div className="mt-2 bg-white border border-neutral-200 rounded-lg shadow-lg overflow-hidden">
-              <div className="py-1">
+            {workspaceDropdownOpen && workspaces.length > 1 && (
+              <div className="mt-2 space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-card">
                 {workspaces.map((workspace) => (
                   <button
                     key={workspace.id}
                     onClick={() => handleWorkspaceSwitch(workspace)}
                     disabled={isSwitching}
-                    className="w-full px-3 py-2 flex items-center justify-between hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-6 h-6 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                        <span className="text-xs font-semibold text-white">
-                          {getInitials(workspace.name)}
-                        </span>
-                      </div>
-                      <div className="flex flex-col items-start min-w-0">
-                        <span className="text-sm text-neutral-900 truncate">
-                          {workspace.name}
-                        </span>
-                        <span className="text-xs text-neutral-500 capitalize">
-                          {workspace.role}
-                        </span>
-                      </div>
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--foreground)] text-xs">
+                      {getInitials(workspace.name)}
                     </div>
-                    {currentWorkspace?.id === workspace.id && (
-                      <Check className="w-4 h-4 text-neutral-900 shrink-0" />
-                    )}
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate font-medium text-[var(--foreground)]">{workspace.name}</p>
+                      <p className="truncate text-[11px] uppercase tracking-[0.12em] text-[var(--tertiary-foreground)]">
+                        {workspace.role}
+                      </p>
+                    </div>
+                    {currentWorkspace?.id === workspace.id && <Check className="h-4 w-4 text-[var(--foreground)]" />}
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
 
-      {/* Navigation Links */}
-      <nav className="flex-1 p-3 space-y-1">
-        <NavLink 
-          href="/dashboard/projects" 
-          icon={<Folder className="w-4 h-4" />}
-          active={pathname?.startsWith('/dashboard/projects')}
-          collapsed={collapsed}
+        <nav className={cn("space-y-0.5 px-2.5", collapsed ? "pt-2" : "pt-1.5 pb-2")}
         >
-          Projects
-        </NavLink>
-        <NavLink 
-          href="/dashboard/clients" 
-          icon={<Users className="w-4 h-4" />}
-          active={pathname?.startsWith('/dashboard/clients')}
-          collapsed={collapsed}
-        >
-          Clients
-        </NavLink>
-        <NavLink 
-          href="/dashboard/payments" 
-          icon={<CreditCard className="w-4 h-4" />}
-          active={pathname?.startsWith('/dashboard/payments')}
-          collapsed={collapsed}
-        >
-          Payments
-        </NavLink>
-      </nav>
-
-      {/* User Menu at Bottom */}
-      {!collapsed && (
-        <div className="p-3 border-t border-neutral-200" ref={userDropdownRef}>
-          <button 
-            onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-neutral-100 rounded-xl transition-colors"
+          <NavLink
+            href="/dashboard/projects"
+            icon={<Folder className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/projects")}
+            collapsed={collapsed}
           >
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0">
-                <span className="text-xs font-medium text-white">
-                  {getUserInitials()}
-                </span>
-              </div>
-              <span className="text-sm text-neutral-900 truncate">
-                {currentUser?.name || 'User'}
-              </span>
-            </div>
-            <ChevronDown className={`w-4 h-4 text-neutral-500 shrink-0 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+            Projects
+          </NavLink>
+          <NavLink
+            href="/dashboard/clients"
+            icon={<Users className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/clients")}
+            collapsed={collapsed}
+          >
+            Clients
+          </NavLink>
+          <NavLink
+            href="/dashboard/payments"
+            icon={<CreditCard className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/payments")}
+            collapsed={collapsed}
+          >
+            Payments
+          </NavLink>
+        </nav>
+      </div>
+
+      <div className="border-t border-[var(--border)] px-3.5 py-3" ref={userDropdownRef}>
+        {collapsed ? (
+          <button
+            onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            {getUserInitials()}
           </button>
-
-          {/* User Dropdown Menu */}
-          {userDropdownOpen && (
-            <div className="mt-2 bg-white border border-neutral-200 rounded-lg shadow-lg overflow-hidden">
-              <div className="py-1">
-                {/* User Info */}
-                <div className="px-3 py-2 border-b border-neutral-200">
-                  <div className="text-sm font-medium text-neutral-900 truncate">
-                    {currentUser?.name}
-                  </div>
-                  <div className="text-xs text-neutral-500 truncate">
-                    {currentUser?.email}
-                  </div>
-                </div>
-
-                {/* Menu Items */}
-                <button
-                  onClick={handleLogout}
-                  className="w-full px-3 py-2 flex items-center gap-2 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Logout
-                </button>
+        ) : (
+          <button
+            onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+            className="flex w-full items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition-all duration-150 ease-out hover:shadow-sm"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-muted)] text-[var(--foreground)] text-sm font-semibold">
+                {getUserInitials()}
+              </div>
+              <div className="min-w-0 text-left">
+                <p className="truncate text-sm font-medium">{currentUser?.name || "User"}</p>
+                <p className="truncate text-xs text-[var(--tertiary-foreground)]">{currentUser?.email}</p>
               </div>
             </div>
-          )}
-        </div>
-      )}
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 text-[var(--tertiary-foreground)] transition-transform",
+                userDropdownOpen && "rotate-180"
+              )}
+            />
+          </button>
+        )}
+
+        {userDropdownOpen && (
+          <div className="mt-2 space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 shadow-card">
+            <button
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            >
+              <LogOut className="h-4 w-4" />
+              Log out
+            </button>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
 
-function NavLink({ 
-  href, 
-  icon, 
+function NavLink({
+  href,
+  icon,
   children,
   active,
-  collapsed
-}: { 
-  href: string; 
-  icon: React.ReactNode; 
+  collapsed,
+}: {
+  href: string;
+  icon: React.ReactNode;
   children: React.ReactNode;
   active?: boolean;
   collapsed?: boolean;
@@ -287,43 +281,57 @@ function NavLink({
   return (
     <Link
       href={href}
-      className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-3 py-2 text-sm rounded-lg transition-colors ${
-        active 
-          ? "bg-primary text-white font-medium" 
-          : "text-neutral-600 hover:text-primary hover:bg-neutral-100"
-      }`}
-      title={collapsed ? children as string : undefined}
+      className={cn(
+        "group flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        collapsed && "justify-center px-0",
+        active
+          ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+          : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+      )}
+      title={collapsed ? (children as string) : undefined}
     >
-      {icon}
-      {!collapsed && children}
+      <span
+        className={cn(
+          "flex h-8 w-8 items-center justify-center rounded-md border border-transparent transition-colors",
+          active
+            ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+            : "text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]"
+        )}
+      >
+        {icon}
+      </span>
+      {!collapsed && <span className="truncate">{children}</span>}
     </Link>
   );
 }
 
 function Header() {
   const pathname = usePathname();
-  
-  // Get page title from pathname
+
   const getPageTitle = () => {
-    if (pathname?.includes('/projects')) return 'Projects';
-    if (pathname?.includes('/clients')) return 'Clients';
-    if (pathname?.includes('/payments')) return 'Payments';
-    return 'Dashboard';
+    if (pathname?.includes("/projects")) return "Projects";
+    if (pathname?.includes("/clients")) return "Clients";
+    if (pathname?.includes("/payments")) return "Payments";
+    return "Dashboard";
   };
 
   return (
-    <header className="h-14 bg-white border border-neutral-200 flex items-center justify-between px-6 rounded-lg mb-4 shadow-sm">
-      <div className="flex items-center gap-4">
-        <h1 className="text-xl font-semibold text-neutral-900">
-          {getPageTitle()}
-        </h1>
-      </div>
-
-      {/* Right side */}
-      <div className="flex items-center gap-2">
-        <button className="p-2 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors">
-          <Plus className="w-5 h-5" />
-        </button>
+    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]">
+      <div className="flex w-full items-center justify-between px-3 py-2.5 md:px-4 lg:px-5">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-medium uppercase tracking-[0.32em] text-[var(--tertiary-foreground)]">
+            Overview
+          </span>
+          <h1 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{getPageTitle()}</h1>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button className="hidden rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] md:inline-flex">
+            Quick actions
+          </button>
+          <button className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)]">
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
       </div>
     </header>
   );

@@ -1,7 +1,21 @@
 "use client";
 
-import { useState } from "react";
-import { GripVertical, Trash2, MoreHorizontal, FileText, CheckSquare, Link2, Table, Calendar, Paperclip, Video, Image, Maximize2, Layout } from "lucide-react";
+import React, { useState } from "react";
+import {
+  GripVertical,
+  Trash2,
+  MoreHorizontal,
+  FileText,
+  CheckSquare,
+  Link2,
+  Table,
+  Calendar,
+  Paperclip,
+  Video,
+  Image,
+  Maximize2,
+  Layout,
+} from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
@@ -21,268 +35,132 @@ interface BlockWrapperProps {
   workspaceId?: string;
   projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section") => void;
+  onConvert?: (
+    blockId: string,
+    newType:
+      | "text"
+      | "task"
+      | "link"
+      | "divider"
+      | "table"
+      | "timeline"
+      | "file"
+      | "video"
+      | "image"
+      | "embed"
+      | "pdf"
+      | "section"
+  ) => void;
   onUpdate?: () => void;
   isDragging?: boolean;
 }
 
-export default function BlockWrapper({ block, children, workspaceId, projectId, onDelete, onConvert, onUpdate, isDragging: externalIsDragging }: BlockWrapperProps) {
-  const [hovered, setHovered] = useState(false);
+export default function BlockWrapper({
+  block,
+  children,
+  workspaceId,
+  projectId,
+  onDelete,
+  onConvert,
+  onUpdate,
+  isDragging: externalIsDragging,
+}: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [attachmentDialogOpen, setAttachmentDialogOpen] = useState(false);
 
-  // Use sortable hook for drag and drop
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging: isDraggingInternal,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
-    disabled: block.type === "divider", // Disable dragging for divider blocks
+    disabled: block.type === "divider",
   });
 
   const isDragging = externalIsDragging || isDraggingInternal;
-
-  // Don't show hover UI if it's a divider or dragging
-  const showHoverUI = block.type !== "divider" && hovered && !isDragging;
-
-  // Apply transform styles for drag animation
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.6 : 1,
   };
 
+  if (block.type === "divider") {
+    return <div ref={setNodeRef} style={style}>{children}</div>;
+  }
+
   return (
-    <div
-      className="group relative"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {block.type !== "divider" ? (
-        <div
-          ref={setNodeRef}
-          style={style}
-          className="relative"
+    <div ref={setNodeRef} style={style} className="group relative w-full">
+      <div className="absolute -left-8 top-2.5 hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-sm transition-all duration-150 ease-out group-hover:flex">
+        <button
+          {...attributes}
+          {...listeners}
+          className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-hover)]"
+          aria-label="Drag block"
         >
-          <div className="flex gap-2 min-w-0 -ml-2">
-            {/* Drag Handle - Left Side - Subtle */}
-            <div
-              className={cn(
-                "flex items-start justify-center w-6 shrink-0 pt-2.5 opacity-0 transition-opacity",
-                showHoverUI ? "opacity-100" : "opacity-0",
-                isDragging && "opacity-100"
-              )}
-            >
-              <button
-                {...attributes}
-                {...listeners}
-                className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors touch-none"
-                aria-label="Drag to reorder"
-              >
-                <GripVertical className="w-3.5 h-3.5 text-neutral-300 dark:text-neutral-700" />
-              </button>
-            </div>
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </div>
 
-            {/* Block Container - Subtle containerization */}
-            <div
-              className={cn(
-                "flex-1 rounded-lg transition-all min-w-0 overflow-x-auto overflow-y-visible border",
-                hovered
-                  ? "bg-white dark:bg-neutral-900/50 border-neutral-200 dark:border-neutral-800 shadow-sm"
-                  : "bg-white dark:bg-neutral-900/30 border-neutral-100 dark:border-neutral-900/50"
-              )}
-            >
-              {/* Hover Actions - Right Side - Minimal */}
-              <div
-                className={cn(
-                  "absolute -top-2 right-0 flex items-center gap-0.5 opacity-0 transition-opacity",
-                  showHoverUI ? "opacity-100" : "opacity-0",
-                  isDragging && "pointer-events-none"
-                )}
-              >
-
-                {/* Three-dot Menu - Ghost button */}
-                <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors"
-                    >
-                      <MoreHorizontal className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-600" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <div className="px-3 py-2 text-xs text-neutral-500 border-b border-neutral-200 dark:border-neutral-700">
-                      Convert
-                    </div>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "text");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <FileText className="w-4 h-4" />
-                      Text
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "task");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <CheckSquare className="w-4 h-4" />
-                      Task
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "link");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Link2 className="w-4 h-4" />
-                      Link
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "table");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Table className="w-4 h-4" />
-                      Table
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "timeline");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Calendar className="w-4 h-4" />
-                      Timeline
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "video");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Video className="w-4 h-4" />
-                      Video
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "image");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Image className="w-4 h-4" />
-                      Image
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "embed");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Maximize2 className="w-4 h-4" />
-                      Embed
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "pdf");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <FileText className="w-4 h-4" />
-                      PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        onConvert?.(block.id, "section");
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Layout className="w-4 h-4" />
-                      Section
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {workspaceId && projectId && (
-                      <>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setAttachmentDialogOpen(true);
-                            setMenuOpen(false);
-                          }}
-                          className="flex items-center gap-2"
-                        >
-                          <Paperclip className="w-4 h-4" />
-                          Attach File
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                      </>
-                    )}
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => {
-                        onDelete?.(block.id);
-                        setMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                {/* Delete Button - Ghost */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete?.(block.id);
-                  }}
-                  className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-neutral-400 dark:text-neutral-600 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Block Content */}
-              {children}
-            </div>
-          </div>
-          
-          {/* File Attachment Dialog */}
-          {workspaceId && projectId && (
-            <FileAttachmentDialog
-              isOpen={attachmentDialogOpen}
-              onClose={() => setAttachmentDialogOpen(false)}
-              workspaceId={workspaceId}
-              projectId={projectId}
-              blockId={block.id}
-              onUploadComplete={() => {
-                onUpdate?.();
-              }}
-            />
-          )}
+      <div
+        className={cn(
+          "relative flex min-w-0 flex-col rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 shadow-sm transition-all duration-200 ease-out hover:shadow-md",
+          isDragging && "ring-2 ring-[var(--foreground)]/18"
+        )}
+      >
+        <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-sm transition-opacity duration-150 ease-out group-hover:flex">
+          {block.type}
         </div>
-      ) : (
-        // Divider blocks render without wrapper
-        children
+
+        <div className="absolute right-3 top-2.5 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out group-hover:flex">
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <button className="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "text")}> <FileText className="h-4 w-4" /> Text </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "task")}> <CheckSquare className="h-4 w-4" /> Task </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "link")}> <Link2 className="h-4 w-4" /> Link </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "table")}> <Table className="h-4 w-4" /> Table </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "timeline")}> <Calendar className="h-4 w-4" /> Timeline </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "video")}> <Video className="h-4 w-4" /> Video </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "image")}> <Image className="h-4 w-4" /> Image </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "embed")}> <Maximize2 className="h-4 w-4" /> Embed </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "pdf")}> <FileText className="h-4 w-4" /> PDF </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConvert?.(block.id, "section")}> <Layout className="h-4 w-4" /> Section </DropdownMenuItem>
+              {workspaceId && projectId && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setAttachmentDialogOpen(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Paperclip className="h-4 w-4" /> Attach file
+                  </DropdownMenuItem>
+                </>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDelete?.(block.id)}
+                className="text-red-500 focus:bg-red-50 focus:text-red-600"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <div className="space-y-4">{children}</div>
+      </div>
+
+      {workspaceId && projectId && (
+        <FileAttachmentDialog
+          isOpen={attachmentDialogOpen}
+          onClose={() => setAttachmentDialogOpen(false)}
+          workspaceId={workspaceId}
+          projectId={projectId}
+          blockId={block.id}
+          onUploadComplete={() => onUpdate?.()}
+        />
       )}
     </div>
   );

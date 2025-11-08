@@ -32,7 +32,6 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasAutoFocused = useRef(false);
 
-  // Auto-focus on mount if autoFocus is true or if block is empty (only once)
   useEffect(() => {
     if (!hasAutoFocused.current && (autoFocus || isEmpty)) {
       hasAutoFocused.current = true;
@@ -40,45 +39,41 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     }
   }, [autoFocus, isEmpty]);
 
-  // Focus textarea when editing starts
   useEffect(() => {
     if (isEditing && textareaRef.current) {
       textareaRef.current.focus();
-      // Move cursor to end
       const len = textareaRef.current.value.length;
       textareaRef.current.setSelectionRange(len, len);
     }
   }, [isEditing]);
 
-  // Auto-save with debounce
-  const saveContent = useCallback(async (textToSave: string) => {
-    setSaveStatus("saving");
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: { text: textToSave },
-      });
-      setSaveStatus("saved");
-      onUpdate?.();
-      // Reset to idle after showing "Saved" for 1 second
-      setTimeout(() => setSaveStatus("idle"), 1000);
-    } catch (error) {
-      console.error("Failed to update text block:", error);
-      setSaveStatus("idle");
-    }
-  }, [block.id, onUpdate]);
+  const saveContent = useCallback(
+    async (textToSave: string) => {
+      setSaveStatus("saving");
+      try {
+        await updateBlock({
+          blockId: block.id,
+          content: { text: textToSave },
+        });
+        setSaveStatus("saved");
+        onUpdate?.();
+        setTimeout(() => setSaveStatus("idle"), 1000);
+      } catch (error) {
+        console.error("Failed to update text block:", error);
+        setSaveStatus("idle");
+      }
+    },
+    [block.id, onUpdate]
+  );
 
-  // Debounced auto-save on content change
   useEffect(() => {
     if (isEditing && content !== (block.content?.text as string)) {
-      // Clear existing timeout
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      // Set new timeout to save after 1 second
       saveTimeoutRef.current = setTimeout(() => {
         saveContent(content);
-      }, 1000);
+      }, 800);
     }
 
     return () => {
@@ -88,36 +83,16 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     };
   }, [content, isEditing, block.content?.text, saveContent]);
 
-  const handleEdit = () => {
-    setIsEditing(true);
-  };
-
   const handleBlur = async () => {
-    // Clear any pending auto-save
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
     setIsEditing(false);
-    
-    // Save immediately on blur if there are changes
     if (content !== (block.content?.text as string)) {
       await saveContent(content);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      // Revert changes
-      setContent((block.content?.text as string) || "");
-      setIsEditing(false);
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    }
-  };
-
-  // Insert markdown syntax at cursor position
   const insertMarkdown = (before: string, after: string = before) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -125,67 +100,39 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const selectedText = content.substring(start, end);
-    
-    // If text is selected, wrap it
+
     if (selectedText) {
-      const newText = 
-        content.substring(0, start) + 
-        before + selectedText + after + 
-        content.substring(end);
+      const newText =
+        content.substring(0, start) + before + selectedText + after + content.substring(end);
       setContent(newText);
-      
-      // Set cursor position after the insertion
       setTimeout(() => {
         textarea.focus();
-        textarea.setSelectionRange(
-          start + before.length,
-          end + before.length
-        );
+        textarea.setSelectionRange(start + before.length, end + before.length);
       }, 0);
     } else {
-      // No selection, insert markers and place cursor between them
-      const newText = 
-        content.substring(0, start) + 
-        before + after + 
-        content.substring(end);
+      const newText = content.substring(0, start) + before + after + content.substring(end);
       setContent(newText);
-      
-      // Place cursor between the markers
       setTimeout(() => {
         textarea.focus();
-        textarea.setSelectionRange(
-          start + before.length,
-          start + before.length
-        );
+        textarea.setSelectionRange(start + before.length, start + before.length);
       }, 0);
     }
   };
 
-  // Insert heading at start of line
   const insertHeading = (level: number) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
-    
-    // Find start of current line
-    const lineStart = content.lastIndexOf('\n', start - 1) + 1;
-    
-    // Remove existing heading markers at start of line
-    const lineContent = content.substring(lineStart, content.indexOf('\n', start) >= 0 ? content.indexOf('\n', start) : undefined);
-    const cleanedLine = lineContent.replace(/^#{1,3} /, '');
-    
-    // Insert heading marker
-    const headingMarker = '#'.repeat(level) + ' ';
-    const lineEnd = content.indexOf('\n', start);
-    const newText = 
-      content.substring(0, lineStart) + 
-      headingMarker + cleanedLine +
-      (lineEnd >= 0 ? content.substring(lineEnd) : '');
-    
+    const lineStart = content.lastIndexOf("\n", start - 1) + 1;
+    const lineEnd = content.indexOf("\n", start);
+    const lineContent = content.substring(lineStart, lineEnd >= 0 ? lineEnd : undefined);
+    const cleanedLine = lineContent.replace(/^#{1,3} /, "");
+    const headingMarker = "#".repeat(level) + " ";
+    const newText =
+      content.substring(0, lineStart) + headingMarker + cleanedLine + (lineEnd >= 0 ? content.substring(lineEnd) : "");
+
     setContent(newText);
-    
-    // Move cursor to end of heading text
     setTimeout(() => {
       textarea.focus();
       const newCursorPos = lineStart + headingMarker.length + cleanedLine.length;
@@ -195,185 +142,126 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
 
   if (isEditing) {
     return (
-      <div className="relative">
-        {/* Toolbar - Minimal, elegant */}
-        <div className="flex items-center gap-1 px-2 py-1.5 mb-1 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-sm rounded-t-md">
-          {/* Bold */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-sm">
           <button
             onMouseDown={(e) => {
-              e.preventDefault(); // Prevents textarea blur
-              insertMarkdown('**');
+              e.preventDefault();
+              insertMarkdown("**");
             }}
-            className="p-2 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded transition-colors"
-            title="Bold (Cmd/Ctrl+B)"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            title="Bold"
           >
-            <Bold className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
+            <Bold className="h-4 w-4" />
           </button>
-
-          {/* Italic */}
           <button
             onMouseDown={(e) => {
-              e.preventDefault(); // Prevents textarea blur
-              insertMarkdown('*');
+              e.preventDefault();
+              insertMarkdown("*");
             }}
-            className="p-2 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded transition-colors"
-            title="Italic (Cmd/Ctrl+I)"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            title="Italic"
           >
-            <Italic className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
+            <Italic className="h-4 w-4" />
           </button>
-
-          {/* Code */}
           <button
             onMouseDown={(e) => {
-              e.preventDefault(); // Prevents textarea blur
-              insertMarkdown('`');
+              e.preventDefault();
+              insertMarkdown("__", "__");
             }}
-            className="p-2 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            title="Underline"
+          >
+            <Underline className="h-4 w-4" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              insertMarkdown("`");
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
             title="Code"
           >
-            <Code className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
+            <Code className="h-4 w-4" />
           </button>
 
-          <div className="w-px h-6 bg-neutral-300 dark:bg-neutral-700 mx-1" />
-
-          {/* Heading Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                className="flex items-center gap-1.5 px-3 py-2 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded transition-colors text-sm text-neutral-700 dark:text-neutral-300"
-                title="Heading"
-              >
-                <Type className="w-4 h-4" />
-                <span>Heading</span>
+              <button className="flex h-8 items-center gap-2 rounded-md px-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]">
+                <Type className="h-4 w-4" /> Headings
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem 
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                }}
-                onSelect={() => insertHeading(1)}
-              >
-                <span className="text-xl font-bold">Heading 1</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                }}
-                onSelect={() => insertHeading(2)}
-              >
-                <span className="text-lg font-bold">Heading 2</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                }}
-                onSelect={() => insertHeading(3)}
-              >
-                <span className="text-base font-bold">Heading 3</span>
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertHeading(1)}>Heading 1</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertHeading(2)}>Heading 2</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Save Status */}
-          <div className="ml-auto text-xs text-neutral-500 dark:text-neutral-400">
-            {saveStatus === "saving" && "Saving..."}
+          <span className="ml-auto text-xs text-[var(--tertiary-foreground)]">
+            {saveStatus === "saving" && "Saving…"}
             {saveStatus === "saved" && "Saved"}
-          </div>
+          </span>
         </div>
 
-        {/* Textarea - Seamless, elegant */}
         <textarea
           ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className="w-full px-2 py-3 bg-transparent border-none focus:outline-none resize-none min-h-[120px] text-[15px] text-neutral-900 dark:text-white leading-relaxed font-normal"
-          placeholder="Type / for commands..."
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setContent((block.content?.text as string) || "");
+              setIsEditing(false);
+            }
+          }}
+          className="min-h-[95px] w-full resize-none rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[14px] leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+          placeholder="Start typing…"
         />
       </div>
     );
   }
 
-  // Format text with markdown-like formatting (display mode)
   const formatText = (text: string): string => {
     if (!text || text.trim() === "") {
-      return '<span class="text-neutral-400 italic">Click to add text...</span>';
+      return '<span class="text-[var(--tertiary-foreground)] italic">Click to add text…</span>';
     }
 
-    // Split into lines to handle formatting per line
-    const lines = text.split('\n');
+    const lines = text.split("\n");
     const formattedLines = lines.map((line) => {
-      // Skip empty lines (will be handled by paragraph breaks)
-      if (!line.trim()) return '<br/>';
-      
-      // Apply inline formatting first
+      if (!line.trim()) return "<br/>";
+
       let formatted = line;
-      
-      // Bold: **text**
-      formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-neutral-900 dark:text-white">$1</strong>');
-      
-      // Italic: *text*
+      formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-[var(--foreground)]">$1</strong>');
       formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic">$1</em>');
-      
-      // Code: `text`
-      formatted = formatted.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-xs font-mono">$1</code>');
-      
-      // Headings: # H1, ## H2, ### H3
+      formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-md bg-surface px-2 py-0.5 text-xs font-mono">$1</code>');
+
       if (/^### /.test(formatted)) {
-        return `<h3 class="text-lg font-bold text-neutral-900 dark:text-white mb-2 mt-4">${formatted.replace(/^### /, '')}</h3>`;
+        return `<h3 class="text-lg font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^### /, "")}</h3>`;
       }
       if (/^## /.test(formatted)) {
-        return `<h2 class="text-xl font-bold text-neutral-900 dark:text-white mb-2 mt-4">${formatted.replace(/^## /, '')}</h2>`;
+        return `<h2 class="text-xl font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^## /, "")}</h2>`;
       }
       if (/^# /.test(formatted)) {
-        return `<h1 class="text-2xl font-bold text-neutral-900 dark:text-white mb-3 mt-4">${formatted.replace(/^# /, '')}</h1>`;
+        return `<h1 class="text-2xl font-bold text-[var(--foreground)] mb-3">${formatted.replace(/^# /, "")}</h1>`;
       }
-      
-      // Then check for special line prefixes
-      if (/^• /.test(formatted)) {
-        return `<div class="flex gap-2 mb-2"><span class="text-neutral-400">•</span><span>${formatted.replace(/^• /, '')}</span></div>`;
-      }
-      if (/^→ /.test(formatted)) {
-        return `<div class="flex gap-2 mb-2 text-blue-600 dark:text-blue-400"><span>→</span><span>${formatted.replace(/^→ /, '')}</span></div>`;
-      }
-      if (/✅ /.test(formatted)) {
-        return `<div class="flex gap-2 mb-2"><span>✅</span><span>${formatted.replace(/✅ /, '')}</span></div>`;
-      }
-      if (/⚠️ /.test(formatted)) {
-        return `<div class="flex gap-2 mb-2"><span>⚠️</span><span>${formatted.replace(/⚠️ /, '')}</span></div>`;
-      }
-      if (/💬 /.test(formatted)) {
-        return `<div class="flex gap-2 mb-2"><span>💬</span><span>${formatted.replace(/💬 /, '')}</span></div>`;
-      }
-      if (/🔄 /.test(formatted)) {
-        return `<div class="flex gap-2 mb-2"><span>🔄</span><span>${formatted.replace(/🔄 /, '')}</span></div>`;
-      }
-      if (/⭐/.test(formatted)) {
-        return `<div class="mb-2">${formatted}</div>`;
-      }
-      
-      // Regular line - wrap in paragraph
-      return `<div class="mb-2">${formatted}</div>`;
+
+      return `<p class="mb-3 text-base leading-relaxed text-[var(--muted-foreground)]">${formatted}</p>`;
     });
 
-    return formattedLines.join('');
+    return formattedLines.join("");
   };
 
   const formatted = formatText(content);
 
   return (
-    <div>
+    <div className="space-y-2.5">
       <div
-        onClick={handleEdit}
-        className="px-2 py-3 cursor-text text-[15px] text-neutral-700 dark:text-neutral-300 leading-relaxed font-normal"
+        onClick={() => setIsEditing(true)}
+        className="cursor-text text-[14px] leading-relaxed text-[var(--muted-foreground)]"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
-      {/* Attached Files List */}
-      {workspaceId && projectId && (
-        <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />
-      )}
+      {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}
     </div>
   );
 }

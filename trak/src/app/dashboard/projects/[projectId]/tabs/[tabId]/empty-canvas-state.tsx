@@ -10,19 +10,18 @@ interface EmptyCanvasStateProps {
 
 export default function EmptyCanvasState({ tabId, projectId }: EmptyCanvasStateProps) {
   return (
-    <div className="text-center py-20">
-      <div className="flex justify-center mb-6">
-        <div className="w-12 h-12 rounded-full bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center">
-          <FileText className="w-6 h-6 text-neutral-300 dark:text-neutral-700" />
-        </div>
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-6 py-12 text-center shadow-card">
+      <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--foreground)]">
+        <FileText className="h-5 w-5" />
       </div>
-      <h3 className="text-base font-medium text-neutral-400 dark:text-neutral-600 mb-2">
-        Click to start typing
-      </h3>
-      <p className="text-sm text-neutral-400 dark:text-neutral-600 mb-8 max-w-sm mx-auto">
-        Click anywhere on this page to create a text block and start writing
+      <h3 className="mb-2 text-base font-semibold text-[var(--foreground)]">Create your first block</h3>
+      <p className="mb-5 max-w-sm text-sm text-[var(--muted-foreground)]">
+        Click anywhere inside the canvas or use the button below to add content instantly.
       </p>
       <AddBlockButton tabId={tabId} projectId={projectId} variant="large" />
+      <div className="mt-3 inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--tertiary-foreground)]">
+        <Plus className="h-3 w-3" /> Tip: Press <span className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--foreground)]">/</span> to open the block menu
+      </div>
     </div>
   );
 }
