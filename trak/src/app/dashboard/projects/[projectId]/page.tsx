@@ -65,7 +65,7 @@ export default async function ProjectPage({
         <ProjectHeader project={project} />
 
         {/* Empty Tabs State */}
-        <EmptyTabsState projectId={projectId} />
+          <EmptyTabsState projectId={projectId} />
       </div>
     </div>
   );

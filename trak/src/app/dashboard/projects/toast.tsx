@@ -22,23 +22,23 @@ export default function Toast({ message, type, onClose, duration = 3000 }: Toast
   return (
     <div className="fixed top-4 right-4 z-[100] animate-in slide-in-from-top-2 duration-300">
       <div
-        className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.15)] backdrop-blur-sm border ${
+        className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-popover backdrop-blur-sm ${
           type === "success"
-            ? "bg-green-50/90 border-green-200 text-green-800"
-            : "bg-red-50/90 border-red-200 text-red-800"
+            ? "border-green-600/20 bg-green-500/10 text-green-600"
+            : "border-red-600/20 bg-red-500/10 text-red-600"
         }`}
       >
         {type === "success" ? (
-          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          <CheckCircle className="h-5 w-5 flex-shrink-0" />
         ) : (
-          <XCircle className="w-5 h-5 flex-shrink-0" />
+          <XCircle className="h-5 w-5 flex-shrink-0" />
         )}
-        <p className="text-sm font-medium">{message}</p>
+        <p className="text-sm font-medium leading-tight">{message}</p>
         <button
           onClick={onClose}
-          className="p-0.5 hover:bg-black/5 rounded transition-colors ml-2"
+          className="ml-2 rounded-md p-1 text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
         >
-          <X className="w-4 h-4" />
+          <X className="h-4 w-4" />
         </button>
       </div>
     </div>

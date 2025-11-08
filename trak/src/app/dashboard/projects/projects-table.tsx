@@ -9,6 +9,22 @@ import ConfirmDialog from "./confirm-dialog";
 import Toast from "./toast";
 import EmptyState from "./empty-state";
 import StatusBadge from "./status-badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 interface Project {
   id: string;
@@ -32,7 +48,7 @@ interface ProjectsTableProps {
   workspaceId: string;
   currentSort: {
     sort_by: string;
-    sort_order: 'asc' | 'desc';
+    sort_order: "asc" | "desc";
   };
 }
 
@@ -47,122 +63,93 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const searchParams = useSearchParams();
-  
-  // Local state
+
   const [projects, setProjects] = useState(initialProjects);
-  // Sync local projects when server-provided projects change (e.g., search/filter/sort)
   useEffect(() => {
     setProjects(initialProjects);
   }, [initialProjects]);
+
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  
-  // Dialog state
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  
-  // Delete confirmation state
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Handle column sort
   const handleSort = (column: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    
-    // If clicking the same column, toggle order
-    if (currentSort.sort_by === column) {
-      const newOrder = currentSort.sort_order === 'asc' ? 'desc' : 'asc';
-      params.set('sort_order', newOrder);
-    } else {
-      // New column, default to descending
-      params.set('sort_by', column);
-      params.set('sort_order', 'desc');
-    }
 
+    if (currentSort.sort_by === column) {
+      const newOrder = currentSort.sort_order === "asc" ? "desc" : "asc";
+      params.set("sort_order", newOrder);
+    } else {
+      params.set("sort_by", column);
+      params.set("sort_order", "desc");
+    }
     router.push(`/dashboard/projects?${params.toString()}`);
   };
 
-  // Get sort indicator for a column
   const getSortIndicator = (column: string) => {
     if (currentSort.sort_by !== column) return null;
-    return currentSort.sort_order === 'asc' ? (
-      <ArrowUp className="w-3 h-3 inline ml-1" />
+    return currentSort.sort_order === "asc" ? (
+      <ArrowUp className="ml-1 h-3 w-3" />
     ) : (
-      <ArrowDown className="w-3 h-3 inline ml-1" />
+      <ArrowDown className="ml-1 h-3 w-3" />
     );
   };
 
-  // Open create dialog
   const handleOpenCreate = () => {
     setDialogMode("create");
     setEditingProject(null);
   };
 
-  // Open edit dialog
   const handleOpenEdit = (project: Project) => {
     setDialogMode("edit");
     setEditingProject(project);
-    setOpenMenuId(null); // Close menu
+    setOpenMenuId(null);
   };
 
-  // Close dialog
   const handleCloseDialog = () => {
     setDialogMode(null);
     setEditingProject(null);
   };
 
-  // Open delete confirmation
   const handleOpenDeleteConfirm = (project: Project) => {
     setDeletingProject(project);
     setDeleteConfirmOpen(true);
-    setOpenMenuId(null); // Close menu
+    setOpenMenuId(null);
   };
 
-  // Close delete confirmation
   const handleCloseDeleteConfirm = () => {
     setDeleteConfirmOpen(false);
     setDeletingProject(null);
   };
 
-  // Handle delete confirmation
   const handleConfirmDelete = async () => {
     if (!deletingProject) return;
 
     setIsDeleting(true);
-
-    // Optimistic update - remove from UI
     const previousProjects = [...projects];
-    setProjects(prev => prev.filter(p => p.id !== deletingProject.id));
-
-    // Call server action
+    setProjects((prev) => prev.filter((p) => p.id !== deletingProject.id));
     const result = await deleteProject(deletingProject.id);
 
     if (result.error) {
-      // Revert on error
       setProjects(previousProjects);
       setToast({ message: result.error, type: "error" });
     } else {
-      // Show success toast
-      setToast({ message: "Project deleted successfully ✓", type: "success" });
-
-      // Refresh server data
+      setToast({ message: "Project deleted successfully", type: "success" });
       startTransition(() => {
         router.refresh();
       });
     }
 
-    // Close confirmation dialog
     setIsDeleting(false);
     handleCloseDeleteConfirm();
   };
 
-  // Handle create submit
   const handleCreateSubmit = async (formData: FormData) => {
-    // Parse due date
     let due_date_date = null;
     let due_date_text = null;
 
@@ -175,7 +162,6 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       }
     }
 
-    // Optimistic update
     const tempId = `temp-${Date.now()}`;
     const optimisticProject: Project = {
       id: tempId,
@@ -184,13 +170,12 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       due_date_date,
       due_date_text,
       client_id: formData.client_id || null,
-      client_name: clients.find(c => c.id === formData.client_id)?.name || null,
+      client_name: clients.find((c) => c.id === formData.client_id)?.name || null,
       created_at: new Date().toISOString(),
-    };
+    } as Project;
 
     setProjects([optimisticProject, ...projects]);
 
-    // Call server action
     const result = await createProject(workspaceId, {
       name: formData.name,
       client_id: formData.client_id || null,
@@ -200,34 +185,24 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     });
 
     if (result.error) {
-      // Remove optimistic project on error
       setProjects(projects);
       setToast({ message: result.error, type: "error" });
       throw new Error(result.error);
     } else {
-      // Replace temporary project with real one
-      setProjects(prev => 
-        prev.map(p => p.id === tempId ? { ...result.data, client_name: optimisticProject.client_name } : p)
+      setProjects((prev) =>
+        prev.map((p) => (p.id === tempId ? { ...result.data, client_name: optimisticProject.client_name } : p))
       );
-      
-      // Show success toast
-      setToast({ message: "Project created successfully ✓", type: "success" });
-      
-      // Close dialog
+      setToast({ message: "Project created", type: "success" });
       handleCloseDialog();
-
-      // Refresh server data
       startTransition(() => {
         router.refresh();
       });
     }
   };
 
-  // Handle edit submit
   const handleEditSubmit = async (formData: FormData) => {
     if (!editingProject) return;
 
-    // Parse due date
     let due_date_date = null;
     let due_date_text = null;
 
@@ -240,7 +215,6 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       }
     }
 
-    // Prepare updates
     const updates = {
       name: formData.name,
       client_id: formData.client_id || null,
@@ -249,43 +223,34 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       due_date_text,
     };
 
-    // Optimistic update
     const previousProjects = [...projects];
-    setProjects(prev =>
-      prev.map(p =>
+    setProjects((prev) =>
+      prev.map((p) =>
         p.id === editingProject.id
           ? {
               ...p,
               ...updates,
-              client_name: clients.find(c => c.id === formData.client_id)?.name || null,
+              client_name: clients.find((c) => c.id === formData.client_id)?.name || null,
             }
           : p
       )
     );
 
-    // Call server action
     const result = await updateProject(editingProject.id, updates);
 
     if (result.error) {
-      // Revert on error
       setProjects(previousProjects);
       setToast({ message: result.error, type: "error" });
       throw new Error(result.error);
     } else {
-      // Show success toast
-      setToast({ message: "Project updated successfully ✓", type: "success" });
-      
-      // Close dialog
+      setToast({ message: "Project updated", type: "success" });
       handleCloseDialog();
-
-      // Refresh server data
       startTransition(() => {
         router.refresh();
       });
     }
   };
 
-  // Handle dialog submit (routes to create or edit)
   const handleDialogSubmit = async (formData: FormData) => {
     if (dialogMode === "create") {
       await handleCreateSubmit(formData);
@@ -294,14 +259,12 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     }
   };
 
-  // Handle row click
   const handleRowClick = (projectId: string) => {
-    if (!projectId.startsWith('temp-')) {
+    if (!projectId.startsWith("temp-")) {
       router.push(`/dashboard/projects/${projectId}`);
     }
   };
 
-  // Format due date
   const formatDueDate = (dateString: string | null, textDate: string | null) => {
     if (textDate) {
       return { text: textDate, isOverdue: false };
@@ -311,195 +274,167 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       const date = new Date(dateString);
       const now = new Date();
       const isOverdue = date < now;
-
       const formatted = date.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: "numeric",
       });
-
       return { text: formatted, isOverdue };
     }
 
     return { text: "No due date", isOverdue: false };
   };
 
-  // Empty state
   if (projects.length === 0 && dialogMode === null) {
-    return <EmptyState onCreateClick={handleOpenCreate} />;
+    return (
+      <>
+        <div className="flex items-start justify-between">
+          <div className="space-y-2">
+            <h2 className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
+            <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
+          </div>
+          <Button onClick={handleOpenCreate}>New project</Button>
+        </div>
+        <EmptyState onCreateClick={handleOpenCreate} />
+        {renderDialogs()}
+      </>
+    );
+  }
+
+  function renderDialogs() {
+    return (
+      <>
+        <ProjectDialog
+          mode={dialogMode || "create"}
+          isOpen={dialogMode !== null}
+          onClose={handleCloseDialog}
+          onSubmit={handleDialogSubmit}
+          initialData={editingProject || undefined}
+          workspaceId={workspaceId}
+          clients={clients}
+          onClientsLoad={setClients}
+        />
+
+        <ConfirmDialog
+          isOpen={deleteConfirmOpen}
+          onClose={handleCloseDeleteConfirm}
+          onConfirm={handleConfirmDelete}
+          title="Delete Project"
+          message={`Are you sure you want to delete "${deletingProject?.name}"? This action cannot be undone.`}
+          confirmText="Delete Project"
+          confirmButtonVariant="danger"
+          isLoading={isDeleting}
+        />
+
+        {toast && (
+          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+        )}
+      </>
+    );
   }
 
   return (
     <>
-      <div className="space-y-4">
-        {/* Table Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-semibold text-neutral-900">All Projects</h2>
-          <button 
-            onClick={handleOpenCreate}
-            className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors"
-          >
-            New Project
-          </button>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
+          <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
         </div>
-
-        {/* Table */}
-        <div className="relative">
-          <div className="bg-white border border-neutral-200 rounded-lg">
-            {/* Table Header */}
-            <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-neutral-200 bg-neutral-50 rounded-t-lg">
-              <button
-                onClick={() => handleSort('client_id')}
-                className="col-span-3 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
-              >
-                Client {getSortIndicator('client_id')}
-              </button>
-              <button
-                onClick={() => handleSort('name')}
-                className="col-span-4 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
-              >
-                Project {getSortIndicator('name')}
-              </button>
-              <button
-                onClick={() => handleSort('status')}
-                className="col-span-2 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
-              >
-                Status {getSortIndicator('status')}
-              </button>
-              <button
-                onClick={() => handleSort('due_date_date')}
-                className="col-span-2 text-xs font-medium text-neutral-500 uppercase tracking-wider text-left hover:text-neutral-700 transition-colors"
-              >
-                Due Date {getSortIndicator('due_date_date')}
-              </button>
-              <div className="col-span-1"></div>
-            </div>
-
-            {/* Table Rows */}
-            <div className="divide-y divide-neutral-200">
-              {projects.map((project) => {
-                const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
-                const isTemp = project.id.startsWith('temp-');
-                
-                return (
-                  <div
-                    key={project.id}
-                    className={`grid grid-cols-12 gap-4 px-6 py-4 hover:bg-neutral-50 transition-colors ${
-                      isTemp ? 'opacity-60' : 'cursor-pointer'
-                    } group relative`}
-                    onClick={() => handleRowClick(project.id)}
-                  >
-                    {/* Client */}
-                    <div className="col-span-3 flex items-center">
-                      <span className="text-sm text-neutral-600 truncate">
-                        {project.client_name || "No client"}
-                      </span>
-                    </div>
-
-                    {/* Project Name */}
-                    <div className="col-span-4 flex items-center">
-                      <span className="text-sm font-medium text-neutral-900 truncate">
-                        {project.name}
-                      </span>
-                    </div>
-
-                    {/* Status */}
-                    <div className="col-span-2 flex items-center">
-                      <StatusBadge status={project.status} />
-                    </div>
-
-                    {/* Due Date */}
-                    <div className="col-span-2 flex items-center">
-                      <span
-                        className={`text-sm truncate ${
-                          dueDate.isOverdue
-                            ? "text-red-600 font-medium"
-                            : "text-neutral-600"
-                        }`}
-                      >
-                        {dueDate.text}
-                      </span>
-                    </div>
-
-                    {/* Actions Menu */}
-                    {!isTemp && (
-                      <div className="col-span-1 flex items-center justify-end">
-                        <div className="relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuId(openMenuId === project.id ? null : project.id);
-                            }}
-                            className="p-1 hover:bg-neutral-200 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                          >
-                            <MoreHorizontal className="w-4 h-4 text-neutral-600" />
-                          </button>
-
-                          {/* Dropdown Menu */}
-                          {openMenuId === project.id && (
-                            <div
-                              className="absolute right-0 mt-1 w-40 bg-white border border-neutral-200 rounded-lg shadow-lg overflow-hidden z-10"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                onClick={() => handleOpenEdit(project)}
-                                className="w-full px-3 py-2 flex items-center gap-2 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors"
-                              >
-                                <Edit className="w-4 h-4" />
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleOpenDeleteConfirm(project)}
-                                className="w-full px-3 py-2 flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <Button onClick={handleOpenCreate}>New project</Button>
       </div>
 
-      {/* Project Dialog (Reusable for Create & Edit) */}
-      <ProjectDialog
-        mode={dialogMode || "create"}
-        isOpen={dialogMode !== null}
-        onClose={handleCloseDialog}
-        onSubmit={handleDialogSubmit}
-        initialData={editingProject || undefined}
-        workspaceId={workspaceId}
-        clients={clients}
-        onClientsLoad={setClients}
-      />
+      <div className="mt-6">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <button
+                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  onClick={() => handleSort("client_id")}
+                >
+                  Client {getSortIndicator("client_id")}
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  onClick={() => handleSort("name")}
+                >
+                  Project {getSortIndicator("name")}
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  onClick={() => handleSort("status")}
+                >
+                  Status {getSortIndicator("status")}
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  onClick={() => handleSort("due_date_date")}
+                >
+                  Due date {getSortIndicator("due_date_date")}
+                </button>
+              </TableHead>
+              <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                Actions
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {projects.map((project) => {
+              const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
+              const isTemp = project.id.startsWith("temp-");
 
-      {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={deleteConfirmOpen}
-        onClose={handleCloseDeleteConfirm}
-        onConfirm={handleConfirmDelete}
-        title="Delete Project"
-        message={`Are you sure you want to delete "${deletingProject?.name}"? This action cannot be undone.`}
-        confirmText="Delete Project"
-        confirmButtonVariant="danger"
-        isLoading={isDeleting}
-      />
+              return (
+                <TableRow
+                  key={project.id}
+                  className={cn("cursor-pointer", isTemp && "opacity-70")}
+                  onClick={() => handleRowClick(project.id)}
+                >
+                  <TableCell>
+                    <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm font-medium text-[var(--foreground)]">{project.name}</span>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={project.status} />
+                  </TableCell>
+                  <TableCell className={cn("text-sm", dueDate.isOverdue && "text-red-500 font-medium")}>{dueDate.text}</TableCell>
+                  <TableCell className="text-right">
+                    {!isTemp && (
+                      <DropdownMenu open={openMenuId === project.id} onOpenChange={(open) => setOpenMenuId(open ? project.id : null)}>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => handleOpenEdit(project)}>
+                            <Edit className="h-4 w-4" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenDeleteConfirm(project)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
 
-      {/* Toast Notification */}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      {renderDialogs()}
     </>
   );
 }

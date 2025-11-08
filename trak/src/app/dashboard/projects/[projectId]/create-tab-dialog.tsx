@@ -165,36 +165,33 @@ export default function CreateTabDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-[var(--background)] rounded-2xl border border-[var(--border)] shadow-popover max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Dialog Header */}
-        <div className="flex items-center justify-between p-6 border-b border-neutral-200">
-          <h2 className="text-xl font-semibold text-neutral-900">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
+          <h2 className="text-xl font-semibold text-[var(--foreground)]">
             Create New Tab
           </h2>
           <button
             onClick={handleClose}
-            className="p-1 hover:bg-neutral-100 rounded-lg transition-colors"
+            className="rounded-lg p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
             disabled={isSubmitting}
           >
-            <X className="w-5 h-5 text-neutral-500" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Dialog Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5 px-6 py-6">
           {/* Error Message */}
           {formError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
               <p className="text-sm text-red-600">{formError}</p>
             </div>
           )}
 
           {/* Tab Name */}
-          <div>
-            <label
-              htmlFor="tab-name"
-              className="block text-sm font-medium text-neutral-700 mb-2"
-            >
+          <div className="space-y-2">
+            <label htmlFor="tab-name" className="block text-sm font-medium text-[var(--foreground)]">
               Tab Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -203,7 +200,7 @@ export default function CreateTabDialog({
               value={tabName}
               onChange={(e) => setTabName(e.target.value)}
               placeholder="Enter tab name"
-              className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
               disabled={isSubmitting}
               autoFocus
               maxLength={100}
@@ -212,7 +209,7 @@ export default function CreateTabDialog({
 
           {/* Create as Sub-tab Toggle */}
           <div>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
               <input
                 type="checkbox"
                 checked={isSubTab}
@@ -222,45 +219,36 @@ export default function CreateTabDialog({
                     setSelectedParentId(null);
                   }
                 }}
-                className="w-4 h-4 rounded border-neutral-300 text-neutral-900 focus:ring-2 focus:ring-neutral-900"
+                className="h-4 w-4 rounded border-[var(--border)] text-[var(--foreground)] focus:ring-2 focus:ring-[var(--focus-ring)]"
                 disabled={isSubmitting}
               />
-              <span className="text-sm font-medium text-neutral-700">
-                Create as sub-tab
-              </span>
+              Create as sub-tab
             </label>
-            <p className="text-xs text-neutral-500 mt-1 ml-6">
+            <p className="ml-6 mt-1 text-xs text-[var(--tertiary-foreground)]">
               Organize this tab under another existing tab
             </p>
           </div>
 
           {/* Parent Tab Selector (shown when sub-tab is checked) */}
           {isSubTab && (
-            <div>
-              <label
-                htmlFor="parent-tab"
-                className="block text-sm font-medium text-neutral-700 mb-2"
-              >
+            <div className="space-y-2">
+              <label htmlFor="parent-tab" className="block text-sm font-medium text-[var(--foreground)]">
                 Parent Tab <span className="text-red-500">*</span>
               </label>
               {isLoadingParents ? (
-                <div className="w-full px-3 py-2 border border-neutral-300 rounded-lg bg-neutral-50">
-                  <p className="text-sm text-neutral-500">
-                    Loading tabs...
-                  </p>
+                <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2">
+                  <p className="text-sm text-[var(--muted-foreground)]">Loading tabs...</p>
                 </div>
               ) : flatParents.length === 0 ? (
-                <div className="w-full px-3 py-2 border border-neutral-300 rounded-lg bg-neutral-50">
-                  <p className="text-sm text-neutral-500">
-                    No tabs available. Create a top-level tab first.
-                  </p>
+                <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2">
+                  <p className="text-sm text-[var(--muted-foreground)]">No tabs available. Create a top-level tab first.</p>
                 </div>
               ) : (
                 <select
                   id="parent-tab"
                   value={selectedParentId || ""}
                   onChange={(e) => setSelectedParentId(e.target.value || null)}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
                   disabled={isSubmitting}
                   required={isSubTab}
                 >
@@ -280,14 +268,14 @@ export default function CreateTabDialog({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 rounded-lg transition-colors"
+              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-all duration-150 hover:bg-surface-hover"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] shadow-sm transition-all duration-150 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSubmitting}
             >
               {isSubmitting ? "Creating..." : "Create Tab"}

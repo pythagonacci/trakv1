@@ -131,34 +131,34 @@ export default function ProjectDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[var(--border)] bg-white/95 shadow-popover dark:bg-[#111]">
         {/* Dialog Header */}
-        <div className="flex items-center justify-between p-6 border-b border-neutral-200">
-          <h2 className="text-xl font-semibold text-neutral-900">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
+          <h2 className="text-lg font-semibold text-[var(--foreground)]">
             {mode === "create" ? "New Project" : "Edit Project"}
           </h2>
           <button
             onClick={handleClose}
-            className="p-1 hover:bg-neutral-100 rounded-lg transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
             disabled={isSubmitting}
           >
-            <X className="w-5 h-5 text-neutral-500" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Dialog Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5 px-6 py-5">
           {/* Error Message */}
           {formError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-600">{formError}</p>
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <p className="text-sm font-medium text-red-600">{formError}</p>
             </div>
           )}
 
           {/* Project Name */}
           <div>
-            <label htmlFor="project-name" className="block text-sm font-medium text-neutral-700 mb-2">
+            <label htmlFor="project-name" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
               Project Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -167,7 +167,7 @@ export default function ProjectDialog({
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="Enter project name"
-              className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm transition-all focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
               disabled={isSubmitting}
               autoFocus
             />
@@ -175,14 +175,14 @@ export default function ProjectDialog({
 
           {/* Client Selector */}
           <div>
-            <label htmlFor="client" className="block text-sm font-medium text-neutral-700 mb-2">
-              Client <span className="text-neutral-400 text-xs">(optional)</span>
+            <label htmlFor="client" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+              Client <span className="text-xs text-[var(--tertiary-foreground)]">(optional)</span>
             </label>
             <select
               id="client"
               value={formData.client_id}
               onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-              className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
               disabled={isSubmitting}
             >
               <option value="">No client</option>
@@ -196,17 +196,17 @@ export default function ProjectDialog({
 
           {/* Status */}
           <div>
-            <label htmlFor="status" className="block text-sm font-medium text-neutral-700 mb-2">
+            <label htmlFor="status" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
               Status
             </label>
             <select
               id="status"
               value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-              className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+              onChange={(e) => setFormData({ ...formData, status: e.target.value as FormData["status"] })}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
               disabled={isSubmitting}
             >
-              <option value="not_started">Not Started</option>
+              <option value="not_started">Not started</option>
               <option value="in_progress">In Progress</option>
               <option value="complete">Complete</option>
             </select>
@@ -214,39 +214,35 @@ export default function ProjectDialog({
 
           {/* Due Date */}
           <div>
-            <label htmlFor="due-date" className="block text-sm font-medium text-neutral-700 mb-2">
-              Due Date <span className="text-neutral-400 text-xs">(date or text like "quarterly")</span>
+            <label htmlFor="due-date" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+              Due Date <span className="text-neutral-400 text-xs">(optional)</span>
             </label>
             <input
               id="due-date"
               type="text"
               value={formData.due_date}
               onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-              placeholder="2024-12-31 or 'quarterly'"
-              className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+              placeholder="YYYY-MM-DD or custom text"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
               disabled={isSubmitting}
             />
-            <p className="mt-1 text-xs text-neutral-500">
-              Enter a date (YYYY-MM-DD) or text like "quarterly", "weekly", etc.
-            </p>
           </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3 pt-6">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 rounded-lg transition-colors"
+              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)]"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] shadow-sm transition-colors hover:bg-[#1f2937] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSubmitting}
             >
-              {isSubmitting ? (mode === "create" ? "Creating..." : "Saving...") : (mode === "create" ? "Create Project" : "Save Changes")}
+              {isSubmitting ? "Saving..." : mode === "create" ? "Create project" : "Save changes"}
             </button>
           </div>
         </form>

@@ -6,10 +6,10 @@ interface StatusBadgeProps {
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const styles = {
-    not_started: "bg-neutral-100 text-neutral-700",
-    in_progress: "bg-blue-100 text-blue-700",
-    complete: "bg-green-100 text-green-700",
-  };
+    not_started: "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]",
+    in_progress: "bg-[#dbeafe] text-[#1d4ed8]",
+    complete: "bg-[#dcfce7] text-[#15803d]",
+  } as const;
 
   const labels = {
     not_started: "Not Started",
@@ -19,7 +19,7 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
 
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-medium ${styles[status]}`}
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${styles[status]}`}
     >
       {labels[status]}
     </span>

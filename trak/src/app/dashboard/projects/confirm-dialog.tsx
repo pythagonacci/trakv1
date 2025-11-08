@@ -39,10 +39,10 @@ export default function ConfirmDialog({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[var(--border)] bg-white/95 shadow-popover dark:bg-[#111]">
         {/* Header */}
-        <div className="flex items-start justify-between p-6 border-b border-neutral-200">
+        <div className="flex items-start justify-between border-b border-[var(--border)] px-6 py-5">
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
               <AlertTriangle className="w-5 h-5 text-red-600" />
