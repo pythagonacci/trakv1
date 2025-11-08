@@ -24,22 +24,22 @@ export default function SignupPage() {
           <Label htmlFor="email">Email</Label>
           <div className="relative">
             <Input id="email" name="email" type="email" placeholder="you@company.com" required />
-            <Mail className="w-4 h-4 absolute right-3 top-2.5 text-neutral-400" />
+            <Mail className="absolute right-3 top-2.5 h-4 w-4 text-[var(--tertiary-foreground)]" />
           </div>
         </div>
         <div>
           <Label htmlFor="password">Password</Label>
           <div className="relative">
             <Input id="password" name="password" type="password" placeholder="••••••••" required />
-            <Lock className="w-4 h-4 absolute right-3 top-2.5 text-neutral-400" />
+            <Lock className="absolute right-3 top-2.5 h-4 w-4 text-[var(--tertiary-foreground)]" />
           </div>
-          <p className="mt-1 text-xs text-neutral-500">8+ chars, at least one number and symbol.</p>
+          <p className="mt-1 text-xs text-[var(--tertiary-foreground)]">8+ chars, at least one number and symbol.</p>
         </div>
         <Button type="submit" className="w-full">
-          <UserPlus className="w-4 h-4" /> Create account
+          <UserPlus className="h-4 w-4" /> Create account
         </Button>
-        <p className="text-xs text-neutral-600 text-center">
-          Already have an account? <a href="/login" className="font-medium hover:underline">Sign in</a>
+        <p className="text-xs text-[var(--muted-foreground)] text-center">
+          Already have an account? <a href="/login" className="font-medium text-[var(--primary)] hover:underline">Sign in</a>
         </p>
       </form>
     </AuthShell>

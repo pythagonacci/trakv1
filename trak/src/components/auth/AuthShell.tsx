@@ -1,18 +1,18 @@
 import React from "react";
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-neutral-100 flex items-center justify-center p-6">
-        <div className="max-w-md w-full">
-          <div className="mb-8 text-center">
-            <div className="text-sm font-semibold text-neutral-600 mb-3">Track</div>
-            <h1 className="text-3xl font-bold text-neutral-900 mb-2">{title}</h1>
-            {subtitle && <p className="text-base text-neutral-600">{subtitle}</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow-lg border border-neutral-200">
-            <div className="p-8">{children}</div>
-          </div>
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--surface)] px-6 py-12">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.4em] text-[var(--tertiary-foreground)]">Trak</div>
+          <h1 className="text-3xl font-bold text-[var(--foreground)]">{title}</h1>
+          {subtitle && <p className="text-sm text-[var(--muted-foreground)]">{subtitle}</p>}
+        </div>
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-sm">
+          <div className="px-8 py-10 space-y-6">{children}</div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}

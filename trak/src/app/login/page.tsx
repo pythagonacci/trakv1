@@ -22,21 +22,21 @@ export default async function LoginPage({ searchParams }: PageProps) {
           <Label htmlFor="email">Email</Label>
           <div className="relative">
             <Input id="email" name="email" type="email" placeholder="you@company.com" required />
-            <Mail className="w-4 h-4 absolute right-3 top-2.5 text-neutral-400" />
+            <Mail className="absolute right-3 top-2.5 h-4 w-4 text-[var(--tertiary-foreground)]" />
           </div>
         </div>
         <div>
           <Label htmlFor="password">Password</Label>
           <div className="relative">
             <Input id="password" name="password" type="password" placeholder="••••••••" required />
-            <Lock className="w-4 h-4 absolute right-3 top-2.5 text-neutral-400" />
+            <Lock className="absolute right-3 top-2.5 h-4 w-4 text-[var(--tertiary-foreground)]" />
           </div>
         </div>
         <Button type="submit" className="w-full">
-          <LogIn className="w-4 h-4" /> Sign in
+          <LogIn className="h-4 w-4" /> Sign in
         </Button>
-        <p className="text-xs text-neutral-600 text-center">
-          Don't have an account? <a href="/signup" className="font-medium hover:underline">Create one</a>
+        <p className="text-xs text-[var(--muted-foreground)] text-center">
+          Don't have an account? <a href="/signup" className="font-medium text-[var(--primary)] hover:underline">Create one</a>
         </p>
       </form>
     </AuthShell>
