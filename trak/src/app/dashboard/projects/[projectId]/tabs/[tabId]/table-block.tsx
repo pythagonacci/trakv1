@@ -291,9 +291,9 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   };
 
   return (
-    <div className="space-y-6 rounded-xl border border-[var(--border)] bg-white/95 p-6 shadow-sm dark:bg-[#121212]">
+    <div className="space-y-4">
       {/* Table Title/Header */}
-      <div className="mb-6 border-b border-[var(--border)] pb-4">
+      <div className="border-b border-[var(--border)] pb-3">
         {editingTitle ? (
           <input
             id="tab-name"
@@ -303,7 +303,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
             onBlur={handleTitleBlur}
             onKeyDown={handleTitleKeyDown}
             placeholder="Table title..."
-            className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+            className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
             disabled={false}
             autoFocus
             maxLength={100}
@@ -311,21 +311,21 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         ) : (
           <div
             onClick={() => setEditingTitle(true)}
-            className="flex min-h-[32px] items-center rounded-lg px-3 py-2 text-lg font-semibold text-[var(--foreground)] transition-colors hover:bg-surface-hover"
+            className="flex min-h-[28px] items-center rounded-[4px] px-2 py-1.5 text-base font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
           >
             {title || <span className="text-neutral-400 dark:text-neutral-500 font-normal">Table title...</span>}
           </div>
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+      <div className="overflow-x-auto rounded-[6px] border border-[var(--border)] bg-[var(--surface)]">
         <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
-          <thead className="bg-surface">
+          <thead className="bg-[var(--surface)]">
             <tr>
               {Array.from({ length: cols }).map((_, colIndex) => (
                 <th
                   key={colIndex}
-                  className="relative border-r border-[var(--border)] bg-white px-4 py-3 text-left text-sm font-semibold text-[var(--muted-foreground)] last:border-r-0"
+                  className="relative border-r border-[var(--border)] px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] last:border-r-0"
                   style={{ width: `${displayWidths[colIndex] || 150}px`, minWidth: "100px" }}
                   onMouseEnter={() => setHoveredCol(colIndex)}
                   onMouseLeave={() => setHoveredCol(null)}
@@ -339,7 +339,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                         onBlur={() => handleBlur(0, colIndex)}
                         onKeyDown={(e) => handleKeyDown(e, 0, colIndex)}
                         placeholder="Header..."
-                        className="min-h-[20px] w-full resize-none rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] placeholder:text-[var(--tertiary-foreground)]"
+                        className="min-h-[20px] w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] placeholder:text-[var(--tertiary-foreground)]"
                         rows={1}
                         style={{ overflow: 'hidden' }}
                         onInput={(e) => {
@@ -363,7 +363,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                           e.stopPropagation();
                           deleteColumn(colIndex);
                         }}
-                        className="ml-2 rounded-md p-1 text-[var(--tertiary-foreground)] transition-colors hover:bg-red-50 hover:text-red-500"
+                        className="ml-2 rounded-[4px] p-1 text-[var(--tertiary-foreground)] transition-colors hover:bg-red-50 hover:text-red-500"
                         title="Delete column"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -374,21 +374,21 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                   <div
                     onMouseDown={(e) => handleResizeStart(colIndex, e)}
                     className={cn(
-                      "absolute top-0 right-0 w-1 h-full cursor-col-resize transition-colors",
-                      resizingCol === colIndex ? "bg-[var(--foreground)]" : "bg-transparent hover:bg-[var(--surface-muted)]"
+                      "absolute top-0 right-0 h-full w-0.5 cursor-col-resize transition-colors",
+                      resizingCol === colIndex ? "bg-[var(--foreground)]" : "bg-transparent hover:bg-[var(--border-strong)]"
                     )}
-                    style={{ marginRight: "-1px" }}
+                    style={{ marginRight: "-2px" }}
                   />
                 </th>
               ))}
               {/* Add column button */}
-              <th className="w-12 border-t border-[var(--border)] bg-surface px-3 py-2 text-center">
+              <th className="w-10 border-t border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-center">
                 <button
                   onClick={addColumn}
-                  className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                  className="flex h-full w-full items-center justify-center rounded-[4px] border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
                   title="Add column"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="h-3.5 w-3.5" />
                 </button>
               </th>
             </tr>
@@ -416,7 +416,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => handleBlur(actualRowIndex, colIndex)}
                           onKeyDown={(e) => handleKeyDown(e, actualRowIndex, colIndex)}
-                          className="min-h-[24px] w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+                          className="min-h-[24px] w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
                           rows={1}
                           style={{ overflow: 'hidden' }}
                           onInput={(e) => {
@@ -428,7 +428,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                       ) : (
                         <div
                           onClick={() => startEditing(actualRowIndex, colIndex)}
-                          className="min-h-[24px] cursor-text rounded-md px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                          className="min-h-[24px] cursor-text rounded-[4px] px-2 py-1 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                         >
                           {cells[actualRowIndex]?.[colIndex] || ""}
                         </div>
@@ -445,16 +445,16 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         <div className="flex items-center gap-2">
           <button
             onClick={addRow}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+            className="inline-flex items-center gap-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="h-3.5 w-3.5" />
             Add row
           </button>
           {/* Delete row button - shows on hover */}
           {hoveredRow !== null && hoveredRow > 0 && rows > 1 && (
             <button
               onClick={() => deleteRow(hoveredRow)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-100 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:border-red-200 hover:bg-red-100"
+              className="inline-flex items-center gap-1.5 rounded-[4px] border border-red-100 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:border-red-200 hover:bg-red-100"
             >
               <X className="w-3.5 h-3.5" />
               Delete row

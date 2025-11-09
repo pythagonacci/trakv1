@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { type Block } from "@/app/actions/block";
 import { getBlockFiles, getFileUrl, detachFileFromBlock } from "@/app/actions/file";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface FileBlockProps {
   block: Block;
@@ -104,90 +105,87 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   };
 
   if (loading) {
-    return (
-      <div className="p-5 text-sm text-neutral-500">Loading files...</div>
-    );
+    return <div className="text-sm text-[var(--muted-foreground)]">Loading files…</div>;
   }
 
   // Show empty state if no files
   if (files.length === 0) {
     return (
-      <div className="p-5 text-sm text-neutral-500 text-center">
-        No files attached. Use the three-dot menu to attach files.
+      <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+        No files attached. Use the block menu to upload files.
       </div>
     );
   }
 
   return (
-    <div className="p-5 space-y-4">
-      {/* Uploaded Files Grid */}
-      <div className="mb-4">
-        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-3">
-          Uploaded Files ({files.length})
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {files.map((blockFile) => {
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-[var(--tertiary-foreground)]">
+        <span className="uppercase tracking-wide">Files</span>
+        <span>{files.length} attached</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        {files.map((blockFile) => {
             const file = blockFile.file;
             const FileIcon = getFileIcon(file.file_type);
             const isImage = file.file_type.startsWith("image/");
             const imageUrl = fileUrls[file.id];
             const imageFailed = imageErrors[file.id];
-
+ 
             return (
               <div
                 key={blockFile.id}
-                className="group relative border rounded-lg overflow-hidden bg-white dark:bg-neutral-900 hover:shadow-md transition-shadow"
+                className="group relative overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 ease-out hover:border-[var(--foreground)]/20"
               >
                 {/* Image Thumbnail - only show for images */}
                 {isImage && imageUrl && !imageFailed ? (
-                  <div className="aspect-square relative bg-neutral-100 dark:bg-neutral-800">
+                  <div className="relative aspect-square bg-[var(--surface-hover)]">
                     <img
                       src={imageUrl}
                       alt={file.file_name}
-                      className="w-full h-full object-cover"
+                      className="h-full w-full object-cover"
                       onError={() => handleImageError(file.id)}
                     />
                   </div>
                 ) : isImage && !imageUrl ? (
-                  <div className="aspect-square flex items-center justify-center bg-neutral-100 dark:bg-neutral-800">
-                    <div className="text-xs text-neutral-500 p-2 text-center">
+                  <div className="flex aspect-square items-center justify-center bg-[var(--surface-hover)]">
+                    <div className="rounded-[4px] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--tertiary-foreground)]">
                       {imageFailed ? "❌ Failed" : "⏳ Loading..."}
                     </div>
                   </div>
                 ) : null}
-
+ 
                 {/* File Info */}
-                <div className={`p-2 ${!isImage ? 'flex items-center gap-2' : ''}`}>
+                <div className={cn("p-2.5", !isImage && "flex items-center gap-2")}> 
                   {!isImage && (
-                    <FileIcon className="w-5 h-5 text-neutral-400 flex-shrink-0" />
+                    <FileIcon className="h-5 w-5 flex-shrink-0 text-[var(--muted-foreground)]" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate mb-1">{file.file_name}</p>
-                    <p className="text-xs text-neutral-500">{formatFileSize(file.file_size)}</p>
+                    <p className="truncate text-xs font-medium text-[var(--foreground)]">{file.file_name}</p>
+                    <p className="text-[11px] text-[var(--tertiary-foreground)]">{formatFileSize(file.file_size)}</p>
                   </div>
                 </div>
-
+ 
                 {/* Hover Actions */}
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     onClick={() => handleDownloadFile(file.id, file.file_name)}
-                    className="p-2 bg-white/90 rounded hover:bg-white transition-colors"
+                    className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"
                     title="Download"
                   >
-                    <Download className="w-4 h-4 text-neutral-700" />
+                    <Download className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => handleDeleteFile(blockFile.id)}
-                    className="p-2 bg-white/90 rounded hover:bg-white transition-colors"
+                    className="rounded-[4px] bg-white/90 p-2 text-red-600 transition-colors hover:bg-white"
                     title="Delete"
                   >
-                    <Trash2 className="w-4 h-4 text-red-600" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               </div>
             );
           })}
-        </div>
       </div>
     </div>
   );

@@ -215,7 +215,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               setIsEditing(false);
             }
           }}
-          className="min-h-[95px] w-full resize-none rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[14px] leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+          className="min-h-[100px] w-full resize-none rounded-b-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none"
           placeholder="Start typing…"
         />
       </div>
@@ -232,21 +232,44 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       if (!line.trim()) return "<br/>";
 
       let formatted = line;
-      formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-[var(--foreground)]">$1</strong>');
-      formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic">$1</em>');
-      formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-md bg-surface px-2 py-0.5 text-xs font-mono">$1</code>');
+      formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-medium text-[var(--foreground)]">$1</strong>');
+      formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
+      formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-sm bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>');
 
       if (/^### /.test(formatted)) {
-        return `<h3 class="text-lg font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^### /, "")}</h3>`;
+        return `<h3 class="text-base font-medium text-[var(--foreground)] mb-2">${formatted.replace(/^### /, "")}</h3>`;
       }
       if (/^## /.test(formatted)) {
-        return `<h2 class="text-xl font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^## /, "")}</h2>`;
+        return `<h2 class="text-lg font-semibold text-[var(--foreground)] mb-2">${formatted.replace(/^## /, "")}</h2>`;
       }
       if (/^# /.test(formatted)) {
-        return `<h1 class="text-2xl font-bold text-[var(--foreground)] mb-3">${formatted.replace(/^# /, "")}</h1>`;
+        return `<h1 class="text-xl font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^# /, "")}</h1>`;
       }
 
-      return `<p class="mb-3 text-base leading-relaxed text-[var(--muted-foreground)]">${formatted}</p>`;
+      // Specific list item styles
+      if (/^• /.test(formatted)) {
+        return `<div class="flex items-start gap-2 mb-1.5"><span class="text-[var(--muted-foreground)]">•</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/^• /, '')}</span></div>`;
+      }
+      if (/^→ /.test(formatted)) {
+        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--info)]"><span>→</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/^→ /, '')}</span></div>`;
+      }
+      if (/✅ /.test(formatted)) {
+        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--success)]"><span>✅</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/✅ /, '')}</span></div>`;
+      }
+      if (/⚠️ /.test(formatted)) {
+        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--warning)]"><span>⚠️</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/⚠️ /, '')}</span></div>`;
+      }
+      if (/💬 /.test(formatted)) {
+        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--muted-foreground)]"><span>💬</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/💬 /, '')}</span></div>`;
+      }
+      if (/🔄 /.test(formatted)) {
+        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--info)]"><span>🔄</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/🔄 /, '')}</span></div>`;
+      }
+      if (/⭐/.test(formatted)) {
+        return `<div class="mb-1.5 text-sm text-[var(--foreground)]">${formatted}</div>`;
+      }
+
+      return `<p class="mb-1.5 text-sm leading-relaxed text-[var(--foreground)]">${formatted}</p>`;
     });
 
     return formattedLines.join("");
@@ -255,10 +278,10 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const formatted = formatText(content);
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       <div
         onClick={() => setIsEditing(true)}
-        className="cursor-text text-[14px] leading-relaxed text-[var(--muted-foreground)]"
+        className="cursor-text text-sm leading-relaxed text-[var(--foreground)]"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}

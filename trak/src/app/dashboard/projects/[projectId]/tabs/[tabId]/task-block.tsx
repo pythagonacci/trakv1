@@ -109,7 +109,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
       <div className="mb-3 font-semibold text-[var(--foreground)] text-sm uppercase tracking-wide">{title}</div>
       <div className="space-y-2.5">
         {tasks.map((task: Task) => (
-          <div key={task.id} className="flex items-start gap-3">
+          <div
+            key={task.id}
+            className="group flex items-start gap-2.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-150 ease-out hover:border-[var(--foreground)]/15"
+            onMouseEnter={() => setHoveredTaskId(task.id)}
+            onMouseLeave={() => setHoveredTaskId(null)}
+          >
+            {/* Status Icon */}
             <button
               onClick={() => toggleTask(task.id)}
               className="mt-1 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]"
@@ -121,40 +127,27 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
             <div className="flex-1 space-y-2">
               {editingTaskId === task.id ? (
                 <input
+                  type="text"
                   value={editingTaskText}
                   onChange={(e) => setEditingTaskText(e.target.value)}
-                  onBlur={() => {
-                    setEditingTaskId(null);
-                    if (editingTaskText.trim()) {
-                      updateTask(task.id, { text: editingTaskText.trim() });
-                    }
-                  }}
+                  onBlur={() => finishEditingTask(task.id)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.currentTarget.blur();
-                    }
-                    if (e.key === "Escape") {
-                      setEditingTaskId(null);
-                    }
+                    if (e.key === "Enter") finishEditingTask(task.id);
+                    if (e.key === "Escape") setEditingTaskId(null);
                   }}
-                  className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
                   autoFocus
+                  className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-sm text-[var(--foreground)] shadow-sm focus:outline-none"
                 />
               ) : (
-                <button
-                  onClick={() => {
-                    setEditingTaskId(task.id);
-                    setEditingTaskText(task.text);
-                  }}
-                  className={clsx(
-                    "text-sm leading-snug",
-                    task.status === "done"
-                      ? "line-through text-neutral-400"
-                      : "text-[var(--foreground)]"
+                <div
+                  onClick={() => startEditingTask(task.id, task.text)}
+                  className={cn(
+                    "cursor-text text-sm leading-snug text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                    task.status === "done" && "line-through text-[var(--muted-foreground)]"
                   )}
                 >
                   {task.text}
-                </button>
+                </div>
               )}
 
               <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--tertiary-foreground)] mt-1">
@@ -182,11 +175,14 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
                   <input
                     type="date"
                     value={task.dueDate || ""}
-                    onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
-                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+                    onChange={(e) => updateTaskDueDate(task.id, e.target.value || undefined)}
+                    className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:border-[var(--foreground)] focus:outline-none"
                   />
                   {task.dueDate && (
-                    <button onClick={() => updateTask(task.id, { dueDate: undefined })} className="text-[var(--tertiary-foreground)]">
+                    <button
+                      onClick={() => updateTaskDueDate(task.id, undefined)}
+                      className="text-[var(--tertiary-foreground)] hover:text-[var(--muted-foreground)]"
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   )}
@@ -205,9 +201,9 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
 
         <button
           onClick={addTask}
-          className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          className="inline-flex items-center gap-1.5 rounded-[6px] border border-dashed border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
         >
-          <Plus className="w-3.5 h-3.5" /> Add task
+          <Plus className="h-3.5 w-3.5" /> Add task
         </button>
       </div>
     </div>

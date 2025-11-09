@@ -86,11 +86,11 @@ export default function BlockWrapper({
 
   return (
     <div ref={setNodeRef} style={style} className="group relative w-full">
-      <div className="absolute -left-8 top-2.5 hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-sm transition-all duration-150 ease-out group-hover:flex">
+      <div className="absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-sm transition-all duration-150 ease-out group-hover:flex">
         <button
           {...attributes}
           {...listeners}
-          className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-hover)]"
+          className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)]"
           aria-label="Drag block"
         >
           <GripVertical className="h-4 w-4" />
@@ -99,18 +99,18 @@ export default function BlockWrapper({
 
       <div
         className={cn(
-          "relative flex min-w-0 flex-col rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 shadow-sm transition-all duration-200 ease-out hover:shadow-md",
+          "relative flex min-w-0 flex-col rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-sm transition-all duration-150 ease-out hover:border-[var(--foreground)]/20",
           isDragging && "ring-2 ring-[var(--foreground)]/18"
         )}
       >
-        <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-sm transition-opacity duration-150 ease-out group-hover:flex">
+        <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-sm transition-opacity duration-150 ease-out group-hover:flex">
           {block.type}
         </div>
 
-        <div className="absolute right-3 top-2.5 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out group-hover:flex">
+        <div className="absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out group-hover:flex">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <button className="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+              <button className="flex h-7 w-7 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
@@ -149,7 +149,7 @@ export default function BlockWrapper({
           </DropdownMenu>
         </div>
 
-        <div className="space-y-4">{children}</div>
+        <div className="space-y-2.5">{children}</div>
       </div>
 
       {workspaceId && projectId && (

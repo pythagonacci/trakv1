@@ -46,7 +46,10 @@ export default function DashboardLayoutClient({
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto px-3 py-4 md:px-4 lg:px-5 lg:py-5">
+        <main
+          id="dashboard-content"
+          className="flex-1 overflow-y-auto px-3 py-4 md:px-4 lg:px-5 lg:py-5"
+        >
           {children}
         </main>
       </div>

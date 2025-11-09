@@ -252,7 +252,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
           return (
             <div
               id="timeline-tooltip"
-              className="fixed z-[99999] min-w-[220px] max-w-[320px] rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-lg p-3 text-xs text-neutral-700 dark:text-neutral-300 pointer-events-auto"
+              className="fixed z-[99999] min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg pointer-events-auto"
               style={{
                 top: `${tooltipPosition.top}px`,
                 left: `${tooltipPosition.left}px`,
@@ -268,19 +268,19 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
               }}
             >
               <div className="flex items-start gap-2">
-                <div className={cn("mt-0.5 h-2.5 w-2.5 rounded-full shrink-0", event.color || "bg-neutral-900")} />
+                <div className={cn("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", event.color || "bg-[var(--foreground)]")} />
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium text-neutral-900 dark:text-white truncate">{event.title}</div>
-                  <div className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+                  <div className="truncate font-medium text-[var(--foreground)]">{event.title}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                     {format(new Date(event.start), "MMM d")} – {format(new Date(event.end), "MMM d, yyyy")}
                   </div>
                   {event.assignee && (
-                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+                    <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                       Assignee: {event.assignee}
                     </div>
                   )}
                   {event.notes && (
-                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+                    <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                       {event.notes}
                     </div>
                   )}
@@ -288,7 +288,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
               </div>
               <div className="mt-3 flex items-center gap-2">
                 <button
-                  className="px-2 py-1 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs"
+                  className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedEventId(event.id);
@@ -300,7 +300,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
                   Edit
                 </button>
                 <button
-                  className="px-2 py-1 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs"
+                  className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
                     e.stopPropagation();
                     duplicateEvent(event.id);
@@ -311,7 +311,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
                   Duplicate
                 </button>
                 <button
-                  className="px-2 py-1 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-xs"
+                  className="rounded-[4px] border border-[var(--error)]/50 px-2 py-1 text-xs text-[var(--error)] transition-colors hover:bg-[var(--error)]/10"
                   onClick={(e) => {
                     e.stopPropagation();
                     removeEvent(event.id);
@@ -328,174 +328,159 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
       : null;
 
   return (
-    <div className="p-5 w-full min-w-0">
-      <div className="w-full min-w-0 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold text-neutral-900 dark:text-white truncate">Timeline</h2>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              {format(range.start, "MMM d")} – {format(range.end, "MMM d, yyyy")}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
+          <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+            {format(range.start, "MMM d")} – {format(range.end, "MMM d, yyyy")}
+          </div>
+        </div>
+        <Button size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Add event
+        </Button>
+      </div>
+
+      <div ref={scrollRef} className="overflow-x-auto rounded-[6px] border border-[var(--border)] bg-[var(--surface)]">
+        <div className="inline-block min-w-0" style={{ minWidth: `${(totalDays + 1) * 44}px` }}>
+          {/* Sticky date header */}
+          <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
+            <div
+              className="grid"
+              style={{ gridTemplateColumns: `repeat(${totalDays + 1}, 44px)` }}
+            >
+              {grid.map((c) => (
+                <div
+                  key={`dateheader_${c.key}`}
+                  className="flex min-h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                >
+                  {c.monthLabel ? (
+                    <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                      {c.monthLabel}
+                    </span>
+                  ) : (
+                    <span className="mb-0.5" />
+                  )}
+                  <span>{c.dayLabel}</span>
+                </div>
+              ))}
             </div>
           </div>
-          <button
-            onClick={addEvent}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors shrink-0"
+
+          {/* Timeline grid */}
+          <div
+            className="relative grid select-none"
+            style={{
+              gridTemplateColumns: `repeat(${totalDays + 1}, 44px)`,
+              gridTemplateRows: `repeat(${Math.max(1, sortedEvents.length)}, minmax(44px, auto))`,
+            }}
           >
-            <Plus className="h-3.5 w-3.5" /> Add
-          </button>
-        </div>
+            {/* Base grid background */}
+            {sortedEvents.map((event, eventRowIndex) => (
+              <React.Fragment key={`grid_row_${event.id}`}>
+                {grid.map((c, idx) => {
+                  const cellDate = c.date;
+                  const eventStart = clampDate(new Date(event.start));
+                  const eventEnd = clampDate(new Date(event.end));
+                  const isCovered = cellDate >= eventStart && cellDate <= eventEnd;
 
-        {/* Timeline body */}
-        <div ref={scrollRef} className="overflow-x-auto w-full min-w-0">
-          <div className="inline-block min-w-0" style={{ minWidth: `${(totalDays + 1) * 44}px` }}>
-            {/* Sticky date header */}
-            <div className="sticky top-0 z-10 bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800">
-              <div
-                className="grid"
-                style={{ gridTemplateColumns: `repeat(${totalDays + 1}, 44px)` }}
-              >
-                {grid.map((c) => (
-                  <div
-                    key={`dateheader_${c.key}`}
-                    className="flex flex-col items-center justify-center py-2 border-l border-neutral-200 dark:border-neutral-800 text-[10px] text-neutral-500 dark:text-neutral-400 min-h-[44px]"
-                  >
-                    {c.monthLabel ? (
-                      <span className="font-medium text-neutral-700 dark:text-neutral-300 text-[11px] mb-0.5 text-center">
-                        {c.monthLabel}
-                      </span>
-                    ) : (
-                      <span className="mb-0.5" />
-                    )}
-                    <span className="text-center">{c.dayLabel}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Timeline grid */}
-            <div
-              className="grid select-none relative"
-              style={{
-                gridTemplateColumns: `repeat(${totalDays + 1}, 44px)`,
-                gridTemplateRows: `repeat(${Math.max(1, sortedEvents.length)}, minmax(44px, auto))`,
-              }}
-            >
-              {/* Base grid background */}
-              {sortedEvents.map((event, eventRowIndex) => (
-                <React.Fragment key={`grid_row_${event.id}`}>
-                  {grid.map((c, idx) => {
-                    const cellDate = c.date;
-                    const eventStart = clampDate(new Date(event.start));
-                    const eventEnd = clampDate(new Date(event.end));
-                    const isCovered = cellDate >= eventStart && cellDate <= eventEnd;
-
-                    if (!isCovered) {
-                      return (
-                        <div
-                          key={`grid_${event.id}_${c.key}`}
-                          className={cn(
-                            idx === grid.length - 1 && "border-r",
-                            "border-neutral-200 dark:border-neutral-800 pointer-events-none"
-                          )}
-                          style={{
-                            gridColumn: idx + 1,
-                            gridRow: eventRowIndex + 1,
-                            borderLeft: idx === 0 ? undefined : "1px solid rgb(229,231,235)",
-                            borderBottom: "1px solid rgba(229,231,235,0.8)",
-                          }}
-                        />
-                      );
-                    }
-                    return null;
-                  })}
-                </React.Fragment>
-              ))}
-
-              {/* If no events, show empty grid */}
-              {sortedEvents.length === 0 &&
-                grid.map((c, idx) => (
-                  <div
-                    key={`grid_empty_${c.key}`}
-                    className={cn(idx === grid.length - 1 && "border-r", "border-neutral-200 dark:border-neutral-800 pointer-events-none")}
-                    style={{
-                      gridColumn: idx + 1,
-                      gridRow: 1,
-                      borderLeft: idx === 0 ? undefined : "1px solid rgb(229,231,235)",
-                      borderBottom: "1px solid rgba(229,231,235,0.8)",
-                    }}
-                  />
-                ))}
-
-              {/* Events overlay - each on its own row */}
-              {sortedEvents.map((it, eventRowIndex) => (
-                <div
-                  key={it.id}
-                  className="relative group z-10 pointer-events-auto"
-                  style={barStyle(it.start, it.end, eventRowIndex)}
-                  data-event-id={it.id}
-                  onMouseEnter={(e) => {
-                    e.stopPropagation();
-                    clearHideTimer();
-                    const bar = (e.currentTarget.querySelector(".event-bar") as HTMLElement) ?? (e.currentTarget as HTMLElement);
-                    const rect = bar.getBoundingClientRect();
-                    setHoveredEventId(it.id);
-                    setTooltipPosition({
-                      top: rect.top,
-                      left: Math.min(rect.left, window.innerWidth - 320 - 8), // keep within viewport
-                    });
-                  }}
-                  onMouseLeave={(e) => {
-                    const rt = e.relatedTarget as HTMLElement | null;
-                    if (rt && (rt.closest("[data-event-id]") || rt.closest("#timeline-tooltip"))) {
-                      return; // moving into another bar or tooltip
-                    }
-                    scheduleHide();
-                  }}
-                >
-                  <div
-                    className={cn(
-                      "event-bar my-2 h-8 w-full rounded-lg text-[11px] text-white flex items-center gap-2 px-3 cursor-pointer shadow-sm transition-transform pointer-events-auto",
-                      // intentionally no hover:scale to avoid jitter
-                      it.color || "bg-neutral-900"
-                    )}
-                    onClick={() => {
-                      setSelectedEventId(it.id);
-                      setIsEditDialogOpen(true);
-                    }}
-                  >
-                    <span className="h-2 w-2 rounded-full bg-white/80 shrink-0" />
-                    <span className="truncate flex-1">{it.title}</span>
-                    {it.status && (
-                      <span
-                        className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70 shrink-0"
-                        aria-label={`status-${it.status}`}
+                  if (!isCovered) {
+                    return (
+                      <div
+                        key={`grid_${event.id}_${c.key}`}
+                        className={cn(
+                          idx === grid.length - 1 && "border-r",
+                          "pointer-events-none border-[var(--border)]"
+                        )}
+                        style={{
+                          gridColumn: idx + 1,
+                          gridRow: eventRowIndex + 1,
+                          borderLeft: idx === 0 ? undefined : "1px solid var(--border)",
+                          borderBottom: "1px solid var(--border)",
+                        }}
                       />
-                    )}
-                  </div>
-                </div>
+                    );
+                  }
+                  return null;
+                })}
+              </React.Fragment>
+            ))}
+
+            {/* If no events, show empty grid */}
+            {sortedEvents.length === 0 &&
+              grid.map((c, idx) => (
+                <div
+                  key={`grid_empty_${c.key}`}
+                  className={cn(idx === grid.length - 1 && "border-r", "pointer-events-none border-[var(--border)]")}
+                  style={{
+                    gridColumn: idx + 1,
+                    gridRow: 1,
+                    borderLeft: idx === 0 ? undefined : "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                />
               ))}
 
-              {/* Empty state when no events */}
-              {sortedEvents.length === 0 && (
+            {/* Events overlay */}
+            {sortedEvents.map((it, eventRowIndex) => (
+              <div
+                key={it.id}
+                className="relative z-10 pointer-events-auto"
+                style={barStyle(it.start, it.end, eventRowIndex)}
+                data-event-id={it.id}
+                onMouseEnter={(e) => {
+                  e.stopPropagation();
+                  clearHideTimer();
+                  const bar = (e.currentTarget.querySelector(".event-bar") as HTMLElement) ?? (e.currentTarget as HTMLElement);
+                  const rect = bar.getBoundingClientRect();
+                  setHoveredEventId(it.id);
+                  setTooltipPosition({
+                    top: rect.top,
+                    left: Math.min(rect.left, window.innerWidth - 320 - 8),
+                  });
+                }}
+                onMouseLeave={(e) => {
+                  const rt = e.relatedTarget as HTMLElement | null;
+                  if (rt && (rt.closest("[data-event-id]") || rt.closest("#timeline-tooltip"))) {
+                    return;
+                  }
+                  scheduleHide();
+                }}
+              >
                 <div
-                  className="py-12 text-center"
-                  style={{
-                    gridColumn: `1 / span ${totalDays + 1}`,
-                    gridRow: 1,
+                  className={cn(
+                    "event-bar my-2 flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm transition-transform",
+                    it.color || "bg-[var(--foreground)]"
+                  )}
+                  onClick={() => {
+                    setSelectedEventId(it.id);
+                    setIsEditDialogOpen(true);
                   }}
                 >
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
-                    No events yet. Click &ldquo;+ Add&rdquo; to create your first event.
-                  </p>
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
+                  <span className="flex-1 truncate">{it.title}</span>
+                  {it.status && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" aria-label={`status-${it.status}`} />}
                 </div>
-              )}
-            </div>
+              </div>
+            ))}
+
+            {/* Empty state when no events */}
+            {sortedEvents.length === 0 && (
+              <div
+                className="py-12 text-center"
+                style={{
+                  gridColumn: `1 / span ${totalDays + 1}`,
+                  gridRow: 1,
+                }}
+              >
+                <p className="text-sm text-[var(--muted-foreground)]">No events yet. Click “Add event” to create your first milestone.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Hover Tooltip — render via portal to avoid clipping/stacking issues */}
+      {/* Hover Tooltip */}
       {mounted && tooltipEl && createPortal(tooltipEl, document.body)}
 
       {/* Add Event Dialog */}

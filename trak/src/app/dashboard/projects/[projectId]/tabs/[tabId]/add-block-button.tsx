@@ -148,14 +148,14 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       <DropdownMenuTrigger asChild>
         {triggerButton}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-60">
+      <DropdownMenuContent align="start" side="right" sideOffset={12} alignOffset={-140} className="w-60">
         {blockTypes.map((blockType) => (
           <DropdownMenuItem
             key={blockType.type}
             onClick={() => handleCreateBlock(blockType.type)}
-            className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            className="flex cursor-pointer items-center gap-2.5 rounded-[4px] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--foreground)]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-[var(--surface-muted)] text-[var(--foreground)]">
               {blockType.icon}
             </div>
             <div className="flex-1">
