@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bold, Italic, Underline, Code, Type } from "lucide-react";
+import {
+  Bold,
+  Italic,
+  Underline,
+  Code,
+  Type,
+  Square,
+} from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import {
@@ -11,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import AttachedFilesList from "./attached-files-list";
+import { cn } from "@/lib/utils";
 
 interface TextBlockProps {
   block: Block;
@@ -23,21 +31,23 @@ interface TextBlockProps {
 type SaveStatus = "idle" | "saving" | "saved";
 
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
-  const initialContent = (block.content?.text as string) || "";
+  const blockContent = (block.content || {}) as { text?: string; borderless?: boolean };
+  const initialContent = blockContent.text || "";
   const isEmpty = !initialContent || initialContent.trim() === "";
   const [isEditing, setIsEditing] = useState(autoFocus || isEmpty);
   const [content, setContent] = useState(initialContent);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hasAutoFocused = useRef(false);
 
   useEffect(() => {
-    if (!hasAutoFocused.current && (autoFocus || isEmpty)) {
-      hasAutoFocused.current = true;
-      setIsEditing(true);
+    const next = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
+    if (next !== isBorderless) {
+      const raf = requestAnimationFrame(() => setIsBorderless(next));
+      return () => cancelAnimationFrame(raf);
     }
-  }, [autoFocus, isEmpty]);
+  }, [block.content, isBorderless]);
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -53,7 +63,11 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       try {
         await updateBlock({
           blockId: block.id,
-          content: { text: textToSave },
+          content: {
+            ...(block.content as Record<string, unknown> | undefined),
+            text: textToSave,
+            borderless: isBorderless,
+          },
         });
         setSaveStatus("saved");
         onUpdate?.();
@@ -63,7 +77,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
         setSaveStatus("idle");
       }
     },
-    [block.id, onUpdate]
+    [block.id, onUpdate, isBorderless, block.content]
   );
 
   useEffect(() => {
@@ -90,6 +104,24 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     setIsEditing(false);
     if (content !== (block.content?.text as string)) {
       await saveContent(content);
+    }
+  };
+
+  const toggleBorderless = async () => {
+    const next = !isBorderless;
+    setIsBorderless(next);
+    try {
+      await updateBlock({
+        blockId: block.id,
+        content: {
+          ...(block.content as Record<string, unknown> | undefined),
+          text: content,
+          borderless: next,
+        },
+      });
+      onUpdate?.();
+    } catch (error) {
+      console.error("Failed to update text block appearance:", error);
     }
   };
 
@@ -197,6 +229,20 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              toggleBorderless();
+            }}
+            className={cn(
+              "ml-1 flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]",
+              isBorderless && "bg-[var(--surface-hover)] text-[var(--foreground)]"
+            )}
+            title={isBorderless ? "Show block border" : "Hide block border"}
+          >
+            <Square className="h-4 w-4" />
+          </button>
 
           <span className="ml-auto text-xs text-[var(--tertiary-foreground)]">
             {saveStatus === "saving" && "Saving…"}

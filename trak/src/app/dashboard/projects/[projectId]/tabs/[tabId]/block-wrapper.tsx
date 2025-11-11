@@ -74,6 +74,7 @@ export default function BlockWrapper({
   });
 
   const isDragging = externalIsDragging || isDraggingInternal;
+  const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -86,26 +87,35 @@ export default function BlockWrapper({
 
   return (
     <div ref={setNodeRef} style={style} className="group relative w-full">
-      <div className="absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-sm transition-all duration-150 ease-out group-hover:flex">
+      <div
+        className={cn(
+          "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-sm transition-all duration-150 ease-out",
+          "group-hover:flex group-focus-within:flex"
+        )}
+      >
         <button
           {...attributes}
           {...listeners}
           className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)]"
           aria-label="Drag block"
         >
-          <GripVertical className="h-4 w-4" />
+          <GripVertical className="h-3.5 w-3.5" />
         </button>
       </div>
 
       <div
         className={cn(
-          "relative flex min-w-0 flex-col rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-sm transition-all duration-150 ease-out hover:border-[var(--foreground)]/20",
-          isDragging && "ring-2 ring-[var(--foreground)]/18"
+          "relative flex min-w-0 flex-col transition-all duration-150 ease-out",
+          borderless
+            ? "rounded-none border-none bg-transparent px-0 py-0 shadow-none"
+            : "rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-sm hover:border-[var(--foreground)]/20"
         )}
       >
-        <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-sm transition-opacity duration-150 ease-out group-hover:flex">
-          {block.type}
-        </div>
+        {!borderless && (
+          <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-sm transition-opacity duration-150 ease-out group-hover:flex">
+            {block.type}
+          </div>
+        )}
 
         <div className="absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out group-hover:flex">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -149,7 +159,7 @@ export default function BlockWrapper({
           </DropdownMenu>
         </div>
 
-        <div className="space-y-2.5">{children}</div>
+        <div className={cn("space-y-2.5", borderless && "space-y-3")}>{children}</div>
       </div>
 
       {workspaceId && projectId && (

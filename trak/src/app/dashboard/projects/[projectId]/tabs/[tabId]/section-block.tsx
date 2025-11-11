@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { type Block, getChildBlocks, createBlock } from "@/app/actions/block";
+import { type Block, getChildBlocks, updateBlock } from "@/app/actions/block";
 import BlockRenderer from "./block-renderer";
 import AddBlockButton from "./add-block-button";
 import { cn } from "@/lib/utils";
@@ -19,8 +19,19 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
   const router = useRouter();
   const [childBlocks, setChildBlocks] = useState<Block[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
-  const height = (block.content?.height as number) || 400;
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const sectionContent = (block.content || {}) as {
+    title?: string;
+    description?: string;
+    height?: number;
+  };
+
+  const title = sectionContent.title || "Section";
+  const description = sectionContent.description || "";
+  const height = sectionContent.height;
+  const [titleValue, setTitleValue] = useState(title);
+  const [descriptionValue, setDescriptionValue] = useState(description);
 
   // Fetch child blocks
   useEffect(() => {
@@ -39,6 +50,14 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     fetchChildBlocks();
   }, [block.id]);
 
+  useEffect(() => {
+    setTitleValue(title);
+  }, [title]);
+
+  useEffect(() => {
+    setDescriptionValue(description);
+  }, [description]);
+
   const handleUpdate = () => {
     // Refresh child blocks
     const fetchChildBlocks = async () => {
@@ -51,6 +70,37 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     };
     fetchChildBlocks();
     onUpdate?.();
+  };
+
+  const persistContent = async (patch: Partial<typeof sectionContent>) => {
+    try {
+      await updateBlock({
+        blockId: block.id,
+        content: {
+          ...sectionContent,
+          ...patch,
+        },
+      });
+      onUpdate?.();
+    } catch (error) {
+      console.error("Failed to update section block:", error);
+    }
+  };
+
+  const saveTitle = async () => {
+    const trimmed = titleValue.trim();
+    setEditingTitle(false);
+    if (trimmed !== title) {
+      await persistContent({ title: trimmed });
+    }
+  };
+
+  const saveDescription = async () => {
+    const next = descriptionValue.trim();
+    setEditingDescription(false);
+    if (next !== description) {
+      await persistContent({ description: next });
+    }
   };
 
   const handleDelete = async (blockId: string) => {
@@ -67,30 +117,84 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
 
   return (
     <div className="w-full">
-      {/* Scrollable container */}
-      <div
-        className={cn(
-          "w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/30",
-          "overflow-x-auto overflow-y-auto",
-          "scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-700 scrollbar-track-transparent"
-        )}
-        style={{ height: `${height}px`, maxHeight: `${height}px` }}
-      >
-        <div className="p-4 space-y-3 min-h-full">
+      <div className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+        <div className="border-b border-[var(--border)] px-4 py-3">
+          {editingTitle ? (
+            <input
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveTitle();
+                }
+                if (e.key === "Escape") {
+                  setTitleValue(title);
+                  setEditingTitle(false);
+                }
+              }}
+              autoFocus
+              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              placeholder="Section title"
+            />
+          ) : (
+            <div
+              onClick={() => setEditingTitle(true)}
+              className="cursor-text text-sm font-semibold text-[var(--foreground)] hover:text-[var(--foreground)]/90"
+            >
+              {title || <span className="text-[var(--tertiary-foreground)]">Add title…</span>}
+            </div>
+          )}
+
+          {editingDescription ? (
+            <textarea
+              value={descriptionValue}
+              onChange={(e) => setDescriptionValue(e.target.value)}
+              onBlur={saveDescription}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setDescriptionValue(description);
+                  setEditingDescription(false);
+                }
+              }}
+              rows={2}
+              className="mt-2 w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              placeholder="Add description…"
+            />
+          ) : (
+            <div
+              onClick={() => setEditingDescription(true)}
+              className={cn(
+                "mt-1 cursor-text text-xs text-[var(--muted-foreground)]",
+                !description && "italic text-[var(--tertiary-foreground)]"
+              )}
+            >
+              {description || "Add description…"}
+            </div>
+          )}
+        </div>
+
+        <div
+          className={cn(
+            "space-y-2.5 px-3 py-3",
+            height ? "overflow-y-auto" : ""
+          )}
+          style={height ? { maxHeight: `${height}px`, height: `${height}px` } : undefined}
+        >
           {isLoading ? (
-            <div className="flex items-center justify-center h-full text-sm text-neutral-400">
-              Loading...
+            <div className="flex items-center justify-center py-12 text-sm text-[var(--tertiary-foreground)]">
+              Loading…
             </div>
           ) : childBlocks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center py-8">
-              <p className="text-sm text-neutral-400 dark:text-neutral-600 mb-4">
-                This section is empty
-              </p>
-              <AddBlockButton 
-                tabId={tabId} 
+            <div className="flex flex-col items-center justify-center gap-3 rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface-hover)]/60 px-5 py-8 text-center">
+              <p className="text-sm text-[var(--muted-foreground)]">This section is empty.</p>
+              <AddBlockButton
+                tabId={tabId}
                 projectId={projectId}
                 parentBlockId={block.id}
                 onBlockCreated={handleUpdate}
+                variant="large"
               />
             </div>
           ) : (
@@ -110,8 +214,8 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                 </div>
               ))}
               <div className="pt-2">
-                <AddBlockButton 
-                  tabId={tabId} 
+                <AddBlockButton
+                  tabId={tabId}
                   projectId={projectId}
                   parentBlockId={block.id}
                   onBlockCreated={handleUpdate}
