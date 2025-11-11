@@ -41,6 +41,11 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
   const [editName, setEditName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const [isHoveringRevealZone, setIsHoveringRevealZone] = useState(false);
+  const [isHoveringFloating, setIsHoveringFloating] = useState(false);
+  const [isAtTop, setIsAtTop] = useState(true);
+  const revealTimeoutRef = useRef<number | null>(null);
+  const floatingTimeoutRef = useRef<number | null>(null);
 
   const canDeleteTabs = currentWorkspace?.role === "owner" || currentWorkspace?.role === "admin";
   const activeTabId = pathname.split("/tabs/")[1]?.split("/")[0];
@@ -51,6 +56,30 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
       editInputRef.current.select();
     }
   }, [editingTabId]);
+
+  useEffect(() => {
+    const scrollContainer = document.getElementById("dashboard-content");
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      setIsAtTop(scrollContainer.scrollTop < 12);
+    };
+
+    handleScroll();
+    scrollContainer.addEventListener("scroll", handleScroll);
+    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (revealTimeoutRef.current) {
+        window.clearTimeout(revealTimeoutRef.current);
+      }
+      if (floatingTimeoutRef.current) {
+        window.clearTimeout(floatingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleTabClick = (tabId: string, e?: React.MouseEvent) => {
     if (editingTabId) return;
@@ -180,36 +209,41 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
     );
   };
 
-  return (
-    <>
-      <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-0.5 sm:px-2.5">
-          <div className="flex items-center gap-3 overflow-x-auto">
-            {tabs.map((tab) => (
-              <div key={tab.id} className="flex items-center gap-2">
-                {renderTab(tab)}
-                {tab.children && tab.children.length > 0 && (
-                  <div className="flex items-center gap-2 pl-4">
-                    {tab.children.map((child) => renderTab(child, 1))}
-                  </div>
-                )}
-              </div>
-            ))}
-            <button
-              onClick={handleAddTab}
-              className="ml-3 inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-dashed border-[var(--border)] px-3 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-            >
-              <Plus className="h-3.5 w-3.5" /> New tab
-            </button>
-          </div>
+  const shouldShowFloating = !isAtTop && (isHoveringRevealZone || isHoveringFloating || mobileMenuOpen);
 
+  const renderBar = (variant: "inline" | "floating") => (
+    <>
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-2",
+          variant === "floating" ? "px-3 py-1.5" : "px-2 py-0.5 sm:px-2.5"
+        )}
+      >
+        <div className="flex items-center gap-3 overflow-x-auto">
+          {tabs.map((tab) => (
+            <div key={tab.id} className="flex items-center gap-2">
+              {renderTab(tab)}
+              {tab.children && tab.children.length > 0 && (
+                <div className="flex items-center gap-2 pl-4">
+                  {tab.children.map((child) => renderTab(child, 1))}
+                </div>
+              )}
+            </div>
+          ))}
           <button
-            className="lg:hidden rounded-[6px] border border-[var(--border)] p-2 text-[var(--muted-foreground)]"
-            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            onClick={handleAddTab}
+            className="ml-3 inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-dashed border-[var(--border)] px-3 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
           >
-            <ChevronDown className={cn("h-4 w-4 transition-transform", mobileMenuOpen && "rotate-180")} />
+            <Plus className="h-3.5 w-3.5" /> New tab
           </button>
         </div>
+
+        <button
+          className="lg:hidden rounded-[6px] border border-[var(--border)] p-2 text-[var(--muted-foreground)]"
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
+        >
+          <ChevronDown className={cn("h-4 w-4 transition-transform", mobileMenuOpen && "rotate-180")} />
+        </button>
       </div>
 
       {mobileMenuOpen && (
@@ -236,6 +270,48 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
           </button>
         </div>
       )}
+    </>
+  );
+
+  return (
+    <>
+      <div className="border-b border-[var(--border)] bg-[var(--surface)]">
+        {renderBar("inline")}
+      </div>
+
+      <div
+        className="fixed inset-x-0 top-0 z-50 h-3"
+        onMouseEnter={() => setIsHoveringRevealZone(true)}
+        onMouseLeave={() => setIsHoveringRevealZone(false)}
+        onTouchStart={() => {
+          setIsHoveringRevealZone(true);
+          if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+          revealTimeoutRef.current = window.setTimeout(() => setIsHoveringRevealZone(false), 1600);
+        }}
+      />
+
+      <div
+        className={cn(
+          "pointer-events-none fixed inset-x-0 top-3 z-50 transition-all duration-200 ease-out",
+          shouldShowFloating ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
+        )}
+        onMouseEnter={() => setIsHoveringFloating(true)}
+        onMouseLeave={() => setIsHoveringFloating(false)}
+        onTouchStart={() => {
+          setIsHoveringFloating(true);
+          if (floatingTimeoutRef.current) window.clearTimeout(floatingTimeoutRef.current);
+        }}
+        onTouchEnd={() => {
+          if (floatingTimeoutRef.current) window.clearTimeout(floatingTimeoutRef.current);
+          floatingTimeoutRef.current = window.setTimeout(() => setIsHoveringFloating(false), 1600);
+        }}
+      >
+        <div className="pointer-events-auto mx-auto w-full max-w-6xl px-3">
+          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-md">
+            {renderBar("floating")}
+          </div>
+        </div>
+      </div>
 
       <CreateTabDialog
         isOpen={isCreateDialogOpen}

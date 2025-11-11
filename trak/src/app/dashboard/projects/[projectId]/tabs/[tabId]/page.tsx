@@ -76,7 +76,7 @@ export default async function TabPage({
         <ProjectHeader project={project} />
 
         {/* Tab Navigation - Seamless */}
-        <div className="sticky top-0 z-10 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-sm border-b border-neutral-100 dark:border-neutral-900">
+        <div className="border-b border-neutral-100 dark:border-neutral-900">
           <TabBar tabs={hierarchicalTabs} projectId={projectId} />
         </div>
 
