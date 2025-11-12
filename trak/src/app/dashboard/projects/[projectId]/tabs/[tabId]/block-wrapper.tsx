@@ -105,7 +105,7 @@ export default function BlockWrapper({
     <div ref={setNodeRef} style={style} className="group relative w-full">
       <div
         className={cn(
-          "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-sm transition-all duration-150 ease-out",
+          "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
           "group-hover:flex group-focus-within:flex"
         )}
       >
@@ -124,11 +124,11 @@ export default function BlockWrapper({
           "relative flex min-w-0 flex-col transition-all duration-150 ease-out",
           borderless
             ? "rounded-none border-none bg-transparent px-0 py-0 shadow-none"
-            : "rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-sm hover:border-[var(--foreground)]/20"
+            : "rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
         )}
       >
         {!borderless && (
-          <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-sm transition-opacity duration-150 ease-out group-hover:flex">
+          <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">
             {block.type}
           </div>
         )}

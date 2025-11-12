@@ -117,7 +117,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
 
   return (
     <div className="w-full">
-      <div className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+      <div className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
         <div className="border-b border-[var(--border)] px-4 py-3">
           {editingTitle ? (
             <input

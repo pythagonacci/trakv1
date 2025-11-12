@@ -175,7 +175,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   if (isEditing) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-sm">
+        <div className="flex items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
           <button
             onMouseDown={(e) => {
               e.preventDefault();
