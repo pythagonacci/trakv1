@@ -8,6 +8,7 @@ import {
   FileText,
   CheckSquare,
   Link2,
+  Minus,
   Table,
   Calendar,
   Paperclip,
@@ -25,10 +26,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import FileAttachmentDialog from "./file-attachment-dialog";
-
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -66,7 +68,6 @@ export default function BlockWrapper({
   isDragging: externalIsDragging,
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [attachmentDialogOpen, setAttachmentDialogOpen] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
@@ -84,6 +85,21 @@ export default function BlockWrapper({
   if (block.type === "divider") {
     return <div ref={setNodeRef} style={style}>{children}</div>;
   }
+
+  const blockTypeOptions: Array<{ type: Block["type"]; label: string; icon: React.ReactNode }> = [
+    { type: "text", label: "Text", icon: <FileText className="h-4 w-4" /> },
+    { type: "task", label: "Task list", icon: <CheckSquare className="h-4 w-4" /> },
+    { type: "link", label: "Link", icon: <Link2 className="h-4 w-4" /> },
+    { type: "divider", label: "Divider", icon: <Minus className="h-4 w-4" /> },
+    { type: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
+    { type: "timeline", label: "Timeline", icon: <Calendar className="h-4 w-4" /> },
+    { type: "file", label: "File", icon: <Paperclip className="h-4 w-4" /> },
+    { type: "video", label: "Video", icon: <Video className="h-4 w-4" /> },
+    { type: "image", label: "Image", icon: <Image className="h-4 w-4" /> },
+    { type: "embed", label: "Embed", icon: <Maximize2 className="h-4 w-4" /> },
+    { type: "pdf", label: "PDF", icon: <FileText className="h-4 w-4" /> },
+    { type: "section", label: "Section", icon: <Layout className="h-4 w-4" /> },
+  ];
 
   return (
     <div ref={setNodeRef} style={style} className="group relative w-full">
@@ -131,29 +147,30 @@ export default function BlockWrapper({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "text")}> <FileText className="h-4 w-4" /> Text </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "task")}> <CheckSquare className="h-4 w-4" /> Task </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "link")}> <Link2 className="h-4 w-4" /> Link </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "table")}> <Table className="h-4 w-4" /> Table </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "timeline")}> <Calendar className="h-4 w-4" /> Timeline </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "video")}> <Video className="h-4 w-4" /> Video </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "image")}> <Image className="h-4 w-4" /> Image </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "embed")}> <Maximize2 className="h-4 w-4" /> Embed </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "pdf")}> <FileText className="h-4 w-4" /> PDF </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConvert?.(block.id, "section")}> <Layout className="h-4 w-4" /> Section </DropdownMenuItem>
-              {workspaceId && projectId && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setAttachmentDialogOpen(true);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <Paperclip className="h-4 w-4" /> Attach file
-                  </DropdownMenuItem>
-                </>
-              )}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <span className="flex items-center gap-2">
+                    <Maximize2 className="h-4 w-4" />
+                    Convert block
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52">
+                  {blockTypeOptions
+                    .filter((option) => option.type !== block.type)
+                    .map((option) => (
+                      <DropdownMenuItem
+                        key={option.type}
+                        onClick={() => {
+                          onConvert?.(block.id, option.type);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        {option.icon}
+                        <span>{option.label}</span>
+                      </DropdownMenuItem>
+                    ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onDelete?.(block.id)}
@@ -167,17 +184,6 @@ export default function BlockWrapper({
 
         <div className={cn("space-y-2.5", borderless && "space-y-3")}>{children}</div>
       </div>
-
-      {workspaceId && projectId && (
-        <FileAttachmentDialog
-          isOpen={attachmentDialogOpen}
-          onClose={() => setAttachmentDialogOpen(false)}
-          workspaceId={workspaceId}
-          projectId={projectId}
-          blockId={block.id}
-          onUploadComplete={() => onUpdate?.()}
-        />
-      )}
     </div>
   );
 }
