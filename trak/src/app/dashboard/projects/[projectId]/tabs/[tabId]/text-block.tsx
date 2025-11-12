@@ -38,6 +38,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const [hasSelection, setHasSelection] = useState(false);
+  const [showToolbar, setShowToolbar] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -100,50 +101,51 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   }, [content, isEditing, block.content?.text, saveContent]);
 
   const handleBlur = async () => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    setIsEditing(false);
-    if (content !== (block.content?.text as string)) {
-      await saveContent(content);
-    }
+    // Small delay to allow clicking on toolbar buttons
+    setTimeout(async () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      setShowToolbar(false);
+      setIsEditing(false);
+      if (content !== (block.content?.text as string)) {
+        await saveContent(content);
+      }
+    }, 200);
   };
 
-  const handleSelection = useCallback(() => {
+  const updateToolbarPosition = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const hasTextSelected = start !== end;
+    const cursorPosition = hasTextSelected ? start : start; // Use start position for both cases
 
-    if (hasTextSelected) {
-      // Calculate which line the selection starts on
-      const textBeforeSelection = content.substring(0, start);
-      const lines = textBeforeSelection.split("\n");
-      const lineNumber = lines.length - 1;
-      
-      const rect = textarea.getBoundingClientRect();
-      const styles = window.getComputedStyle(textarea);
-      const lineHeight = parseFloat(styles.lineHeight) || 20;
-      const paddingTop = parseFloat(styles.paddingTop) || 10;
-      
-      // Calculate approximate position based on line number
-      // Account for scroll position
-      const scrollTop = textarea.scrollTop;
-      const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
-      
-      // Position toolbar to the left side of the block, aligned with the selected line
-      const top = rect.top + lineTop + (lineHeight / 2);
-      // Position to the left of the textarea with some spacing
-      const toolbarWidth = 180; // Approximate width of toolbar
-      const left = Math.max(12, rect.left - toolbarWidth - 12);
+    // Calculate which line the cursor/selection is on
+    const textBeforeCursor = content.substring(0, cursorPosition);
+    const lines = textBeforeCursor.split("\n");
+    const lineNumber = lines.length - 1;
+    
+    const rect = textarea.getBoundingClientRect();
+    const styles = window.getComputedStyle(textarea);
+    const lineHeight = parseFloat(styles.lineHeight) || 20;
+    const paddingTop = parseFloat(styles.paddingTop) || 10;
+    
+    // Calculate approximate position based on line number
+    // Account for scroll position
+    const scrollTop = textarea.scrollTop;
+    const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
+    
+    // Position toolbar to the left side of the block, aligned with the cursor/selection line
+    const top = rect.top + lineTop + (lineHeight / 2);
+    // Position to the left of the textarea with some spacing
+    const toolbarWidth = 180; // Approximate width of toolbar
+    const left = Math.max(12, rect.left - toolbarWidth - 12);
 
-      setToolbarPosition({ top, left });
-      setHasSelection(true);
-    } else {
-      setHasSelection(false);
-    }
+    setToolbarPosition({ top, left });
+    setHasSelection(hasTextSelected);
   }, [content]);
 
   useEffect(() => {
@@ -151,22 +153,48 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     if (!textarea || !isEditing) return;
 
     const handleEvents = () => {
-      // Small delay to ensure selection is updated
-      setTimeout(handleSelection, 10);
+      // Small delay to ensure selection/cursor position is updated
+      setTimeout(() => {
+        updateToolbarPosition();
+        setShowToolbar(true);
+      }, 10);
     };
 
+    const handleFocus = () => {
+      setShowToolbar(true);
+      setTimeout(updateToolbarPosition, 10);
+    };
+
+    const handleBlur = () => {
+      // Don't hide immediately on blur - let the textarea's onBlur handle it
+      // This prevents toolbar from disappearing when clicking on it
+    };
+
+    textarea.addEventListener("focus", handleFocus);
+    textarea.addEventListener("blur", handleBlur);
     textarea.addEventListener("mouseup", handleEvents);
     textarea.addEventListener("keyup", handleEvents);
+    textarea.addEventListener("keydown", handleEvents);
     textarea.addEventListener("select", handleEvents);
-    document.addEventListener("selectionchange", handleSelection);
+    textarea.addEventListener("input", handleEvents);
+    document.addEventListener("selectionchange", handleEvents);
+
+    // Initial position when editing starts
+    if (document.activeElement === textarea) {
+      handleFocus();
+    }
 
     return () => {
+      textarea.removeEventListener("focus", handleFocus);
+      textarea.removeEventListener("blur", handleBlur);
       textarea.removeEventListener("mouseup", handleEvents);
       textarea.removeEventListener("keyup", handleEvents);
+      textarea.removeEventListener("keydown", handleEvents);
       textarea.removeEventListener("select", handleEvents);
-      document.removeEventListener("selectionchange", handleSelection);
+      textarea.removeEventListener("input", handleEvents);
+      document.removeEventListener("selectionchange", handleEvents);
     };
-  }, [isEditing, handleSelection]);
+  }, [isEditing, updateToolbarPosition]);
 
   const insertMarkdown = (before: string, after: string = before) => {
     const textarea = textareaRef.current;
@@ -183,15 +211,16 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       setTimeout(() => {
         textarea.focus();
         textarea.setSelectionRange(start + before.length, end + before.length);
-        setHasSelection(false);
+        updateToolbarPosition();
       }, 0);
     } else {
       const newText = content.substring(0, start) + before + after + content.substring(end);
       setContent(newText);
       setTimeout(() => {
         textarea.focus();
-        textarea.setSelectionRange(start + before.length, start + before.length);
-        setHasSelection(false);
+        const newCursorPos = start + before.length;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        updateToolbarPosition();
       }, 0);
     }
   };
@@ -214,7 +243,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       textarea.focus();
       const newCursorPos = lineStart + headingMarker.length + cleanedLine.length;
       textarea.setSelectionRange(newCursorPos, newCursorPos);
-      setHasSelection(false);
+      updateToolbarPosition();
     }, 0);
   };
 
@@ -222,7 +251,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     return (
       <div className="relative">
         {/* Floating bubble toolbar */}
-        {hasSelection && toolbarPosition.top > 0 && (
+        {showToolbar && toolbarPosition.top > 0 && (
           <div
             ref={toolbarRef}
             className="fixed z-[100] flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.15)]"
@@ -231,7 +260,14 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               left: `${toolbarPosition.left}px`,
               transform: "translateY(-50%)",
             }}
-            onMouseDown={(e) => e.preventDefault()}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              // Keep textarea focused
+              if (textareaRef.current) {
+                textareaRef.current.focus();
+              }
+            }}
           >
             <button
               onMouseDown={(e) => {
@@ -297,8 +333,8 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setContent((block.content?.text as string) || "");
+              setShowToolbar(false);
               setIsEditing(false);
-              setHasSelection(false);
             }
           }}
           className="min-h-[100px] w-full resize-none rounded-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none"
