@@ -7,7 +7,6 @@ import {
   Underline,
   Code,
   Type,
-  Square,
 } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -38,8 +37,11 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const [content, setContent] = useState(initialContent);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
+  const [hasSelection, setHasSelection] = useState(false);
+  const [toolbarPosition, setToolbarPosition] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const next = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
@@ -107,23 +109,57 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     }
   };
 
-  const toggleBorderless = async () => {
-    const next = !isBorderless;
-    setIsBorderless(next);
-    try {
-      await updateBlock({
-        blockId: block.id,
-        content: {
-          ...(block.content as Record<string, unknown> | undefined),
-          text: content,
-          borderless: next,
-        },
-      });
-      onUpdate?.();
-    } catch (error) {
-      console.error("Failed to update text block appearance:", error);
+  const handleSelection = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const hasTextSelected = start !== end;
+
+    if (hasTextSelected) {
+      // Calculate which line the selection starts on
+      const textBeforeSelection = content.substring(0, start);
+      const lines = textBeforeSelection.split("\n");
+      const lineNumber = lines.length - 1;
+      
+      const rect = textarea.getBoundingClientRect();
+      const styles = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(styles.lineHeight) || 20;
+      const paddingTop = parseFloat(styles.paddingTop) || 0;
+      
+      // Calculate approximate position based on line number
+      // Account for scroll position
+      const scrollTop = textarea.scrollTop;
+      const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
+      
+      // Position toolbar to the left side of the block
+      const top = rect.top + lineTop + (lineHeight / 2);
+      // Position 8px to the left of the textarea, but ensure it doesn't go off-screen
+      const toolbarWidth = 200; // Approximate width of toolbar
+      const left = Math.max(8, rect.left - toolbarWidth - 8);
+
+      setToolbarPosition({ top, left });
+      setHasSelection(true);
+    } else {
+      setHasSelection(false);
     }
-  };
+  }, [content]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !isEditing) return;
+
+    textarea.addEventListener("mouseup", handleSelection);
+    textarea.addEventListener("keyup", handleSelection);
+    textarea.addEventListener("select", handleSelection);
+
+    return () => {
+      textarea.removeEventListener("mouseup", handleSelection);
+      textarea.removeEventListener("keyup", handleSelection);
+      textarea.removeEventListener("select", handleSelection);
+    };
+  }, [isEditing, handleSelection]);
 
   const insertMarkdown = (before: string, after: string = before) => {
     const textarea = textareaRef.current;
@@ -140,6 +176,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       setTimeout(() => {
         textarea.focus();
         textarea.setSelectionRange(start + before.length, end + before.length);
+        setHasSelection(false);
       }, 0);
     } else {
       const newText = content.substring(0, start) + before + after + content.substring(end);
@@ -147,6 +184,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       setTimeout(() => {
         textarea.focus();
         textarea.setSelectionRange(start + before.length, start + before.length);
+        setHasSelection(false);
       }, 0);
     }
   };
@@ -169,86 +207,80 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       textarea.focus();
       const newCursorPos = lineStart + headingMarker.length + cleanedLine.length;
       textarea.setSelectionRange(newCursorPos, newCursorPos);
+      setHasSelection(false);
     }, 0);
   };
 
   if (isEditing) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              insertMarkdown("**");
+      <div className="relative">
+        {/* Floating bubble toolbar */}
+        {hasSelection && (
+          <div
+            ref={toolbarRef}
+            className="fixed z-50 flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1 shadow-[0_4px_12px_rgba(0,0,0,0.15)]"
+            style={{
+              top: `${toolbarPosition.top}px`,
+              left: `${toolbarPosition.left}px`,
+              transform: "translateY(-50%)",
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
-            title="Bold"
+            onMouseDown={(e) => e.preventDefault()}
           >
-            <Bold className="h-4 w-4" />
-          </button>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              insertMarkdown("*");
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
-            title="Italic"
-          >
-            <Italic className="h-4 w-4" />
-          </button>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              insertMarkdown("__", "__");
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
-            title="Underline"
-          >
-            <Underline className="h-4 w-4" />
-          </button>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              insertMarkdown("`");
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
-            title="Code"
-          >
-            <Code className="h-4 w-4" />
-          </button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex h-8 items-center gap-2 rounded-md px-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]">
-                <Type className="h-4 w-4" /> Headings
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => insertHeading(1)}>Heading 1</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertHeading(2)}>Heading 2</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              toggleBorderless();
-            }}
-            className={cn(
-              "ml-1 flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]",
-              isBorderless && "bg-[var(--surface-hover)] text-[var(--foreground)]"
-            )}
-            title={isBorderless ? "Show block border" : "Hide block border"}
-          >
-            <Square className="h-4 w-4" />
-          </button>
-
-          <span className="ml-auto text-xs text-[var(--tertiary-foreground)]">
-            {saveStatus === "saving" && "Saving…"}
-            {saveStatus === "saved" && "Saved"}
-          </span>
-        </div>
+            <button
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertMarkdown("**");
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Bold"
+            >
+              <Bold className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertMarkdown("*");
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Italic"
+            >
+              <Italic className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertMarkdown("__", "__");
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Underline"
+            >
+              <Underline className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertMarkdown("`");
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Code"
+            >
+              <Code className="h-3.5 w-3.5" />
+            </button>
+            <div className="h-4 w-px bg-[var(--border)] mx-0.5" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                  <Type className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => insertHeading(1)}>Heading 1</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertHeading(2)}>Heading 2</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
 
         <textarea
           ref={textareaRef}
@@ -259,11 +291,18 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             if (e.key === "Escape") {
               setContent((block.content?.text as string) || "");
               setIsEditing(false);
+              setHasSelection(false);
             }
           }}
-          className="min-h-[100px] w-full resize-none rounded-b-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none"
+          className="min-h-[100px] w-full resize-none rounded-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none"
           placeholder="Start typing…"
         />
+        {saveStatus !== "idle" && (
+          <div className="absolute bottom-2 right-2 text-xs text-[var(--tertiary-foreground)]">
+            {saveStatus === "saving" && "Saving…"}
+            {saveStatus === "saved" && "Saved"}
+          </div>
+        )}
       </div>
     );
   }
