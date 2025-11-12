@@ -303,7 +303,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
             onBlur={handleTitleBlur}
             onKeyDown={handleTitleKeyDown}
             placeholder="Table title..."
-            className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+            className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] shadow-sm focus:outline-none"
             disabled={false}
             autoFocus
             maxLength={100}
@@ -339,7 +339,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                         onBlur={() => handleBlur(0, colIndex)}
                         onKeyDown={(e) => handleKeyDown(e, 0, colIndex)}
                         placeholder="Header..."
-                        className="min-h-[20px] w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] placeholder:text-[var(--tertiary-foreground)]"
+                        className="min-h-[20px] w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] shadow-sm focus:outline-none placeholder:text-[var(--tertiary-foreground)]"
                         rows={1}
                         style={{ overflow: 'hidden' }}
                         onInput={(e) => {
@@ -416,7 +416,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => handleBlur(actualRowIndex, colIndex)}
                           onKeyDown={(e) => handleKeyDown(e, actualRowIndex, colIndex)}
-                          className="min-h-[24px] w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+                              className="min-h-[24px] w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] shadow-sm focus:outline-none"
                           rows={1}
                           style={{ overflow: 'hidden' }}
                           onInput={(e) => {

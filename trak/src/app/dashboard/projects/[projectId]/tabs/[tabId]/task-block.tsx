@@ -176,7 +176,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
                     type="date"
                     value={task.dueDate || ""}
                     onChange={(e) => updateTaskDueDate(task.id, e.target.value || undefined)}
-                    className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:border-[var(--foreground)] focus:outline-none"
+                    className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:outline-none"
                   />
                   {task.dueDate && (
                     <button

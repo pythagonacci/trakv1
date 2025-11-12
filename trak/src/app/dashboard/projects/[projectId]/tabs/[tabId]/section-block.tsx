@@ -135,7 +135,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                 }
               }}
               autoFocus
-              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] focus:outline-none"
               placeholder="Section title"
             />
           ) : (
@@ -159,7 +159,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                 }
               }}
               rows={2}
-              className="mt-2 w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="mt-2 w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] focus:outline-none"
               placeholder="Add description…"
             />
           ) : (

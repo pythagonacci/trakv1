@@ -90,7 +90,7 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
           onChange={(e) => handleCaptionChange(e.target.value)}
           placeholder="Add caption..."
           onClick={(e) => e.stopPropagation()}
-          className="w-full rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] focus:border-[var(--foreground)] focus:outline-none"
+          className="w-full rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] focus:outline-none"
         />
         {savingCaption && (
           <span className="ml-2 text-[11px] text-[var(--tertiary-foreground)]">Saving...</span>
