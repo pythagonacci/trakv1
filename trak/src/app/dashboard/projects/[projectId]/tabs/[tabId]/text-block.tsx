@@ -126,18 +126,18 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       const rect = textarea.getBoundingClientRect();
       const styles = window.getComputedStyle(textarea);
       const lineHeight = parseFloat(styles.lineHeight) || 20;
-      const paddingTop = parseFloat(styles.paddingTop) || 0;
+      const paddingTop = parseFloat(styles.paddingTop) || 10;
       
       // Calculate approximate position based on line number
       // Account for scroll position
       const scrollTop = textarea.scrollTop;
       const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
       
-      // Position toolbar to the left side of the block
+      // Position toolbar to the left side of the block, aligned with the selected line
       const top = rect.top + lineTop + (lineHeight / 2);
-      // Position 8px to the left of the textarea, but ensure it doesn't go off-screen
-      const toolbarWidth = 200; // Approximate width of toolbar
-      const left = Math.max(8, rect.left - toolbarWidth - 8);
+      // Position to the left of the textarea with some spacing
+      const toolbarWidth = 180; // Approximate width of toolbar
+      const left = Math.max(12, rect.left - toolbarWidth - 12);
 
       setToolbarPosition({ top, left });
       setHasSelection(true);
@@ -150,14 +150,21 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     const textarea = textareaRef.current;
     if (!textarea || !isEditing) return;
 
-    textarea.addEventListener("mouseup", handleSelection);
-    textarea.addEventListener("keyup", handleSelection);
-    textarea.addEventListener("select", handleSelection);
+    const handleEvents = () => {
+      // Small delay to ensure selection is updated
+      setTimeout(handleSelection, 10);
+    };
+
+    textarea.addEventListener("mouseup", handleEvents);
+    textarea.addEventListener("keyup", handleEvents);
+    textarea.addEventListener("select", handleEvents);
+    document.addEventListener("selectionchange", handleSelection);
 
     return () => {
-      textarea.removeEventListener("mouseup", handleSelection);
-      textarea.removeEventListener("keyup", handleSelection);
-      textarea.removeEventListener("select", handleSelection);
+      textarea.removeEventListener("mouseup", handleEvents);
+      textarea.removeEventListener("keyup", handleEvents);
+      textarea.removeEventListener("select", handleEvents);
+      document.removeEventListener("selectionchange", handleSelection);
     };
   }, [isEditing, handleSelection]);
 
@@ -215,10 +222,10 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     return (
       <div className="relative">
         {/* Floating bubble toolbar */}
-        {hasSelection && (
+        {hasSelection && toolbarPosition.top > 0 && (
           <div
             ref={toolbarRef}
-            className="fixed z-50 flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1 shadow-[0_4px_12px_rgba(0,0,0,0.15)]"
+            className="fixed z-[100] flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.15)]"
             style={{
               top: `${toolbarPosition.top}px`,
               left: `${toolbarPosition.left}px`,
