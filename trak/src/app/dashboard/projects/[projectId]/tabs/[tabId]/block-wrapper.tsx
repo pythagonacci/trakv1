@@ -117,7 +117,13 @@ export default function BlockWrapper({
           </div>
         )}
 
-        <div className="absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out group-hover:flex">
+        <div
+          className={cn(
+            "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out",
+            "group-hover:flex group-focus-within:flex",
+            menuOpen && "flex"
+          )}
+        >
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button className="flex h-7 w-7 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
