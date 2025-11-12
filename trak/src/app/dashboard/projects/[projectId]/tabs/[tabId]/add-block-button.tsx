@@ -148,7 +148,14 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       <DropdownMenuTrigger asChild>
         {triggerButton}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="right" sideOffset={12} alignOffset={-140} className="w-60">
+      <DropdownMenuContent
+        align="start"
+        side="right"
+        sideOffset={12}
+        alignOffset={-140}
+        avoidCollisions={false}
+        className="w-60"
+      >
         {blockTypes.map((blockType) => (
           <DropdownMenuItem
             key={blockType.type}
