@@ -93,6 +93,13 @@
   select {
     @apply rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] outline-none dark:bg-[#141414];
   }
+
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
 }
 
 @layer utilities {
