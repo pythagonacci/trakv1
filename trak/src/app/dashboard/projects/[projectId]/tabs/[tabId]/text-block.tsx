@@ -60,6 +60,27 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     }
   }, [isEditing]);
 
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !isEditing) return;
+
+    const resizeTextarea = () => {
+      textarea.style.height = "auto";
+      const newHeight = Math.max(40, textarea.scrollHeight); // Minimum 40px height
+      textarea.style.height = `${newHeight}px`;
+    };
+
+    resizeTextarea();
+    
+    // Resize on input
+    textarea.addEventListener("input", resizeTextarea);
+    
+    return () => {
+      textarea.removeEventListener("input", resizeTextarea);
+    };
+  }, [isEditing, content]);
+
   const saveContent = useCallback(
     async (textToSave: string) => {
       setSaveStatus("saving");
@@ -121,30 +142,36 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const hasTextSelected = start !== end;
-    const cursorPosition = hasTextSelected ? start : start; // Use start position for both cases
-
-    // Calculate which line the cursor/selection is on
-    const textBeforeCursor = content.substring(0, cursorPosition);
-    const lines = textBeforeCursor.split("\n");
-    const lineNumber = lines.length - 1;
     
     const rect = textarea.getBoundingClientRect();
-    const styles = window.getComputedStyle(textarea);
-    const lineHeight = parseFloat(styles.lineHeight) || 20;
-    const paddingTop = parseFloat(styles.paddingTop) || 10;
+    const toolbarWidth = 100; // Approximate width of compact square toolbar (3 columns)
     
-    // Calculate approximate position based on line number
-    // Account for scroll position
-    const scrollTop = textarea.scrollTop;
-    const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
+    if (hasTextSelected) {
+      // When text is selected, follow the selection
+      const cursorPosition = start;
+      const textBeforeCursor = content.substring(0, cursorPosition);
+      const lines = textBeforeCursor.split("\n");
+      const lineNumber = lines.length - 1;
+      
+      const styles = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(styles.lineHeight) || 20;
+      const paddingTop = parseFloat(styles.paddingTop) || 10;
+      const scrollTop = textarea.scrollTop;
+      const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
+      
+      // Position toolbar aligned with the selected line
+      const top = rect.top + lineTop + (lineHeight / 2);
+      const left = rect.left - toolbarWidth - 16; // 16px gap from textarea
+      
+      setToolbarPosition({ top, left });
+    } else {
+      // When just typing, keep toolbar in a fixed position at top-left of textarea
+      const top = rect.top + 12; // Small offset from top
+      const left = rect.left - toolbarWidth - 16; // 16px gap from textarea
+      
+      setToolbarPosition({ top, left });
+    }
     
-    // Position toolbar to the left side of the block, aligned with the cursor/selection line
-    const top = rect.top + lineTop + (lineHeight / 2);
-    // Position to the left of the textarea with some spacing
-    const toolbarWidth = 180; // Approximate width of toolbar
-    const left = Math.max(12, rect.left - toolbarWidth - 12);
-
-    setToolbarPosition({ top, left });
     setHasSelection(hasTextSelected);
   }, [content]);
 
@@ -254,7 +281,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
         {showToolbar && toolbarPosition.top > 0 && (
           <div
             ref={toolbarRef}
-            className="fixed z-[100] flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.15)]"
+            className="fixed z-[100] grid grid-cols-3 gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
             style={{
               top: `${toolbarPosition.top}px`,
               left: `${toolbarPosition.left}px`,
@@ -274,7 +301,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 e.preventDefault();
                 insertMarkdown("**");
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               title="Bold"
             >
               <Bold className="h-3.5 w-3.5" />
@@ -284,7 +311,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 e.preventDefault();
                 insertMarkdown("*");
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               title="Italic"
             >
               <Italic className="h-3.5 w-3.5" />
@@ -294,7 +321,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 e.preventDefault();
                 insertMarkdown("__", "__");
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               title="Underline"
             >
               <Underline className="h-3.5 w-3.5" />
@@ -304,15 +331,14 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 e.preventDefault();
                 insertMarkdown("`");
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               title="Code"
             >
               <Code className="h-3.5 w-3.5" />
             </button>
-            <div className="h-4 w-px bg-[var(--border)] mx-0.5" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
                   <Type className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
@@ -322,6 +348,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <div className="h-7 w-7" /> {/* Empty space for grid alignment */}
           </div>
         )}
 
@@ -337,7 +364,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               setIsEditing(false);
             }
           }}
-          className="min-h-[100px] w-full resize-none rounded-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none"
+          className="w-full resize-none rounded-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none overflow-hidden"
           placeholder="Start typing…"
         />
         {saveStatus !== "idle" && (
