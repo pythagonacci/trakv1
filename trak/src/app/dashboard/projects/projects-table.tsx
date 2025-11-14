@@ -288,12 +288,12 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   if (projects.length === 0 && dialogMode === null) {
     return (
       <>
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <h2 className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
+        <div className="flex items-start justify-between gap-3 mb-6">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
             <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
           </div>
-          <Button onClick={handleOpenCreate}>New project</Button>
+          <Button onClick={handleOpenCreate} size="sm">New project</Button>
         </div>
         <EmptyState onCreateClick={handleOpenCreate} />
         {renderDialogs()}
@@ -335,16 +335,15 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
 
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div className="space-y-1">
-          <h2 className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
+          <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
           <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
         </div>
-        <Button onClick={handleOpenCreate}>New project</Button>
+        <Button onClick={handleOpenCreate} size="sm">New project</Button>
       </div>
 
-      <div className="mt-6">
-        <Table>
+      <Table>
           <TableHeader>
             <TableRow>
               <TableHead>
@@ -411,7 +410,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                         <DropdownMenuTrigger asChild>
                           <button
                             onClick={(e) => e.stopPropagation()}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
                           >
                             <MoreHorizontal className="h-4 w-4" />
                           </button>
@@ -432,7 +431,6 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
             })}
           </TableBody>
         </Table>
-      </div>
 
       {renderDialogs()}
     </>

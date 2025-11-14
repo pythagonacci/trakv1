@@ -6,9 +6,9 @@ interface StatusBadgeProps {
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const styles = {
-    not_started: "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]",
-    in_progress: "bg-[#dbeafe] text-[#1d4ed8]",
-    complete: "bg-[#dcfce7] text-[#15803d]",
+    not_started: "bg-[var(--foreground)]/5 text-[var(--foreground)]/70",
+    in_progress: "bg-[var(--info)]/10 text-[var(--info)]",
+    complete: "bg-[var(--success)]/10 text-[var(--success)]",
   } as const;
 
   const labels = {
@@ -19,7 +19,7 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${styles[status]}`}
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${styles[status]}`}
     >
       {labels[status]}
     </span>

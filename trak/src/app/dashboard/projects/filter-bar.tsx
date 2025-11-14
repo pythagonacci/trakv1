@@ -90,10 +90,10 @@ export default function FilterBar({ clients }: FilterBarProps) {
   const hasActiveFilters = search || status || clientId;
 
   return (
-    <div className="flex items-center gap-3 mb-4">
+    <div className="flex items-center gap-2 mb-4">
       {/* Search Bar */}
       <div className="relative flex-1 max-w-xs">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
+        <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-[var(--tertiary-foreground)]" />
         <input
           type="text"
           placeholder="Search projects..."
@@ -101,11 +101,11 @@ export default function FilterBar({ clients }: FilterBarProps) {
           onChange={(e) => {
             setSearch(e.target.value);
           }}
-          className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+          className="w-full pl-8 pr-3 py-1.5 text-sm border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
         />
         {isPending && (
-          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-            <div className="w-4 h-4 border-2 border-neutral-300 border-t-neutral-900 rounded-full animate-spin"></div>
+          <div className="absolute right-2.5 top-1/2 transform -translate-y-1/2">
+            <div className="w-3.5 h-3.5 border-2 border-[var(--border)] border-t-[var(--foreground)] rounded-full animate-spin"></div>
           </div>
         )}
       </div>
@@ -114,7 +114,7 @@ export default function FilterBar({ clients }: FilterBarProps) {
       <select
         value={status}
         onChange={(e) => handleStatusChange(e.target.value)}
-        className="px-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+        className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
       >
         <option value="">All Statuses</option>
         <option value="not_started">Not Started</option>
@@ -126,7 +126,7 @@ export default function FilterBar({ clients }: FilterBarProps) {
       <select
         value={clientId}
         onChange={(e) => handleClientChange(e.target.value)}
-        className="px-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white"
+        className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
       >
         <option value="">All Clients</option>
         {clients.map((client) => (
@@ -140,9 +140,9 @@ export default function FilterBar({ clients }: FilterBarProps) {
       {hasActiveFilters && (
         <button
           onClick={handleClearFilters}
-          className="px-3 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-900 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors flex items-center gap-1.5"
+          className="px-3 py-1.5 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-hover)] hover:bg-[var(--surface-hover)] rounded-md transition-colors flex items-center gap-1.5"
         >
-          <X className="w-4 h-4" />
+          <X className="w-3.5 h-3.5" />
           Clear
         </button>
       )}

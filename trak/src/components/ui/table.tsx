@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <div className="w-full overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-sm">
+    <div className="w-full overflow-hidden rounded-md border border-[var(--border)] bg-[#fefdfc] dark:bg-[#1a1a1a] shadow-sm">
       <table
         ref={ref}
         className={cn("w-full caption-bottom text-sm", className)}
@@ -19,7 +19,7 @@ Table.displayName = "Table"
 
 const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
   ({ className, ...props }, ref) => (
-    <thead ref={ref} className={cn("bg-[var(--surface)]/60 text-[var(--tertiary-foreground)]", className)} {...props} />
+    <thead ref={ref} className={cn("bg-[#fdfcfb] dark:bg-[#1f1f1f] text-[var(--tertiary-foreground)]", className)} {...props} />
   )
 )
 TableHeader.displayName = "TableHeader"
@@ -43,7 +43,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        "transition-colors duration-150 ease-out hover:bg-surface-hover data-[state=selected]:bg-[var(--surface-hover)]",
+        "transition-colors duration-150 ease-out hover:bg-[#fdfcfb] dark:hover:bg-[#1f1f1f] data-[state=selected]:bg-[#fdfcfb] dark:data-[state=selected]:bg-[#1f1f1f]",
         className
       )}
       {...props}
@@ -57,7 +57,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
     <th
       ref={ref}
       className={cn(
-        "h-12 px-4 text-left text-xs font-semibold uppercase tracking-wide text-[var(--tertiary-foreground)]",
+        "h-9 px-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--tertiary-foreground)]",
         className
       )}
       {...props}
@@ -70,7 +70,7 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<
   ({ className, ...props }, ref) => (
     <td
       ref={ref}
-      className={cn("p-4 align-middle text-sm text-[var(--muted-foreground)]", className)}
+      className={cn("px-3 py-2 align-middle text-sm text-[var(--muted-foreground)]", className)}
       {...props}
     />
   )

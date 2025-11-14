@@ -70,18 +70,20 @@ export default async function TabPage({
   const blocks = blocksResult.data || [];
 
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-[var(--background)]">
+      <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
         {/* Project Header - Minimal, elegant */}
-        <ProjectHeader project={project} />
+        <div className="pt-4 pb-2">
+          <ProjectHeader project={project} />
+        </div>
 
         {/* Tab Navigation - Seamless */}
-        <div className="border-b border-neutral-100 dark:border-neutral-900">
+        <div>
           <TabBar tabs={hierarchicalTabs} projectId={projectId} />
         </div>
 
         {/* Canvas Content - Fluid, borderless */}
-        <div className="px-16 py-12">
+        <div className="py-3 md:py-4 lg:py-5">
           <TabCanvas 
             tabId={tabId} 
             projectId={projectId} 
