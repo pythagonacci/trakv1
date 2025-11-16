@@ -3,9 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import { getTabBlocks } from "@/app/actions/block";
+import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import ProjectHeader from "../../project-header";
 import TabBar from "../../tab-bar";
 import TabCanvas from "./tab-canvas";
+
+// 🔒 Force dynamic - user-specific data shouldn't be cached across users
+export const dynamic = "force-dynamic";
 
 export default async function TabPage({
   params,
@@ -17,56 +21,59 @@ export default async function TabPage({
   // Await params in Next.js 15
   const { projectId, tabId } = await params;
 
-  // 1. Auth check
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  // 2. Get workspace from cookie
+  // 🔒 STEP 1: Auth & workspace verification FIRST (before any data fetch)
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) {
     redirect("/dashboard");
   }
 
-  // 3. Fetch project with client details
-  const { data: project, error: projectError } = await supabase
-    .from("projects")
-    .select(
-      `
-      *,
-      client:clients(*)
-    `
-    )
-    .eq("id", projectId)
-    .eq("workspace_id", workspaceId)
-    .single();
+  const authResult = await requireWorkspaceAccess(workspaceId);
+  if ('error' in authResult) {
+    redirect("/login");
+  }
 
-  if (projectError || !project) {
+  // 🚀 STEP 2: Parallel queries (auth already verified, safe to fetch)
+  // getProjectTabs and getTabBlocks have their own auth checks (cached)
+  const [
+    projectResult,
+    tabResult,
+    tabsResult,
+    blocksResult,
+  ] = await Promise.all([
+    supabase
+      .from("projects")
+      .select(`id, name, status, client:clients(id, name, company)`)
+      .eq("id", projectId)
+      .eq("workspace_id", workspaceId)
+      .single(),
+    supabase
+      .from("tabs")
+      .select("id, name, project_id")
+      .eq("id", tabId)
+      .eq("project_id", projectId)
+      .single(),
+    getProjectTabs(projectId),
+    getTabBlocks(tabId),
+  ]);
+
+  // Validate results
+  if (projectResult.error || !projectResult.data) {
     notFound();
   }
 
-  // 4. Verify tab exists and belongs to this project
-  const { data: tab, error: tabError } = await supabase
-    .from("tabs")
-    .select("id, name, project_id")
-    .eq("id", tabId)
-    .eq("project_id", projectId)
-    .single();
-
-  if (tabError || !tab) {
+  if (tabResult.error || !tabResult.data) {
     notFound();
   }
 
-  // 5. Fetch hierarchical tabs for tab bar
-  const tabsResult = await getProjectTabs(projectId);
+  // Handle Supabase foreign key quirk (client might be array)
+  const rawProject = projectResult.data;
+  const project = {
+    ...rawProject,
+    client: Array.isArray(rawProject.client) ? rawProject.client[0] : rawProject.client,
+  };
+  
+  const tab = tabResult.data;
   const hierarchicalTabs = tabsResult.data || [];
-
-  // 6. Fetch blocks for this tab
-  const blocksResult = await getTabBlocks(tabId);
   const blocks = blocksResult.data || [];
 
   return (

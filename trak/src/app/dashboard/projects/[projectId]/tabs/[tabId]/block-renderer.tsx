@@ -14,6 +14,8 @@ import ImageBlock from "./image-block";
 import EmbedBlock from "./embed-block";
 import PdfBlock from "./pdf-block";
 import SectionBlock from "./section-block";
+import DocReferenceBlock from "./blocks/doc-reference-block";
+import BlockReferenceRenderer from "./block-reference-renderer";
 
 interface BlockRendererProps {
   block: Block;
@@ -22,11 +24,35 @@ interface BlockRendererProps {
   tabId?: string;
   onUpdate?: () => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section" | "doc_reference") => void;
+  onOpenDoc?: (docId: string) => void;
   isDragging?: boolean;
 }
 
-export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, isDragging }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onOpenDoc, isDragging }: BlockRendererProps) {
+  // If this block is a reference to another block, render the reference component
+  if (block.original_block_id) {
+    return (
+      <BlockWrapper 
+        block={block} 
+        workspaceId={workspaceId}
+        projectId={projectId}
+        onDelete={onDelete} 
+        onConvert={onConvert} 
+        onUpdate={onUpdate}
+        isDragging={isDragging}
+      >
+        <BlockReferenceRenderer
+          originalBlockId={block.original_block_id}
+          workspaceId={workspaceId}
+          projectId={projectId}
+          tabId={tabId}
+          onUpdate={onUpdate}
+        />
+      </BlockWrapper>
+    );
+  }
+
   const renderBlockContent = () => {
     switch (block.type) {
       case "text":
@@ -57,6 +83,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
         ) : (
           <div className="p-5 text-sm text-neutral-500">Section requires tabId</div>
         );
+      case "doc_reference":
+        return <DocReferenceBlock block={block} onDelete={() => onDelete?.(block.id)} onOpenDoc={onOpenDoc} />;
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">

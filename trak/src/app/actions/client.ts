@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { cache } from 'react'
 
 // Type for client data
 type ClientData = {
@@ -13,6 +14,26 @@ type ClientData = {
   website?: string
   notes?: string
 }
+
+// 🚀 Cached auth check - runs once per request
+const getAuthenticatedUser = cache(async () => {
+  const supabase = await createSupabaseClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) return null
+  return user
+})
+
+// 🚀 Cached workspace membership check - runs once per request
+const checkWorkspaceMembership = cache(async (workspaceId: string, userId: string) => {
+  const supabase = await createSupabaseClient()
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  return membership
+})
 
 // 1. CREATE CLIENT
 export async function createClient(workspaceId: string, clientData: ClientData) {
@@ -54,50 +75,34 @@ export async function createClient(workspaceId: string, clientData: ClientData) 
   return { data: client }
 }
 
-// 2. GET ALL CLIENTS (with project count)
+// 2. GET ALL CLIENTS (with project count) - OPTIMIZED
 export async function getAllClients(workspaceId: string) {
   const supabase = await createSupabaseClient()
 
-  // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  // 🚀 Use cached auth check
+  const user = await getAuthenticatedUser()
+  if (!user) {
     return { error: 'Unauthorized' }
   }
 
-  // Check if user is a member of the workspace
-  const { data: membership, error: memberError } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  if (memberError || !membership) {
+  // 🚀 Use cached membership check
+  const membership = await checkWorkspaceMembership(workspaceId, user.id)
+  if (!membership) {
     return { error: 'You must be a workspace member to view clients' }
   }
 
-  // Get all clients with project count
-  // Note: This will work once projects table exists in Task 1.3
+  // 🚀 Get only essential client fields for dropdown
   const { data: clients, error: fetchError } = await supabase
     .from('clients')
-    .select(`
-      *,
-      projects (count)
-    `)
+    .select('id, name, company, created_at')
     .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
+    .order('name', { ascending: true }) // Alphabetical for better UX
 
   if (fetchError) {
     return { error: fetchError.message }
   }
 
-  // Transform the data to include project count
-  const clientsWithCount = clients?.map(client => ({
-    ...client,
-    project_count: client.projects?.[0]?.count || 0
-  }))
-
-  return { data: clientsWithCount }
+  return { data: clients }
 }
 
 // 3. GET SINGLE CLIENT (with all projects and stats)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout, Copy } from "lucide-react";
 import { createBlock, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import DocSelectorDialog from "./doc-selector-dialog";
+import BlockReferenceSelector from "./block-reference-selector";
 
 interface AddBlockButtonProps {
   tabId: string;
@@ -93,13 +96,27 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     icon: <Layout className="w-4 h-4" />,
     description: "Scrollable container for grouping blocks",
   },
+  {
+    type: "doc_reference",
+    label: "Document",
+    icon: <FileText className="w-4 h-4" />,
+    description: "Link to an existing document",
+  },
 ];
 
 export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated }: AddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
+  const [docSelectorOpen, setDocSelectorOpen] = useState(false);
+  const [blockReferenceSelectorOpen, setBlockReferenceSelectorOpen] = useState(false);
 
   const handleCreateBlock = async (type: BlockType) => {
+    // Special handling for doc_reference - open doc selector instead
+    if (type === "doc_reference") {
+      setDocSelectorOpen(true);
+      return;
+    }
+
     setIsCreating(true);
     try {
       const result = await createBlock({
@@ -128,6 +145,38 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     }
   };
 
+  const handleSelectDoc = async (docId: string, docTitle: string) => {
+    setIsCreating(true);
+    try {
+      const result = await createBlock({
+        tabId,
+        type: "doc_reference",
+        content: {
+          doc_id: docId,
+          doc_title: docTitle,
+        },
+        parentBlockId: parentBlockId || null,
+      });
+
+      if (result.error) {
+        console.error("Failed to create doc reference:", result.error);
+        alert(`Error creating doc reference: ${result.error}`);
+        setIsCreating(false);
+        return;
+      }
+
+      // Call callback if provided, otherwise refresh
+      if (onBlockCreated) {
+        onBlockCreated();
+      } else {
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("Create doc reference exception:", error);
+      setIsCreating(false);
+    }
+  };
+
   const triggerButton = (
     <button
       disabled={isCreating}
@@ -144,35 +193,65 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
   );
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {triggerButton}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side="right"
-        sideOffset={12}
-        alignOffset={-140}
-        avoidCollisions={false}
-        className="w-60"
-      >
-        {blockTypes.map((blockType) => (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          {triggerButton}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          side="right"
+          sideOffset={12}
+          alignOffset={-140}
+          avoidCollisions={false}
+          className="w-60"
+        >
           <DropdownMenuItem
-            key={blockType.type}
-            onClick={() => handleCreateBlock(blockType.type)}
+            onClick={() => setBlockReferenceSelectorOpen(true)}
             className="flex cursor-pointer items-center gap-2.5 rounded-[4px] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-[var(--surface-muted)] text-[var(--foreground)]">
-              {blockType.icon}
+            <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-blue-50 text-blue-600">
+              <Copy className="w-4 h-4" />
             </div>
             <div className="flex-1">
-              <div className="font-medium text-[var(--foreground)]">{blockType.label}</div>
-              <div className="text-xs text-[var(--tertiary-foreground)]">{blockType.description}</div>
+              <div className="font-medium text-[var(--foreground)]">Reference Block</div>
+              <div className="text-xs text-[var(--tertiary-foreground)]">Link to a reusable block</div>
             </div>
           </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          
+          <DropdownMenuSeparator />
+          
+          {blockTypes.map((blockType) => (
+            <DropdownMenuItem
+              key={blockType.type}
+              onClick={() => handleCreateBlock(blockType.type)}
+              className="flex cursor-pointer items-center gap-2.5 rounded-[4px] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-[var(--surface-muted)] text-[var(--foreground)]">
+                {blockType.icon}
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-[var(--foreground)]">{blockType.label}</div>
+                <div className="text-xs text-[var(--tertiary-foreground)]">{blockType.description}</div>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DocSelectorDialog
+        isOpen={docSelectorOpen}
+        onClose={() => setDocSelectorOpen(false)}
+        onSelectDoc={handleSelectDoc}
+      />
+
+      <BlockReferenceSelector
+        isOpen={blockReferenceSelectorOpen}
+        onClose={() => setBlockReferenceSelectorOpen(false)}
+        tabId={tabId}
+        onBlockCreated={onBlockCreated}
+      />
+    </>
   );
 }
 

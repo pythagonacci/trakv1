@@ -3,12 +3,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { revalidatePath } from "next/cache";
+import { cache } from "react";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section" | "doc_reference";
 
 export interface Block {
   id: string;
@@ -18,69 +19,60 @@ export interface Block {
   content: Record<string, any>; // JSONB content, varies by type
   position: number;
   column: number; // Column index: 0, 1, or 2 (for up to 3 columns)
+  is_template: boolean; // Whether this block is reusable across projects
+  template_name: string | null; // Optional name for template blocks
+  original_block_id: string | null; // If this is a reference, points to the original block
   created_at: string;
   updated_at: string;
 }
 
 // ============================================================================
-// 1. GET TAB BLOCKS
+// AUTH UTILITIES - Centralized and cached
+// ============================================================================
+
+import { getAuthenticatedUser, getTabMetadata, checkWorkspaceMembership } from "@/lib/auth-utils";
+
+// Limits to prevent unbounded queries
+const BLOCKS_PER_TAB_LIMIT = 500;
+
+// ============================================================================
+// 1. GET TAB BLOCKS - OPTIMIZED
 // ============================================================================
 
 export async function getTabBlocks(tabId: string) {
   try {
     const supabase = await createClient();
 
-    // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // 🔒 Auth check FIRST (before any data fetch)
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
-    // 2. Get tab and verify it exists
-    const { data: tab, error: tabError } = await supabase
-      .from("tabs")
-      .select("id, project_id")
-      .eq("id", tabId)
-      .single();
-
-    if (tabError || !tab) {
+    // 🔒 Verify tab access + get workspace in one query
+    const tab = await getTabMetadata(tabId);
+    if (!tab) {
       return { error: "Tab not found" };
     }
 
-    // 3. Get project to get workspace_id
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select("id, workspace_id")
-      .eq("id", tab.project_id)
-      .single();
+    const workspaceId = (tab.projects as any).workspace_id;
 
-    if (projectError || !project) {
-      return { error: "Project not found" };
-    }
-
-    // 4. Verify user is member of the project's workspace
-    const { data: member, error: memberError } = await supabase
-      .from("workspace_members")
-      .select("role")
-      .eq("workspace_id", project.workspace_id)
-      .eq("user_id", user.id)
-      .single();
-
-    if (memberError || !member) {
+    // 🔒 Verify workspace membership BEFORE fetching blocks
+    const member = await checkWorkspaceMembership(workspaceId, user.id);
+    if (!member) {
       return { error: "Not a member of this workspace" };
     }
 
-    // 5. Get all blocks for this tab (top-level only for now, ordered by column then position)
+    // ✅ Auth verified - NOW safe to fetch blocks
+    // 🚀 Select specific fields + add limit for safety
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
-      .select("*")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
       .eq("tab_id", tabId)
-      .is("parent_block_id", null) // Only top-level blocks for now
+      .is("parent_block_id", null)
       .order("column", { ascending: true })
-      .order("position", { ascending: true });
+      .order("position", { ascending: true })
+      .limit(BLOCKS_PER_TAB_LIMIT);
 
     if (blocksError) {
       console.error("Get blocks error:", blocksError);
@@ -152,6 +144,7 @@ export async function createBlock(data: {
   position?: number;
   column?: number; // Column index: 0, 1, or 2 (defaults to 0)
   parentBlockId?: string | null; // Parent block ID for nested blocks (e.g., sections)
+  originalBlockId?: string | null; // If this is a reference to another block
 }) {
   try {
     const supabase = await createClient();
@@ -339,6 +332,7 @@ export async function createBlock(data: {
         content: content,
         position: position,
         column: column,
+        original_block_id: data.originalBlockId || null,
       })
       .select()
       .single();

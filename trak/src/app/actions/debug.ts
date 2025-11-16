@@ -49,14 +49,18 @@ export async function getMyInfo() {
         email: user.email,
         created_at: user.created_at
       },
-      workspaces: workspaces.map(w => ({
-        workspace_id: w.workspace?.id,
-        workspace_name: w.workspace?.name,
-        your_role: w.role,
-        is_owner: w.workspace?.owner_id === user.id,
-        joined_at: w.created_at
-      })),
-      total_workspaces: workspaces.length
+      workspaces: (workspaces || []).map((w: any) => {
+        // Handle both array and object workspace data (Supabase type quirk)
+        const workspace = Array.isArray(w.workspace) ? w.workspace[0] : w.workspace;
+        return {
+          workspace_id: workspace?.id,
+          workspace_name: workspace?.name,
+          your_role: w.role,
+          is_owner: workspace?.owner_id === user.id,
+          joined_at: w.created_at
+        };
+      }),
+      total_workspaces: workspaces?.length || 0
     }
   }
 }

@@ -13,103 +13,104 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+// Move all static data outside component for better performance
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "production", label: "Production Schedule" },
+  { id: "marketing", label: "Marketing Assets" },
+  { id: "packaging", label: "Packaging" },
+  { id: "distribution", label: "Distribution" },
+  { id: "budget", label: "Budget & Costs" },
+  { id: "team", label: "Team & Responsibilities" },
+  { id: "quality", label: "Quality Control" },
+  { id: "metrics", label: "Launch Metrics" },
+] as const;
+
+const PRODUCTION_RUN = [
+  { sku: "Classic Buckeye", qty: "2,400 boxes", ship: "Dec 8", status: "Locked" },
+  { sku: "Peppermint Buckeye", qty: "1,600 boxes", ship: "Dec 9", status: "Packaging art in review" },
+  { sku: "Mocha Crunch", qty: "1,200 boxes", ship: "Dec 10", status: "Waiting on ingredient delivery" },
+  { sku: "Salted Caramel Buckeye", qty: "2,000 boxes", ship: "Dec 11", status: "Recipe testing" },
+] as const;
+
+const LAUNCH_TIMELINE = [
+  { date: "Nov 18", milestone: "Finalize flavor lineup & recipe tweaks", owner: "Maria (Ops)", status: "Complete" },
+  { date: "Nov 25", milestone: "Shoot hero product photography", owner: "Dev (Creative)", status: "In progress" },
+  { date: "Dec 2", milestone: "Schedule Klaviyo flows + SMS", owner: "Fiona (Lifecycle)", status: "Queued" },
+  { date: "Dec 5", milestone: "Influencer seeding kits shipped", owner: "Logan (Growth)", status: "On track" },
+  { date: "Dec 12", milestone: "Launch day livestream + giveaways", owner: "All-hands", status: "Upcoming" },
+] as const;
+
+const CONTENT_CALENDAR = [
+  {
+    channel: "Instagram Reels",
+    concept: "Behind-the-scenes: dipping buckeyes",
+    publish: "Nov 27",
+    owner: "Dev",
+    status: "Editing",
+  },
+  {
+    channel: "TikTok",
+    concept: "Holiday countdown day 10",
+    publish: "Nov 28",
+    owner: "Maya",
+    status: "Drafting",
+  },
+  {
+    channel: "Email",
+    concept: "VIP early access (with bundle upsell)",
+    publish: "Dec 11",
+    owner: "Fiona",
+    status: "Approved",
+  },
+  {
+    channel: "Instagram Stories",
+    concept: "Day-of launch countdown",
+    publish: "Dec 12",
+    owner: "Dev",
+    status: "Scheduled",
+  },
+] as const;
+
+const TASK_BUCKETS = [
+  {
+    title: "Recipe & Production",
+    iconType: "Package",
+    items: [
+      { label: "Lock final ingredient suppliers", status: "Complete" },
+      { label: "Confirm allergen statements for Peppermint batch", status: "In progress" },
+      { label: "QA taste test with loyal customers", status: "Upcoming" },
+    ],
+  },
+  {
+    title: "Marketing",
+    iconType: "Target",
+    items: [
+      { label: "Holiday landing page refresh", status: "Complete" },
+      { label: "Paid social creatives (carousel + UGC)", status: "In progress" },
+      { label: "Influencer giveaway partnerships", status: "Upcoming" },
+    ],
+  },
+  {
+    title: "Launch Day Ops",
+    iconType: "Timer",
+    items: [
+      { label: "Staffing schedule for packaging line", status: "Locked" },
+      { label: "Allocate 200 boxes for VIP overnight ship", status: "In progress" },
+      { label: "Set up live chat macros", status: "Upcoming" },
+    ],
+  },
+] as const;
+
 export default function TabContent() {
   const [activeTab, setActiveTab] = useState("overview");
-
-  const tabs = [
-    { id: "overview", label: "Overview" },
-    { id: "production", label: "Production Schedule" },
-    { id: "marketing", label: "Marketing Assets" },
-    { id: "packaging", label: "Packaging" },
-    { id: "distribution", label: "Distribution" },
-    { id: "budget", label: "Budget & Costs" },
-    { id: "team", label: "Team & Responsibilities" },
-    { id: "quality", label: "Quality Control" },
-    { id: "metrics", label: "Launch Metrics" },
-  ];
-
-  const productionRun = [
-    { sku: "Classic Buckeye", qty: "2,400 boxes", ship: "Dec 8", status: "Locked" },
-    { sku: "Peppermint Buckeye", qty: "1,600 boxes", ship: "Dec 9", status: "Packaging art in review" },
-    { sku: "Mocha Crunch", qty: "1,200 boxes", ship: "Dec 10", status: "Waiting on ingredient delivery" },
-    { sku: "Salted Caramel Buckeye", qty: "2,000 boxes", ship: "Dec 11", status: "Recipe testing" },
-  ];
-
-  const launchTimeline = [
-    { date: "Nov 18", milestone: "Finalize flavor lineup & recipe tweaks", owner: "Maria (Ops)", status: "Complete" },
-    { date: "Nov 25", milestone: "Shoot hero product photography", owner: "Dev (Creative)", status: "In progress" },
-    { date: "Dec 2", milestone: "Schedule Klaviyo flows + SMS", owner: "Fiona (Lifecycle)", status: "Queued" },
-    { date: "Dec 5", milestone: "Influencer seeding kits shipped", owner: "Logan (Growth)", status: "On track" },
-    { date: "Dec 12", milestone: "Launch day livestream + giveaways", owner: "All-hands", status: "Upcoming" },
-  ];
-
-  const contentCalendar = [
-    {
-      channel: "Instagram Reels",
-      concept: "Behind-the-scenes: dipping buckeyes",
-      publish: "Nov 27",
-      owner: "Dev",
-      status: "Editing",
-    },
-    {
-      channel: "TikTok",
-      concept: "Holiday countdown day 10",
-      publish: "Nov 28",
-      owner: "Maya",
-      status: "Drafting",
-    },
-    {
-      channel: "Email",
-      concept: "VIP early access (with bundle upsell)",
-      publish: "Dec 11",
-      owner: "Fiona",
-      status: "Approved",
-    },
-    {
-      channel: "Instagram Stories",
-      concept: "Day-of launch countdown",
-      publish: "Dec 12",
-      owner: "Dev",
-      status: "Scheduled",
-    },
-  ];
-
-  const taskBuckets = [
-    {
-      title: "Recipe & Production",
-      icon: <Package className="h-4 w-4" />,
-      items: [
-        { label: "Lock final ingredient suppliers", status: "Complete" },
-        { label: "Confirm allergen statements for Peppermint batch", status: "In progress" },
-        { label: "QA taste test with loyal customers", status: "Upcoming" },
-      ],
-    },
-    {
-      title: "Marketing",
-      icon: <Target className="h-4 w-4" />,
-      items: [
-        { label: "Holiday landing page refresh", status: "Complete" },
-        { label: "Paid social creatives (carousel + UGC)", status: "In progress" },
-        { label: "Influencer giveaway partnerships", status: "Upcoming" },
-      ],
-    },
-    {
-      title: "Launch Day Ops",
-      icon: <Timer className="h-4 w-4" />,
-      items: [
-        { label: "Staffing schedule for packaging line", status: "Locked" },
-        { label: "Allocate 200 boxes for VIP overnight ship", status: "In progress" },
-        { label: "Set up live chat macros", status: "Upcoming" },
-      ],
-    },
-  ];
 
   return (
     <div className="space-y-6">
       {/* Tab Navigation */}
       <div className="border-b border-[var(--border)]">
         <div className="flex items-center gap-1 overflow-x-auto">
-          {tabs.map((tab) => (
+          {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -188,7 +189,7 @@ export default function TabContent() {
                 <CardDescription className="text-xs text-[var(--muted-foreground)]">Shared with fulfillment, growth, and customer experience.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {launchTimeline.map((item) => (
+                {LAUNCH_TIMELINE.map((item) => (
                   <div key={item.milestone} className="flex items-start gap-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
                     <div className="flex h-8 w-8 items-center justify-center rounded-[4px] bg-[var(--surface-hover)] text-xs font-semibold text-[var(--foreground)]">
                       {item.date.split(" ")[1] || item.date}
@@ -210,12 +211,14 @@ export default function TabContent() {
             </Card>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              {taskBuckets.map((bucket) => (
+              {TASK_BUCKETS.map((bucket) => {
+                const Icon = bucket.iconType === "Package" ? Package : bucket.iconType === "Target" ? Target : Timer;
+                return (
                 <Card key={bucket.title} className="border-[var(--border)]">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-medium text-[var(--foreground)]">{bucket.title}</CardTitle>
                     <span className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted-foreground)]">
-                      {bucket.icon}
+                      <Icon className="h-4 w-4" />
                     </span>
                   </CardHeader>
                   <CardContent className="space-y-2">
@@ -230,7 +233,7 @@ export default function TabContent() {
                     </Button>
                   </CardContent>
                 </Card>
-              ))}
+              )})}
             </div>
           </div>
         )}
@@ -253,7 +256,7 @@ export default function TabContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {productionRun.map((row) => (
+                    {PRODUCTION_RUN.map((row) => (
                       <TableRow key={row.sku}>
                         <TableCell className="font-medium text-[var(--foreground)]">{row.sku}</TableCell>
                         <TableCell>{row.qty}</TableCell>
@@ -346,7 +349,7 @@ export default function TabContent() {
                 <CardDescription className="text-xs text-[var(--muted-foreground)]">Owned by the Creative Pod.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {contentCalendar.map((row) => (
+                {CONTENT_CALENDAR.map((row) => (
                   <div key={row.concept} className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
                     <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
                       <span className="font-medium text-[var(--foreground)]">{row.channel}</span>

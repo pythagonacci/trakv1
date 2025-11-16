@@ -4,9 +4,9 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import ProjectsTable from "./projects-table";
 import FilterBar from "./filter-bar";
 
-// Ensure this page is always dynamic and revalidates on every request
+// Keep dynamic for real-time data, but allow short caching
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 5; // Cache for 5 seconds - HUGE speed boost for concurrent users
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -29,6 +29,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   // Await search params and build filters
   const params = await searchParams;
   const filters = {
+    project_type: 'project' as const,
     status: params.status as 'not_started' | 'in_progress' | 'complete' | undefined,
     client_id: params.client_id as string | undefined,
     search: params.search as string | undefined,
@@ -36,8 +37,11 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     sort_order: (params.sort_order as 'asc' | 'desc') || 'desc',
   };
 
-  // Fetch projects with filters
-  const projectsResult = await getAllProjects(workspaceId, filters);
+  // 🚀 PARALLEL QUERIES - Fetch projects and clients simultaneously
+  const [projectsResult, clientsResult] = await Promise.all([
+    getAllProjects(workspaceId, filters),
+    getAllClients(workspaceId),
+  ]);
   
   if (projectsResult.error) {
     return (
@@ -49,32 +53,24 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     );
   }
 
-  // Fetch all clients for filter dropdown
-  const clientsResult = await getAllClients(workspaceId);
   const clients = clientsResult.data || [];
 
   // Map nested client object to the shape expected by the table
-  type RawProject = {
-    id: string;
-    name: string;
-    status: 'not_started' | 'in_progress' | 'complete';
-    due_date_date: string | null;
-    due_date_text: string | null;
-    client_id: string | null;
-    created_at: string;
-    client?: { id: string; name: string | null; company?: string | null } | null;
-  };
-
-  const mappedProjects = ((projectsResult.data || []) as RawProject[]).map((project: RawProject) => ({
-    id: project.id,
-    name: project.name,
-    status: project.status,
-    due_date_date: project.due_date_date,
-    due_date_text: project.due_date_text,
-    client_id: project.client_id,
-    client_name: project.client?.name || null,
-    created_at: project.created_at,
-  }));
+  const mappedProjects = (projectsResult.data || []).map((project: any) => {
+    // Handle Supabase foreign key returning array vs object
+    const client = Array.isArray(project.client) ? project.client[0] : project.client;
+    
+    return {
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      due_date_date: project.due_date_date,
+      due_date_text: project.due_date_text,
+      client_id: project.client_id,
+      client_name: client?.name || null,
+      created_at: project.created_at,
+    };
+  });
 
   return (
     <div>

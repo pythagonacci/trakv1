@@ -3,16 +3,15 @@ import { getCurrentUser } from "@/app/actions/auth";
 import DashboardLayoutClient from "./layout-client";
 import { WorkspaceProvider } from "./workspace-context";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
+// Remove force-dynamic from layout - let individual pages decide
+// User data is cached per request with React.cache() so multiple calls are deduped
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   type Workspace = { id: string; name: string; role: string };
-  // Fetch user's workspaces
+  // Fetch user's workspaces (cached with React.cache())
   const workspacesResult = await getUserWorkspaces();
   const workspacesData = workspacesResult.data || [];
   
@@ -32,7 +31,7 @@ export default async function DashboardLayout({
     workspaces[0] || 
     null;
 
-  // Fetch current user
+  // Fetch current user (cached with React.cache())
   const userResult = await getCurrentUser();
   const user = userResult.data || null;
 

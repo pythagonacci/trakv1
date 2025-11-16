@@ -112,8 +112,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
           <div
             key={task.id}
             className="group flex items-start gap-2.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-150 ease-out hover:border-[var(--foreground)]/15"
-            onMouseEnter={() => setHoveredTaskId(task.id)}
-            onMouseLeave={() => setHoveredTaskId(null)}
           >
             {/* Status Icon */}
             <button
@@ -130,9 +128,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
                   type="text"
                   value={editingTaskText}
                   onChange={(e) => setEditingTaskText(e.target.value)}
-                  onBlur={() => finishEditingTask(task.id)}
+                  onBlur={() => setEditingTaskId(null)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") finishEditingTask(task.id);
+                    if (e.key === "Enter") {
+                      updateTask(task.id, { text: editingTaskText });
+                      setEditingTaskId(null);
+                    }
                     if (e.key === "Escape") setEditingTaskId(null);
                   }}
                   autoFocus
@@ -140,7 +141,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
                 />
               ) : (
                 <div
-                  onClick={() => startEditingTask(task.id, task.text)}
+                  onClick={() => {
+                    setEditingTaskId(task.id);
+                    setEditingTaskText(task.text);
+                  }}
                   className={cn(
                     "cursor-text text-sm leading-snug text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
                     task.status === "done" && "line-through text-[var(--muted-foreground)]"
@@ -175,12 +179,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId }: TaskBlockPro
                   <input
                     type="date"
                     value={task.dueDate || ""}
-                    onChange={(e) => updateTaskDueDate(task.id, e.target.value || undefined)}
+                    onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
                     className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:outline-none"
                   />
                   {task.dueDate && (
                     <button
-                      onClick={() => updateTaskDueDate(task.id, undefined)}
+                      onClick={() => updateTask(task.id, { dueDate: undefined })}
                       className="text-[var(--tertiary-foreground)] hover:text-[var(--muted-foreground)]"
                     >
                       <X className="h-3 w-3" />

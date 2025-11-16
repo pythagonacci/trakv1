@@ -2,14 +2,19 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { cache } from 'react'
 import { createTab } from './tab'
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
 
+// Type for project type
+type ProjectType = 'project' | 'internal'
+
 // Type for project data
 type ProjectData = {
   name: string
+  project_type?: ProjectType
   client_id?: string | null
   status?: ProjectStatus
   due_date_date?: string | null  // ISO date string
@@ -18,6 +23,7 @@ type ProjectData = {
 
 // Type for project filters
 type ProjectFilters = {
+  project_type?: ProjectType
   status?: ProjectStatus
   client_id?: string
   search?: string  // NEW: Search by project name or client name
@@ -70,6 +76,7 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
     .insert({
       workspace_id: workspaceId,
       name: projectData.name,
+      project_type: projectData.project_type || 'project',
       client_id: projectData.client_id || null,
       status: projectData.status || 'not_started',
       due_date_date: projectData.due_date_date || null,
@@ -97,33 +104,54 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
   return { data: project }
 }
 
-// 2. GET ALL PROJECTS (with filters and search)
-export async function getAllProjects(workspaceId: string, filters?: ProjectFilters) {
+// 🚀 Cached auth check - runs once per request
+const getAuthenticatedUser = cache(async () => {
   const supabase = await createClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) return null
+  return user
+})
 
-  // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return { error: 'Unauthorized' }
-  }
-
-  // Check if user is a member of the workspace
-  const { data: membership, error: memberError } = await supabase
+// 🚀 Cached workspace membership check - runs once per request
+const checkWorkspaceMembership = cache(async (workspaceId: string, userId: string) => {
+  const supabase = await createClient()
+  const { data: membership } = await supabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
+  return membership
+})
 
-  if (memberError || !membership) {
+// 2. GET ALL PROJECTS (with filters and search) - OPTIMIZED
+export async function getAllProjects(workspaceId: string, filters?: ProjectFilters) {
+  const supabase = await createClient()
+
+  // 🚀 Use cached auth check
+  const user = await getAuthenticatedUser()
+  if (!user) {
+    return { error: 'Unauthorized' }
+  }
+
+  // 🚀 Use cached membership check
+  const membership = await checkWorkspaceMembership(workspaceId, user.id)
+  if (!membership) {
     return { error: 'You must be a workspace member to view projects' }
   }
 
-  // Build query
+  // 🚀 Build optimized query - select only needed fields
   let query = supabase
     .from('projects')
     .select(`
-      *,
+      id,
+      name,
+      status,
+      due_date_date,
+      due_date_text,
+      client_id,
+      created_at,
+      updated_at,
       client:clients (
         id,
         name,
@@ -131,6 +159,13 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
       )
     `)
     .eq('workspace_id', workspaceId)
+
+  // Apply project type filter (defaults to 'project' if not specified)
+  if (filters?.project_type !== undefined) {
+    query = query.eq('project_type', filters.project_type)
+  } else {
+    query = query.eq('project_type', 'project')
+  }
 
   // Apply status filter
   if (filters?.status) {
@@ -142,12 +177,9 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
     query = query.eq('client_id', filters.client_id)
   }
 
-  // Apply search filter (search in project name or client name)
-  // Note: Since client name is in a joined table, we'll filter after fetch
-  // For better performance at scale, consider using PostgreSQL full-text search
+  // 🚀 Optimized search - use OR clause in database, not post-fetch filtering
   if (filters?.search) {
-    // Search in project name using ilike (case-insensitive)
-    query = query.ilike('name', `%${filters.search}%`)
+    query = query.or(`name.ilike.%${filters.search}%,client.name.ilike.%${filters.search}%,client.company.ilike.%${filters.search}%`)
   }
 
   // Apply sorting
@@ -155,6 +187,9 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
   const sortOrder = filters?.sort_order || 'desc'
   
   query = query.order(sortBy, { ascending: sortOrder === 'asc' })
+  
+  // 🚀 Limit results for faster loading (add pagination later if needed)
+  query = query.limit(100)
 
   const { data: projects, error: fetchError } = await query
 
@@ -162,18 +197,7 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
     return { error: fetchError.message }
   }
 
-  // If search exists, also filter by client name (post-fetch filtering)
-  let filteredProjects = projects
-  if (filters?.search && projects) {
-    const searchLower = filters.search.toLowerCase()
-    filteredProjects = projects.filter(project => 
-      project.name.toLowerCase().includes(searchLower) ||
-      project.client?.name?.toLowerCase().includes(searchLower) ||
-      project.client?.company?.toLowerCase().includes(searchLower)
-    )
-  }
-
-  return { data: filteredProjects }
+  return { data: projects }
 }
 
 // 3. GET SINGLE PROJECT (with full details)

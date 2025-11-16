@@ -5,6 +5,8 @@ import {
   Folder,
   Users,
   CreditCard,
+  BookOpen,
+  FileText,
   ChevronDown,
   Plus,
   Check,
@@ -12,6 +14,7 @@ import {
   Loader2,
   Menu,
   X,
+  Home,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -195,12 +198,36 @@ function Sidebar({
         <nav className={cn("space-y-0.5 px-2.5", collapsed ? "pt-2" : "pt-1.5 pb-2")}
         >
           <NavLink
+            href="/dashboard"
+            icon={<Home className="h-4 w-4" />}
+            active={pathname === "/dashboard"}
+            collapsed={collapsed}
+          >
+            Home
+          </NavLink>
+          <NavLink
             href="/dashboard/projects"
             icon={<Folder className="h-4 w-4" />}
             active={pathname?.startsWith("/dashboard/projects")}
             collapsed={collapsed}
           >
             Projects
+          </NavLink>
+          <NavLink
+            href="/dashboard/internal"
+            icon={<BookOpen className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/internal")}
+            collapsed={collapsed}
+          >
+            Internal
+          </NavLink>
+          <NavLink
+            href="/dashboard/docs"
+            icon={<FileText className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/docs")}
+            collapsed={collapsed}
+          >
+            Docs
           </NavLink>
           <NavLink
             href="/dashboard/clients"
@@ -313,6 +340,8 @@ function Header() {
 
   const getPageTitle = () => {
     if (pathname?.includes("/projects")) return "Projects";
+    if (pathname?.includes("/internal")) return "Internal";
+    if (pathname?.includes("/docs")) return "Docs";
     if (pathname?.includes("/clients")) return "Clients";
     if (pathname?.includes("/payments")) return "Payments";
     return "Dashboard";

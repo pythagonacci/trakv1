@@ -71,7 +71,7 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
 
   // Handle paste detection
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const pastedText = e.clipboardData.getText().trim();
+    const pastedText = e.clipboardData.getData('text').trim();
     if (pastedText && isValidUrl(pastedText)) {
       setUrl(pastedText);
       // Auto-save on paste if it's a valid URL

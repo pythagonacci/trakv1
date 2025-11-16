@@ -23,6 +23,7 @@ import { type Block, deleteBlock, updateBlock, createBlock } from "@/app/actions
 import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
+import DocSidebar from "./doc-sidebar";
 import { cn } from "@/lib/utils";
 
 interface TabCanvasProps {
@@ -45,6 +46,12 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [isMounted, setIsMounted] = useState(false);
   const [draggedBlock, setDraggedBlock] = useState<Block | null>(null);
   const [isCreatingBlock, setIsCreatingBlock] = useState(false);
+  const [openDocId, setOpenDocId] = useState<string | null>(null);
+  
+  // 🚀 Sync blocks from server without full page refresh
+  useEffect(() => {
+    setBlocks(initialBlocks);
+  }, [initialBlocks]);
 
   // Configure sensors for drag and drop (mouse, touch, keyboard)
   const sensors = useSensors(
@@ -130,7 +137,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     router.refresh();
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section" | "doc_reference") => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {
@@ -175,6 +182,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       newContent = { fileId: null };
     } else if (newType === "section") {
       newContent = { height: 400 };
+    } else if (newType === "doc_reference") {
+      newContent = { doc_id: "", doc_title: "" };
     }
 
     const result = await updateBlock({
@@ -448,6 +457,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                     onUpdate={handleUpdate}
                     onDelete={handleDelete}
                     onConvert={handleConvert}
+                    onOpenDoc={setOpenDocId}
                     isDragging={false}
                   />
                 </div>
@@ -497,6 +507,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                             onUpdate={handleUpdate}
                             onDelete={handleDelete}
                             onConvert={handleConvert}
+                            onOpenDoc={setOpenDocId}
                             isDragging={isDragging}
                           />
                         </div>
@@ -513,6 +524,9 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       <div className="flex gap-3 pt-4">
         <AddBlockButton tabId={tabId} projectId={projectId} />
       </div>
+
+      {/* Doc Sidebar */}
+      <DocSidebar docId={openDocId} onClose={() => setOpenDocId(null)} />
     </div>
   );
 }

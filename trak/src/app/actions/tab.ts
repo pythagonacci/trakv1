@@ -1,6 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } from "@/lib/auth-utils";
+
+// Limits to prevent unbounded queries
+const TABS_PER_PROJECT_LIMIT = 1000;
 
 // ============================================================================
 // TYPES
@@ -119,59 +123,46 @@ export async function createTab(data: {
 }
 
 // ============================================================================
-// 2. GET PROJECT TABS
+// 2. GET PROJECT TABS - OPTIMIZED
 // ============================================================================
 
 export async function getProjectTabs(projectId: string) {
   try {
     const supabase = await createClient();
 
-    // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // 🔒 Auth check FIRST
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
-    // 2. Get project and its workspace_id
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select("id, workspace_id")
-      .eq("id", projectId)
-      .single();
-
-    if (projectError || !project) {
+    // 🔒 Verify project access
+    const project = await getProjectMetadata(projectId);
+    if (!project) {
       return { error: "Project not found" };
     }
 
-    // 3. Verify user is member of the project's workspace
-    const { data: member, error: memberError } = await supabase
-      .from("workspace_members")
-      .select("role")
-      .eq("workspace_id", project.workspace_id)
-      .eq("user_id", user.id)
-      .single();
-
-    if (memberError || !member) {
+    // 🔒 Verify membership BEFORE fetching tabs
+    const member = await checkWorkspaceMembership(project.workspace_id, user.id);
+    if (!member) {
       return { error: "Not a member of this workspace" };
     }
 
-    // 4. Get all tabs for this project
-    // 4. Get all tabs for this project
+    // ✅ Auth verified - NOW safe to fetch tabs
+    // 🚀 Add limit for safety (most projects won't have 1000+ tabs)
     const { data: tabs, error: tabsError } = await supabase
       .from("tabs")
-      .select("*")
+      .select("id, project_id, parent_tab_id, name, position, created_at")
       .eq("project_id", projectId)
-      .order("position", { ascending: true });
+      .order("position", { ascending: true })
+      .limit(TABS_PER_PROJECT_LIMIT);
 
     if (tabsError) {
       console.error("Get tabs error:", tabsError);
       return { error: "Failed to fetch tabs" };
     }
 
-    // 5. Build hierarchy
+    // Build hierarchy in memory (still fast for reasonable # of tabs)
     const tabsWithChildren = buildTabHierarchy(tabs || []);
 
     return { data: tabsWithChildren };

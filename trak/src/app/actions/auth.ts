@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
 export async function logout() {
   const supabase = await createClient();
@@ -15,7 +16,8 @@ export async function logout() {
   redirect("/login");
 }
 
-export async function getCurrentUser() {
+// Cache this to prevent redundant auth checks in the same request
+export const getCurrentUser = cache(async () => {
   const supabase = await createClient();
   
   const { data: { user }, error } = await supabase.auth.getUser();
@@ -31,4 +33,4 @@ export async function getCurrentUser() {
       name: user.user_metadata?.name || user.email?.split("@")[0] || "User"
     }
   };
-}
+});

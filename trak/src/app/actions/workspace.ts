@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { cache } from 'react'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -102,7 +103,8 @@ export async function createWorkspace(name: string) {
   return { data: workspace }
 }
 //get user workspaces action
-export async function getUserWorkspaces() {
+// Cache this to prevent redundant queries in the same request
+export const getUserWorkspaces = cache(async () => {
     const supabase = await createClient()
     
     // 1. Get authenticated user
@@ -138,7 +140,7 @@ export async function getUserWorkspaces() {
     }))
     
     return { data: workspaces }
-}
+});
 
   //invite member server action. this invites different people to the workspace.
   //the inviter must have admin/owner permissions 

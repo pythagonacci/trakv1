@@ -134,8 +134,13 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
     const result = await getBlockFiles(block.id);
 
     if (result.data) {
+      // Handle Supabase foreign key returning array vs object
+      const normalizedFiles = result.data.map((item: any) => ({
+        ...item,
+        file: Array.isArray(item.file) ? item.file[0] : item.file
+      }));
       // Filter only video files
-      const videoFiles = result.data.filter((f) => f.file.file_type.startsWith("video/"));
+      const videoFiles = normalizedFiles.filter((f) => f.file?.file_type?.startsWith("video/"));
       setFiles(videoFiles);
 
       // Load signed URLs for videos and generate thumbnails

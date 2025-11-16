@@ -16,6 +16,7 @@ import {
   Image,
   Maximize2,
   Layout,
+  Copy,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -31,6 +32,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import MakeTemplateDialog from "./make-template-dialog";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -51,6 +53,7 @@ interface BlockWrapperProps {
       | "image"
       | "embed"
       | "pdf"
+      | "doc_reference"
       | "section"
   ) => void;
   onUpdate?: () => void;
@@ -68,6 +71,7 @@ export default function BlockWrapper({
   isDragging: externalIsDragging,
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
@@ -132,6 +136,13 @@ export default function BlockWrapper({
             {block.type}
           </div>
         )}
+        
+        {block.is_template && (
+          <div className="absolute -top-3 left-3 flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
+            <Copy className="h-2.5 w-2.5" />
+            {block.template_name || "REUSABLE"}
+          </div>
+        )}
 
         <div
           className={cn(
@@ -171,6 +182,18 @@ export default function BlockWrapper({
                     ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
+              
+              {!block.is_template && !block.original_block_id && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setMakeTemplateDialogOpen(true);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Copy className="h-4 w-4" /> Make Reusable
+                </DropdownMenuItem>
+              )}
+              
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onDelete?.(block.id)}
@@ -184,6 +207,14 @@ export default function BlockWrapper({
 
         <div className={cn("space-y-2.5", borderless && "space-y-3")}>{children}</div>
       </div>
+      
+      <MakeTemplateDialog
+        isOpen={makeTemplateDialogOpen}
+        onClose={() => setMakeTemplateDialogOpen(false)}
+        blockId={block.id}
+        blockType={block.type}
+        onSuccess={() => onUpdate?.()}
+      />
     </div>
   );
 }

@@ -58,10 +58,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     const result = await getBlockFiles(block.id);
     
     if (result.data) {
-      setFiles(result.data);
+      // Handle Supabase foreign key returning array vs object
+      const normalizedFiles = result.data.map((item: any) => ({
+        ...item,
+        file: Array.isArray(item.file) ? item.file[0] : item.file
+      }));
+      setFiles(normalizedFiles);
       
       // Load signed URLs for images
-      const imageFiles = result.data.filter((f) => f.file.file_type.startsWith("image/"));
+      const imageFiles = normalizedFiles.filter((f) => f.file?.file_type?.startsWith("image/"));
       
       const urls: Record<string, string> = {};
       for (const file of imageFiles) {

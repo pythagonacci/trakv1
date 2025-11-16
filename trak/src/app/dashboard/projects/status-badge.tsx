@@ -1,5 +1,4 @@
-"use client";
-
+// This is a simple presentational component - no "use client" needed!
 interface StatusBadgeProps {
   status: "not_started" | "in_progress" | "complete";
 }
