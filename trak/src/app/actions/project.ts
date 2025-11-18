@@ -16,6 +16,7 @@ type ProjectData = {
   name: string
   project_type?: ProjectType
   client_id?: string | null
+  client_name?: string  // For creating new clients on the fly
   status?: ProjectStatus
   due_date_date?: string | null  // ISO date string
   due_date_text?: string | null
@@ -53,12 +54,31 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
     return { error: 'You must be a workspace member to create projects' }
   }
 
+  let finalClientId = projectData.client_id;
+
+  // If client_name is provided (new client), create it first
+  if (projectData.client_name && !projectData.client_id) {
+    const { data: newClient, error: clientCreateError } = await supabase
+      .from('clients')
+      .insert({
+        workspace_id: workspaceId,
+        name: projectData.client_name.trim(),
+      })
+      .select('id')
+      .single();
+
+    if (clientCreateError) {
+      return { error: `Failed to create client: ${clientCreateError.message}` };
+    }
+
+    finalClientId = newClient.id;
+  }
   // If client_id is provided, verify it belongs to the same workspace
-  if (projectData.client_id) {
+  else if (finalClientId) {
     const { data: client, error: clientError } = await supabase
       .from('clients')
       .select('workspace_id')
-      .eq('id', projectData.client_id)
+      .eq('id', finalClientId)
       .single()
 
     if (clientError) {
@@ -77,12 +97,12 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
       workspace_id: workspaceId,
       name: projectData.name,
       project_type: projectData.project_type || 'project',
-      client_id: projectData.client_id || null,
+      client_id: finalClientId || null,
       status: projectData.status || 'not_started',
       due_date_date: projectData.due_date_date || null,
       due_date_text: projectData.due_date_text || null
     })
-    .select()
+    .select('*, client:clients(name)')
     .single()
 
   if (createError) {

@@ -23,6 +23,7 @@ interface Project {
 interface FormData {
   name: string;
   client_id: string;
+  client_name?: string; // For creating new clients
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
 }
@@ -58,6 +59,8 @@ export default function ProjectDialog({
   });
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clientInput, setClientInput] = useState("");
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
 
   // Load clients if not already loaded
   useEffect(() => {
@@ -86,6 +89,10 @@ export default function ProjectDialog({
           status: initialData.status,
           due_date: dueDate,
         });
+        // Set client input for edit mode
+        if (initialData.client_name) {
+          setClientInput(initialData.client_name);
+        }
       } else {
         // Reset for create mode
         setFormData({
@@ -94,11 +101,33 @@ export default function ProjectDialog({
           status: "not_started",
           due_date: "",
         });
+        setClientInput("");
       }
       setFormError("");
-      setIsSubmitting(false); // Reset submitting state when dialog opens
+      setIsSubmitting(false);
+      setShowClientDropdown(false);
     }
   }, [isOpen, mode, initialData]);
+
+  const handleClientSelect = (client: Client) => {
+    setFormData({ ...formData, client_id: client.id });
+    setClientInput(client.name);
+    setShowClientDropdown(false);
+  };
+
+  const handleClientInputChange = (value: string) => {
+    setClientInput(value);
+    setShowClientDropdown(value.length > 0);
+    
+    // If input doesn't match any existing client, clear client_id
+    // This will signal to create a new client
+    const existingClient = clients.find(c => c.name.toLowerCase() === value.toLowerCase());
+    setFormData({ ...formData, client_id: existingClient?.id || "" });
+  };
+
+  const filteredClients = clients.filter(c => 
+    c.name.toLowerCase().includes(clientInput.toLowerCase())
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +142,13 @@ export default function ProjectDialog({
     setIsSubmitting(true);
 
     try {
-      await onSubmit(formData);
+      // If clientInput exists but no client_id, we're creating a new client
+      const submitData = {
+        ...formData,
+        client_name: clientInput && !formData.client_id ? clientInput.trim() : undefined,
+      };
+      
+      await onSubmit(submitData);
       // Parent handles success, close, and toast
     } catch (error: any) {
       setFormError(error.message || "Failed to save project");
@@ -173,25 +208,58 @@ export default function ProjectDialog({
             />
           </div>
 
-          {/* Client Selector */}
-          <div>
+          {/* Client Input (Autocomplete + Create) */}
+          <div className="relative">
             <label htmlFor="client" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-              Client <span className="text-xs text-[var(--tertiary-foreground)]">(optional)</span>
+              Client <span className="text-xs text-[var(--tertiary-foreground)]">(optional - type to create or select)</span>
             </label>
-            <select
+            <input
               id="client"
-              value={formData.client_id}
-              onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+              type="text"
+              value={clientInput}
+              onChange={(e) => handleClientInputChange(e.target.value)}
+              onFocus={() => setShowClientDropdown(clientInput.length > 0)}
+              onBlur={() => setTimeout(() => setShowClientDropdown(false), 200)}
+              placeholder="Type client name..."
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
               disabled={isSubmitting}
-            >
-              <option value="">No client</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name} {client.company && `(${client.company})`}
-                </option>
-              ))}
-            </select>
+            />
+            
+            {/* Dropdown for existing clients or create new */}
+            {showClientDropdown && (
+              <div className="absolute z-10 mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg max-h-60 overflow-auto">
+                {filteredClients.length > 0 ? (
+                  <>
+                    {filteredClients.map((client) => (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => handleClientSelect(client)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] transition-colors"
+                      >
+                        <div className="font-medium text-[var(--foreground)]">{client.name}</div>
+                        {client.company && (
+                          <div className="text-xs text-[var(--muted-foreground)]">{client.company}</div>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                ) : clientInput.trim() ? (
+                  <div className="px-3 py-2 text-sm">
+                    <div className="text-[var(--muted-foreground)] mb-1">No existing clients found</div>
+                    <div className="font-medium text-[var(--foreground)]">
+                      Will create: <span className="text-blue-600">{clientInput}</span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            
+            {clientInput && !formData.client_id && (
+              <p className="mt-1 text-xs text-blue-600">
+                ✨ New client "{clientInput}" will be created
+              </p>
+            )}
           </div>
 
           {/* Status */}

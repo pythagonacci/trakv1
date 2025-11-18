@@ -4,6 +4,7 @@ import React, { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
+import { getAllClients } from "@/app/actions/client";
 import ProjectDialog from "./project-dialog";
 import ConfirmDialog from "./confirm-dialog";
 import Toast from "./toast";
@@ -55,6 +56,7 @@ interface ProjectsTableProps {
 interface FormData {
   name: string;
   client_id: string;
+  client_name?: string;  // For creating new clients on the fly
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
 }
@@ -170,7 +172,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       due_date_date,
       due_date_text,
       client_id: formData.client_id || null,
-      client_name: clients.find((c) => c.id === formData.client_id)?.name || null,
+      // Use the client_name from formData if creating new client, otherwise lookup existing
+      client_name: formData.client_name || clients.find((c) => c.id === formData.client_id)?.name || null,
       created_at: new Date().toISOString(),
     } as Project;
 
@@ -179,6 +182,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     const result = await createProject(workspaceId, {
       name: formData.name,
       client_id: formData.client_id || null,
+      client_name: formData.client_name, // Pass client_name for auto-creation
       status: formData.status,
       due_date_date,
       due_date_text,
@@ -189,11 +193,27 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       setToast({ message: result.error, type: "error" });
       throw new Error(result.error);
     } else {
+      // Transform the returned project data to match our interface
+      const createdProject = {
+        ...result.data,
+        client_name: (result.data as any).client?.name || optimisticProject.client_name,
+      };
+      
       setProjects((prev) =>
-        prev.map((p) => (p.id === tempId ? { ...result.data, client_name: optimisticProject.client_name } : p))
+        prev.map((p) => (p.id === tempId ? createdProject : p))
       );
       setToast({ message: "Project created", type: "success" });
       handleCloseDialog();
+      
+      // Reload clients list if a new client was created
+      if (formData.client_name) {
+        getAllClients(workspaceId).then((clientsResult) => {
+          if (clientsResult.data) {
+            setClients(clientsResult.data);
+          }
+        });
+      }
+      
       startTransition(() => {
         router.refresh();
       });

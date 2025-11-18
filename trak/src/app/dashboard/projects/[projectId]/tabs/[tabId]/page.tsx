@@ -42,7 +42,7 @@ export default async function TabPage({
   ] = await Promise.all([
     supabase
       .from("projects")
-      .select(`id, name, status, client:clients(id, name, company)`)
+      .select(`id, name, status, client_page_enabled, public_token, client:clients(id, name, company)`)
       .eq("id", projectId)
       .eq("workspace_id", workspaceId)
       .single(),
@@ -86,7 +86,12 @@ export default async function TabPage({
 
         {/* Tab Navigation - Seamless */}
         <div>
-          <TabBar tabs={hierarchicalTabs} projectId={projectId} />
+          <TabBar 
+            tabs={hierarchicalTabs} 
+            projectId={projectId}
+            isClientProject={!!project.client}
+            clientPageEnabled={project.client_page_enabled || false}
+          />
         </div>
 
         {/* Canvas Content - Fluid, borderless */}

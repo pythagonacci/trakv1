@@ -3,6 +3,7 @@
 import { ArrowLeft, Edit } from "lucide-react";
 import { useRouter } from "next/navigation";
 import StatusBadge from "../../projects/status-badge";
+import ClientPageToggle from "./client-page-toggle";
 
 interface ProjectHeaderProps {
   project: {
@@ -11,6 +12,8 @@ interface ProjectHeaderProps {
     status: "not_started" | "in_progress" | "complete";
     due_date_date?: string | null;
     due_date_text?: string | null;
+    client_page_enabled?: boolean;
+    public_token?: string | null;
     client?: {
       id: string;
       name: string;
@@ -72,6 +75,15 @@ export default function ProjectHeader({ project }: ProjectHeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Client Page Toggle - only show for client projects */}
+          {project.client && (
+            <ClientPageToggle
+              projectId={project.id}
+              clientPageEnabled={project.client_page_enabled || false}
+              publicToken={project.public_token || null}
+            />
+          )}
+          
           <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm">
             <Edit className="h-3.5 w-3.5" />
             Edit details

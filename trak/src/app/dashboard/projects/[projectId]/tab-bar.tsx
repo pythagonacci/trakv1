@@ -2,11 +2,12 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2 } from "lucide-react";
+import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTabDialog from "./create-tab-dialog";
 import DeleteTabDialog from "./delete-tab-dialog";
 import { updateTab } from "@/app/actions/tab";
+import { toggleTabVisibility, updateTabClientTitle } from "@/app/actions/client-page";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import {
   DropdownMenu,
@@ -20,15 +21,19 @@ interface Tab {
   id: string;
   name: string;
   position: number;
+  is_client_visible?: boolean;
+  client_title?: string | null;
   children?: Tab[];
 }
 
 interface TabBarProps {
   tabs: Tab[];
   projectId: string;
+  isClientProject?: boolean;
+  clientPageEnabled?: boolean;
 }
 
-export default function TabBar({ tabs, projectId }: TabBarProps) {
+export default function TabBar({ tabs, projectId, isClientProject = false, clientPageEnabled = false }: TabBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { currentWorkspace } = useWorkspace();
@@ -118,6 +123,33 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
     setEditName("");
   };
 
+  const handleToggleClientVisibility = async (tab: Tab) => {
+    const newVisibility = !tab.is_client_visible;
+    const result = await toggleTabVisibility(tab.id, newVisibility);
+    
+    if (result.error) {
+      alert(`Error: ${result.error}`);
+      return;
+    }
+    
+    router.refresh();
+  };
+
+  const handleUpdateClientTitle = async (tabId: string) => {
+    const newTitle = prompt("Enter client-facing title (leave empty to use default tab name):");
+    
+    if (newTitle === null) return; // Cancelled
+    
+    const result = await updateTabClientTitle(tabId, newTitle.trim() || null);
+    
+    if (result.error) {
+      alert(`Error: ${result.error}`);
+      return;
+    }
+    
+    router.refresh();
+  };
+
   const handleAddTab = () => {
     setCreateDialogParentId(undefined);
     setIsCreateDialogOpen(true);
@@ -180,7 +212,7 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40">
+          <DropdownMenuContent align="start" className="w-52">
             <DropdownMenuItem onClick={() => setEditingTabId(tab.id)}>
               <Edit className="h-4 w-4" /> Rename
             </DropdownMenuItem>
@@ -192,6 +224,38 @@ export default function TabBar({ tabs, projectId }: TabBarProps) {
             >
               <Plus className="h-4 w-4" /> Add sub-tab
             </DropdownMenuItem>
+            
+            {/* Client Page Settings */}
+            {isClientProject && clientPageEnabled && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleToggleClientVisibility(tab);
+                  }}
+                >
+                  {tab.is_client_visible ? (
+                    <>
+                      <EyeOff className="h-4 w-4" /> Hide from client
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-4 w-4" /> Show to client
+                    </>
+                  )}
+                </DropdownMenuItem>
+                {tab.is_client_visible && (
+                  <DropdownMenuItem onClick={() => handleUpdateClientTitle(tab.id)}>
+                    <Edit className="h-4 w-4" /> 
+                    <span className="truncate">
+                      {tab.client_title ? "Edit client title" : "Set client title"}
+                    </span>
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
+            
             {canDeleteTabs && (
               <>
                 <DropdownMenuSeparator />
