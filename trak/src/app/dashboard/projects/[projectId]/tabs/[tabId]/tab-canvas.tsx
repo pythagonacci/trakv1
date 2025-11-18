@@ -487,12 +487,12 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           <EmptyCanvasState tabId={tabId} projectId={projectId} />
         </div>
       ) : !isMounted ? (
-        <div className="space-y-8">
+        <div className="space-y-5">
           {blockRows.map((row, rowIdx) => (
             <div
               key={rowIdx}
               className={cn(
-                "grid gap-6",
+                "grid gap-4",
                 row.maxColumns === 1 ? "grid-cols-1" : row.maxColumns === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
               )}
             >
@@ -521,14 +521,14 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="space-y-6">
+          <div className="space-y-4">
             {blockRows.map((row, rowIdx) => {
               const rowBlockIds = row.blocks.map((b) => b.id);
               return (
                 <SortableContext key={rowIdx} items={rowBlockIds} strategy={verticalListSortingStrategy}>
                   <div
                     className={cn(
-                      "grid gap-6",
+                      "grid gap-4",
                       row.maxColumns === 1
                         ? "grid-cols-1"
                         : row.maxColumns === 2

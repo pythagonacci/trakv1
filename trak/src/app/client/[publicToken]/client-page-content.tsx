@@ -29,7 +29,7 @@ export default function ClientPageContent({ blocks, publicToken }: ClientPageCon
   }, {} as Record<number, Block[]>);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {Object.entries(blockRows)
         .sort(([a], [b]) => Number(a) - Number(b))
         .map(([rowIndex, rowBlocks]) => {
@@ -40,7 +40,7 @@ export default function ClientPageContent({ blocks, publicToken }: ClientPageCon
             <div
               key={rowIndex}
               className={cn(
-                "grid gap-6",
+                "grid gap-4",
                 columnCount === 1
                   ? "grid-cols-1"
                   : columnCount === 2
