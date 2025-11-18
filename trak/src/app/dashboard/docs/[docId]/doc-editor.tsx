@@ -2,10 +2,16 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, ChevronDown } from "lucide-react";
 import RichTextEditor from "@/components/editor/rich-text-editor";
 import { updateDoc } from "@/app/actions/doc";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Doc {
   id: string;
@@ -111,6 +117,95 @@ export default function DocEditor({ doc }: DocEditorProps) {
     });
   };
 
+  // Convert TipTap JSON content to plain text
+  const contentToPlainText = (content: any): string => {
+    if (!content || !content.content) return "";
+    
+    let text = "";
+    const traverse = (node: any) => {
+      if (node.type === "text") {
+        text += node.text;
+      } else if (node.content) {
+        node.content.forEach(traverse);
+      }
+      
+      // Add newlines for block elements
+      if (["paragraph", "heading", "listItem"].includes(node.type)) {
+        text += "\n";
+      }
+    };
+    
+    traverse(content);
+    return text.trim();
+  };
+
+  // Convert TipTap JSON content to markdown
+  const contentToMarkdown = (content: any): string => {
+    if (!content || !content.content) return "";
+    
+    let markdown = "";
+    
+    const traverse = (node: any, level = 0) => {
+      if (node.type === "text") {
+        let text = node.text;
+        if (node.marks) {
+          node.marks.forEach((mark: any) => {
+            if (mark.type === "bold") text = `**${text}**`;
+            if (mark.type === "italic") text = `*${text}*`;
+            if (mark.type === "code") text = `\`${text}\``;
+          });
+        }
+        markdown += text;
+      } else if (node.type === "paragraph") {
+        if (node.content) node.content.forEach((n: any) => traverse(n, level));
+        markdown += "\n\n";
+      } else if (node.type === "heading") {
+        const level = node.attrs?.level || 1;
+        markdown += "#".repeat(level) + " ";
+        if (node.content) node.content.forEach((n: any) => traverse(n, level));
+        markdown += "\n\n";
+      } else if (node.type === "bulletList") {
+        if (node.content) node.content.forEach((n: any) => traverse(n, level + 1));
+      } else if (node.type === "listItem") {
+        markdown += "  ".repeat(level - 1) + "- ";
+        if (node.content) node.content.forEach((n: any) => traverse(n, level));
+        markdown += "\n";
+      } else if (node.content) {
+        node.content.forEach((n: any) => traverse(n, level));
+      }
+    };
+    
+    traverse(content);
+    return markdown.trim();
+  };
+
+  const handleExport = (format: "txt" | "md" | "pdf") => {
+    const filename = title || "Untitled Document";
+    
+    if (format === "txt") {
+      const text = contentToPlainText(content);
+      const blob = new Blob([text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === "md") {
+      const markdown = contentToMarkdown(content);
+      const blob = new Blob([markdown], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === "pdf") {
+      // Open print dialog for PDF export
+      window.print();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[var(--surface-muted)]">
       {/* Top Bar */}
@@ -134,20 +229,48 @@ export default function DocEditor({ doc }: DocEditorProps) {
             />
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)] flex-shrink-0">
-            {isSaving ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span className="hidden sm:inline">Saving...</span>
-              </>
-            ) : hasUnsavedChanges ? (
-              <span className="hidden sm:inline">Unsaved changes</span>
-            ) : (
-              <>
-                <Check className="h-3.5 w-3.5 text-green-500" />
-                <span className="hidden sm:inline">Saved {formatLastSaved()}</span>
-              </>
-            )}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Export Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                  <Download className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={() => handleExport("pdf")}>
+                  <Download className="h-4 w-4" />
+                  Export as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport("md")}>
+                  <Download className="h-4 w-4" />
+                  Export as Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport("txt")}>
+                  <Download className="h-4 w-4" />
+                  Export as Text
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Save Status */}
+            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span className="hidden sm:inline">Saving...</span>
+                </>
+              ) : hasUnsavedChanges ? (
+                <span className="hidden sm:inline">Unsaved changes</span>
+              ) : (
+                <>
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                  <span className="hidden sm:inline">Saved {formatLastSaved()}</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

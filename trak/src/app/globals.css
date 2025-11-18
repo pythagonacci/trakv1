@@ -262,3 +262,63 @@
   border-top: 1px solid var(--border);
   margin: 2em 0;
 }
+
+/* Print Styles for PDF Export */
+@media print {
+  /* Hide UI elements */
+  body > div:first-child > aside,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Force white background and black text */
+  * {
+    background: white !important;
+    color: black !important;
+    border-color: #ccc !important;
+  }
+
+  /* Show the document at full width */
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Adjust page margins */
+  @page {
+    margin: 1in;
+    size: letter;
+  }
+
+  /* Make sure editor content is visible */
+  .ProseMirror {
+    background: white !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Improve text rendering */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    font-weight: bold !important;
+  }
+
+  p {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Avoid breaking inside lists */
+  ul, ol {
+    page-break-inside: avoid;
+  }
+
+  /* Remove shadows and borders */
+  .shadow-lg,
+  .rounded-sm {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+}

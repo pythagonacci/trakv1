@@ -2,12 +2,14 @@
 
 import { Block } from "@/app/actions/block";
 import { cn } from "@/lib/utils";
+import ClientDocViewer from "./client-doc-viewer";
 
 interface ClientPageContentProps {
   blocks: Block[];
+  publicToken: string;
 }
 
-export default function ClientPageContent({ blocks }: ClientPageContentProps) {
+export default function ClientPageContent({ blocks, publicToken }: ClientPageContentProps) {
   if (blocks.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -49,7 +51,7 @@ export default function ClientPageContent({ blocks }: ClientPageContentProps) {
               {rowBlocks
                 .sort((a, b) => a.column - b.column)
                 .map((block) => (
-                  <ReadOnlyBlock key={block.id} block={block} />
+                  <ReadOnlyBlock key={block.id} block={block} publicToken={publicToken} />
                 ))}
             </div>
           );
@@ -59,7 +61,7 @@ export default function ClientPageContent({ blocks }: ClientPageContentProps) {
 }
 
 // Read-only block renderer (no editing, no menus)
-function ReadOnlyBlock({ block }: { block: Block }) {
+function ReadOnlyBlock({ block, publicToken }: { block: Block; publicToken: string }) {
   const renderContent = () => {
     switch (block.type) {
       case "text":
@@ -131,6 +133,16 @@ function ReadOnlyBlock({ block }: { block: Block }) {
       case "divider":
         return <hr className="border-t border-[var(--border)]" />;
 
+      case "doc_reference":
+        const docContent = block.content as { doc_id: string; doc_title: string };
+        return (
+          <ClientDocViewer
+            docId={docContent.doc_id}
+            docTitle={docContent.doc_title}
+            publicToken={publicToken}
+          />
+        );
+
       default:
         return (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4 text-center">
@@ -142,7 +154,8 @@ function ReadOnlyBlock({ block }: { block: Block }) {
     }
   };
 
-  if (block.type === "divider") {
+  // Don't wrap dividers or doc_references in a card (they have their own styling)
+  if (block.type === "divider" || block.type === "doc_reference") {
     return renderContent();
   }
 

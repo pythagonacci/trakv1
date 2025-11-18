@@ -523,3 +523,47 @@ export async function getClientPageAnalytics(projectId: string) {
   }
 }
 
+// ============================================================================
+// DOC REFERENCE PUBLIC ACCESS
+// ============================================================================
+
+/**
+ * Get a doc for public client page viewing
+ * This checks if the doc belongs to a project with client pages enabled
+ */
+export async function getDocForClientPage(docId: string, publicToken: string) {
+  const supabase = await createClient();
+
+  try {
+    // First verify the project exists and has client pages enabled
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id, workspace_id")
+      .eq("public_token", publicToken)
+      .eq("client_page_enabled", true)
+      .single();
+
+    if (!project) {
+      return { data: null, error: "Project not found or client page not enabled" };
+    }
+
+    // Get the doc - ensure it belongs to the same workspace
+    const { data: doc, error: docError } = await supabase
+      .from("docs")
+      .select("id, title, content, updated_at")
+      .eq("id", docId)
+      .eq("workspace_id", project.workspace_id)
+      .single();
+
+    if (docError) {
+      console.error("Error fetching doc for client page:", docError);
+      return { data: null, error: "Document not found" };
+    }
+
+    return { data: doc, error: null };
+  } catch (error) {
+    console.error("Get doc for client page exception:", error);
+    return { data: null, error: "Failed to fetch document" };
+  }
+}
+

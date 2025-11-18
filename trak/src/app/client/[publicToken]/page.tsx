@@ -85,7 +85,7 @@ export default async function ClientPage({
 
         {/* Tab Content (Read-only) */}
         <div className="pb-8">
-          <ClientPageContent blocks={blocks} />
+          <ClientPageContent blocks={blocks} publicToken={publicToken} />
         </div>
       </div>
     </div>
