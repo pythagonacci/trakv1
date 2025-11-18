@@ -101,7 +101,7 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
                 {tasks.slice(0, 8).map((task) => (
                   <div
                     key={task.id}
-                    onClick={() => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}`)}
+                    onClick={() => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
                     className="group flex items-start gap-3 rounded-md px-3 py-2.5 hover:bg-[var(--surface-hover)] cursor-pointer transition-colors"
                   >
                     <div className="mt-0.5">

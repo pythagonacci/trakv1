@@ -27,9 +27,10 @@ interface BlockRendererProps {
   onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section" | "doc_reference") => void;
   onOpenDoc?: (docId: string) => void;
   isDragging?: boolean;
+  scrollToTaskId?: string | null;
 }
 
-export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onOpenDoc, isDragging }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
   // If this block is a reference to another block, render the reference component
   if (block.original_block_id) {
     return (
@@ -58,7 +59,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
       case "text":
         return <TextBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "task":
-        return <TaskBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} />;
+        return <TaskBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} scrollToTaskId={scrollToTaskId} />;
       case "link":
         return <LinkBlock block={block} />;
       case "divider":

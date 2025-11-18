@@ -31,6 +31,7 @@ interface TabCanvasProps {
   projectId: string;
   workspaceId: string;
   blocks: Block[];
+  scrollToTaskId?: string | null;
 }
 
 interface BlockRow {
@@ -39,7 +40,7 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId }: TabCanvasProps) {
   const router = useRouter();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
@@ -504,6 +505,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                     projectId={projectId}
                     tabId={tabId}
                     onUpdate={handleUpdate}
+                    scrollToTaskId={scrollToTaskId}
                     onDelete={handleDelete}
                     onConvert={handleConvert}
                     onOpenDoc={setOpenDocId}
@@ -554,6 +556,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                             projectId={projectId}
                             tabId={tabId}
                             onUpdate={handleUpdate}
+                            scrollToTaskId={scrollToTaskId}
                             onDelete={handleDelete}
                             onConvert={handleConvert}
                             onOpenDoc={setOpenDocId}

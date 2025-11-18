@@ -14,13 +14,17 @@ export const dynamic = "force-dynamic";
 
 export default async function TabPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string; tabId: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const supabase = await createClient();
 
   // Await params in Next.js 15
   const { projectId, tabId } = await params;
+  const searchParamsData = await searchParams;
+  const taskId = typeof searchParamsData.taskId === 'string' ? searchParamsData.taskId : null;
 
   // 🔒 STEP 1: Auth & workspace verification FIRST (before any data fetch)
   const workspaceId = await getCurrentWorkspaceId();
@@ -134,6 +138,7 @@ export default async function TabPage({
               projectId={projectId}
               workspaceId={workspaceId}
               blocks={blocks}
+              scrollToTaskId={taskId}
             />
           </SubtabSidebarWrapper>
         </div>
