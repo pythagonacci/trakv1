@@ -20,7 +20,7 @@ interface AddBlockButtonProps {
   projectId: string;
   variant?: "default" | "large";
   parentBlockId?: string | null;
-  onBlockCreated?: () => void;
+  onBlockCreated?: (block: any) => void;
 }
 
 const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode; description: string }> = [
@@ -118,6 +118,31 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     }
 
     setIsCreating(true);
+
+    // Create optimistic block IMMEDIATELY (before server call)
+    const optimisticBlock = {
+      id: `temp-${Date.now()}-${Math.random()}`, // Temporary ID
+      tab_id: tabId,
+      parent_block_id: parentBlockId || null,
+      type: type,
+      content: getDefaultContent(type),
+      position: 9999, // Will be corrected by server
+      column: 0,
+      is_template: false,
+      template_name: null,
+      original_block_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Show block INSTANTLY
+    if (onBlockCreated) {
+      onBlockCreated(optimisticBlock);
+    }
+    
+    setIsCreating(false);
+
+    // Now make server call in background
     try {
       const result = await createBlock({
         tabId,
@@ -127,26 +152,74 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
       if (result.error) {
         console.error("Failed to create block:", result.error);
-        // Show error to user
         alert(`Error creating block: ${result.error}`);
-        setIsCreating(false);
+        // Remove optimistic block on error
+        router.refresh();
         return;
       }
 
-      // Call callback if provided, otherwise refresh
-      if (onBlockCreated) {
-        onBlockCreated();
-      } else {
-        router.refresh();
-      }
+      // Server succeeded - data will sync in background
     } catch (error) {
       console.error("Create block exception:", error);
-      setIsCreating(false);
+      // Remove optimistic block on error
+      router.refresh();
+    }
+  };
+
+  // Helper to get default content for each block type
+  const getDefaultContent = (type: BlockType) => {
+    switch (type) {
+      case "text": return { text: "" };
+      case "task": return { title: "New Task List", tasks: [] };
+      case "link": return { title: "", url: "", description: "" };
+      case "divider": return {};
+      case "table": return { rows: 3, cols: 3, cells: [["", "", ""], ["", "", ""], ["", "", ""]], columnWidths: [150, 150, 150] };
+      case "timeline": {
+        const now = new Date();
+        const startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - 7);
+        const endDate = new Date(now);
+        endDate.setDate(endDate.getDate() + 30);
+        return { startDate: startDate.toISOString(), endDate: endDate.toISOString(), events: [] };
+      }
+      case "file": return { files: [] };
+      case "video": return { files: [] };
+      case "image": return { fileId: null, caption: "", width: 400 };
+      case "embed": return { url: "", displayMode: "inline" };
+      case "pdf": return { fileId: null };
+      case "section": return { height: 400 };
+      case "doc_reference": return { doc_id: "", doc_title: "" };
+      default: return {};
     }
   };
 
   const handleSelectDoc = async (docId: string, docTitle: string) => {
     setIsCreating(true);
+
+    // Create optimistic block IMMEDIATELY
+    const optimisticBlock = {
+      id: `temp-${Date.now()}-${Math.random()}`,
+      tab_id: tabId,
+      parent_block_id: parentBlockId || null,
+      type: "doc_reference" as BlockType,
+      content: { doc_id: docId, doc_title: docTitle },
+      position: 9999,
+      column: 0,
+      is_template: false,
+      template_name: null,
+      original_block_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Show block INSTANTLY
+    if (onBlockCreated) {
+      onBlockCreated(optimisticBlock);
+    }
+    
+    setIsCreating(false);
+
+    // Server call in background
     try {
       const result = await createBlock({
         tabId,
@@ -161,19 +234,14 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       if (result.error) {
         console.error("Failed to create doc reference:", result.error);
         alert(`Error creating doc reference: ${result.error}`);
-        setIsCreating(false);
+        router.refresh();
         return;
       }
 
-      // Call callback if provided, otherwise refresh
-      if (onBlockCreated) {
-        onBlockCreated();
-      } else {
-        router.refresh();
-      }
+      // Server succeeded - data will sync in background
     } catch (error) {
       console.error("Create doc reference exception:", error);
-      setIsCreating(false);
+      router.refresh();
     }
   };
 

@@ -47,6 +47,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [draggedBlock, setDraggedBlock] = useState<Block | null>(null);
   const [isCreatingBlock, setIsCreatingBlock] = useState(false);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
+  const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
   
   // 🚀 Sync blocks from server without full page refresh
   useEffect(() => {
@@ -393,11 +394,57 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   const hasBlocks = blocks.length > 0;
 
+  // Handle optimistic block creation
+  const handleBlockCreated = (newBlock: Block) => {
+    // Immediately add the new block to local state (optimistic update)
+    setBlocks((prevBlocks) => [...prevBlocks, newBlock]);
+    setIsCreatingBlock(false);
+    
+    // Mark this block as new so we can animate it
+    setNewBlockIds((prev) => new Set(prev).add(newBlock.id));
+    
+    // Remove from new blocks set after animation completes
+    setTimeout(() => {
+      setNewBlockIds((prev) => {
+        const next = new Set(prev);
+        next.delete(newBlock.id);
+        return next;
+      });
+    }, 400);
+    
+    // Optionally refresh in the background to ensure sync
+    // We do this silently without waiting for it
+    setTimeout(() => {
+      router.refresh();
+    }, 1000);
+  };
+
   // Handle click on empty canvas to create text block
   const handleEmptyCanvasClick = async () => {
     if (hasBlocks || isCreatingBlock) return; // Don't create if blocks already exist or already creating
     
     setIsCreatingBlock(true);
+
+    // Create optimistic block IMMEDIATELY
+    const optimisticBlock: Block = {
+      id: `temp-${Date.now()}-${Math.random()}`,
+      tab_id: tabId,
+      parent_block_id: null,
+      type: "text",
+      content: { text: "" },
+      position: 0,
+      column: 0,
+      is_template: false,
+      template_name: null,
+      original_block_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Show block INSTANTLY
+    handleBlockCreated(optimisticBlock);
+
+    // Server call in background
     try {
       const result = await createBlock({
         tabId,
@@ -408,14 +455,16 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       if (result.error) {
         console.error("Failed to create text block:", result.error);
         alert(`Error creating block: ${result.error}`);
+        // Remove optimistic block on error
+        router.refresh();
         setIsCreatingBlock(false);
         return;
       }
 
-      // Refresh to show the new block
-      router.refresh();
+      // Server succeeded - data will sync in background
     } catch (error) {
       console.error("Create block exception:", error);
+      router.refresh();
       setIsCreatingBlock(false);
     }
   };
@@ -448,7 +497,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
               )}
             >
               {row.blocks.map((block) => (
-                <div key={block.id} className="min-w-0">
+                <div key={block.id} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
                   <BlockRenderer
                     block={block}
                     workspaceId={workspaceId}
@@ -498,7 +547,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                       }
 
                       return (
-                        <div key={blockInThisColumn.id} className="min-w-0">
+                        <div key={blockInThisColumn.id} className={cn("min-w-0", newBlockIds.has(blockInThisColumn.id) && "animate-block-swoosh-in")}>
                           <BlockRenderer
                             block={blockInThisColumn}
                             workspaceId={workspaceId}
@@ -522,7 +571,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       )}
 
       <div className="flex gap-3 pt-4">
-        <AddBlockButton tabId={tabId} projectId={projectId} />
+        <AddBlockButton tabId={tabId} projectId={projectId} onBlockCreated={handleBlockCreated} />
       </div>
 
       {/* Doc Sidebar */}

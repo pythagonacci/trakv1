@@ -21,6 +21,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
   const [isLoading, setIsLoading] = useState(true);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
+  const [newChildBlockIds, setNewChildBlockIds] = useState<Set<string>>(new Set());
   const sectionContent = (block.content || {}) as {
     title?: string;
     description?: string;
@@ -70,6 +71,35 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     };
     fetchChildBlocks();
     onUpdate?.();
+  };
+
+  // Handle optimistic block creation for child blocks
+  const handleChildBlockCreated = (newBlock: Block) => {
+    // Immediately add the new block to local state (optimistic update)
+    setChildBlocks((prevBlocks) => [...prevBlocks, newBlock]);
+    
+    // Mark this block as new so we can animate it
+    setNewChildBlockIds((prev) => new Set(prev).add(newBlock.id));
+    
+    // Remove from new blocks set after animation completes
+    setTimeout(() => {
+      setNewChildBlockIds((prev) => {
+        const next = new Set(prev);
+        next.delete(newBlock.id);
+        return next;
+      });
+    }, 400);
+    
+    // Optionally refresh in the background to ensure sync
+    setTimeout(() => {
+      const fetchChildBlocks = async () => {
+        const result = await getChildBlocks(block.id);
+        if (!result.error && result.data) {
+          setChildBlocks(result.data);
+        }
+      };
+      fetchChildBlocks();
+    }, 1000);
   };
 
   const persistContent = async (patch: Partial<typeof sectionContent>) => {
@@ -193,14 +223,14 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                 tabId={tabId}
                 projectId={projectId}
                 parentBlockId={block.id}
-                onBlockCreated={handleUpdate}
+                onBlockCreated={handleChildBlockCreated}
                 variant="large"
               />
             </div>
           ) : (
             <>
               {childBlocks.map((childBlock) => (
-                <div key={childBlock.id} className="w-full">
+                <div key={childBlock.id} className={cn("w-full", newChildBlockIds.has(childBlock.id) && "animate-block-swoosh-in")}>
                   <BlockRenderer
                     block={childBlock}
                     workspaceId={workspaceId}
@@ -218,7 +248,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                   tabId={tabId}
                   projectId={projectId}
                   parentBlockId={block.id}
-                  onBlockCreated={handleUpdate}
+                  onBlockCreated={handleChildBlockCreated}
                 />
               </div>
             </>

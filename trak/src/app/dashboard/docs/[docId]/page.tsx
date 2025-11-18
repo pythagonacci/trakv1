@@ -23,3 +23,6 @@ export default async function DocPage({ params }: PageProps) {
   return <DocEditor doc={doc} />;
 }
 
+
+
+

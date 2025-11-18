@@ -16,3 +16,6 @@ ALTER TABLE projects ALTER COLUMN project_type SET NOT NULL;
 
 COMMENT ON COLUMN projects.project_type IS 'Type of project: project (client work) or internal (company knowledge)';
 
+
+
+

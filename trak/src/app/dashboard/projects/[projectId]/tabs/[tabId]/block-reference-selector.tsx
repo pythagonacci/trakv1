@@ -12,7 +12,7 @@ interface BlockReferenceSelectorProps {
   isOpen: boolean;
   onClose: () => void;
   tabId: string;
-  onBlockCreated?: () => void;
+  onBlockCreated?: (block: any) => void;
 }
 
 interface TemplateBlock {
@@ -98,25 +98,44 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
   const handleSelectBlock = async (block: TemplateBlock) => {
     setIsCreating(true);
     
+    // Create optimistic block IMMEDIATELY
+    const optimisticBlock = {
+      id: `temp-${Date.now()}-${Math.random()}`,
+      tab_id: tabId,
+      parent_block_id: null,
+      type: block.type as any,
+      content: {},
+      position: 9999,
+      column: 0,
+      is_template: false,
+      template_name: null,
+      original_block_id: block.id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Show block INSTANTLY
+    setSearch("");
+    onClose();
+    
+    if (onBlockCreated) {
+      onBlockCreated(optimisticBlock);
+    }
+    
+    setIsCreating(false);
+
+    // Server call in background
     const result = await createBlock({
       tabId,
       type: block.type as any,
       content: {},
-      originalBlockId: block.id, // This marks it as a reference
+      originalBlockId: block.id,
     });
 
-    if (!result.error) {
-      setSearch("");
-      onClose();
-      
-      if (onBlockCreated) {
-        onBlockCreated();
-      } else {
-        router.refresh();
-      }
+    if (result.error) {
+      console.error("Failed to create block reference:", result.error);
+      router.refresh();
     }
-    
-    setIsCreating(false);
   };
 
   const handleClose = () => {
@@ -195,4 +214,7 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
     </Dialog>
   );
 }
+
+
+
 

@@ -126,6 +126,22 @@
   .shadow-popover {
     @apply shadow-[0_12px_28px_rgba(0,0,0,0.08)];
   }
+
+  /* Block entrance animation - swoosh effect */
+  @keyframes block-swoosh-in {
+    0% {
+      opacity: 0;
+      transform: translateY(20px) scale(0.96);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-block-swoosh-in {
+    animation: block-swoosh-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 }
 
 /* Rich Text Editor Styles */
