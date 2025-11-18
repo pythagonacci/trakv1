@@ -7,6 +7,7 @@ import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import ProjectHeader from "../../project-header";
 import TabBar from "../../tab-bar";
 import TabCanvas from "./tab-canvas";
+import SubtabSidebarWrapper from "./subtab-sidebar-wrapper";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
 export const dynamic = "force-dynamic";
@@ -76,6 +77,34 @@ export default async function TabPage({
   const hierarchicalTabs = tabsResult.data || [];
   const blocks = blocksResult.data || [];
 
+  // Determine if we should show subtab sidebar
+  let sidebarConfig: { parentTabId: string; parentTabName: string; subtabs: any[] } | null = null;
+  
+  // Check if current tab is a child
+  for (const parentTab of hierarchicalTabs) {
+    if (parentTab.children && parentTab.children.length > 0) {
+      const isChild = parentTab.children.some((child) => child.id === tabId);
+      if (isChild) {
+        // Current tab is a child, show parent + all siblings
+        sidebarConfig = {
+          parentTabId: parentTab.id,
+          parentTabName: parentTab.name,
+          subtabs: parentTab.children,
+        };
+        break;
+      }
+      // Check if current tab is the parent with children
+      if (parentTab.id === tabId) {
+        sidebarConfig = {
+          parentTabId: parentTab.id,
+          parentTabName: parentTab.name,
+          subtabs: parentTab.children,
+        };
+        break;
+      }
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[var(--background)]">
       <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
@@ -94,14 +123,19 @@ export default async function TabPage({
           />
         </div>
 
-        {/* Canvas Content - Fluid, borderless */}
+        {/* Canvas Content with Subtab Navigation */}
         <div className="py-3 md:py-4 lg:py-5">
-          <TabCanvas 
-            tabId={tabId} 
-            projectId={projectId} 
-            workspaceId={workspaceId} 
-            blocks={blocks} 
-          />
+          <SubtabSidebarWrapper
+            sidebarConfig={sidebarConfig}
+            projectId={projectId}
+          >
+            <TabCanvas 
+              tabId={tabId}
+              projectId={projectId}
+              workspaceId={workspaceId}
+              blocks={blocks}
+            />
+          </SubtabSidebarWrapper>
         </div>
       </div>
     </div>

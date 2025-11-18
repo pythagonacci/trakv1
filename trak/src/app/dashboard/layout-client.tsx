@@ -43,9 +43,14 @@ export default function DashboardLayoutClient({
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const toggleSidebar = () => {
+    console.log('Toggle sidebar clicked, current state:', sidebarCollapsed);
+    setSidebarCollapsed(!sidebarCollapsed);
+  };
+
   return (
     <div className="flex h-screen bg-[var(--surface)] text-[var(--foreground)]">
-      <Sidebar currentUser={currentUser} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
+      <Sidebar currentUser={currentUser} collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
@@ -67,7 +72,7 @@ function Sidebar({
 }: {
   currentUser: User | null;
   collapsed: boolean;
-  setCollapsed: (collapsed: boolean) => void;
+  setCollapsed: () => void;
 }) {
   const pathname = usePathname();
   const { currentWorkspace, workspaces, switchWorkspace, isSwitching } = useWorkspace();
@@ -75,6 +80,8 @@ function Sidebar({
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+
+  console.log('Sidebar render - collapsed state:', collapsed);
 
   const getInitials = (name?: string | null) => {
     if (!name) return "W";
@@ -121,19 +128,28 @@ function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-all duration-200 ease-out",
+        "flex h-screen flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-all duration-200 ease-out flex-shrink-0 relative z-50",
         collapsed ? "w-16" : "w-56"
       )}
     >
-      <div className="flex items-center justify-between px-3.5 py-2.5">
+      <div className={cn(
+        "flex items-center py-2.5",
+        collapsed ? "justify-center px-2" : "justify-between px-3.5"
+      )}>
         {!collapsed && (
           <span className="text-[11px] font-medium uppercase tracking-[0.38em] text-[var(--tertiary-foreground)]">
             Trak
           </span>
         )}
         <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Button clicked! Current collapsed:', collapsed);
+            setCollapsed();
+          }}
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] z-50 relative"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-4 w-4" /> : <X className="h-4 w-4" />}
@@ -320,8 +336,8 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "group flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-        collapsed && "justify-center px-0",
+        "group flex w-full items-center rounded-md text-sm font-medium transition-colors",
+        collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-1.5",
         active
           ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
           : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
