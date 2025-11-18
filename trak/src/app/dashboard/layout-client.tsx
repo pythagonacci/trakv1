@@ -44,7 +44,6 @@ export default function DashboardLayoutClient({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const toggleSidebar = () => {
-    console.log('Toggle sidebar clicked, current state:', sidebarCollapsed);
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
@@ -80,8 +79,6 @@ function Sidebar({
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
-
-  console.log('Sidebar render - collapsed state:', collapsed);
 
   const getInitials = (name?: string | null) => {
     if (!name) return "W";
@@ -145,7 +142,6 @@ function Sidebar({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log('Button clicked! Current collapsed:', collapsed);
             setCollapsed();
           }}
           type="button"
