@@ -1,11 +1,18 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { cache } from "react";
+import { getServerUser } from "@/lib/auth/get-server-user";
 
 export async function logout() {
-  const supabase = await createClient();
+  const authResult = await getServerUser();
+  
+  // If no active session, redirect to login
+  if (!authResult) {
+    redirect("/login");
+  }
+
+  const { supabase } = authResult;
   
   const { error } = await supabase.auth.signOut();
   
@@ -18,13 +25,12 @@ export async function logout() {
 
 // Cache this to prevent redundant auth checks in the same request
 export const getCurrentUser = cache(async () => {
-  const supabase = await createClient();
+  const authResult = await getServerUser();
   
-  const { data: { user }, error } = await supabase.auth.getUser();
-  
-  if (error || !user) {
+  if (!authResult) {
     return { error: "Not authenticated" };
   }
+  const { user } = authResult;
   
   return { 
     data: {

@@ -1,8 +1,7 @@
 'use server'
 
-import { createClient as createSupabaseClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { cache } from 'react'
+import { getServerUser } from '@/lib/auth/get-server-user'
 
 // Type for client data
 type ClientData = {
@@ -15,35 +14,15 @@ type ClientData = {
   notes?: string
 }
 
-// 🚀 Cached auth check - runs once per request
-const getAuthenticatedUser = cache(async () => {
-  const supabase = await createSupabaseClient()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  if (error || !user) return null
-  return user
-})
-
-// 🚀 Cached workspace membership check - runs once per request
-const checkWorkspaceMembership = cache(async (workspaceId: string, userId: string) => {
-  const supabase = await createSupabaseClient()
-  const { data: membership } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle()
-  return membership
-})
-
 // 1. CREATE CLIENT
 export async function createClient(workspaceId: string, clientData: ClientData) {
-  const supabase = await createSupabaseClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Check if user is a member of the workspace
   const { data: membership, error: memberError } = await supabase
@@ -77,16 +56,20 @@ export async function createClient(workspaceId: string, clientData: ClientData) 
 
 // 2. GET ALL CLIENTS (with project count) - OPTIMIZED
 export async function getAllClients(workspaceId: string) {
-  const supabase = await createSupabaseClient()
-
-  // 🚀 Use cached auth check
-  const user = await getAuthenticatedUser()
-  if (!user) {
+  const authResult = await getServerUser()
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
-  // 🚀 Use cached membership check
-  const membership = await checkWorkspaceMembership(workspaceId, user.id)
+  // 🚀 Check membership
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
   if (!membership) {
     return { error: 'You must be a workspace member to view clients' }
   }
@@ -107,13 +90,13 @@ export async function getAllClients(workspaceId: string) {
 
 // 3. GET SINGLE CLIENT (with all projects and stats)
 export async function getSingleClient(clientId: string) {
-  const supabase = await createSupabaseClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Get client with workspace info to check membership
   const { data: client, error: fetchError } = await supabase
@@ -171,13 +154,13 @@ export async function getSingleClient(clientId: string) {
 
 // 4. UPDATE CLIENT
 export async function updateClient(clientId: string, updates: Partial<ClientData>) {
-  const supabase = await createSupabaseClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Get client to find workspace_id
   const { data: client, error: fetchError } = await supabase
@@ -220,13 +203,13 @@ export async function updateClient(clientId: string, updates: Partial<ClientData
 
 // 5. DELETE CLIENT
 export async function deleteClient(clientId: string) {
-  const supabase = await createSupabaseClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Get client to find workspace_id
   const { data: client, error: fetchError } = await supabase

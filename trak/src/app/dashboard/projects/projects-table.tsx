@@ -107,7 +107,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     setEditingProject(null);
   };
 
-  const handleOpenEdit = (project: Project) => {
+  const handleOpenEdit = (project: Project, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     setDialogMode("edit");
     setEditingProject(project);
     setOpenMenuId(null);
@@ -118,7 +119,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     setEditingProject(null);
   };
 
-  const handleOpenDeleteConfirm = (project: Project) => {
+  const handleOpenDeleteConfirm = (project: Project, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     setDeletingProject(project);
     setDeleteConfirmOpen(true);
     setOpenMenuId(null);
@@ -436,10 +438,10 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={() => handleOpenEdit(project)}>
+                          <DropdownMenuItem onClick={(e) => handleOpenEdit(project, e)}>
                             <Edit className="h-4 w-4" /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleOpenDeleteConfirm(project)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                          <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(project, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
                             <Trash2 className="h-4 w-4" /> Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>

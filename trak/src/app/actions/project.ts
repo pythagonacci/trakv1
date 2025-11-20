@@ -1,8 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { cache } from 'react'
+import { getServerUser } from '@/lib/auth/get-server-user'
 import { createTab } from './tab'
 
 // Type for project status
@@ -34,13 +33,13 @@ type ProjectFilters = {
 
 // 1. CREATE PROJECT
 export async function createProject(workspaceId: string, projectData: ProjectData) {
-  const supabase = await createClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Check if user is a member of the workspace
   const { data: membership, error: memberError } = await supabase
@@ -128,13 +127,13 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
  * Get or create a default "Files" internal space for standalone file uploads
  */
 export async function getOrCreateFilesSpace(workspaceId: string) {
-  const supabase = await createClient();
+  const authResult = await getServerUser();
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' };
   }
+  const { supabase, user } = authResult;
 
   // Check if user is a member of the workspace
   const { data: membership, error: memberError } = await supabase
@@ -201,38 +200,22 @@ export async function getOrCreateFilesSpace(workspaceId: string) {
   return { data: newSpace };
 }
 
-// 🚀 Cached auth check - runs once per request
-const getAuthenticatedUser = cache(async () => {
-  const supabase = await createClient()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  if (error || !user) return null
-  return user
-})
+// 2. GET ALL PROJECTS (with filters and search) - OPTIMIZED
+export async function getAllProjects(workspaceId: string, filters?: ProjectFilters) {
+  const authResult = await getServerUser()
+  if (!authResult) {
+    return { error: 'Unauthorized' }
+  }
+  const { supabase, user } = authResult
 
-// 🚀 Cached workspace membership check - runs once per request
-const checkWorkspaceMembership = cache(async (workspaceId: string, userId: string) => {
-  const supabase = await createClient()
+  // Check membership
   const { data: membership } = await supabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
+    .eq('user_id', user.id)
     .maybeSingle()
-  return membership
-})
 
-// 2. GET ALL PROJECTS (with filters and search) - OPTIMIZED
-export async function getAllProjects(workspaceId: string, filters?: ProjectFilters) {
-  const supabase = await createClient()
-
-  // 🚀 Use cached auth check
-  const user = await getAuthenticatedUser()
-  if (!user) {
-    return { error: 'Unauthorized' }
-  }
-
-  // 🚀 Use cached membership check
-  const membership = await checkWorkspaceMembership(workspaceId, user.id)
   if (!membership) {
     return { error: 'You must be a workspace member to view projects' }
   }
@@ -299,13 +282,13 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
 
 // 3. GET SINGLE PROJECT (with full details)
 export async function getSingleProject(projectId: string) {
-  const supabase = await createClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Get project with workspace and client info
   const { data: project, error: fetchError } = await supabase
@@ -347,13 +330,13 @@ export async function getSingleProject(projectId: string) {
 
 // 4. UPDATE PROJECT
 export async function updateProject(projectId: string, updates: Partial<ProjectData>) {
-  const supabase = await createClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Get project to find workspace_id
   const { data: project, error: fetchError } = await supabase
@@ -416,13 +399,13 @@ export async function updateProject(projectId: string, updates: Partial<ProjectD
 
 // 5. DELETE PROJECT
 export async function deleteProject(projectId: string) {
-  const supabase = await createClient()
+  const authResult = await getServerUser()
 
   // Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
 
   // Get project to find workspace_id
   const { data: project, error: fetchError } = await supabase

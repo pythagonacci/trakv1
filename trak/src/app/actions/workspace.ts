@@ -1,9 +1,9 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
+import { getServerUser } from '@/lib/auth/get-server-user'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -18,12 +18,12 @@ export async function updateCurrentWorkspace(workspaceId: string) {
   const cookieStore = await cookies();
   
   // Verify user has access to this workspace
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
+  const authResult = await getServerUser();
+  if (!authResult) {
     return { error: "Not authenticated" };
   }
+
+  const { supabase, user } = authResult;
   
   const { data: membership } = await supabase
     .from("workspace_members")
@@ -48,14 +48,13 @@ export async function updateCurrentWorkspace(workspaceId: string) {
 }
 //create workspace action 
 export async function createWorkspace(name: string) {
-  const supabase = await createClient()
+  const authResult = await getServerUser()
   
   // 1. Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
   
   // 2. Check if user already has a workspace (validation)
   const { data: existingMember } = await supabase
@@ -105,14 +104,13 @@ export async function createWorkspace(name: string) {
 //get user workspaces action
 // Cache this to prevent redundant queries in the same request
 export const getUserWorkspaces = cache(async () => {
-    const supabase = await createClient()
+    const authResult = await getServerUser()
     
     // 1. Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
+    if (!authResult) {
       return { error: 'Unauthorized' }
     }
+    const { supabase, user } = authResult
     
     // 2. Query all workspaces user is member of with role information
     const { data: memberships, error } = await supabase
@@ -147,14 +145,13 @@ export const getUserWorkspaces = cache(async () => {
   //if the inviter alread exists within the Trak system, they will be added when they login. If they do not exist within the Trak system, they will be added when they sign up through a magic link.
 
 export async function inviteMember(workspaceId: string, email: string, role: 'admin' | 'teammate') {
-    const supabase = await createClient()
+    const authResult = await getServerUser()
     
     // 1. Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
+    if (!authResult) {
       return { error: 'Unauthorized' }
     }
+    const { supabase, user } = authResult
     
     // 2. Validate inviter has admin/owner permissions
     const { data: inviterMembership } = await supabase
@@ -222,14 +219,13 @@ export async function inviteMember(workspaceId: string, email: string, role: 'ad
   //Update member role server action. This updates the role of a member in a workspace. The updater must either be the owner or have admin permissions. This code updates the member's role and prevents demoting the last owner. 
 
 export async function updateMemberRole(workspaceId: string, memberId: string, newRole: 'owner' | 'admin' | 'teammate') {
-    const supabase = await createClient()
+    const authResult = await getServerUser()
     
     // 1. Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
+    if (!authResult) {
       return { error: 'Unauthorized' }
     }
+    const { supabase, user } = authResult
     
     // 2. Validate requester is owner/admin
     const { data: requesterMembership } = await supabase
@@ -291,14 +287,13 @@ export async function updateMemberRole(workspaceId: string, memberId: string, ne
 //remove member server action. the requester must be owner or admin, and the last owner cannot be removed.
 
 export async function removeMember(workspaceId: string, memberId: string) {
-    const supabase = await createClient()
+    const authResult = await getServerUser()
     
     // 1. Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
+    if (!authResult) {
       return { error: 'Unauthorized' }
     }
+    const { supabase, user } = authResult
     
     // 2. Validate requester is owner/admin
     const { data: requesterMembership } = await supabase
@@ -354,14 +349,13 @@ export async function removeMember(workspaceId: string, memberId: string) {
 
 // Get all workspace members (for assignee dropdowns, etc.)
 export async function getWorkspaceMembers(workspaceId: string) {
-  const supabase = await createClient()
+  const authResult = await getServerUser()
   
   // 1. Get authenticated user
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  
-  if (authError || !user) {
+  if (!authResult) {
     return { error: 'Unauthorized' }
   }
+  const { supabase, user } = authResult
   
   // 2. Verify user is member of the workspace
   const { data: membership } = await supabase

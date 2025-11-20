@@ -1,23 +1,20 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import DashboardOverview from "./dashboard-overview";
+import { getServerUser } from "@/lib/auth/get-server-user";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
   const workspaceId = await getCurrentWorkspaceId();
 
   // Auth check
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const authResult = await getServerUser();
+  if (!authResult) {
     redirect("/login");
   }
+  const { supabase, user } = authResult;
 
   if (!workspaceId) {
     return (
