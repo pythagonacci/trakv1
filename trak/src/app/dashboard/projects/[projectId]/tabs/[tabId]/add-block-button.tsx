@@ -21,6 +21,7 @@ interface AddBlockButtonProps {
   variant?: "default" | "large";
   parentBlockId?: string | null;
   onBlockCreated?: (block: any) => void;
+  getNextPosition?: () => number;
 }
 
 const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode; description: string }> = [
@@ -104,7 +105,7 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
   },
 ];
 
-export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated }: AddBlockButtonProps) {
+export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, getNextPosition }: AddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [docSelectorOpen, setDocSelectorOpen] = useState(false);
@@ -119,6 +120,8 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
     setIsCreating(true);
 
+    const nextPosition = getNextPosition?.() ?? 0;
+
     // Create optimistic block IMMEDIATELY (before server call)
     const optimisticBlock = {
       id: `temp-${Date.now()}-${Math.random()}`, // Temporary ID
@@ -126,7 +129,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       parent_block_id: parentBlockId || null,
       type: type,
       content: getDefaultContent(type),
-      position: 9999, // Will be corrected by server
+      position: nextPosition, // Aim for next row
       column: 0,
       is_template: false,
       template_name: null,
@@ -147,6 +150,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       const result = await createBlock({
         tabId,
         type,
+        position: nextPosition,
         parentBlockId: parentBlockId || null,
       });
 
@@ -195,6 +199,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
   const handleSelectDoc = async (docId: string, docTitle: string) => {
     setIsCreating(true);
+    const nextPosition = getNextPosition?.() ?? 0;
 
     // Create optimistic block IMMEDIATELY
     const optimisticBlock = {
@@ -203,7 +208,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       parent_block_id: parentBlockId || null,
       type: "doc_reference" as BlockType,
       content: { doc_id: docId, doc_title: docTitle },
-      position: 9999,
+      position: nextPosition,
       column: 0,
       is_template: false,
       template_name: null,
@@ -224,6 +229,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       const result = await createBlock({
         tabId,
         type: "doc_reference",
+        position: nextPosition,
         content: {
           doc_id: docId,
           doc_title: docTitle,
@@ -322,4 +328,3 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     </>
   );
 }
-

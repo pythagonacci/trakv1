@@ -124,6 +124,83 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
   return { data: project }
 }
 
+/**
+ * Get or create a default "Files" internal space for standalone file uploads
+ */
+export async function getOrCreateFilesSpace(workspaceId: string) {
+  const supabase = await createClient();
+
+  // Get authenticated user
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return { error: 'Unauthorized' };
+  }
+
+  // Check if user is a member of the workspace
+  const { data: membership, error: memberError } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (memberError || !membership) {
+    return { error: 'You must be a workspace member' };
+  }
+
+  // Try to find existing "Files" space
+  const { data: existingSpace, error: findError } = await supabase
+    .from('projects')
+    .select('id, name')
+    .eq('workspace_id', workspaceId)
+    .eq('project_type', 'internal')
+    .eq('name', 'Files')
+    .maybeSingle();
+
+  if (findError) {
+    console.error('Error finding Files space:', findError);
+    // Continue to create new space
+  }
+
+  if (existingSpace) {
+    return { data: existingSpace };
+  }
+
+  // Create "Files" space if it doesn't exist
+  const { data: newSpace, error: createError } = await supabase
+    .from('projects')
+    .insert({
+      workspace_id: workspaceId,
+      name: 'Files',
+      project_type: 'internal',
+      status: 'in_progress',
+    })
+    .select('id, name')
+    .single();
+
+  if (createError) {
+    console.error('Error creating Files space:', createError);
+    return { error: createError.message };
+  }
+
+  // Create a default tab for the Files space
+  const { error: tabError } = await supabase
+    .from('tabs')
+    .insert({
+      project_id: newSpace.id,
+      name: 'All Files',
+      position: 0,
+    });
+
+  if (tabError) {
+    console.error('Failed to create default tab for Files space:', tabError);
+    // Still return the space even if tab creation fails
+  }
+
+  revalidatePath('/dashboard/internal');
+  return { data: newSpace };
+}
+
 // 🚀 Cached auth check - runs once per request
 const getAuthenticatedUser = cache(async () => {
   const supabase = await createClient()

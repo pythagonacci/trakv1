@@ -2,13 +2,15 @@
 
 import React, { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown, File, Download } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
+import { getFileUrl, deleteFile } from "@/app/actions/file";
 import InternalDialog from "./internal-dialog";
 import ConfirmDialog from "../projects/confirm-dialog";
 import Toast from "../projects/toast";
 import EmptyState from "./internal-empty-state";
 import StatusBadge from "../projects/status-badge";
+import QuickUpload from "./quick-upload";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -33,8 +35,17 @@ interface Space {
   created_at: string;
 }
 
+interface File {
+  id: string;
+  file_name: string;
+  file_size: number;
+  file_type: string;
+  created_at: string;
+}
+
 interface InternalTableProps {
   spaces: Space[];
+  files: File[];
   workspaceId: string;
   currentSort: {
     sort_by: string;
@@ -47,21 +58,24 @@ interface FormData {
   status: "not_started" | "in_progress" | "complete";
 }
 
-export default function InternalTable({ spaces: initialSpaces, workspaceId, currentSort }: InternalTableProps) {
+export default function InternalTable({ spaces: initialSpaces, files: initialFiles, workspaceId, currentSort }: InternalTableProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const searchParams = useSearchParams();
 
   const [spaces, setSpaces] = useState(initialSpaces);
+  const [files, setFiles] = useState(initialFiles);
   useEffect(() => {
     setSpaces(initialSpaces);
-  }, [initialSpaces]);
+    setFiles(initialFiles);
+  }, [initialSpaces, initialFiles]);
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingSpace, setDeletingSpace] = useState<Space | null>(null);
+  const [deletingFile, setDeletingFile] = useState<File | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -211,7 +225,64 @@ export default function InternalTable({ spaces: initialSpaces, workspaceId, curr
     }
   };
 
-  if (spaces.length === 0 && dialogMode === null) {
+  const handleFileDownload = async (file: File) => {
+    const result = await getFileUrl(file.id);
+    if (result.data?.url) {
+      window.open(result.data.url, '_blank');
+    } else {
+      setToast({ message: result.error || 'Failed to get download URL', type: "error" });
+    }
+  };
+
+  const handleFileDelete = (file: File) => {
+    setDeletingFile(file);
+    setDeleteConfirmOpen(true);
+    setOpenMenuId(null);
+  };
+
+  const handleConfirmFileDelete = async () => {
+    if (!deletingFile) return;
+
+    setIsDeleting(true);
+    const previousFiles = [...files];
+    setFiles((prev) => prev.filter((f) => f.id !== deletingFile.id));
+    
+    const result = await deleteFile(deletingFile.id);
+
+    if (result.error) {
+      setFiles(previousFiles);
+      setToast({ message: result.error, type: "error" });
+    } else {
+      setToast({ message: "File deleted successfully", type: "success" });
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+
+    setIsDeleting(false);
+    setDeleteConfirmOpen(false);
+    setDeletingFile(null);
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+  };
+
+  // Combine and sort spaces and files
+  const allItems = [
+    ...spaces.map(s => ({ type: 'space' as const, data: s, created_at: s.created_at })),
+    ...files.map(f => ({ type: 'file' as const, data: f, created_at: f.created_at }))
+  ].sort((a, b) => {
+    const aDate = new Date(a.created_at).getTime();
+    const bDate = new Date(b.created_at).getTime();
+    return currentSort.sort_order === 'asc' ? aDate - bDate : bDate - aDate;
+  });
+
+  if (spaces.length === 0 && files.length === 0 && dialogMode === null) {
     return (
       <>
         <div className="flex items-start justify-between gap-3 mb-6">
@@ -219,7 +290,10 @@ export default function InternalTable({ spaces: initialSpaces, workspaceId, curr
             <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Internal</h2>
             <p className="text-sm text-[var(--muted-foreground)]">Company knowledge, SOPs, guidelines, and templates.</p>
           </div>
-          <Button onClick={handleOpenCreate} size="sm">New space</Button>
+          <div className="flex items-center gap-2">
+            <QuickUpload workspaceId={workspaceId} />
+            <Button onClick={handleOpenCreate} size="sm">New space</Button>
+          </div>
         </div>
         <EmptyState onCreateClick={handleOpenCreate} />
         {renderDialogs()}
@@ -240,11 +314,16 @@ export default function InternalTable({ spaces: initialSpaces, workspaceId, curr
 
         <ConfirmDialog
           isOpen={deleteConfirmOpen}
-          onClose={handleCloseDeleteConfirm}
-          onConfirm={handleConfirmDelete}
-          title="Delete Space"
-          message={`Are you sure you want to delete "${deletingSpace?.name}"? This action cannot be undone.`}
-          confirmText="Delete Space"
+          onClose={() => {
+            handleCloseDeleteConfirm();
+            setDeletingFile(null);
+          }}
+          onConfirm={deletingFile ? handleConfirmFileDelete : handleConfirmDelete}
+          title={deletingFile ? "Delete File" : "Delete Space"}
+          message={deletingFile 
+            ? `Are you sure you want to delete "${deletingFile.file_name}"? This action cannot be undone.`
+            : `Are you sure you want to delete "${deletingSpace?.name}"? This action cannot be undone.`}
+          confirmText={deletingFile ? "Delete File" : "Delete Space"}
           confirmButtonVariant="danger"
           isLoading={isDeleting}
         />
@@ -263,7 +342,10 @@ export default function InternalTable({ spaces: initialSpaces, workspaceId, curr
           <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Internal</h2>
           <p className="text-sm text-[var(--muted-foreground)]">Company knowledge, SOPs, guidelines, and templates.</p>
         </div>
-        <Button onClick={handleOpenCreate} size="sm">New space</Button>
+        <div className="flex items-center gap-2">
+          <QuickUpload workspaceId={workspaceId} />
+          <Button onClick={handleOpenCreate} size="sm">New space</Button>
+        </div>
       </div>
 
       <Table>
@@ -299,32 +381,79 @@ export default function InternalTable({ spaces: initialSpaces, workspaceId, curr
           </TableRow>
         </TableHeader>
         <TableBody>
-          {spaces.map((space) => {
-            const isTemp = space.id.startsWith("temp-");
-            const createdDate = new Date(space.created_at).toLocaleDateString("en-US", {
+          {allItems.map((item) => {
+            const createdDate = new Date(item.created_at).toLocaleDateString("en-US", {
               month: "short",
               day: "numeric",
               year: "numeric",
             });
 
-            return (
-              <TableRow
-                key={space.id}
-                className={cn("cursor-pointer", isTemp && "opacity-70")}
-                onClick={() => handleRowClick(space.id)}
-              >
-                <TableCell>
-                  <span className="text-sm font-medium text-[var(--foreground)]">{space.name}</span>
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={space.status} />
-                </TableCell>
-                <TableCell>
-                  <span className="text-sm text-[var(--muted-foreground)]">{createdDate}</span>
-                </TableCell>
-                <TableCell className="text-right">
-                  {!isTemp && (
-                    <DropdownMenu open={openMenuId === space.id} onOpenChange={(open) => setOpenMenuId(open ? space.id : null)}>
+            if (item.type === 'space') {
+              const space = item.data as Space;
+              const isTemp = space.id.startsWith("temp-");
+              
+              return (
+                <TableRow
+                  key={`space-${space.id}`}
+                  className={cn("cursor-pointer", isTemp && "opacity-70")}
+                  onClick={() => handleRowClick(space.id)}
+                >
+                  <TableCell>
+                    <span className="text-sm font-medium text-[var(--foreground)]">{space.name}</span>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={space.status} />
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-[var(--muted-foreground)]">{createdDate}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {!isTemp && (
+                      <DropdownMenu open={openMenuId === space.id} onOpenChange={(open) => setOpenMenuId(open ? space.id : null)}>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => handleOpenEdit(space)}>
+                            <Edit className="h-4 w-4" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenDeleteConfirm(space)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            } else {
+              const file = item.data as File;
+              
+              return (
+                <TableRow
+                  key={`file-${file.id}`}
+                  className="cursor-pointer"
+                  onClick={() => handleFileDownload(file)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <File className="h-4 w-4 text-[var(--muted-foreground)]" />
+                      <span className="text-sm font-medium text-[var(--foreground)]">{file.file_name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-[var(--muted-foreground)]">{formatFileSize(file.file_size)}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-[var(--muted-foreground)]">{createdDate}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu open={openMenuId === file.id} onOpenChange={(open) => setOpenMenuId(open ? file.id : null)}>
                       <DropdownMenuTrigger asChild>
                         <button
                           onClick={(e) => e.stopPropagation()}
@@ -334,18 +463,18 @@ export default function InternalTable({ spaces: initialSpaces, workspaceId, curr
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem onClick={() => handleOpenEdit(space)}>
-                          <Edit className="h-4 w-4" /> Edit
+                        <DropdownMenuItem onClick={() => handleFileDownload(file)}>
+                          <Download className="h-4 w-4" /> Download
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleOpenDeleteConfirm(space)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                        <DropdownMenuItem onClick={() => handleFileDelete(file)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
                           <Trash2 className="h-4 w-4" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )}
-                </TableCell>
-              </TableRow>
-            );
+                  </TableCell>
+                </TableRow>
+              );
+            }
           })}
         </TableBody>
       </Table>

@@ -262,6 +262,7 @@ function Sidebar({
             icon={<CreditCard className="h-4 w-4" />}
             active={pathname?.startsWith("/dashboard/payments")}
             collapsed={collapsed}
+            prefetch={false}
           >
             Payments
           </NavLink>
@@ -321,16 +322,19 @@ function NavLink({
   children,
   active,
   collapsed,
+  prefetch,
 }: {
   href: string;
   icon: React.ReactNode;
   children: React.ReactNode;
   active?: boolean;
   collapsed?: boolean;
+  prefetch?: boolean;
 }) {
   return (
     <Link
       href={href}
+      prefetch={prefetch}
       className={cn(
         "group flex w-full items-center rounded-md text-sm font-medium transition-colors",
         collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-1.5",

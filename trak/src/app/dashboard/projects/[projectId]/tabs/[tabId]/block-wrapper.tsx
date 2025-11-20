@@ -106,7 +106,13 @@ export default function BlockWrapper({
   ];
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative w-full">
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      className="group relative w-full cursor-move"
+      {...attributes}
+      {...listeners}
+    >
       <div
         className={cn(
           "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
@@ -114,10 +120,10 @@ export default function BlockWrapper({
         )}
       >
         <button
-          {...attributes}
           {...listeners}
           className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)]"
           aria-label="Drag block"
+          onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
@@ -125,7 +131,7 @@ export default function BlockWrapper({
 
       <div
         className={cn(
-          "relative flex min-w-0 flex-col transition-all duration-150 ease-out",
+          "relative flex min-w-0 flex-col w-full transition-all duration-150 ease-out",
           borderless
             ? "rounded-none border-none bg-transparent px-0 py-0 shadow-none"
             : "rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
@@ -205,7 +211,9 @@ export default function BlockWrapper({
           </DropdownMenu>
         </div>
 
-        <div className={cn("space-y-2.5", borderless && "space-y-3")}>{children}</div>
+        <div className={cn("space-y-2.5", borderless && "space-y-3")}>
+          {children}
+        </div>
       </div>
       
       <MakeTemplateDialog

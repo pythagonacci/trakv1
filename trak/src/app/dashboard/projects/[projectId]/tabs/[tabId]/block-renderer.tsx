@@ -22,7 +22,7 @@ interface BlockRendererProps {
   workspaceId: string;
   projectId: string;
   tabId?: string;
-  onUpdate?: () => void;
+  onUpdate?: (updatedBlock?: Block) => void;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section" | "doc_reference") => void;
   onOpenDoc?: (docId: string) => void;

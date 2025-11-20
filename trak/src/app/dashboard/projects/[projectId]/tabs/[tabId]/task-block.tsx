@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   CheckCircle2, Circle, Clock, User, Calendar, Plus, X, ChevronDown, MoreVertical,
   Flag, Tag, AlignLeft, CheckSquare, Paperclip, MessageSquare, Repeat, Users, ChevronRight
@@ -37,6 +37,98 @@ interface Task {
   };
 }
 
+// Separate component for task description to prevent state loss on re-renders
+// Uses uncontrolled textarea to avoid React state interference
+function TaskDescription({ 
+  task, 
+  updateTask 
+}: { 
+  task: Task; 
+  updateTask: (taskId: string | number, updates: Partial<Task>) => Promise<void>;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastTaskIdRef = useRef(task.id);
+
+  // Only reset when switching to a completely different task
+  useEffect(() => {
+    if (lastTaskIdRef.current !== task.id && textareaRef.current) {
+      lastTaskIdRef.current = task.id;
+      textareaRef.current.value = task.description ?? "";
+    }
+  }, [task.id]); // Only depend on task.id, not description
+
+  const handleBlur = async () => {
+    const finalValue = textareaRef.current?.value ?? "";
+    if (finalValue !== (task.description ?? "")) {
+      await updateTask(task.id, { description: finalValue || undefined });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape") {
+      if (textareaRef.current) {
+        textareaRef.current.value = task.description ?? "";
+      }
+      textareaRef.current?.blur();
+    }
+  };
+
+  // Read current value from textarea for delete button visibility
+  const [showDelete, setShowDelete] = useState(!!task.description);
+  
+  useEffect(() => {
+    // Update showDelete when task.description changes externally
+    if (!textareaRef.current || document.activeElement !== textareaRef.current) {
+      setShowDelete(!!task.description);
+    }
+  }, [task.description]);
+
+  return (
+    <div 
+      className="mt-2 relative group/desc" 
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <textarea
+        key={`desc-${task.id}`}
+        ref={textareaRef}
+        defaultValue={task.description ?? ""}
+        onChange={() => {
+          // Update delete button visibility as user types
+          if (textareaRef.current) {
+            setShowDelete(textareaRef.current.value.length > 0);
+          }
+        }}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        onClick={(e) => e.stopPropagation()}
+        placeholder="Add description..."
+        className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)] focus:outline-none resize-none pr-6"
+        rows={2}
+        autoComplete="off"
+        data-form-type="other"
+      />
+      {showDelete && (
+        <button
+          type="button"
+          onClick={async (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            await updateTask(task.id, { description: undefined });
+            if (textareaRef.current) {
+              textareaRef.current.value = "";
+            }
+            setShowDelete(false);
+          }}
+          className="absolute top-1 right-1 opacity-0 group-hover/desc:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity z-10"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface WorkspaceMember {
   id: string;
   name: string;
@@ -46,7 +138,7 @@ interface WorkspaceMember {
 
 interface TaskBlockProps {
   block: Block;
-  onUpdate?: () => void;
+  onUpdate?: (updatedBlock?: Block) => void;
   workspaceId: string;
   scrollToTaskId?: string | null;
 }
@@ -79,6 +171,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   // Get all unique tags used across all tasks (for displaying in dropdown)
   const allUsedTags = Array.from(new Set(tasks.flatMap(t => t.tags || [])));
 
+  // Stay in sync if title changes externally
+  useEffect(() => {
+    setTitleValue(title);
+  }, [title]);
+
   useEffect(() => {
     const loadMembers = async () => {
       const result = await getWorkspaceMembers(workspaceId);
@@ -88,6 +185,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     };
     loadMembers();
   }, [workspaceId]);
+
 
   // Scroll to task when scrollToTaskId matches
   // Task ID format from dashboard: `${block.id}-${task.id}`
@@ -132,20 +230,28 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       return { ...task, status: "todo" } as Task;
     });
 
-    await updateBlock({
+    const result = await updateBlock({
       blockId: block.id,
       content: { ...content, tasks: newTasks },
     });
-    onUpdate?.();
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else {
+      onUpdate?.();
+    }
   };
 
   const setTaskStatus = async (taskId: string | number, status: Task["status"]) => {
     const newTasks = tasks.map((task) => (task.id === taskId ? { ...task, status } : task));
-    await updateBlock({
+    const result = await updateBlock({
       blockId: block.id,
       content: { ...content, tasks: newTasks },
     });
-    onUpdate?.();
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else {
+      onUpdate?.();
+    }
   };
 
   const addTask = async () => {
@@ -155,20 +261,43 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       status: "todo",
     };
     const newTasks = [...tasks, newTask];
-    await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
-    onUpdate?.();
+    const result = await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else {
+      onUpdate?.();
+    }
   };
 
   const deleteTask = async (taskId: string | number) => {
     const newTasks = tasks.filter((task) => task.id !== taskId);
-    await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
-    onUpdate?.();
+    const result = await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else {
+      onUpdate?.();
+    }
   };
 
   const updateTask = async (taskId: string | number, updates: Partial<Task>) => {
     const newTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
-    await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
-    onUpdate?.();
+    const updatedContent = { ...content, tasks: newTasks };
+    const result = await updateBlock({ blockId: block.id, content: updatedContent });
+    
+    // Pass updated block to parent for local state update (no router.refresh for inline edits)
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else if (result.error) {
+      console.error("Failed to update task:", result.error);
+      // On error, construct optimistic update to avoid router.refresh() spam
+      // This prevents the refresh loop that breaks typing
+      const optimisticBlock: Block = {
+        ...block,
+        content: updatedContent,
+        updated_at: new Date().toISOString(),
+      };
+      onUpdate?.(optimisticBlock);
+    }
   };
 
   const getStatusIcon = (status: Task["status"]) =>
@@ -292,7 +421,60 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
 
   return (
     <div className="p-4">
-      <div className="mb-3 font-semibold text-[var(--foreground)] text-sm uppercase tracking-wide">{title}</div>
+      <div className="mb-3">
+        {editingTitle ? (
+          <input
+            value={titleValue}
+            autoFocus
+            onChange={(e) => setTitleValue(e.target.value)}
+            onBlur={async () => {
+              const nextTitle = titleValue.trim() || "Task list";
+              setTitleValue(nextTitle);
+              setEditingTitle(false);
+              const result = await updateBlock({
+                blockId: block.id,
+                content: { ...content, title: nextTitle },
+              });
+              if (result.data) {
+                onUpdate?.(result.data);
+              } else {
+                onUpdate?.();
+              }
+            }}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setTitleValue(title);
+                setEditingTitle(false);
+              }
+            }}
+            className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] uppercase tracking-wide focus:outline-none"
+          />
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditingTitle(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setEditingTitle(true);
+              }
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="font-semibold text-[var(--foreground)] text-sm uppercase tracking-wide cursor-text"
+          >
+            {title}
+          </div>
+        )}
+      </div>
       <div className="space-y-2.5">
         {tasks.map((task: Task) => {
           const taskSections = expandedSections[task.id] || {};
@@ -400,23 +582,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
 
                   {/* Description - Inline Display */}
                   {task.description !== undefined && (
-                    <div className="mt-2 relative group/desc">
-                      <textarea
-                        value={task.description}
-                        onChange={(e) => updateTask(task.id, { description: e.target.value })}
-                        placeholder="Add description..."
-                        className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)] focus:outline-none resize-none pr-6"
-                        rows={2}
-                      />
-                      {task.description && (
-                        <button
-                          onClick={() => updateTask(task.id, { description: undefined })}
-                          className="absolute top-1 right-1 opacity-0 group-hover/desc:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
+                    <TaskDescription task={task} updateTask={updateTask} />
                   )}
 
                   {/* Subtasks - Inline Display */}
@@ -725,4 +891,3 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     </div>
   );
 }
-

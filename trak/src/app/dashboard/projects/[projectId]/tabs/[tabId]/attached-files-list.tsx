@@ -48,6 +48,14 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
   const [expanded, setExpanded] = useState(true);
 
   const loadFiles = useCallback(async () => {
+    // Skip loading if this is a temporary block (not yet saved to database)
+    if (blockId.startsWith('temp-')) {
+      console.log("📁 Skipping file load for temporary block:", blockId);
+      setLoading(false);
+      setFiles([]);
+      return;
+    }
+    
     setLoading(true);
     const result = await getBlockFiles(blockId);
     console.log("📁 Attached Files List - Load files result:", result);

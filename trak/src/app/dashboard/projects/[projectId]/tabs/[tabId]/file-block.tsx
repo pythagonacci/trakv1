@@ -54,6 +54,13 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   }, [block.id]);
 
   const loadFiles = async () => {
+    // Skip loading if this is a temporary block (not yet saved to database)
+    if (block.id.startsWith('temp-')) {
+      setLoading(false);
+      setFiles([]);
+      return;
+    }
+    
     setLoading(true);
     const result = await getBlockFiles(block.id);
     

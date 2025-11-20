@@ -469,20 +469,277 @@ export async function createFileRecord(data: {
     return { error: `Database error: ${dbError.message}` };
   }
 
-  // 4. Attach to block
-  const { error: attachError } = await supabase
-    .from('file_attachments')
-    .insert({
-      file_id: data.fileId,
-      block_id: data.blockId,
-      display_mode: 'inline',
-    });
+  // 4. Attach to block only if blockId is provided (for standalone files, blockId is empty)
+  if (data.blockId) {
+    const { error: attachError } = await supabase
+      .from('file_attachments')
+      .insert({
+        file_id: data.fileId,
+        block_id: data.blockId,
+        display_mode: 'inline',
+      });
 
-  if (attachError) {
-    // File created but attachment failed - still return success
-    console.error('Attachment failed:', attachError);
+    if (attachError) {
+      // File created but attachment failed - still return success
+      console.error('Attachment failed:', attachError);
+    }
   }
 
   revalidatePath('/dashboard/projects');
+  revalidatePath('/dashboard/internal');
   return { data: fileRecord };
+}
+
+/**
+ * Upload file without attaching to a block (standalone file)
+ */
+export async function uploadStandaloneFile(
+  formData: FormData,
+  workspaceId: string,
+  projectId: string
+) {
+  const supabase = await createClient();
+
+  // 1. Check authentication
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // 2. Verify user is member of workspace
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership) {
+    return { error: 'Not authorized to upload to this workspace' };
+  }
+
+  // 3. Get file from FormData
+  const file = formData.get('file') as File;
+  if (!file) {
+    return { error: 'No file provided' };
+  }
+
+  // 4. Validate file size (50MB limit)
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
+  if (file.size > MAX_FILE_SIZE) {
+    return { error: 'File size exceeds 50MB limit' };
+  }
+
+  try {
+    // 5. Generate unique file ID and construct storage path
+    const fileId = crypto.randomUUID();
+    const fileExtension = file.name.split('.').pop();
+    const storagePath = `${workspaceId}/${projectId}/${fileId}.${fileExtension}`;
+
+    // 6. Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('files')
+      .upload(storagePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return { error: `Upload failed: ${uploadError.message}` };
+    }
+
+    // 7. Create file record in database (without block attachment)
+    const { data: fileRecord, error: dbError } = await supabase
+      .from('files')
+      .insert({
+        id: fileId,
+        workspace_id: workspaceId,
+        project_id: projectId,
+        uploaded_by: user.id,
+        file_name: file.name,
+        file_size: file.size,
+        file_type: file.type,
+        storage_path: storagePath,
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      // Clean up: delete uploaded file if DB insert fails
+      await supabase.storage.from('files').remove([storagePath]);
+      return { error: `Database error: ${dbError.message}` };
+    }
+
+    revalidatePath('/dashboard/internal');
+    revalidatePath(`/dashboard/internal/${projectId}`);
+    return { data: fileRecord };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { error: errorMessage };
+  }
+}
+
+/**
+ * Get all standalone files for a project (files not attached to blocks)
+ */
+export async function getProjectFiles(projectId: string) {
+  const supabase = await createClient();
+
+  // 1. Check authentication
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // 2. Get project to verify workspace access
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('workspace_id')
+    .eq('id', projectId)
+    .single();
+
+  if (projectError || !project) {
+    return { error: 'Project not found' };
+  }
+
+  // 3. Verify user is member of workspace
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', project.workspace_id)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership) {
+    return { error: 'Not authorized' };
+  }
+
+  // 4. Get all files for this project that are NOT attached to any block
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select(`
+      id,
+      file_name,
+      file_size,
+      file_type,
+      storage_path,
+      created_at,
+      uploaded_by
+    `)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (filesError) {
+    return { error: filesError.message };
+  }
+
+  // 5. Filter out files that are attached to blocks
+  const { data: attachments, error: attachmentsError } = await supabase
+    .from('file_attachments')
+    .select('file_id')
+    .in('file_id', files?.map(f => f.id) || []);
+
+  if (attachmentsError) {
+    // If we can't check attachments, return all files (safer)
+    return { data: files || [] };
+  }
+
+  const attachedFileIds = new Set((attachments || []).map(a => a.file_id));
+  const standaloneFiles = (files || []).filter(f => !attachedFileIds.has(f.id));
+
+  return { data: standaloneFiles };
+}
+
+/**
+ * Get all standalone files for a workspace (from all internal spaces)
+ */
+export async function getWorkspaceStandaloneFiles(workspaceId: string) {
+  const supabase = await createClient();
+
+  // 1. Check authentication
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // 2. Verify user is member of workspace
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership) {
+    return { error: 'Not authorized' };
+  }
+
+  // 3. Get all internal spaces for this workspace
+  const { data: internalSpaces, error: spacesError } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('project_type', 'internal');
+
+  if (spacesError) {
+    return { error: spacesError.message };
+  }
+
+  if (!internalSpaces || internalSpaces.length === 0) {
+    return { data: [] };
+  }
+
+  const spaceIds = internalSpaces.map(s => s.id);
+
+  // 4. Get all files from internal spaces that are NOT attached to any block
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select(`
+      id,
+      file_name,
+      file_size,
+      file_type,
+      storage_path,
+      created_at,
+      uploaded_by,
+      project_id
+    `)
+    .in('project_id', spaceIds)
+    .order('created_at', { ascending: false });
+
+  if (filesError) {
+    return { error: filesError.message };
+  }
+
+  if (!files || files.length === 0) {
+    return { data: [] };
+  }
+
+  // 5. Filter out files that are attached to blocks
+  const { data: attachments, error: attachmentsError } = await supabase
+    .from('file_attachments')
+    .select('file_id')
+    .in('file_id', files.map(f => f.id));
+
+  if (attachmentsError) {
+    // If we can't check attachments, return all files (safer)
+    return { data: files };
+  }
+
+  const attachedFileIds = new Set((attachments || []).map(a => a.file_id));
+  const standaloneFiles = files.filter(f => !attachedFileIds.has(f.id));
+
+  return { data: standaloneFiles };
 }

@@ -377,13 +377,33 @@ export async function updateBlock(data: {
     }
 
     // 2. Get block and verify it exists
+    // Validate blockId is a string
+    if (typeof data.blockId !== 'string' || !data.blockId.trim()) {
+      console.error("Invalid blockId in updateBlock:", data.blockId, typeof data.blockId);
+      return { error: "Invalid block ID" };
+    }
+    
     const { data: block, error: blockError } = await supabase
       .from("blocks")
       .select("id, tab_id")
-      .eq("id", data.blockId)
+      .eq("id", data.blockId.trim())
       .single();
 
-    if (blockError || !block) {
+    if (blockError) {
+      console.error("Block lookup error:", {
+        error: blockError,
+        blockId: data.blockId,
+        code: blockError.code,
+        message: blockError.message
+      });
+      return { error: `Block not found: ${blockError.message}` };
+    }
+    
+    if (!block) {
+      console.error("Block not found in database:", {
+        blockId: data.blockId,
+        blockIdType: typeof data.blockId
+      });
       return { error: "Block not found" };
     }
 

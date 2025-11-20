@@ -1,5 +1,6 @@
 import { getAllProjects } from "@/app/actions/project";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { getWorkspaceStandaloneFiles } from "@/app/actions/file";
 import InternalTable from "./internal-table";
 import InternalFilterBar from "./internal-filter-bar";
 
@@ -65,11 +66,16 @@ export default async function InternalPage({ searchParams }: PageProps) {
     created_at: space.created_at,
   }));
 
+  // Fetch standalone files
+  const filesResult = await getWorkspaceStandaloneFiles(workspaceId);
+  const files = filesResult.data || [];
+
   return (
     <div>
       <InternalFilterBar />
       <InternalTable 
-        spaces={mappedSpaces} 
+        spaces={mappedSpaces}
+        files={files}
         workspaceId={workspaceId}
         currentSort={{
           sort_by: filters.sort_by,

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
-  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -16,7 +15,6 @@ import {
 import {
   arrayMove,
   SortableContext,
-  sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { type Block, deleteBlock, updateBlock, createBlock } from "@/app/actions/block";
@@ -50,21 +48,32 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
   
-  // 🚀 Sync blocks from server without full page refresh
+  // 🚀 Sync blocks from server only when tabId changes
+  // Don't reset on every server re-fetch caused by our own edits
+  // Blocks are initialized from initialBlocks via useState above
+  const prevTabIdRef = useRef(tabId);
+  const justDraggedRef = useRef(false);
+  const lastDragTimeRef = useRef<number>(0);
+  const recentlyDraggedBlocksRef = useRef<Map<string, Block>>(new Map());
+  
   useEffect(() => {
-    setBlocks(initialBlocks);
-  }, [initialBlocks]);
+    // Only sync from the server when the tab itself actually changes.
+    // While you stay on the same tab, the client state is the source of truth.
+    if (prevTabIdRef.current !== tabId) {
+      prevTabIdRef.current = tabId;
+      setBlocks(initialBlocks);
+      justDraggedRef.current = false;
+      lastDragTimeRef.current = 0;
+    }
+  }, [tabId, initialBlocks]);
 
-  // Configure sensors for drag and drop (mouse, touch, keyboard)
+  // Configure sensors for drag and drop (mouse/touch only to avoid capturing typing keys)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8, // Require 8px movement before drag starts
       },
     }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
   );
 
   // Organize blocks into rows
@@ -73,8 +82,27 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const blockRows = useMemo(() => {
     if (blocks.length === 0) return [];
 
+    // Filter out any blocks with invalid positions and log them
+    const validBlocks = blocks.filter((block) => {
+      const isValid = typeof block.position === 'number' && isFinite(block.position) && block.position >= 0;
+      if (!isValid) {
+        console.warn("Block with invalid position found:", {
+          id: block.id,
+          position: block.position,
+          type: typeof block.position,
+          block: block
+        });
+      }
+      return isValid;
+    });
+
+    // If we filtered out any blocks, log a warning
+    if (validBlocks.length < blocks.length) {
+      console.error(`Lost ${blocks.length - validBlocks.length} blocks due to invalid positions. Total blocks: ${blocks.length}, Valid blocks: ${validBlocks.length}`);
+    }
+
     // Sort blocks by position (vertical order)
-    const sortedBlocks = [...blocks].sort((a, b) => a.position - b.position);
+    const sortedBlocks = [...validBlocks].sort((a, b) => a.position - b.position);
 
     // Group blocks into rows
     // Blocks that are side-by-side have the same "row_index" (rounded position)
@@ -108,25 +136,47 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     const rows: BlockRow[] = Array.from(rowsMap.entries())
       .sort(([a], [b]) => a - b)
       .map(([rowIndex, rowBlocks]) => {
-        // Determine max columns in this row
-        const maxCol = Math.max(...rowBlocks.map(b => {
-          const col = b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
-          return col;
+        const blockCount = rowBlocks.length;
+
+        // Normalize columns to pack left-to-right with no gaps (prevents "ghost" columns after deletions)
+        const normalizedBlocks = rowBlocks.map((block, idx) => ({
+          ...block,
+          column: idx,
         }));
-        const maxColumns = maxCol + 1; // If max column is 2, we have 3 columns (0, 1, 2)
-        
+
+        // Single block rows should always render full width
+        if (blockCount === 1) {
+          const onlyBlock = normalizedBlocks[0];
+          return {
+            rowIndex,
+            blocks: [{ ...onlyBlock, column: 0 }],
+            maxColumns: 1,
+          };
+        }
+
+        // Multi-block rows: cap at 3, but never below the number of blocks present
+        const maxColumns = Math.max(1, Math.min(3, blockCount));
+
         return {
           rowIndex,
-          blocks: rowBlocks,
-          maxColumns: Math.max(1, Math.min(3, maxColumns)),
+          blocks: normalizedBlocks,
+          maxColumns,
         };
       });
 
     return rows;
   }, [blocks]);
 
-  const handleUpdate = () => {
-    router.refresh();
+  const handleUpdate = (updatedBlock?: Block) => {
+    if (updatedBlock) {
+      // Update local state with the updated block (no router.refresh for inline edits)
+      setBlocks(prev =>
+        prev.map(b => (b.id === updatedBlock.id ? updatedBlock : b))
+      );
+    } else {
+      // Fallback: refresh only when no block provided (for errors or structural changes)
+      router.refresh();
+    }
   };
 
   const handleDelete = async (blockId: string) => {
@@ -204,6 +254,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
+    console.log("Drag started for block:", event.active.id);
     setIsDragging(true);
     const block = blocks.find((b) => b.id === event.active.id);
     setDraggedBlock(block || null);
@@ -211,16 +262,94 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   // Handle drag end - reorder blocks or move between rows/columns
   const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    setIsDragging(false);
+    try {
+      const { active, over } = event;
+      setIsDragging(false);
 
-    if (!over || !draggedBlock || active.id === over.id) {
+    // Allow dropping on the same block (no change needed)
+    if (!over || active.id === over.id) {
+      console.log("No valid drop target or dropped on same block, cancelling drag");
       setDraggedBlock(null);
       return;
     }
 
-    const overBlock = blocks.find((b) => b.id === over.id);
+    // Get the dragged block fresh from the current blocks array using active.id
+    const draggedBlockId = active.id as string;
+    const draggedBlock = blocks.find((b) => b.id === draggedBlockId);
+
+    if (!draggedBlock) {
+      console.error("Dragged block not found in blocks array. Active ID:", draggedBlockId, "Available block IDs:", blocks.map(b => b.id));
+      setDraggedBlock(null);
+      return;
+    }
+
+    // Validate dragged block has an ID
+    if (!draggedBlock.id) {
+      console.error("Dragged block has no ID:", draggedBlock);
+      setDraggedBlock(null);
+      return;
+    }
+
+    console.log("Found dragged block:", draggedBlock.id, "Type:", draggedBlock.type, "Position:", draggedBlock.position, "Column:", draggedBlock.column);
+
+    // Try to find the over block
+    let overBlock = blocks.find((b) => b.id === over.id);
+    console.log("Looking for over block:", over.id, "Found:", overBlock ? `${overBlock.id} (pos: ${overBlock.position}, col: ${overBlock.column})` : "not found");
+
+    // Determine drag type based on overBlock position (if found)
+    if (overBlock) {
+      const isSameRow = Math.floor(draggedBlock.position) === Math.floor(overBlock.position);
+      const isSameColumn = draggedBlock.column === overBlock.column;
+      console.log("Drag analysis:", { isSameRow, isSameColumn, draggedPos: draggedBlock.position, overPos: overBlock.position, draggedCol: draggedBlock.column, overCol: overBlock.column });
+    }
+
     if (!overBlock) {
+      console.warn("Over target not found in blocks array. Over ID:", over.id, "Available block IDs:", blocks.map(b => b.id));
+
+      // Place dragged block at the end of the canvas
+      const maxPosition = Math.max(
+        ...blocks.map(b => Math.floor(b.position)),
+        -1
+      );
+      const newPosition = maxPosition + 1;
+      const newCol = 0;
+
+      const updatedBlocks = blocks.map(block =>
+        block.id === draggedBlock.id
+          ? { ...block, column: newCol, position: newPosition }
+          : block
+      );
+
+      if (updatedBlocks.length !== blocks.length) {
+        console.error("Block count mismatch when placing at end!");
+        setDraggedBlock(null);
+        return;
+      }
+
+      setBlocks(updatedBlocks);
+      justDraggedRef.current = true;
+      lastDragTimeRef.current = Date.now();
+
+      if (!draggedBlock.id.startsWith("temp-")) {
+        try {
+          await updateBlock({
+            blockId: draggedBlock.id.trim(),
+            column: newCol,
+            position: newPosition,
+          });
+        } catch (error) {
+          console.error("Failed to update block position:", error);
+          setBlocks(blocks); // revert
+        }
+      }
+
+      setDraggedBlock(null);
+      return;
+    }
+    
+    // Validate over block has an ID
+    if (!overBlock.id) {
+      console.error("Over block has no ID:", overBlock);
       setDraggedBlock(null);
       return;
     }
@@ -228,165 +357,225 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     const overRowIndex = Math.floor(overBlock.position);
     const overCol = overBlock.column !== undefined && overBlock.column >= 0 && overBlock.column <= 2 ? overBlock.column : 0;
 
-    // Find the target row
-    const targetRow = blockRows.find(r => r.rowIndex === overRowIndex);
-    if (!targetRow) {
+    const isTempId = (id: string) => id.startsWith("temp-");
+
+    // If user dragged downward significantly on the same row, create a new row below
+    const sourceRowIndex = Math.floor(draggedBlock.position);
+    if (overRowIndex === sourceRowIndex && event.delta.y > 40) {
+      const insertionRow = overRowIndex + 1;
+      const updatedBlocks = blocks.map((block) => {
+        if (block.id === draggedBlock.id) {
+          return { ...block, position: insertionRow, column: 0 };
+        }
+        const blockRow = Math.floor(block.position);
+        if (blockRow >= insertionRow) {
+          return { ...block, position: blockRow + 1 };
+        }
+        return block;
+      });
+
+      setBlocks(updatedBlocks);
+      justDraggedRef.current = true;
+      lastDragTimeRef.current = Date.now();
+
+      // Persist position changes for affected blocks
+      try {
+        const changedBlocks = updatedBlocks.filter((block) => {
+          const original = blocks.find((b) => b.id === block.id);
+          if (!original) return false;
+          return (
+            Math.floor(original.position) !== Math.floor(block.position) ||
+            original.column !== block.column
+          );
+        });
+
+        const persistentBlocks = changedBlocks.filter(
+          (block) => block.id && !isTempId(block.id),
+        );
+
+        if (persistentBlocks.length > 0) {
+          await Promise.all(
+            persistentBlocks.map((block) =>
+              updateBlock({
+                blockId: block.id.trim(),
+                position: Math.floor(block.position),
+                column:
+                  block.column !== undefined &&
+                  block.column >= 0 &&
+                  block.column <= 2
+                    ? block.column
+                    : 0,
+              }),
+            ),
+          );
+        }
+      } catch (error) {
+        console.error("Error updating block when creating new row:", error);
+      } finally {
+        setTimeout(() => {
+          justDraggedRef.current = false;
+        }, 2000);
+      }
+
       setDraggedBlock(null);
       return;
     }
 
-    // Get blocks currently in the target row (excluding the dragged block)
-    const currentRowBlocks = targetRow.blocks.filter(b => b.id !== draggedBlock.id);
-    const usedColumns = new Set(currentRowBlocks.map(b => {
-      const col = b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
-      return col;
-    }));
-
-    // Determine the new column for the dragged block
-    // Strategy: Place it next to the block we're dropping on
-    let newCol: number;
-    
-    if (usedColumns.size === 0) {
-      // Empty row - place in column 0 (full width)
-      newCol = 0;
-    } else if (usedColumns.size === 1 && usedColumns.has(0)) {
-      // One block in column 0 - place in column 1 (create 2-column layout)
-      newCol = 1;
-    } else if (usedColumns.size === 2 && !usedColumns.has(2)) {
-      // Two blocks, columns 0 and 1 - place in column 2 (create 3-column layout)
-      newCol = 2;
-    } else {
-      // Row is full (3 columns) or complex layout - place next to the target block
-      // Find next available column after the target block's column
-      if (overCol < 2 && !usedColumns.has(overCol + 1)) {
-        newCol = overCol + 1;
-      } else if (overCol > 0 && !usedColumns.has(overCol - 1)) {
-        newCol = overCol - 1;
-      } else {
-        // No space next to target - place in first available column
-        if (!usedColumns.has(0)) newCol = 0;
-        else if (!usedColumns.has(1)) newCol = 1;
-        else if (!usedColumns.has(2)) newCol = 2;
-        else newCol = overCol; // Fallback - will shift others
-      }
+    // Find the target row
+    const targetRow = blockRows.find(r => r.rowIndex === overRowIndex);
+    if (!targetRow) {
+      console.error("Target row not found for rowIndex:", overRowIndex, "Available rows:", blockRows.map(r => r.rowIndex));
+      setDraggedBlock(null);
+      return;
     }
 
-    // Update the dragged block's position and column to be in the target row
-    // Position is an integer representing the row, column differentiates blocks in the same row
-    const newPosition = overRowIndex;
+    // Normalize columns to pack left-to-right with a max of 3 per row
+    const normalizeRow = (rowBlocks: Block[], rowIndex: number): Block[] => {
+      const sorted = [...rowBlocks].sort((a, b) => {
+        const colA =
+          a.column !== undefined && a.column >= 0 && a.column <= 2 ? a.column : 0;
+        const colB =
+          b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
+        return colA - colB;
+      });
 
-    // If we're placing in a column that's already taken, we need to shift other blocks
+      return sorted.slice(0, 3).map((block, idx) => ({
+        ...block,
+        column: idx,
+        position: rowIndex,
+      }));
+    };
+
+    const targetRowBlocks = targetRow.blocks.filter(
+      (b) => b.id !== draggedBlock.id,
+    );
+
+    // Build the target row composition with the dragged block included
+    const targetRowWithDragged = normalizeRow(
+      [
+        ...targetRowBlocks,
+        { ...draggedBlock, column: 0, position: overRowIndex },
+      ],
+      overRowIndex,
+    );
+
+    // If moving between rows, normalize the source row to close gaps
+    const sourceRowNormalized =
+      sourceRowIndex !== overRowIndex
+        ? (() => {
+            const sourceRow = blockRows.find((r) => r.rowIndex === sourceRowIndex);
+            if (!sourceRow) return null;
+            const remaining = sourceRow.blocks.filter(
+              (b) => b.id !== draggedBlock.id,
+            );
+            return normalizeRow(remaining, sourceRowIndex);
+          })()
+        : null;
+
+    // Apply updates to blocks in the affected rows
     const updatedBlocks = blocks.map((block) => {
-      if (block.id === draggedBlock.id) {
-        return { ...block, column: newCol, position: newPosition };
+      const targetReplacement = targetRowWithDragged.find(
+        (b) => b.id === block.id,
+      );
+      if (targetReplacement) return targetReplacement;
+
+      if (sourceRowNormalized) {
+        const sourceReplacement = sourceRowNormalized.find(
+          (b) => b.id === block.id,
+        );
+        if (sourceReplacement) return sourceReplacement;
       }
-      
-      // If another block is in the same row and same column, shift it
-      const blockRowIndex = Math.floor(block.position);
-      if (blockRowIndex === overRowIndex && block.id !== draggedBlock.id) {
-        const blockCol = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
-        if (blockCol === newCol) {
-          // Shift this block to the next available column
-          for (let shiftCol = 0; shiftCol <= 2; shiftCol++) {
-            if (shiftCol !== newCol && !usedColumns.has(shiftCol) && shiftCol !== blockCol) {
-              return { ...block, column: shiftCol, position: overRowIndex };
-            }
-          }
-          // If no space, shift right (but max column 2)
-          const shiftedCol = Math.min(2, blockCol + 1);
-          if (shiftedCol !== newCol) {
-            return { ...block, column: shiftedCol, position: overRowIndex };
-          }
-        }
-      }
+
       return block;
     });
 
-    setBlocks(updatedBlocks);
-    justDraggedRef.current = true; // Mark that we just dragged
-
-    // Update on server
-    try {
-      // Validate values before sending
-      if (newCol < 0 || newCol > 2) {
-        throw new Error(`Invalid column value: ${newCol}. Must be between 0 and 2.`);
-      }
-      if (newPosition < 0 || !isFinite(newPosition)) {
-        throw new Error(`Invalid position value: ${newPosition}`);
-      }
-      
-      // Update the dragged block first
-      const updateResult = await updateBlock({ blockId: draggedBlock.id, column: newCol, position: newPosition });
-      
-      if (updateResult.error) {
-        throw new Error(updateResult.error);
-      }
-      
-      // Update other blocks that were shifted
-      const shiftedBlocks = updatedBlocks.filter(b => {
-        if (b.id === draggedBlock.id) return false;
-        const bRowIndex = Math.floor(b.position);
-        const bCol = b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
-        const originalBlock = blocks.find(orig => orig.id === b.id);
-        if (!originalBlock) return false;
-        const origRowIndex = Math.floor(originalBlock.position);
-        const origCol = originalBlock.column !== undefined && originalBlock.column >= 0 && originalBlock.column <= 2 ? originalBlock.column : 0;
-        return bRowIndex === overRowIndex && (origRowIndex !== bRowIndex || origCol !== bCol);
+    // Safety check: ensure all blocks are preserved
+    if (updatedBlocks.length !== blocks.length) {
+      console.error("Block count mismatch after drag update!", {
+        originalCount: blocks.length,
+        updatedCount: updatedBlocks.length,
+        originalIds: blocks.map((b) => b.id),
+        updatedIds: updatedBlocks.map((b) => b.id),
+        missingIds: blocks
+          .filter((b) => !updatedBlocks.find((ub) => ub.id === b.id))
+          .map((b) => b.id),
       });
-      
-      if (shiftedBlocks.length > 0) {
-        const updatePromises = shiftedBlocks.map(block => {
-          const col = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
-          const pos = block.position;
-          
-          // Validate before updating
-          if (col < 0 || col > 2) {
-            console.warn(`Invalid column for block ${block.id}: ${col}`);
-          }
-          if (pos < 0 || !isFinite(pos)) {
-            console.warn(`Invalid position for block ${block.id}: ${pos}`);
-          }
-          
-          return updateBlock({ blockId: block.id, column: col, position: pos });
-        });
-        const results = await Promise.all(updatePromises);
-        
-        // Check if any updates failed
-        const failedResults = results.filter(r => r.error);
-        if (failedResults.length > 0) {
-          const errorMessages = failedResults.map(r => r.error).join(", ");
-          throw new Error(`Some block updates failed: ${errorMessages}`);
+      setDraggedBlock(null);
+      return;
+    }
+
+    setBlocks(updatedBlocks);
+    justDraggedRef.current = true;
+    lastDragTimeRef.current = Date.now();
+
+    // Persist changed blocks (column/row updates only) without overwriting optimistic state
+    try {
+      if (!draggedBlock.id) {
+        throw new Error("Dragged block has no ID");
+      }
+
+      const changedBlocks = updatedBlocks.filter((block) => {
+        const original = blocks.find((b) => b.id === block.id);
+        if (!original) return false;
+        return (
+          original.column !== block.column ||
+          Math.floor(original.position) !== Math.floor(block.position)
+        );
+      });
+
+      const persistentBlocks = changedBlocks.filter(
+        (block) => block.id && !isTempId(block.id),
+      );
+
+      if (persistentBlocks.length > 0) {
+        const results = await Promise.all(
+          persistentBlocks.map((block) =>
+            updateBlock({
+              blockId: block.id.trim(),
+              column:
+                block.column !== undefined &&
+                block.column >= 0 &&
+                block.column <= 2
+                  ? block.column
+                  : 0,
+              position: Math.floor(block.position),
+            }),
+          ),
+        );
+        const failed = results.filter((r) => r?.error);
+        if (failed.length > 0) {
+          console.error(
+            "Some block updates failed:",
+            failed.map((f) => f.error).join(", "),
+          );
         }
       }
-      
-      // Don't refresh immediately - let the optimistic update stand
-      // The data will be fresh on next navigation or page reload
-      // If we need to refresh, we can do it after a delay, but for now
-      // the optimistic update should be sufficient
     } catch (error) {
-      console.error("Failed to update block position:", error);
-      // Revert optimistic update on error
-      setBlocks(blocks);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      alert(`Failed to move block: ${errorMessage}`);
+      console.error("Error updating block after drag:", error);
+    } finally {
+      setTimeout(() => {
+        justDraggedRef.current = false;
+      }, 2000);
     }
 
     setDraggedBlock(null);
+    } catch (error) {
+      console.error("CRITICAL ERROR in handleDragEnd:", error);
+      console.error("Error details:", {
+        error: error,
+        stack: error instanceof Error ? error.stack : 'No stack',
+        activeId: event.active?.id,
+        overId: event.over?.id
+      });
+      // Reset drag state on error
+      setDraggedBlock(null);
+      setIsDragging(false);
+    }
   };
 
-  // Sync blocks when props change (e.g., initial load or external changes)
-  // But use a ref to track if we just did a drag operation to avoid overwriting optimistic updates
-  const justDraggedRef = useRef(false);
-  
-  useEffect(() => {
-    // If we just dragged, skip this sync to preserve optimistic update
-    if (justDraggedRef.current) {
-      justDraggedRef.current = false;
-      return;
-    }
-    
-    setBlocks(initialBlocks);
-  }, [initialBlocks]);
+  // Note: We removed the useEffect that was resetting blocks from initialBlocks
+  // This prevents overwriting local state from our own inline edits
+  // Blocks are only synced when tabId changes (handled in the first useEffect above)
 
   // Only mount DnD on client to avoid hydration mismatch
   useEffect(() => {
@@ -394,11 +583,34 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   }, []);
 
   const hasBlocks = blocks.length > 0;
+  const getNextPosition = () => {
+    if (blocks.length === 0) return 0;
+    const maxPos = Math.max(...blocks.map((b) => Math.floor(b.position)));
+    return maxPos + 1;
+  };
 
   // Handle optimistic block creation
   const handleBlockCreated = (newBlock: Block) => {
     // Immediately add the new block to local state (optimistic update)
-    setBlocks((prevBlocks) => [...prevBlocks, newBlock]);
+    // Prevent duplicates by checking if block already exists
+    setBlocks((prevBlocks) => {
+      // Check if block with this ID already exists
+      if (prevBlocks.some(b => b.id === newBlock.id)) {
+        console.warn("Block already exists, skipping duplicate:", newBlock.id);
+        return prevBlocks;
+      }
+      const nextPos = newBlock.position ?? (prevBlocks.length === 0
+        ? 0
+        : Math.max(...prevBlocks.map((b) => Math.floor(b.position))) + 1);
+      return [
+        ...prevBlocks,
+        {
+          ...newBlock,
+          position: nextPos,
+          column: newBlock.column ?? 0,
+        },
+      ];
+    });
     setIsCreatingBlock(false);
     
     // Mark this block as new so we can animate it
@@ -494,7 +706,11 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
               key={rowIdx}
               className={cn(
                 "grid gap-4",
-                row.maxColumns === 1 ? "grid-cols-1" : row.maxColumns === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+                row.blocks.length === 1
+                  ? "grid-cols-1"
+                  : row.maxColumns === 2
+                  ? "grid-cols-1 md:grid-cols-2"
+                  : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
               )}
             >
               {row.blocks.map((block) => (
@@ -523,58 +739,59 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="space-y-4">
-            {blockRows.map((row, rowIdx) => {
-              const rowBlockIds = row.blocks.map((b) => b.id);
-              return (
-                <SortableContext key={rowIdx} items={rowBlockIds} strategy={verticalListSortingStrategy}>
-                  <div
-                    className={cn(
-                      "grid gap-4",
-                      row.maxColumns === 1
-                        ? "grid-cols-1"
-                        : row.maxColumns === 2
-                        ? "grid-cols-1 md:grid-cols-2"
-                        : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-                    )}
-                  >
-                    {Array.from({ length: row.maxColumns }).map((_, colIdx) => {
-                      const blockInThisColumn = row.blocks.find((block) => {
-                        const col = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
-                        return col === colIdx;
-                      });
-
-                      if (!blockInThisColumn) {
-                        return <div key={`empty-${rowIdx}-${colIdx}`} className="hidden md:block" />;
-                      }
-
-                      return (
-                        <div key={blockInThisColumn.id} className={cn("min-w-0", newBlockIds.has(blockInThisColumn.id) && "animate-block-swoosh-in")}>
-                          <BlockRenderer
-                            block={blockInThisColumn}
-                            workspaceId={workspaceId}
-                            projectId={projectId}
-                            tabId={tabId}
-                            onUpdate={handleUpdate}
-                            scrollToTaskId={scrollToTaskId}
-                            onDelete={handleDelete}
-                            onConvert={handleConvert}
-                            onOpenDoc={setOpenDocId}
-                            isDragging={isDragging}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </SortableContext>
-              );
-            })}
+          <div className="space-y-5 w-full">
+            {blockRows.map((row, rowIdx) => (
+              <SortableContext
+                key={rowIdx}
+                items={row.blocks.map((b) => b.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div
+                  className={cn(
+                    "grid gap-4",
+                    row.blocks.length === 1
+                      ? "grid-cols-1"
+                      : row.maxColumns === 2
+                      ? "grid-cols-1 md:grid-cols-2"
+                      : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+                  )}
+                >
+                  {row.blocks.map((block) => (
+                    <div
+                      key={block.id}
+                      className={cn(
+                        "min-w-0",
+                        newBlockIds.has(block.id) && "animate-block-swoosh-in",
+                      )}
+                    >
+                      <BlockRenderer
+                        block={block}
+                        workspaceId={workspaceId}
+                        projectId={projectId}
+                        tabId={tabId}
+                        onUpdate={handleUpdate}
+                        scrollToTaskId={scrollToTaskId}
+                        onDelete={handleDelete}
+                        onConvert={handleConvert}
+                        onOpenDoc={setOpenDocId}
+                        isDragging={isDragging && draggedBlock?.id === block.id}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </SortableContext>
+            ))}
           </div>
         </DndContext>
       )}
 
       <div className="flex gap-3 pt-4">
-        <AddBlockButton tabId={tabId} projectId={projectId} onBlockCreated={handleBlockCreated} />
+        <AddBlockButton
+          tabId={tabId}
+          projectId={projectId}
+          onBlockCreated={handleBlockCreated}
+          getNextPosition={getNextPosition}
+        />
       </div>
 
       {/* Doc Sidebar */}
