@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Loader2, Download, ChevronDown } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, ChevronDown, Pin, PinOff } from "lucide-react";
 import RichTextEditor from "@/components/editor/rich-text-editor";
 import { updateDoc } from "@/app/actions/doc";
 import { cn } from "@/lib/utils";
+import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +25,27 @@ interface DocEditorProps {
   doc: Doc;
 }
 
+const DOC_THEMES = [
+  {
+    id: "sand",
+    label: "Sand",
+    pageBg: "linear-gradient(135deg, #fdfbf5 0%, #f7fbff 50%, #eef6ff 100%)",
+    paperBg: "linear-gradient(180deg, #ffffff 0%, #fbfcff 35%, #f7fbff 100%)",
+  },
+  {
+    id: "foam",
+    label: "Foam",
+    pageBg: "linear-gradient(135deg, #f8fffd 0%, #f5fbff 50%, #eef5ff 100%)",
+    paperBg: "linear-gradient(180deg, #ffffff 0%, #f8feff 40%, #f1f7ff 100%)",
+  },
+  {
+    id: "cloud",
+    label: "Cloud",
+    pageBg: "linear-gradient(135deg, #f9fbff 0%, #f5f7fb 50%, #eef1f6 100%)",
+    paperBg: "linear-gradient(180deg, #ffffff 0%, #f8f9fc 45%, #f2f4f8 100%)",
+  },
+];
+
 export default function DocEditor({ doc }: DocEditorProps) {
   const router = useRouter();
   const [title, setTitle] = useState(doc.title);
@@ -31,9 +53,17 @@ export default function DocEditor({ doc }: DocEditorProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(new Date(doc.updated_at));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  
+  const [docTheme, setDocTheme] = useState<string>("sand");
+  const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(false);
+  const [floatingToolbarVisible, setFloatingToolbarVisible] = useState<boolean>(false);
+  const [topBarHeight, setTopBarHeight] = useState<number>(0);
+  const { setHeaderHidden } = useDashboardHeader();
+
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const titleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const topBarRef = useRef<HTMLDivElement | null>(null);
+  const headerHideTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-save content
   useEffect(() => {
@@ -100,6 +130,50 @@ export default function DocEditor({ doc }: DocEditorProps) {
     };
   }, [title, doc.id, doc.title, router]);
 
+  // Theme persistence (local only)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("trak-doc-theme");
+    if (saved && DOC_THEMES.some((t) => t.id === saved)) {
+      setDocTheme(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("trak-doc-theme", docTheme);
+  }, [docTheme]);
+
+  // Pin persistence (local only)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedPin = localStorage.getItem("trak-doc-toolbar-pinned");
+    if (savedPin === "true") {
+      setIsToolbarPinned(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("trak-doc-toolbar-pinned", isToolbarPinned ? "true" : "false");
+  }, [isToolbarPinned]);
+
+  const theme = useMemo(
+    () => DOC_THEMES.find((t) => t.id === docTheme) || DOC_THEMES[0],
+    [docTheme]
+  );
+
+  // Measure top bar height for toolbar offset
+  useEffect(() => {
+    if (!topBarRef.current) return;
+    const measure = () => {
+      setTopBarHeight(topBarRef.current?.offsetHeight || 0);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   const formatLastSaved = () => {
     if (!lastSaved) return "";
     
@@ -115,6 +189,77 @@ export default function DocEditor({ doc }: DocEditorProps) {
       day: "numeric",
       year: "numeric",
     });
+  };
+
+  const cancelHeaderHide = () => {
+    if (headerHideTimerRef.current) {
+      clearTimeout(headerHideTimerRef.current);
+      headerHideTimerRef.current = null;
+    }
+  };
+
+  const showHeader = () => {
+    if (isToolbarPinned) return;
+    cancelHeaderHide();
+    setHeaderHidden(false);
+  };
+
+  const scheduleHeaderHide = () => {
+    if (isToolbarPinned) return;
+    cancelHeaderHide();
+    headerHideTimerRef.current = setTimeout(() => {
+      setHeaderHidden(true);
+      headerHideTimerRef.current = null;
+    }, 250);
+  };
+
+  useEffect(() => {
+    if (isToolbarPinned) {
+      cancelHeaderHide();
+      setHeaderHidden(true);
+    } else if (floatingToolbarVisible) {
+      cancelHeaderHide();
+      setHeaderHidden(false);
+    } else {
+      scheduleHeaderHide();
+    }
+
+    return () => {
+      cancelHeaderHide();
+      setHeaderHidden(false);
+    };
+  }, [floatingToolbarVisible, isToolbarPinned, setHeaderHidden]);
+
+  const handleHoverZoneEnter = () => {
+    if (isToolbarPinned) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setFloatingToolbarVisible(true);
+    showHeader();
+  };
+
+  const handleHoverZoneLeave = () => {
+    if (isToolbarPinned) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setFloatingToolbarVisible(false);
+      scheduleHeaderHide();
+    }, 250);
+  };
+
+  const handleToolbarEnter = () => {
+    if (isToolbarPinned) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setFloatingToolbarVisible(true);
+    showHeader();
+  };
+
+  const handleToolbarLeave = () => {
+    if (isToolbarPinned) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setFloatingToolbarVisible(false);
+      scheduleHeaderHide();
+    }, 250);
   };
 
   // Convert TipTap JSON content to plain text
@@ -207,9 +352,28 @@ export default function DocEditor({ doc }: DocEditorProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--surface-muted)]">
+    <div
+      className="min-h-screen"
+      style={{ background: theme.pageBg }}
+    >
+      {/* Hover zone to surface toolbar when unpinned */}
+      {!isToolbarPinned && (
+        <div
+          className="fixed top-0 left-0 right-0 h-10 z-30 pointer-events-auto"
+          onMouseEnter={handleHoverZoneEnter}
+          onMouseLeave={handleHoverZoneLeave}
+        />
+      )}
+
       {/* Top Bar */}
-      <div className="sticky top-0 z-10 bg-[var(--surface)] border-b border-[var(--border)] px-6 py-3">
+      <div
+        ref={topBarRef}
+        className={cn(
+          "bg-[var(--surface)] border-b border-[var(--border)] px-6 py-3 transition-shadow",
+          isToolbarPinned ? "sticky z-20 shadow-sm" : "relative z-10"
+        )}
+        style={isToolbarPinned ? { top: 0 } : undefined}
+      >
         <div className="max-w-[850px] mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <button
@@ -230,6 +394,36 @@ export default function DocEditor({ doc }: DocEditorProps) {
           </div>
 
           <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              {DOC_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setDocTheme(t.id)}
+                  type="button"
+                  className={cn(
+                    "h-6 w-6 rounded-md border flex-shrink-0 transition-all",
+                    docTheme === t.id ? "ring-2 ring-[var(--foreground)] border-transparent" : "border-[var(--border)]"
+                  )}
+                  style={{ background: t.paperBg }}
+                  title={t.label}
+                />
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isToolbarPinned;
+                setIsToolbarPinned(next);
+                if (!next) {
+                  setFloatingToolbarVisible(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+            >
+              {isToolbarPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{isToolbarPinned ? "Unpin" : "Pin"}</span>
+            </button>
             {/* Export Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -276,17 +470,29 @@ export default function DocEditor({ doc }: DocEditorProps) {
       </div>
 
       {/* Page Container */}
-      <div className="py-8 px-4">
+      <div className={cn("px-4", isToolbarPinned ? "pt-0 pb-8" : "py-8")}>
         {/* Paper-like Document */}
-        <div className="max-w-[850px] mx-auto bg-[var(--background)] shadow-lg rounded-sm min-h-[1100px]">
+        <div
+          className="max-w-[850px] mx-auto shadow-lg rounded-sm min-h-[1100px] border border-[var(--border)]"
+          style={{ background: theme.paperBg }}
+        >
           <RichTextEditor
             content={content}
             onChange={setContent}
             placeholder="Start writing your document..."
+            className="bg-transparent"
+            pinnedToolbar={isToolbarPinned}
+            floatingToolbarVisible={!isToolbarPinned && floatingToolbarVisible}
+            pinnedToolbarOffset={
+              isToolbarPinned
+                ? topBarHeight
+                : undefined
+            }
+            onToolbarHoverStart={handleToolbarEnter}
+            onToolbarHoverEnd={handleToolbarLeave}
           />
         </div>
       </div>
     </div>
   );
 }
-

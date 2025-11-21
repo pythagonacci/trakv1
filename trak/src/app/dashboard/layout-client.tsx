@@ -21,6 +21,10 @@ import { usePathname } from "next/navigation";
 import { useWorkspace } from "./workspace-context";
 import { logout } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
+import {
+  DashboardHeaderProvider,
+  useDashboardHeader,
+} from "./header-visibility-context";
 
 interface User {
   id: string;
@@ -48,19 +52,16 @@ export default function DashboardLayoutClient({
   };
 
   return (
-    <div className="flex h-screen bg-[var(--surface)] text-[var(--foreground)]">
-      <Sidebar currentUser={currentUser} collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
+    <DashboardHeaderProvider>
+      <div className="flex h-screen bg-[var(--surface)] text-[var(--foreground)]">
+        <Sidebar currentUser={currentUser} collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header />
-        <main
-          id="dashboard-content"
-          className="flex-1 overflow-y-auto px-3 py-4 md:px-4 lg:px-5 lg:py-5"
-        >
-          {children}
-        </main>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Header />
+          <LayoutMain>{children}</LayoutMain>
+        </div>
       </div>
-    </div>
+    </DashboardHeaderProvider>
   );
 }
 
@@ -361,6 +362,11 @@ function NavLink({
 
 function Header() {
   const pathname = usePathname();
+  const { headerHidden } = useDashboardHeader();
+
+  if (headerHidden) {
+    return null;
+  }
 
   const getPageTitle = () => {
     if (pathname?.includes("/projects")) return "Projects";
@@ -372,7 +378,7 @@ function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]">
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]">
       <div className="flex w-full items-center justify-between px-3 py-2.5 md:px-4 lg:px-5">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] font-medium uppercase tracking-[0.32em] text-[var(--tertiary-foreground)]">
@@ -390,5 +396,21 @@ function Header() {
         </div>
       </div>
     </header>
+  );
+}
+
+function LayoutMain({ children }: { children: React.ReactNode }) {
+  const { headerHidden } = useDashboardHeader();
+
+  return (
+    <main
+      id="dashboard-content"
+      className={cn(
+        "flex-1 overflow-y-auto px-3 md:px-4 lg:px-5",
+        headerHidden ? "py-0" : "py-4 lg:py-5"
+      )}
+    >
+      {children}
+    </main>
   );
 }
