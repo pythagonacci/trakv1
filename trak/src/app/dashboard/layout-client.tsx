@@ -251,14 +251,6 @@ function Sidebar({
             Docs
           </NavLink>
           <NavLink
-            href="/dashboard/clients"
-            icon={<Users className="h-4 w-4" />}
-            active={pathname?.startsWith("/dashboard/clients")}
-            collapsed={collapsed}
-          >
-            Clients
-          </NavLink>
-          <NavLink
             href="/dashboard/payments"
             icon={<CreditCard className="h-4 w-4" />}
             active={pathname?.startsWith("/dashboard/payments")}

@@ -6,6 +6,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Link from "@tiptap/extension-link";
+import { Extension } from "@tiptap/core";
 import { useEffect, useState } from "react";
 import {
   Bold,
@@ -33,6 +34,11 @@ interface RichTextEditorProps {
   onChange: (content: any) => void;
   placeholder?: string;
   className?: string;
+  pinnedToolbar?: boolean;
+  floatingToolbarVisible?: boolean;
+  onToolbarHoverStart?: () => void;
+  onToolbarHoverEnd?: () => void;
+  pinnedToolbarOffset?: number;
 }
 
 export default function RichTextEditor({
@@ -40,12 +46,35 @@ export default function RichTextEditor({
   onChange,
   placeholder = "Start writing...",
   className,
+  pinnedToolbar = false,
+  floatingToolbarVisible = false,
+  onToolbarHoverStart,
+  onToolbarHoverEnd,
+  pinnedToolbarOffset,
 }: RichTextEditorProps) {
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Allow Tab / Shift+Tab for indenting lists and inserting spaces in the editor
+  const TabShortcut = Extension.create({
+    name: "customTab",
+    addKeyboardShortcuts() {
+      return {
+        Tab: () => {
+          if (this.editor.commands.sinkListItem("listItem")) {
+            return true;
+          }
+          return this.editor.commands.insertContent("    ");
+        },
+        "Shift-Tab": () => {
+          return this.editor.commands.liftListItem("listItem");
+        },
+      };
+    },
+  });
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -55,6 +84,7 @@ export default function RichTextEditor({
           levels: [1, 2, 3],
         },
       }),
+      TabShortcut,
       Placeholder.configure({
         placeholder,
       }),
@@ -139,7 +169,23 @@ export default function RichTextEditor({
   return (
     <div className={cn("bg-[var(--background)]", className)}>
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 px-6 py-2 border-b border-[var(--border)] bg-[var(--surface)] sticky top-[57px] z-10">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-0.5 px-6 py-2 border-b border-[var(--border)] bg-[var(--surface)]",
+          pinnedToolbar && "sticky z-20 shadow-sm",
+          !pinnedToolbar && floatingToolbarVisible && "fixed left-1/2 -translate-x-1/2 z-30 w-[min(900px,calc(100%-24px))] rounded-xl shadow-lg border bg-[var(--surface)]/95 backdrop-blur",
+          !pinnedToolbar && !floatingToolbarVisible && "relative z-0"
+        )}
+        onMouseEnter={onToolbarHoverStart}
+        onMouseLeave={onToolbarHoverEnd}
+        style={
+          pinnedToolbar
+            ? { top: pinnedToolbarOffset ?? 0 }
+            : floatingToolbarVisible
+            ? { top: (pinnedToolbarOffset ?? 0) + 8 }
+            : undefined
+        }
+      >
         {/* Text formatting */}
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -291,4 +337,3 @@ export default function RichTextEditor({
     </div>
   );
 }
-

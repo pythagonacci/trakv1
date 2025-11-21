@@ -72,7 +72,8 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  const handleToggleArchive = async (doc: Doc) => {
+  const handleToggleArchive = async (doc: Doc, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     const previousDocs = [...docs];
     setDocs((prev) =>
       prev.map((d) =>
@@ -97,7 +98,8 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
     setOpenMenuId(null);
   };
 
-  const handleOpenDeleteConfirm = (doc: Doc) => {
+  const handleOpenDeleteConfirm = (doc: Doc, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     setDeletingDoc(doc);
     setDeleteConfirmOpen(true);
     setOpenMenuId(null);
@@ -189,20 +191,20 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
               key={doc.id}
               onClick={() => handleDocClick(doc.id)}
               className={cn(
-                "group relative cursor-pointer rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:shadow-md transition-all",
+                "group relative cursor-pointer rounded-lg border border-[var(--border)] bg-gradient-to-br from-[#fdfbf5] via-[#f7fbff] to-[#eef6ff] hover:border-[var(--border-strong)] hover:shadow-lg transition-all",
                 isTemp && "opacity-70 pointer-events-none"
               )}
             >
               {/* Document Preview */}
-              <div className="aspect-[8.5/11] bg-white border-b border-[var(--border)] rounded-t-lg p-6 overflow-hidden">
-                <div className="space-y-2 text-xs text-gray-700 leading-relaxed">
+              <div className="aspect-[8.5/11] bg-gradient-to-b from-white via-[#f8fbff] to-[#eef6ff] border-b border-[var(--border)] rounded-t-lg p-6 overflow-hidden shadow-inner">
+                <div className="space-y-2 text-xs text-slate-700 leading-relaxed">
                   {(() => {
                     const contentLines = extractTextFromContent(doc.content);
                     const displayLines = contentLines.slice(0, 15); // Show first 15 lines
                     
                     if (displayLines.length === 0) {
                       return (
-                        <div className="text-gray-400 italic">
+                        <div className="text-slate-400 italic">
                           Empty document
                         </div>
                       );
@@ -211,7 +213,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
                     return displayLines.map((line, idx) => (
                       <div 
                         key={idx} 
-                        className="line-clamp-1 text-gray-600"
+                        className="line-clamp-1 text-slate-600"
                         style={{ fontSize: '9px', lineHeight: '1.4' }}
                       >
                         {line}
@@ -249,7 +251,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleToggleArchive(doc); }}>
+                        <DropdownMenuItem onClick={(e) => handleToggleArchive(doc, e)}>
                           {doc.is_archived ? (
                             <>
                               <ArchiveRestore className="h-4 w-4" /> Restore
@@ -261,7 +263,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
                           )}
                         </DropdownMenuItem>
                         <DropdownMenuItem 
-                          onClick={(e) => { e.stopPropagation(); handleOpenDeleteConfirm(doc); }}
+                          onClick={(e) => handleOpenDeleteConfirm(doc, e)}
                           className="text-red-500 focus:bg-red-50 focus:text-red-600"
                         >
                           <Trash2 className="h-4 w-4" /> Delete
@@ -303,4 +305,3 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
     );
   }
 }
-

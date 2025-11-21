@@ -253,7 +253,7 @@ function DraggableEvent({
   onDependencyClick: () => void;
   onMouseEnter: (e: React.MouseEvent) => void;
   onMouseLeave: (e: React.MouseEvent) => void;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
   barStyle: React.CSSProperties;
   columnWidth: number;
 }) {
@@ -452,13 +452,16 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
   // Filter events
   const filteredEvents = useMemo(() => {
     let filtered = [...events];
+
+    const statusFilters = filters?.status ?? [];
+    const assigneeFilters = filters?.assignee ?? [];
     
-    if (filters.status && filters.status.length > 0) {
-      filtered = filtered.filter(e => e.status && filters.status.includes(e.status));
+    if (statusFilters.length > 0) {
+      filtered = filtered.filter(e => e.status && statusFilters.includes(e.status));
     }
     
-    if (filters.assignee && filters.assignee.length > 0) {
-      filtered = filtered.filter(e => e.assignee && filters.assignee.includes(e.assignee));
+    if (assigneeFilters.length > 0) {
+      filtered = filtered.filter(e => e.assignee && assigneeFilters.includes(e.assignee));
     }
     
     return filtered;

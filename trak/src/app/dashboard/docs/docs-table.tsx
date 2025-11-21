@@ -104,7 +104,8 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
     }
   };
 
-  const handleToggleArchive = async (doc: Doc) => {
+  const handleToggleArchive = async (doc: Doc, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     const previousDocs = [...docs];
     setDocs((prev) =>
       prev.map((d) =>
@@ -129,7 +130,8 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
     setOpenMenuId(null);
   };
 
-  const handleOpenDeleteConfirm = (doc: Doc) => {
+  const handleOpenDeleteConfirm = (doc: Doc, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     setDeletingDoc(doc);
     setDeleteConfirmOpen(true);
     setOpenMenuId(null);
@@ -233,7 +235,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
         <Button onClick={handleCreateNew} size="sm">New Document</Button>
       </div>
 
-      <Table>
+      <Table className="text-sm">
         <TableHeader>
           <TableRow>
             <TableHead>
@@ -262,13 +264,13 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
             const isTemp = doc.id.startsWith("temp-");
 
             return (
-              <TableRow
-                key={doc.id}
-                className={cn("cursor-pointer", isTemp && "opacity-70")}
-                onClick={() => handleRowClick(doc.id)}
-              >
-                <TableCell>
-                  <span className="text-sm font-medium text-[var(--foreground)]">
+            <TableRow
+              key={doc.id}
+                className={cn("cursor-pointer py-1.5", isTemp && "opacity-70")}
+              onClick={() => handleRowClick(doc.id)}
+            >
+              <TableCell>
+                <span className="text-sm font-medium text-[var(--foreground)]">
                     {doc.title}
                     {doc.is_archived && (
                       <span className="ml-2 text-xs text-[var(--muted-foreground)]">(Archived)</span>
@@ -295,7 +297,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem onClick={() => handleToggleArchive(doc)}>
+                        <DropdownMenuItem onClick={(e) => handleToggleArchive(doc, e)}>
                           {doc.is_archived ? (
                             <>
                               <ArchiveRestore className="h-4 w-4" /> Restore
@@ -306,7 +308,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
                             </>
                           )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleOpenDeleteConfirm(doc)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                        <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(doc, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
                           <Trash2 className="h-4 w-4" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -323,4 +325,3 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
     </>
   );
 }
-
