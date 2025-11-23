@@ -52,6 +52,26 @@ export default async function ProjectPage({
   const tabsResult = await getProjectTabs(projectId);
   const hierarchicalTabs = tabsResult.data || [];
 
+  // Flatten tabs for ProjectHeader
+  type FlatTabInfo = {
+    id: string;
+    name?: string | null;
+    is_client_visible?: boolean | null;
+    children?: FlatTabInfo[];
+  };
+
+  function flattenTabs(tabs: FlatTabInfo[]): FlatTabInfo[] {
+    const list: FlatTabInfo[] = [];
+    const go = (tab: FlatTabInfo) => {
+      list.push(tab);
+      tab.children?.forEach(go);
+    };
+    tabs.forEach(go);
+    return list;
+  }
+
+  const flatTabs = flattenTabs(hierarchicalTabs);
+
   // 5. If tabs exist, redirect to the first tab
   if (hierarchicalTabs.length > 0) {
     const firstTab = hierarchicalTabs[0];
@@ -62,7 +82,7 @@ export default async function ProjectPage({
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       <div className="max-w-7xl mx-auto">
         {/* Project Header */}
-        <ProjectHeader project={project} />
+        <ProjectHeader project={project} tabs={flatTabs} />
 
         {/* Empty Tabs State */}
           <EmptyTabsState projectId={projectId} />

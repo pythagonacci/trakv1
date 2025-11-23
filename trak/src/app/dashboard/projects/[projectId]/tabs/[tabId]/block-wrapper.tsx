@@ -33,6 +33,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import MakeTemplateDialog from "./make-template-dialog";
+import BlockComments from "./block-comments";
+import { MessageSquare } from "lucide-react";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -72,6 +74,12 @@ export default function BlockWrapper({
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  
+  // Check if block has comments
+  const blockContent = block.content || {};
+  const comments = blockContent._blockComments || [];
+  const hasComments = comments.length > 0;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
@@ -201,6 +209,21 @@ export default function BlockWrapper({
               )}
               
               <DropdownMenuSeparator />
+              
+              <DropdownMenuItem
+                onClick={() => {
+                  setCommentsOpen(true);
+                  setMenuOpen(false);
+                }}
+              >
+                <MessageSquare className="h-4 w-4" /> 
+                <span>{hasComments ? "Comments" : "Add comment"}</span>
+                {hasComments && (
+                  <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
+                )}
+              </DropdownMenuItem>
+              
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onDelete?.(block.id)}
                 className="text-red-500 focus:bg-red-50 focus:text-red-600"
@@ -211,8 +234,20 @@ export default function BlockWrapper({
           </DropdownMenu>
         </div>
 
-        <div className={cn("space-y-2.5", borderless && "space-y-3")}>
-          {children}
+        <div className={cn("flex items-start gap-0", borderless && "space-y-3")}>
+          <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3")}>
+            {children}
+          </div>
+
+          {/* Block Comments - positioned on the side */}
+          {!borderless && (hasComments || commentsOpen) && (
+            <BlockComments 
+              block={block} 
+              onUpdate={onUpdate}
+              isOpen={commentsOpen ? true : undefined}
+              onToggle={() => setCommentsOpen(!commentsOpen)}
+            />
+          )}
         </div>
       </div>
       

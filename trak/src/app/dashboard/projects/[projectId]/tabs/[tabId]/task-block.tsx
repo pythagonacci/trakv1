@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { 
   CheckCircle2, Circle, Clock, User, Calendar, Plus, X, ChevronDown, MoreVertical,
-  Flag, Tag, AlignLeft, CheckSquare, Paperclip, MessageSquare, Repeat, Users, ChevronRight
+  Flag, Tag, AlignLeft, CheckSquare, Paperclip, MessageSquare, Repeat, Users, ChevronRight,
+  Eye, EyeOff, Settings
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
@@ -15,6 +16,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 
 interface Task {
@@ -35,9 +39,10 @@ interface Task {
     frequency: "daily" | "weekly" | "monthly";
     interval: number;
   };
+  hideIcons?: boolean;
 }
 
-// Separate component for task description to prevent state loss on re-renders
+  // Separate component for task description to prevent state loss on re-renders
 // Uses uncontrolled textarea to avoid React state interference
 function TaskDescription({ 
   task, 
@@ -85,7 +90,7 @@ function TaskDescription({
 
   return (
     <div 
-      className="mt-2 relative group/desc" 
+      className="mt-1 relative group/desc" 
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -103,8 +108,8 @@ function TaskDescription({
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
         placeholder="Add description..."
-        className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)] focus:outline-none resize-none pr-6"
-        rows={2}
+        className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] focus:outline-none resize-none pr-6"
+        rows={1}
         autoComplete="off"
         data-form-type="other"
       />
@@ -120,9 +125,9 @@ function TaskDescription({
             }
             setShowDelete(false);
           }}
-          className="absolute top-1 right-1 opacity-0 group-hover/desc:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity z-10"
+          className="absolute top-0.5 right-0.5 opacity-0 group-hover/desc:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity z-10"
         >
-          <X className="h-3 w-3" />
+          <X className="h-2.5 w-2.5" />
         </button>
       )}
     </div>
@@ -144,18 +149,21 @@ interface TaskBlockProps {
 }
 
 export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId }: TaskBlockProps) {
-  const content = (block.content || {}) as { title?: string; tasks?: Task[] };
+  const content = (block.content || {}) as { title?: string; tasks?: Task[]; hideIcons?: boolean };
   const title = content.title || "Task list";
   const tasks = content.tasks || [];
+  const initialGlobalHideIcons = content.hideIcons || false;
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(title);
+  const [globalHideIcons, setGlobalHideIcons] = useState(initialGlobalHideIcons);
   const [editingTaskId, setEditingTaskId] = useState<string | number | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean }>>({});
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
   const [newTagInput, setNewTagInput] = useState("");
+  const dateInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
   
   // Common tag options (these are just suggestions)
   const commonTags = [
@@ -175,6 +183,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   useEffect(() => {
     setTitleValue(title);
   }, [title]);
+
+  // Stay in sync if hideIcons changes externally
+  useEffect(() => {
+    setGlobalHideIcons(content.hideIcons || false);
+  }, [content.hideIcons]);
 
   useEffect(() => {
     const loadMembers = async () => {
@@ -230,6 +243,16 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       return { ...task, status: "todo" } as Task;
     });
 
+    // Skip database update if block has temporary ID (not yet saved)
+    if (block.id.startsWith("temp-")) {
+      onUpdate?.({
+        ...block,
+        content: { ...content, tasks: newTasks },
+        updated_at: new Date().toISOString(),
+      });
+      return;
+    }
+
     const result = await updateBlock({
       blockId: block.id,
       content: { ...content, tasks: newTasks },
@@ -243,6 +266,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
 
   const setTaskStatus = async (taskId: string | number, status: Task["status"]) => {
     const newTasks = tasks.map((task) => (task.id === taskId ? { ...task, status } : task));
+    
+    // Skip database update if block has temporary ID (not yet saved)
+    if (block.id.startsWith("temp-")) {
+      onUpdate?.({
+        ...block,
+        content: { ...content, tasks: newTasks },
+        updated_at: new Date().toISOString(),
+      });
+      return;
+    }
+
     const result = await updateBlock({
       blockId: block.id,
       content: { ...content, tasks: newTasks },
@@ -261,27 +295,70 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       status: "todo",
     };
     const newTasks = [...tasks, newTask];
-    const result = await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    const updatedContent = { ...content, tasks: newTasks };
+
+    // Optimistically update UI
+    onUpdate?.({
+      ...block,
+      content: updatedContent,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Skip database update if block has temporary ID (not yet saved)
+    if (block.id.startsWith("temp-")) {
+      return;
+    }
+
+    const result = await updateBlock({ blockId: block.id, content: updatedContent });
     if (result.data) {
       onUpdate?.(result.data);
-    } else {
-      onUpdate?.();
+    } else if (result.error) {
+      console.error("Failed to add task:", result.error);
+      // Keep optimistic state so the task doesn't vanish; rely on next refresh to realign if needed
     }
   };
 
   const deleteTask = async (taskId: string | number) => {
     const newTasks = tasks.filter((task) => task.id !== taskId);
-    const result = await updateBlock({ blockId: block.id, content: { ...content, tasks: newTasks } });
+    const updatedContent = { ...content, tasks: newTasks };
+
+    // Optimistic update
+    onUpdate?.({
+      ...block,
+      content: updatedContent,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Skip database update if block has temporary ID (not yet saved)
+    if (block.id.startsWith("temp-")) {
+      return;
+    }
+
+    const result = await updateBlock({ blockId: block.id, content: updatedContent });
     if (result.data) {
       onUpdate?.(result.data);
-    } else {
-      onUpdate?.();
+    } else if (result.error) {
+      console.error("Failed to delete task:", result.error);
+      // Keep optimistic state; next refresh will realign if needed
     }
   };
 
   const updateTask = async (taskId: string | number, updates: Partial<Task>) => {
     const newTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
     const updatedContent = { ...content, tasks: newTasks };
+
+    // Optimistic update
+    onUpdate?.({
+      ...block,
+      content: updatedContent,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Skip database update if block has temporary ID (not yet saved)
+    if (block.id.startsWith("temp-")) {
+      return;
+    }
+
     const result = await updateBlock({ blockId: block.id, content: updatedContent });
     
     // Pass updated block to parent for local state update (no router.refresh for inline edits)
@@ -289,24 +366,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       onUpdate?.(result.data);
     } else if (result.error) {
       console.error("Failed to update task:", result.error);
-      // On error, construct optimistic update to avoid router.refresh() spam
-      // This prevents the refresh loop that breaks typing
-      const optimisticBlock: Block = {
-        ...block,
-        content: updatedContent,
-        updated_at: new Date().toISOString(),
-      };
-      onUpdate?.(optimisticBlock);
+      // Keep optimistic state to avoid flicker; next refresh will realign if needed
     }
   };
 
   const getStatusIcon = (status: Task["status"]) =>
     status === "done" ? (
-      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
     ) : status === "in-progress" ? (
-      <Clock className="w-5 h-5 text-[#1d4ed8]" />
+      <Clock className="w-4 h-4 text-[#1d4ed8]" />
     ) : (
-      <Circle className="w-5 h-5 text-neutral-300 dark:text-neutral-600" />
+      <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
     );
 
   const getPriorityColor = (priority?: Task["priority"]) => {
@@ -419,9 +489,70 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     setNewTagInput("");
   };
 
+  const toggleGlobalIcons = async () => {
+    const newHideIcons = !globalHideIcons;
+    setGlobalHideIcons(newHideIcons);
+    const updatedContent = { ...content, hideIcons: newHideIcons };
+    
+    // Optimistic update
+    onUpdate?.({
+      ...block,
+      content: updatedContent,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Skip database update if block has temporary ID (not yet saved)
+    if (block.id.startsWith("temp-")) {
+      return;
+    }
+
+    const result = await updateBlock({ blockId: block.id, content: updatedContent });
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else if (result.error) {
+      console.error("Failed to toggle global icons:", result.error);
+      // Revert on error
+      setGlobalHideIcons(!newHideIcons);
+    }
+  };
+
+  const toggleTaskIcons = async (taskId: string | number) => {
+    const task = tasks.find(t => t.id === taskId);
+    const newHideIcons = !task?.hideIcons;
+    await updateTask(taskId, { hideIcons: newHideIcons });
+  };
+
+  // Helper to check if icons should be shown for a task
+  const shouldShowIcons = (task: Task) => {
+    return !globalHideIcons && !task.hideIcons;
+  };
+
+  // Helper to check if we should show icon for assignees (always show if has value, always show if icons enabled)
+  const shouldShowAssigneesIcon = (task: Task) => {
+    const hasAssignees = task.assignees && task.assignees.length > 0;
+    // If there's a value, always show the icon
+    if (hasAssignees) return true;
+    // If icons are enabled, show empty button so user can add assignees
+    if (shouldShowIcons(task)) return true;
+    // If icons are hidden and no value, don't show
+    return false;
+  };
+
+  // Helper to check if we should show icon for date (always show if has value, always show if icons enabled)
+  const shouldShowDateIcon = (task: Task) => {
+    const hasDate = !!task.dueDate;
+    // If there's a value, always show the icon
+    if (hasDate) return true;
+    // If icons are enabled, show empty button so user can add date
+    if (shouldShowIcons(task)) return true;
+    // If icons are hidden and no value, don't show
+    return false;
+  };
+
   return (
-    <div className="p-4">
-      <div className="mb-3">
+    <div className="p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex-1">
         {editingTitle ? (
           <input
             value={titleValue}
@@ -431,14 +562,28 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
               const nextTitle = titleValue.trim() || "Task list";
               setTitleValue(nextTitle);
               setEditingTitle(false);
+              const updatedContent = { ...content, title: nextTitle };
+
+              // Optimistic update so the title stays changed in UI
+              onUpdate?.({
+                ...block,
+                content: updatedContent,
+                updated_at: new Date().toISOString(),
+              });
+
+              // Skip database update if block has temporary ID (not yet saved)
+              if (block.id.startsWith("temp-")) {
+                return;
+              }
+
               const result = await updateBlock({
                 blockId: block.id,
-                content: { ...content, title: nextTitle },
+                content: updatedContent,
               });
               if (result.data) {
                 onUpdate?.(result.data);
-              } else {
-                onUpdate?.();
+              } else if (result.error) {
+                console.error("Failed to update task list title:", result.error);
               }
             }}
             onKeyDown={async (e) => {
@@ -474,8 +619,32 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
             {title}
           </div>
         )}
+        </div>
+        {/* Global Icons Toggle */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+              <Settings className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={toggleGlobalIcons}>
+              {globalHideIcons ? (
+                <>
+                  <Eye className="mr-2 h-4 w-4" />
+                  Show Icons
+                </>
+              ) : (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" />
+                  Hide Icons
+                </>
+              )}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <div className="space-y-2.5">
+      <div className="space-y-1.5">
         {tasks.map((task: Task) => {
           const taskSections = expandedSections[task.id] || {};
           const hasAnyExpanded = taskSections.comments;
@@ -485,20 +654,30 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
             <div
               id={`task-${task.id}`}
               key={task.id}
-              className="group rounded-[6px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 ease-out hover:border-[var(--foreground)]/15"
+              className="group rounded-[6px] bg-[var(--surface)] transition-all duration-150 ease-out"
             >
               {/* Main Task Row */}
-              <div className="flex items-start gap-2.5 px-3 py-2">
+              <div className="flex items-start gap-2 px-2.5 py-1.5">
             {/* Status Icon */}
+            {shouldShowIcons(task) ? (
             <button
               onClick={() => toggleTask(task.id)}
-                  className="mt-1 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0"
+                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0"
               aria-label="Toggle task"
             >
               {getStatusIcon(task.status)}
             </button>
+            ) : (
+            <button
+              onClick={() => toggleTask(task.id)}
+                  className="mt-0.5 flex h-5 w-5 items-center justify-center flex-shrink-0"
+              aria-label="Toggle task"
+            >
+              <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+            </button>
+            )}
 
-                <div className="flex-1 space-y-2 min-w-0">
+                <div className="flex-1 space-y-1.5 min-w-0">
                   {/* Task Title */}
               {editingTaskId === task.id ? (
                 <input
@@ -514,17 +693,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                     if (e.key === "Escape") setEditingTaskId(null);
                   }}
                   autoFocus
-                  className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-sm text-[var(--foreground)] shadow-sm focus:outline-none"
+                  className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
                 />
               ) : (
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-1.5">
                 <div
                   onClick={() => {
                     setEditingTaskId(task.id);
                     setEditingTaskText(task.text);
                   }}
                   className={cn(
-                          "flex-1 cursor-text text-sm leading-snug text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                          "flex-1 cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
                     task.status === "done" && "line-through text-[var(--muted-foreground)]"
                   )}
                 >
@@ -547,17 +726,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                           }}
                           className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
                         >
-                          <ChevronRight className={cn("h-4 w-4 transition-transform", hasAnyExpanded && "rotate-90")} />
+                          <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", hasAnyExpanded && "rotate-90")} />
                         </button>
                       )}
                     </div>
                   )}
 
                   {/* Priority & Tags Row */}
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {task.priority && task.priority !== "none" && (
-                      <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium", getPriorityColor(task.priority))}>
-                        <Flag className="h-3 w-3" />
+                      <span className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-xs font-medium", getPriorityColor(task.priority))}>
+                        {shouldShowIcons(task) && <Flag className="h-2.5 w-2.5" />}
                         {getPriorityLabel(task.priority)}
                       </span>
                     )}
@@ -567,7 +746,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                       return (
                         <span
                           key={tagName}
-                          className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
+                          className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium"
                           style={{
                             backgroundColor: tagConfig ? `${tagConfig.color}15` : "#e5e7eb",
                             color: tagConfig?.color || "#6b7280",
@@ -587,7 +766,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
 
                   {/* Subtasks - Inline Display */}
                   {task.subtasks && task.subtasks.length > 0 && (
-                    <div className="pl-4 space-y-1">
+                    <div className="pl-3 space-y-0.5">
                       {task.subtasks.map((subtask) => (
                         <div key={subtask.id} className="flex items-center gap-1.5 group/subtask">
                           <button
@@ -615,81 +794,98 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                       ))}
                       <button
                         onClick={() => addSubtask(task.id)}
-                        className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors py-0.5 ml-[18px]"
+                        className="flex items-center gap-0.5 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors py-0.5 ml-[14px]"
                       >
-                        <Plus className="h-3 w-3" />
+                        <Plus className="h-2.5 w-2.5" />
                         Add subtask
                       </button>
                     </div>
                   )}
 
                   {/* Assignees, Dates Row */}
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--tertiary-foreground)]">
-                    {/* Multiple Assignees */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]">
-                          <Users className="h-3.5 w-3.5" />
-                          {task.assignees && task.assignees.length > 0
-                            ? `${task.assignees.length} assigned`
-                            : "Assign"}
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-48">
-                    {members.map((member) => (
-                          <DropdownMenuItem key={member.id} onClick={() => toggleAssignee(task.id, member.name)}>
-                            <input
-                              type="checkbox"
-                              checked={task.assignees?.includes(member.name) || false}
-                              onChange={() => {}}
-                              className="mr-2"
-                            />
-                        {member.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                    {/* Start Date */}
-                    {(task.startDate || hasAnyExpanded) && (
-                      <div className="inline-flex items-center gap-1.5">
-                        <span className="text-[var(--tertiary-foreground)]">Start:</span>
-                        <input
-                          type="date"
-                          value={task.startDate || ""}
-                          onChange={(e) => updateTask(task.id, { startDate: e.target.value || undefined })}
-                          className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:outline-none"
-                        />
-                      </div>
+                  {(shouldShowAssigneesIcon(task) || shouldShowDateIcon(task) || (task.assignees && task.assignees.length > 0) || task.dueDate) && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal text-[var(--tertiary-foreground)]">
+                    {/* Assignees */}
+                    {shouldShowAssigneesIcon(task) && (
+                      shouldShowIcons(task) || (task.assignees && task.assignees.length > 0) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]">
+                            <Users className="h-3 w-3" />
+                            {task.assignees && task.assignees.length > 0 && (
+                              <span className="text-xs font-normal text-[var(--foreground)]">
+                                {task.assignees.length === 1 
+                                  ? task.assignees[0].split(' ')[0] 
+                                  : `${task.assignees.length}`}
+                              </span>
+                            )}
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-48">
+                          {members.map((member) => (
+                            <DropdownMenuItem key={member.id} onClick={() => toggleAssignee(task.id, member.name)}>
+                              <input
+                                type="checkbox"
+                                checked={task.assignees?.includes(member.name) || false}
+                                onChange={() => {}}
+                                className="mr-2"
+                              />
+                              {member.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null
                     )}
+                    
 
                     {/* Due Date */}
-                    <div className="inline-flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
+                    {shouldShowDateIcon(task) && (
+                      <label className="relative inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 cursor-pointer transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)] font-normal">
+                        {task.dueDate && <Calendar className="h-3 w-3" />}
+                        {task.dueDate ? (
+                          <span className="text-xs font-normal text-[var(--foreground)]">
+                            {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        ) : (
+                          shouldShowIcons(task) && (
+                            <>
+                              <Calendar className="h-3 w-3" />
+                              <span className="text-xs font-normal text-[var(--muted-foreground)]">Date</span>
+                            </>
+                          )
+                        )}
+                        <input
+                          type="date"
+                          value={task.dueDate || ""}
+                          onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                        />
+                      </label>
+                    )}
+                    
+              </div>
+                  )}
+                </div>
+
+                {/* Hidden date inputs for menu access when icons are hidden */}
+                {!shouldShowIcons(task) && (
                   <input
+                    ref={(el) => {
+                      dateInputRefs.current[task.id] = el;
+                    }}
                     type="date"
                     value={task.dueDate || ""}
                     onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
-                    className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)] focus:outline-none"
+                    className="hidden"
                   />
-                  {task.dueDate && (
-                    <button
-                      onClick={() => updateTask(task.id, { dueDate: undefined })}
-                      className="text-[var(--tertiary-foreground)] hover:text-[var(--muted-foreground)]"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+                )}
 
                 {/* Three-dot menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
-                      <MoreVertical className="h-4 w-4" />
+                    <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
+                      <MoreVertical className="h-3.5 w-3.5" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
@@ -803,7 +999,70 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                     
                     <DropdownMenuSeparator />
                     
+                    {/* Assign and Date - Only show when icons are hidden */}
+                    {!shouldShowIcons(task) && (
+                      <>
+                        {/* Assign Submenu */}
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Users className="mr-2 h-4 w-4" />
+                            Assign
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {members.map((member) => (
+                              <DropdownMenuItem key={member.id} onClick={() => toggleAssignee(task.id, member.name)}>
+                                <input
+                                  type="checkbox"
+                                  checked={task.assignees?.includes(member.name) || false}
+                                  onChange={() => {}}
+                                  className="mr-2"
+                                />
+                                {member.name}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        
+                        {/* Add Date Menu Item */}
+                        <DropdownMenuItem 
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            // Small delay to ensure menu doesn't close before input opens
+                            setTimeout(() => {
+                              const dateInput = dateInputRefs.current[task.id];
+                              if (dateInput) {
+                                if ('showPicker' in HTMLInputElement.prototype) {
+                                  dateInput.showPicker();
+                                } else {
+                                  dateInput.focus();
+                                  dateInput.click();
+                                }
+                              }
+                            }, 100);
+                          }}
+                        >
+                          <Calendar className="mr-2 h-4 w-4" />
+                          {task.dueDate ? 'Change date' : 'Add date'}
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
+                    
                     {/* Actions */}
+                    <DropdownMenuItem onClick={() => toggleTaskIcons(task.id)}>
+                      {task.hideIcons ? (
+                        <>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Show Icons
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff className="mr-2 h-4 w-4" />
+                          Hide Icons
+                        </>
+                      )}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
                       if (!task.description) {
                         updateTask(task.id, { description: "" });
@@ -828,7 +1087,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
 
               {/* Expanded Section */}
               {hasAnyExpanded && (
-                <div className="border-t border-[var(--border)] px-3 py-3 space-y-3 bg-[var(--surface-muted)]">
+                <div className="border-t border-[var(--border)] px-2.5 py-2 space-y-2 bg-[var(--surface-muted)]">
                   {/* Comments */}
                   {taskSections.comments && (
                   <div>
@@ -842,12 +1101,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                         {task.comments.map((comment) => (
                           <div key={comment.id} className="rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-2 text-xs">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-[var(--foreground)]">{comment.author}</span>
-                              <span className="text-[var(--tertiary-foreground)]">
+                              <span className="text-xs font-medium text-[var(--foreground)]">{comment.author}</span>
+                              <span className="text-xs text-[var(--tertiary-foreground)]">
                                 {new Date(comment.timestamp).toLocaleString()}
                               </span>
                             </div>
-                            <p className="text-[var(--muted-foreground)]">{comment.text}</p>
+                            <p className="text-xs text-[var(--muted-foreground)] leading-normal">{comment.text}</p>
                           </div>
                         ))}
                       </div>
@@ -883,9 +1142,9 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
 
         <button
           onClick={addTask}
-          className="inline-flex items-center gap-1.5 rounded-[6px] border border-dashed border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+          className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
         >
-          <Plus className="h-3.5 w-3.5" /> Add task
+          <Plus className="h-3 w-3" /> Add task
         </button>
       </div>
     </div>

@@ -20,9 +20,16 @@ interface ProjectHeaderProps {
       company?: string | null;
     } | null;
   };
+  tabs: TabInfo[];
 }
 
-export default function ProjectHeader({ project }: ProjectHeaderProps) {
+interface TabInfo {
+  id: string;
+  name?: string | null;
+  is_client_visible?: boolean | null;
+}
+
+export default function ProjectHeader({ project, tabs }: ProjectHeaderProps) {
   const router = useRouter();
 
   const formatDueDate = () => {
@@ -81,6 +88,7 @@ export default function ProjectHeader({ project }: ProjectHeaderProps) {
               projectId={project.id}
               clientPageEnabled={project.client_page_enabled || false}
               publicToken={project.public_token || null}
+              tabs={tabs}
             />
           )}
           
