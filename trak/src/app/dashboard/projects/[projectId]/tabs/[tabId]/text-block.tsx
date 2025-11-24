@@ -67,7 +67,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
 
     const resizeTextarea = () => {
       textarea.style.height = "auto";
-      const newHeight = Math.max(40, textarea.scrollHeight); // Minimum 40px height
+      const newHeight = Math.max(20, textarea.scrollHeight); // Minimum 20px height (1 line)
       textarea.style.height = `${newHeight}px`;
     };
 
@@ -364,8 +364,9 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               setIsEditing(false);
             }
           }}
-          className="w-full resize-none rounded-[4px] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none overflow-hidden"
+          className="w-full resize-none rounded-[4px] bg-[var(--surface)] px-2 py-1 text-sm leading-normal text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none overflow-hidden"
           placeholder="Start typing…"
+          style={{ minHeight: '20px', height: 'auto' }}
         />
         {saveStatus !== "idle" && (
           <div className="absolute bottom-2 right-2 text-xs text-[var(--tertiary-foreground)]">
@@ -433,10 +434,10 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const formatted = formatText(content);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div
         onClick={() => setIsEditing(true)}
-        className="cursor-text text-sm leading-relaxed text-[var(--foreground)]"
+        className="cursor-text text-sm leading-normal text-[var(--foreground)]"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}

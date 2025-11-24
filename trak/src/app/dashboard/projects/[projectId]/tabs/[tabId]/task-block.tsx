@@ -28,6 +28,7 @@ interface Task {
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   assignees?: string[];
   dueDate?: string;
+  dueTime?: string;
   startDate?: string;
   tags?: string[];
   description?: string;
@@ -164,6 +165,51 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
   const [newTagInput, setNewTagInput] = useState("");
   const dateInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
+  const timeInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
+  
+  // Helper function to format date with smart labels
+  const formatDueDate = (dueDate: string | undefined, dueTime: string | undefined): string => {
+    if (!dueDate) return "";
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const taskDate = new Date(dueDate + 'T00:00:00'); // Ensure we're comparing dates only
+    taskDate.setHours(0, 0, 0, 0);
+    
+    const todayTime = today.getTime();
+    const tomorrowTime = tomorrow.getTime();
+    const taskTime = taskDate.getTime();
+    
+    let dateLabel: string;
+    if (taskTime === todayTime) {
+      dateLabel = "Today";
+    } else if (taskTime === tomorrowTime) {
+      dateLabel = "Tomorrow";
+    } else {
+      dateLabel = taskDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+    
+    if (dueTime) {
+      // Format time - dueTime should be in HH:MM format (24-hour)
+      try {
+        const [hours, minutes] = dueTime.split(':').map(Number);
+        if (!isNaN(hours) && !isNaN(minutes)) {
+          const period = hours >= 12 ? 'PM' : 'AM';
+          const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+          const formattedTime = `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+          return `${dateLabel} ${formattedTime}`;
+        }
+      } catch (e) {
+        // If time parsing fails, just return date
+      }
+    }
+    
+    return dateLabel;
+  };
   
   // Common tag options (these are just suggestions)
   const commonTags = [
@@ -374,10 +420,22 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     status === "done" ? (
       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
     ) : status === "in-progress" ? (
-      <Clock className="w-4 h-4 text-[#1d4ed8]" />
+      <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
     ) : (
       <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
     );
+  
+  const getStatusBadge = (status: Task["status"]) => {
+    if (status === "in-progress") {
+      return (
+        <span className="inline-flex items-center gap-0.5 rounded border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 px-1.5 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+          <Clock className="h-2.5 w-2.5" />
+          In Progress
+        </span>
+      );
+    }
+    return null;
+  };
 
   const getPriorityColor = (priority?: Task["priority"]) => {
     switch (priority) {
@@ -661,17 +719,27 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
             {/* Status Icon */}
             {shouldShowIcons(task) ? (
             <button
-              onClick={() => toggleTask(task.id)}
-                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                toggleTask(task.id);
+              }}
+                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
               aria-label="Toggle task"
+              type="button"
             >
               {getStatusIcon(task.status)}
             </button>
             ) : (
             <button
-              onClick={() => toggleTask(task.id)}
-                  className="mt-0.5 flex h-5 w-5 items-center justify-center flex-shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                toggleTask(task.id);
+              }}
+                  className="mt-0.5 flex h-5 w-5 items-center justify-center flex-shrink-0 cursor-pointer"
               aria-label="Toggle task"
+              type="button"
             >
               <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
             </button>
@@ -732,33 +800,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                     </div>
                   )}
 
-                  {/* Priority & Tags Row */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {task.priority && task.priority !== "none" && (
-                      <span className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-xs font-medium", getPriorityColor(task.priority))}>
-                        {shouldShowIcons(task) && <Flag className="h-2.5 w-2.5" />}
-                        {getPriorityLabel(task.priority)}
-                      </span>
-                    )}
-                    
-                    {task.tags && task.tags.map((tagName) => {
-                      const tagConfig = commonTags.find(t => t.name === tagName);
-                      return (
-                        <span
-                          key={tagName}
-                          className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium"
-                          style={{
-                            backgroundColor: tagConfig ? `${tagConfig.color}15` : "#e5e7eb",
-                            color: tagConfig?.color || "#6b7280",
-                            border: `1px solid ${tagConfig ? `${tagConfig.color}30` : "#d1d5db"}`,
-                          }}
-                        >
-                          {tagName}
-                        </span>
-                      );
-                    })}
-                  </div>
-
                   {/* Description - Inline Display */}
                   {task.description !== undefined && (
                     <TaskDescription task={task} updateTask={updateTask} />
@@ -802,10 +843,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                     </div>
                   )}
 
-                  {/* Assignees, Dates Row */}
-                  {(shouldShowAssigneesIcon(task) || shouldShowDateIcon(task) || (task.assignees && task.assignees.length > 0) || task.dueDate) && (
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal text-[var(--tertiary-foreground)]">
-                    {/* Assignees */}
+                  {/* All Properties Row: Status, Assignee, Date, Tags */}
+                  {((task.status === "in-progress") || (task.priority && task.priority !== "none") || shouldShowAssigneesIcon(task) || shouldShowDateIcon(task) || (task.assignees && task.assignees.length > 0) || task.dueDate || (task.tags && task.tags.length > 0)) && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal">
+                    {/* 1. Task Status (In Progress) */}
+                    {task.status === "in-progress" && getStatusBadge(task.status)}
+                    
+                    {/* 2. Priority */}
+                    {task.priority && task.priority !== "none" && (
+                      <span className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-xs font-medium", getPriorityColor(task.priority))}>
+                        {shouldShowIcons(task) && <Flag className="h-2.5 w-2.5" />}
+                        {getPriorityLabel(task.priority)}
+                      </span>
+                    )}
+                    
+                    {/* 3. Assignees */}
                     {shouldShowAssigneesIcon(task) && (
                       shouldShowIcons(task) || (task.assignees && task.assignees.length > 0) ? (
                       <DropdownMenu>
@@ -845,7 +897,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                         {task.dueDate && <Calendar className="h-3 w-3" />}
                         {task.dueDate ? (
                           <span className="text-xs font-normal text-[var(--foreground)]">
-                            {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            {formatDueDate(task.dueDate, task.dueTime)}
                           </span>
                         ) : (
                           shouldShowIcons(task) && (
@@ -858,27 +910,70 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                         <input
                           type="date"
                           value={task.dueDate || ""}
-                          onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
+                          onChange={(e) => {
+                            const newDate = e.target.value || undefined;
+                            // Clear time if date is cleared
+                            updateTask(task.id, { 
+                              dueDate: newDate,
+                              dueTime: newDate ? task.dueTime : undefined
+                            });
+                          }}
                           className="absolute inset-0 opacity-0 cursor-pointer"
                         />
                       </label>
                     )}
                     
+                    {/* 4. Tags */}
+                    {task.tags && task.tags.length > 0 && task.tags.map((tagName) => {
+                      const tagConfig = commonTags.find(t => t.name === tagName);
+                      return (
+                        <span
+                          key={tagName}
+                          className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium"
+                          style={{
+                            backgroundColor: tagConfig ? `${tagConfig.color}15` : "#e5e7eb",
+                            color: tagConfig?.color || "#6b7280",
+                            border: `1px solid ${tagConfig ? `${tagConfig.color}30` : "#d1d5db"}`,
+                          }}
+                        >
+                          {tagName}
+                        </span>
+                      );
+                    })}
+                    
               </div>
                   )}
                 </div>
 
-                {/* Hidden date inputs for menu access when icons are hidden */}
+                {/* Hidden date/time inputs for menu access when icons are hidden */}
                 {!shouldShowIcons(task) && (
-                  <input
-                    ref={(el) => {
-                      dateInputRefs.current[task.id] = el;
-                    }}
-                    type="date"
-                    value={task.dueDate || ""}
-                    onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
-                    className="hidden"
-                  />
+                  <>
+                    <input
+                      ref={(el) => {
+                        dateInputRefs.current[task.id] = el;
+                      }}
+                      type="date"
+                      value={task.dueDate || ""}
+                      onChange={(e) => {
+                        const newDate = e.target.value || undefined;
+                        // Clear time if date is cleared
+                        updateTask(task.id, { 
+                          dueDate: newDate,
+                          dueTime: newDate ? task.dueTime : undefined
+                        });
+                      }}
+                      className="hidden"
+                    />
+                    <input
+                      ref={(el) => {
+                        timeInputRefs.current[task.id] = el;
+                      }}
+                      type="time"
+                      value={task.dueTime || ""}
+                      onChange={(e) => updateTask(task.id, { dueTime: e.target.value || undefined })}
+                      className="hidden"
+                    />
+                  </>
                 )}
 
                 {/* Three-dot menu */}
@@ -1044,6 +1139,27 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                           <Calendar className="mr-2 h-4 w-4" />
                           {task.dueDate ? 'Change date' : 'Add date'}
                         </DropdownMenuItem>
+                        {task.dueDate && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTimeout(() => {
+                                const timeInput = timeInputRefs.current[task.id];
+                                if (timeInput) {
+                                  if ('showPicker' in HTMLInputElement.prototype) {
+                                    timeInput.showPicker();
+                                  } else {
+                                    timeInput.focus();
+                                    timeInput.click();
+                                  }
+                                }
+                              }, 100);
+                            }}
+                          >
+                            <Clock className="mr-2 h-4 w-4" />
+                            {task.dueTime ? 'Change time' : 'Add time'}
+                          </DropdownMenuItem>
+                        )}
                         
                         <DropdownMenuSeparator />
                       </>

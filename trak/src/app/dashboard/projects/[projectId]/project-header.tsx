@@ -88,7 +88,6 @@ export default function ProjectHeader({ project, tabs }: ProjectHeaderProps) {
               projectId={project.id}
               clientPageEnabled={project.client_page_enabled || false}
               publicToken={project.public_token || null}
-              tabs={tabs}
             />
           )}
           

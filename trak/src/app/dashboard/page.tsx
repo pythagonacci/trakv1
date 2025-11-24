@@ -84,6 +84,9 @@ export default async function DashboardPage() {
           tabName: block.tab?.name || "Unknown",
           projectId: block.tab?.project?.id,
           tabId: block.tab?.id,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          dueTime: task.dueTime,
         }));
     })
     .flat()

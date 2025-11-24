@@ -160,7 +160,7 @@ export default function BlockWrapper({
 
         <div
           className={cn(
-            "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out",
+            "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out z-30",
             "group-hover:flex group-focus-within:flex",
             menuOpen && "flex"
           )}
@@ -239,8 +239,8 @@ export default function BlockWrapper({
             {children}
           </div>
 
-          {/* Block Comments - positioned on the side */}
-          {!borderless && (hasComments || commentsOpen) && (
+          {/* Block Comments - positioned on the side (only show when open) */}
+          {!borderless && commentsOpen && (
             <BlockComments 
               block={block} 
               onUpdate={onUpdate}

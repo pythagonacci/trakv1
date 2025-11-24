@@ -11,6 +11,8 @@ import {
   Plus,
   TrendingUp,
   CheckCircle2,
+  Flag,
+  Calendar,
 } from "lucide-react";
 import {
   Card,
@@ -41,6 +43,9 @@ interface Task {
   tabName: string;
   projectId: string;
   tabId: string;
+  priority?: "urgent" | "high" | "medium" | "low" | "none";
+  dueDate?: string;
+  dueTime?: string;
 }
 
 interface DashboardOverviewProps {
@@ -85,6 +90,53 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
 
   const formatDate = (value: string) =>
     new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  const formatDueDate = (dueDate?: string, dueTime?: string) => {
+    if (!dueDate) return null;
+    const date = new Date(dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const taskDate = new Date(date);
+    taskDate.setHours(0, 0, 0, 0);
+
+    let dateLabel = "";
+    if (taskDate.getTime() === today.getTime()) {
+      dateLabel = "Today";
+    } else if (taskDate.getTime() === tomorrow.getTime()) {
+      dateLabel = "Tomorrow";
+    } else {
+      dateLabel = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+
+    if (dueTime) {
+      const time = new Date(`2000-01-01T${dueTime}`);
+      const timeStr = time.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      return `${dateLabel} ${timeStr}`;
+    }
+    return dateLabel;
+  };
+
+  const getPriorityColor = (priority?: Task["priority"]) => {
+    switch (priority) {
+      case "urgent": return "text-red-600 bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800 dark:text-red-300";
+      case "high": return "text-orange-600 bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800 dark:text-orange-300";
+      case "medium": return "text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300";
+      case "low": return "text-gray-600 bg-gray-50 border-gray-200 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-300";
+      default: return "";
+    }
+  };
+
+  const getPriorityLabel = (priority?: Task["priority"]) => {
+    switch (priority) {
+      case "urgent": return "Urgent";
+      case "high": return "High";
+      case "medium": return "Medium";
+      case "low": return "Low";
+      default: return "None";
+    }
+  };
 
   const deliveryPercent = (count: number) =>
     totalProjects === 0 ? 0 : Math.round((count / totalProjects) * 100);
@@ -147,6 +199,12 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
               key={task.id}
               title={task.text}
               subtitle={`${task.projectName} · ${task.tabName}`}
+              priority={task.priority}
+              dueDate={task.dueDate}
+              dueTime={task.dueTime}
+              getPriorityColor={getPriorityColor}
+              getPriorityLabel={getPriorityLabel}
+              formatDueDate={formatDueDate}
               onClick={() =>
                 router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
               }
@@ -164,6 +222,12 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
               key={task.id}
               title={task.text}
               subtitle={`${task.projectName} · ${task.tabName}`}
+              priority={task.priority}
+              dueDate={task.dueDate}
+              dueTime={task.dueTime}
+              getPriorityColor={getPriorityColor}
+              getPriorityLabel={getPriorityLabel}
+              formatDueDate={formatDueDate}
               onClick={() =>
                 router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
               }
@@ -182,6 +246,12 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
               title={task.text}
               subtitle={`${task.projectName} · ${task.tabName}`}
               icon={<CheckCircle2 className="h-3.5 w-3.5 text-[var(--foreground)]" />}
+              priority={task.priority}
+              dueDate={task.dueDate}
+              dueTime={task.dueTime}
+              getPriorityColor={getPriorityColor}
+              getPriorityLabel={getPriorityLabel}
+              formatDueDate={formatDueDate}
               onClick={() =>
                 router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
               }
@@ -235,9 +305,25 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
                           {task.tabName}
                         </span>
                       </div>
-                      <p className="mt-1 line-clamp-1 text-[11px] text-[var(--muted-foreground)]">
-                        {task.projectName}
-                      </p>
+                      <div className="mt-1 flex items-center gap-2 flex-wrap">
+                        <p className="line-clamp-1 text-[11px] text-[var(--muted-foreground)]">
+                          {task.projectName}
+                        </p>
+                        {/* Priority Badge */}
+                        {task.priority && task.priority !== "none" && (
+                          <span className={`inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-medium ${getPriorityColor(task.priority)}`}>
+                            <Flag className="h-2.5 w-2.5" />
+                            {getPriorityLabel(task.priority)}
+                          </span>
+                        )}
+                        {/* Due Date Badge */}
+                        {task.dueDate && (
+                          <span className="inline-flex items-center gap-0.5 rounded border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                            <Calendar className="h-2.5 w-2.5" />
+                            {formatDueDate(task.dueDate, task.dueTime)}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -442,9 +528,26 @@ interface UpdateRowProps {
   subtitle: string;
   onClick?: () => void;
   icon?: ReactNode;
+  priority?: Task["priority"];
+  dueDate?: string;
+  dueTime?: string;
+  getPriorityColor?: (priority?: Task["priority"]) => string;
+  getPriorityLabel?: (priority?: Task["priority"]) => string;
+  formatDueDate?: (dueDate?: string, dueTime?: string) => string | null;
 }
 
-function UpdateRow({ title, subtitle, onClick, icon }: UpdateRowProps) {
+function UpdateRow({ 
+  title, 
+  subtitle, 
+  onClick, 
+  icon, 
+  priority, 
+  dueDate, 
+  dueTime,
+  getPriorityColor,
+  getPriorityLabel,
+  formatDueDate,
+}: UpdateRowProps) {
   return (
     <button
       onClick={onClick}
@@ -459,7 +562,23 @@ function UpdateRow({ title, subtitle, onClick, icon }: UpdateRowProps) {
       )}
       <div className="flex-1 min-w-0 space-y-0.5">
         <p className="text-[13px] font-medium text-[var(--foreground)] line-clamp-1">{title}</p>
-        <p className="text-[11px] text-[var(--muted-foreground)]">{subtitle}</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-[11px] text-[var(--muted-foreground)]">{subtitle}</p>
+          {/* Priority Badge */}
+          {priority && priority !== "none" && getPriorityColor && getPriorityLabel && (
+            <span className={`inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-medium ${getPriorityColor(priority)}`}>
+              <Flag className="h-2.5 w-2.5" />
+              {getPriorityLabel(priority)}
+            </span>
+          )}
+          {/* Due Date Badge */}
+          {dueDate && formatDueDate && (
+            <span className="inline-flex items-center gap-0.5 rounded border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+              <Calendar className="h-2.5 w-2.5" />
+              {formatDueDate(dueDate, dueTime)}
+            </span>
+          )}
+        </div>
       </div>
       <ArrowRight className="h-3.5 w-3.5 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
