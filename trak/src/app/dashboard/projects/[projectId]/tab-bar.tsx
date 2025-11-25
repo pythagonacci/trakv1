@@ -180,7 +180,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
   const activeTabInfo = findParentOfActiveTab();
   const [expandedTabId, setExpandedTabId] = useState<string | null>(activeTabInfo?.parent.id || null);
 
-  const renderTab = (tab: Tab, depth = 0) => {
+  const renderTab = (tab: Tab, depth = 0, showDropdown = true) => {
     const isActive = activeTabId === tab.id;
     const isEditing = editingTabId === tab.id;
     const hasChildren = tab.children && tab.children.length > 0;
@@ -250,15 +250,29 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
             </>
           )}
 
-          <DropdownMenu open={openMenuId === tab.id} onOpenChange={(open) => setOpenMenuId(open ? tab.id : null)}>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="ml-1 inline-flex items-center justify-center rounded-[6px] p-2 text-[var(--tertiary-foreground)] opacity-0 pointer-events-none transition-all duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:pointer-events-auto group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52">
+          {showDropdown && (
+            <DropdownMenu 
+              open={openMenuId === tab.id} 
+              onOpenChange={(open) => {
+                if (open) {
+                  setOpenMenuId(tab.id);
+                } else {
+                  setOpenMenuId(null);
+                }
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                  className="ml-1 inline-flex items-center justify-center rounded-[6px] p-2 text-[var(--tertiary-foreground)] opacity-0 pointer-events-none transition-all duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:pointer-events-auto group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={() => setEditingTabId(tab.id)}>
                 <Edit className="h-4 w-4" /> Rename
               </DropdownMenuItem>
@@ -315,12 +329,13 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
         
         {/* Show all subtabs in dropdown when expanded */}
         {isExpanded && hasChildren && !isParentOfActive && depth === 0 && (
           <div className="pl-6 border-l-2 border-[var(--border)] ml-3 space-y-1 py-1">
-            {tab.children!.map((child) => renderTab(child, 1))}
+            {tab.children!.map((child) => renderTab(child, 1, showDropdown))}
           </div>
         )}
       </div>
@@ -338,7 +353,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
         )}
       >
         <div className="flex items-start gap-3 overflow-x-auto flex-1">
-          {tabs.map((tab) => renderTab(tab))}
+          {tabs.map((tab) => renderTab(tab, 0, variant === "inline"))}
           <button
             onClick={handleAddTab}
             className="ml-3 inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-dashed border-[var(--border)] px-3 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)] mt-3"
@@ -403,7 +418,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
 
   return (
     <>
-      <div className="border-b border-[var(--border)] bg-[var(--surface)]">
+      <div className="border-b border-[var(--border)] bg-[var(--background)] backdrop-blur-sm">
         {renderBar("inline")}
       </div>
 
@@ -421,7 +436,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
       <div
         className={cn(
           "pointer-events-none fixed inset-x-0 top-3 z-50 transition-all duration-200 ease-out",
-          shouldShowFloating ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
+          shouldShowFloating ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-3 opacity-0"
         )}
         onMouseEnter={() => setIsHoveringFloating(true)}
         onMouseLeave={() => setIsHoveringFloating(false)}
@@ -434,7 +449,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
           floatingTimeoutRef.current = window.setTimeout(() => setIsHoveringFloating(false), 1600);
         }}
       >
-        <div className="pointer-events-auto mx-auto w-full max-w-6xl px-3">
+        <div className="mx-auto w-full max-w-6xl px-3">
           <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-md">
             {renderBar("floating")}
           </div>

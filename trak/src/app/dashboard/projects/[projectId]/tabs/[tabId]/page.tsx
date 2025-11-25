@@ -6,7 +6,7 @@ import { getTabBlocks } from "@/app/actions/block";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import ProjectHeader from "../../project-header";
 import TabBar from "../../tab-bar";
-import TabCanvas from "./tab-canvas";
+import TabCanvasWrapper from "./tab-canvas-wrapper";
 import SubtabSidebarWrapper from "./subtab-sidebar-wrapper";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
@@ -114,11 +114,11 @@ export default async function TabPage({
       <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
         {/* Project Header - Minimal, elegant */}
         <div className="pt-4 pb-2">
-          <ProjectHeader project={project} />
+          <ProjectHeader project={project} tabId={tabId} />
         </div>
 
-        {/* Tab Navigation - Seamless */}
-        <div>
+        {/* Tab Navigation - Sticky */}
+        <div className="sticky top-0 z-40 bg-[var(--background)]">
           <TabBar 
             tabs={hierarchicalTabs} 
             projectId={projectId}
@@ -133,7 +133,7 @@ export default async function TabPage({
             sidebarConfig={sidebarConfig}
             projectId={projectId}
           >
-            <TabCanvas 
+            <TabCanvasWrapper 
               tabId={tabId}
               projectId={projectId}
               workspaceId={workspaceId}

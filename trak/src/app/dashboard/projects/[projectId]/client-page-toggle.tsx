@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link2, Copy, Check, BarChart3 } from "lucide-react";
 import { enableClientPage, disableClientPage } from "@/app/actions/client-page";
 import { useRouter } from "next/navigation";
@@ -30,9 +30,11 @@ export default function ClientPageToggle({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const clientPageUrl = token
-    ? `${window.location.origin}/client/${token}`
-    : "";
+  const clientPageUrl = useMemo(() => {
+    if (!token) return "";
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/client/${token}`;
+  }, [token]);
 
   const handleToggle = async () => {
     setIsLoading(true);

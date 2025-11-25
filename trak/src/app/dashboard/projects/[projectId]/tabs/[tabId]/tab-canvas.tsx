@@ -23,6 +23,7 @@ import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
 import DocSidebar from "./doc-sidebar";
 import { cn } from "@/lib/utils";
+import { TAB_THEMES } from "./tab-themes";
 
 interface TabCanvasProps {
   tabId: string;
@@ -30,6 +31,8 @@ interface TabCanvasProps {
   workspaceId: string;
   blocks: Block[];
   scrollToTaskId?: string | null;
+  onThemeChange?: (theme: string) => void;
+  currentTheme?: string;
 }
 
 interface BlockRow {
@@ -38,7 +41,7 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme }: TabCanvasProps) {
   const router = useRouter();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
@@ -47,6 +50,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [isCreatingBlock, setIsCreatingBlock] = useState(false);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
+  const [tabTheme, setTabTheme] = useState<string>(propTheme || "default");
   
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
@@ -582,6 +586,39 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     setIsMounted(true);
   }, []);
 
+  // Theme persistence (localStorage, per tab)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem(`trak-tab-theme-${tabId}`);
+    if (saved && TAB_THEMES.some((t) => t.id === saved)) {
+      setTabTheme(saved);
+    }
+  }, [tabId]);
+
+  // Listen for theme changes from project header
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleCustomChange = () => {
+      const saved = localStorage.getItem(`trak-tab-theme-${tabId}`);
+      if (saved && TAB_THEMES.some((t) => t.id === saved) && saved !== tabTheme) {
+        setTabTheme(saved);
+      }
+    };
+    window.addEventListener("tab-theme-updated", handleCustomChange);
+    return () => window.removeEventListener("tab-theme-updated", handleCustomChange);
+  }, [tabId, tabTheme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(`trak-tab-theme-${tabId}`, tabTheme);
+    onThemeChange?.(tabTheme);
+  }, [tabTheme, tabId, onThemeChange]);
+
+  const currentTheme = useMemo(
+    () => TAB_THEMES.find((t) => t.id === tabTheme) || TAB_THEMES[0],
+    [tabTheme]
+  );
+
   const hasBlocks = blocks.length > 0;
   const getNextPosition = () => {
     if (blocks.length === 0) return 0;
@@ -699,71 +736,30 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         >
           <EmptyCanvasState tabId={tabId} projectId={projectId} />
         </div>
-      ) : !isMounted ? (
-        <div className="space-y-5">
-          {blockRows.map((row, rowIdx) => (
-            <div
-              key={rowIdx}
-              className={cn(
-                "grid gap-4",
-                row.blocks.length === 1
-                  ? "grid-cols-1"
-                  : row.maxColumns === 2
-                  ? "grid-cols-1 md:grid-cols-2"
-                  : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-              )}
-            >
-              {row.blocks.map((block) => (
-                <div key={block.id} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
-                  <BlockRenderer
-                    block={block}
-                    workspaceId={workspaceId}
-                    projectId={projectId}
-                    tabId={tabId}
-                    onUpdate={handleUpdate}
-                    scrollToTaskId={scrollToTaskId}
-                    onDelete={handleDelete}
-                    onConvert={handleConvert}
-                    onOpenDoc={setOpenDocId}
-                    isDragging={false}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
+        <div 
+          className={cn(
+            "rounded-2xl border border-[var(--border)]/50 p-6 shadow-sm transition-all duration-300 relative backdrop-blur-sm",
+            currentTheme.containerBg ? "" : "bg-[var(--surface)]/40"
+          )}
+          style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
         >
-          <div className="space-y-5 w-full">
-            {blockRows.map((row, rowIdx) => (
-              <SortableContext
-                key={rowIdx}
-                items={row.blocks.map((b) => b.id)}
-                strategy={verticalListSortingStrategy}
-              >
+          {!isMounted ? (
+            <div className="space-y-5">
+              {blockRows.map((row, rowIdx) => (
                 <div
+                  key={rowIdx}
                   className={cn(
                     "grid gap-4",
                     row.blocks.length === 1
                       ? "grid-cols-1"
                       : row.maxColumns === 2
                       ? "grid-cols-1 md:grid-cols-2"
-                      : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+                      : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
                   )}
                 >
                   {row.blocks.map((block) => (
-                    <div
-                      key={block.id}
-                      className={cn(
-                        "min-w-0",
-                        newBlockIds.has(block.id) && "animate-block-swoosh-in",
-                      )}
-                    >
+                    <div key={block.id} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
                       <BlockRenderer
                         block={block}
                         workspaceId={workspaceId}
@@ -774,15 +770,66 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                         onDelete={handleDelete}
                         onConvert={handleConvert}
                         onOpenDoc={setOpenDocId}
-                        isDragging={isDragging && draggedBlock?.id === block.id}
+                        isDragging={false}
                       />
                     </div>
                   ))}
                 </div>
-              </SortableContext>
-            ))}
-          </div>
-        </DndContext>
+              ))}
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="space-y-5 w-full">
+                {blockRows.map((row, rowIdx) => (
+                  <SortableContext
+                    key={rowIdx}
+                    items={row.blocks.map((b) => b.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div
+                      className={cn(
+                        "grid gap-4",
+                        row.blocks.length === 1
+                          ? "grid-cols-1"
+                          : row.maxColumns === 2
+                          ? "grid-cols-1 md:grid-cols-2"
+                          : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+                      )}
+                    >
+                      {row.blocks.map((block) => (
+                        <div
+                          key={block.id}
+                          className={cn(
+                            "min-w-0",
+                            newBlockIds.has(block.id) && "animate-block-swoosh-in",
+                          )}
+                        >
+                          <BlockRenderer
+                            block={block}
+                            workspaceId={workspaceId}
+                            projectId={projectId}
+                            tabId={tabId}
+                            onUpdate={handleUpdate}
+                            scrollToTaskId={scrollToTaskId}
+                            onDelete={handleDelete}
+                            onConvert={handleConvert}
+                            onOpenDoc={setOpenDocId}
+                            isDragging={isDragging && draggedBlock?.id === block.id}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </SortableContext>
+                ))}
+              </div>
+            </DndContext>
+          )}
+        </div>
       )}
 
       <div className="flex gap-3 pt-4">

@@ -1,9 +1,21 @@
 "use client";
 
-import { ArrowLeft, Edit } from "lucide-react";
+import { ArrowLeft, Edit, Palette } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
 import ClientPageToggle from "./client-page-toggle";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { TAB_THEMES } from "./tabs/[tabId]/tab-themes";
+import { cn } from "@/lib/utils";
 
 interface ProjectHeaderProps {
   project: {
@@ -20,10 +32,43 @@ interface ProjectHeaderProps {
       company?: string | null;
     } | null;
   };
+  tabId?: string;
 }
 
-export default function ProjectHeader({ project }: ProjectHeaderProps) {
+export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
   const router = useRouter();
+  const [tabTheme, setTabTheme] = useState<string>("default");
+
+  // Load theme from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined" || !tabId) return;
+    const saved = localStorage.getItem(`trak-tab-theme-${tabId}`);
+    if (saved && TAB_THEMES.some((t) => t.id === saved)) {
+      setTabTheme(saved);
+    }
+  }, [tabId]);
+
+  // Listen for theme changes from tab canvas
+  useEffect(() => {
+    if (typeof window === "undefined" || !tabId) return;
+    const handleThemeChange = (e: StorageEvent) => {
+      if (e.key === `trak-tab-theme-${tabId}` && e.newValue) {
+        if (TAB_THEMES.some((t) => t.id === e.newValue)) {
+          setTabTheme(e.newValue);
+        }
+      }
+    };
+    window.addEventListener("storage", handleThemeChange);
+    return () => window.removeEventListener("storage", handleThemeChange);
+  }, [tabId]);
+
+  const handleThemeChange = (themeId: string) => {
+    if (!tabId) return;
+    setTabTheme(themeId);
+    localStorage.setItem(`trak-tab-theme-${tabId}`, themeId);
+    // Dispatch custom event for same-window listeners (storage event only works cross-window)
+    window.dispatchEvent(new CustomEvent("tab-theme-updated"));
+  };
 
   const formatDueDate = () => {
     if (project.due_date_text) {
@@ -75,6 +120,38 @@ export default function ProjectHeader({ project }: ProjectHeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Theme selector - only show when on a tab */}
+          {tabId && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 text-xs">
+                  <Palette className="h-3.5 w-3.5" />
+                  Theme
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>Background Theme</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {TAB_THEMES.map((theme) => (
+                  <DropdownMenuItem
+                    key={theme.id}
+                    onClick={() => handleThemeChange(theme.id)}
+                    className="flex items-center gap-2"
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded border border-[var(--border)] flex-shrink-0",
+                        tabTheme === theme.id && "ring-2 ring-[var(--foreground)]"
+                      )}
+                      style={theme.containerBg ? { background: theme.containerBg } : undefined}
+                    />
+                    <span>{theme.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {/* Client Page Toggle - only show for client projects */}
           {project.client && (
             <ClientPageToggle

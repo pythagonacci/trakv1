@@ -752,7 +752,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                   type="text"
                   value={editingTaskText}
                   onChange={(e) => setEditingTaskText(e.target.value)}
-                  onBlur={() => setEditingTaskId(null)}
+                  onBlur={() => {
+                    updateTask(task.id, { text: editingTaskText });
+                    setEditingTaskId(null);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       updateTask(task.id, { text: editingTaskText });
@@ -901,19 +904,20 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                     {/* 3. Assignees */}
                     {shouldShowAssigneesIcon(task) && (
                       shouldShowIcons(task) || (task.assignees && task.assignees.length > 0) ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]">
-                            <Users className="h-3 w-3" />
-                            {task.assignees && task.assignees.length > 0 && (
-                              <span className="text-xs font-normal text-[var(--foreground)]">
-                                {task.assignees.length === 1 
-                                  ? task.assignees[0].split(' ')[0] 
-                                  : `${task.assignees.length}`}
-                              </span>
-                            )}
-                          </button>
-                        </DropdownMenuTrigger>
+                      <div className="group relative inline-flex">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]">
+                              <Users className="h-3 w-3" />
+                              {task.assignees && task.assignees.length > 0 && (
+                                <span className="text-xs font-normal text-[var(--foreground)]">
+                                  {task.assignees.length === 1 
+                                    ? task.assignees[0].split(' ')[0] 
+                                    : `${task.assignees.length}`}
+                                </span>
+                              )}
+                            </button>
+                          </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-48">
                           {members.map((member) => (
                             <DropdownMenuItem key={member.id} onClick={() => toggleAssignee(task.id, member.name)}>
@@ -928,6 +932,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                           ))}
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      {/* Hover tooltip showing all assignees */}
+                      {task.assignees && task.assignees.length > 1 && (
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs text-[var(--foreground)] whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+                          {/* Arrow pointing up */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-px">
+                            <div className="w-2 h-2 rotate-45 border-l border-t border-[var(--border)] bg-[var(--surface)]"></div>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            {task.assignees.map((assignee, idx) => (
+                              <span key={idx}>{assignee}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     ) : null
                     )}
                     

@@ -113,13 +113,16 @@ export default function BlockWrapper({
     { type: "section", label: "Section", icon: <Layout className="h-4 w-4" /> },
   ];
 
+  // Only apply drag listeners to non-text blocks
+  const isTextBlock = block.type === "text";
+  
   return (
     <div 
       ref={setNodeRef} 
       style={style} 
-      className="group relative w-full cursor-move"
+      className={cn("group relative w-full", !isTextBlock && "cursor-move")}
       {...attributes}
-      {...listeners}
+      {...(!isTextBlock ? listeners : {})}
     >
       <div
         className={cn(
@@ -129,9 +132,11 @@ export default function BlockWrapper({
       >
         <button
           {...listeners}
-          className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)]"
+          {...attributes}
+          className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] cursor-move"
           aria-label="Drag block"
           onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
@@ -144,6 +149,21 @@ export default function BlockWrapper({
             ? "rounded-none border-none bg-transparent px-0 py-0 shadow-none"
             : "rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
         )}
+        onMouseDown={(e) => {
+          // Stop drag from starting if clicking on contenteditable or interactive elements
+          const target = e.target as HTMLElement;
+          if (target.isContentEditable || target.closest('[contenteditable="true"]')) {
+            e.stopPropagation();
+          }
+        }}
+        onDragStart={(e) => {
+          // Prevent drag on the content area
+          const target = e.target as HTMLElement;
+          if (target.isContentEditable || target.closest('[contenteditable="true"]')) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
       >
         {!borderless && (
           <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">

@@ -29,6 +29,67 @@ interface TextBlockProps {
 
 type SaveStatus = "idle" | "saving" | "saved";
 
+// Format markdown text to HTML
+const formatText = (text: string): string => {
+  if (!text || text.trim() === "") {
+    return '<span class="text-[var(--tertiary-foreground)] italic">Click to add text…</span>';
+  }
+
+  const lines = text.split("\n");
+  const formattedLines = lines.map((line) => {
+    if (!line.trim()) return "<br/>";
+
+    let formatted = line;
+    // Handle HTML underline tags - preserve them as-is (they'll be rendered properly)
+    // Check if line contains HTML tags (like <u>), if so, don't process markdown on that part
+    if (/<u>.*?<\/u>/.test(formatted)) {
+      // Replace underline tags with styled version
+      formatted = formatted.replace(/<u>(.*?)<\/u>/g, '<u class="underline text-[var(--foreground)]">$1</u>');
+    }
+    // Process markdown formatting (do this before HTML tag replacement to avoid conflicts)
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-[var(--foreground)]">$1</strong>');
+    formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
+    formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-sm bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>');
+
+    if (/^### /.test(formatted)) {
+      return `<h3 class="text-base font-medium text-[var(--foreground)] mb-2">${formatted.replace(/^### /, "")}</h3>`;
+    }
+    if (/^## /.test(formatted)) {
+      return `<h2 class="text-lg font-semibold text-[var(--foreground)] mb-2">${formatted.replace(/^## /, "")}</h2>`;
+    }
+    if (/^# /.test(formatted)) {
+      return `<h1 class="text-xl font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^# /, "")}</h1>`;
+    }
+
+    // Specific list item styles
+    if (/^• /.test(formatted)) {
+      return `<div class="flex items-start gap-2 mb-1.5"><span class="text-[var(--muted-foreground)]">•</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/^• /, '')}</span></div>`;
+    }
+    if (/^→ /.test(formatted)) {
+      return `<div class="flex items-start gap-2 mb-1.5 text-[var(--info)]"><span>→</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/^→ /, '')}</span></div>`;
+    }
+    if (/✅ /.test(formatted)) {
+      return `<div class="flex items-start gap-2 mb-1.5 text-[var(--success)]"><span>✅</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/✅ /, '')}</span></div>`;
+    }
+    if (/⚠️ /.test(formatted)) {
+      return `<div class="flex items-start gap-2 mb-1.5 text-[var(--warning)]"><span>⚠️</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/⚠️ /, '')}</span></div>`;
+    }
+    if (/💬 /.test(formatted)) {
+      return `<div class="flex items-start gap-2 mb-1.5 text-[var(--muted-foreground)]"><span>💬</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/💬 /, '')}</span></div>`;
+    }
+    if (/🔄 /.test(formatted)) {
+      return `<div class="flex items-start gap-2 mb-1.5 text-[var(--info)]"><span>🔄</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/🔄 /, '')}</span></div>`;
+    }
+    if (/⭐/.test(formatted)) {
+      return `<div class="mb-1.5 text-sm text-[var(--foreground)]">${formatted}</div>`;
+    }
+
+    return `<p class="mb-1.5 text-sm leading-relaxed text-[var(--foreground)]">${formatted}</p>`;
+  });
+
+  return formattedLines.join("");
+};
+
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
   const blockContent = (block.content || {}) as { text?: string; borderless?: boolean };
   const initialContent = blockContent.text || "";
@@ -37,12 +98,9 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const [content, setContent] = useState(initialContent);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
-  const [hasSelection, setHasSelection] = useState(false);
-  const [showToolbar, setShowToolbar] = useState(false);
-  const [toolbarPosition, setToolbarPosition] = useState({ top: 0, left: 0 });
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
+  const textareaRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const next = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
@@ -52,32 +110,53 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     }
   }, [block.content, isBorderless]);
 
+  const editingRef = useRef(false);
+
   useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.focus();
-      const len = textareaRef.current.value.length;
-      textareaRef.current.setSelectionRange(len, len);
+    if (isEditing && textareaRef.current && !editingRef.current) {
+      const editableDiv = textareaRef.current as HTMLDivElement;
+      
+      // Only initialize HTML content when first entering edit mode
+      const formattedHTML = formatText(content) || '<span class="text-[var(--tertiary-foreground)] italic">Start typing…</span>';
+      editableDiv.innerHTML = formattedHTML;
+      editingRef.current = true;
+      
+      editableDiv.focus();
+      // Move cursor to end
+      const range = document.createRange();
+      const selection = window.getSelection();
+      range.selectNodeContents(editableDiv);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    } else if (!isEditing) {
+      // Reset flag when not editing
+      editingRef.current = false;
     }
-  }, [isEditing]);
+  }, [isEditing, content]);
 
-  // Auto-resize textarea to fit content
+  // Auto-resize contenteditable to fit content
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || !isEditing) return;
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv || !isEditing) return;
 
-    const resizeTextarea = () => {
-      textarea.style.height = "auto";
-      const newHeight = Math.max(20, textarea.scrollHeight); // Minimum 20px height (1 line)
-      textarea.style.height = `${newHeight}px`;
+    const resizeEditable = () => {
+      editableDiv.style.height = "auto";
+      const newHeight = Math.max(20, editableDiv.scrollHeight); // Minimum 20px height (1 line)
+      editableDiv.style.height = `${newHeight}px`;
     };
 
-    resizeTextarea();
+    resizeEditable();
     
     // Resize on input
-    textarea.addEventListener("input", resizeTextarea);
+    const observer = new MutationObserver(resizeEditable);
+    observer.observe(editableDiv, { childList: true, subtree: true, characterData: true });
+    
+    editableDiv.addEventListener("input", resizeEditable);
     
     return () => {
-      textarea.removeEventListener("input", resizeTextarea);
+      observer.disconnect();
+      editableDiv.removeEventListener("input", resizeEditable);
     };
   }, [isEditing, content]);
 
@@ -135,237 +214,343 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     }, 200);
   };
 
-  const updateToolbarPosition = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const hasTextSelected = start !== end;
-    
-    const rect = textarea.getBoundingClientRect();
-    const toolbarWidth = 100; // Approximate width of compact square toolbar (3 columns)
-    
-    if (hasTextSelected) {
-      // When text is selected, follow the selection
-      const cursorPosition = start;
-      const textBeforeCursor = content.substring(0, cursorPosition);
-      const lines = textBeforeCursor.split("\n");
-      const lineNumber = lines.length - 1;
-      
-      const styles = window.getComputedStyle(textarea);
-      const lineHeight = parseFloat(styles.lineHeight) || 20;
-      const paddingTop = parseFloat(styles.paddingTop) || 10;
-      const scrollTop = textarea.scrollTop;
-      const lineTop = paddingTop + (lineNumber * lineHeight) - scrollTop;
-      
-      // Position toolbar aligned with the selected line
-      const top = rect.top + lineTop + (lineHeight / 2);
-      const left = rect.left - toolbarWidth - 16; // 16px gap from textarea
-      
-      setToolbarPosition({ top, left });
-    } else {
-      // When just typing, keep toolbar in a fixed position at top-left of textarea
-      const top = rect.top + 12; // Small offset from top
-      const left = rect.left - toolbarWidth - 16; // 16px gap from textarea
-      
-      setToolbarPosition({ top, left });
-    }
-    
-    setHasSelection(hasTextSelected);
-  }, [content]);
+  const updateActiveFormatting = useCallback(() => {
+    // Check active formatting states
+    const isBold = document.queryCommandState('bold');
+    const isItalic = document.queryCommandState('italic');
+    const isUnderline = document.queryCommandState('underline');
+    setActiveFormatting({ bold: isBold, italic: isItalic, underline: isUnderline });
+  }, []);
 
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || !isEditing) return;
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv || !isEditing) return;
 
     const handleEvents = () => {
       // Small delay to ensure selection/cursor position is updated
       setTimeout(() => {
-        updateToolbarPosition();
-        setShowToolbar(true);
+        updateActiveFormatting();
+        syncContentFromHTML();
       }, 10);
     };
 
     const handleFocus = () => {
-      setShowToolbar(true);
-      setTimeout(updateToolbarPosition, 10);
+      setTimeout(updateActiveFormatting, 10);
     };
 
     const handleBlur = () => {
-      // Don't hide immediately on blur - let the textarea's onBlur handle it
+      // Don't hide immediately on blur - let the editable div's onBlur handle it
       // This prevents toolbar from disappearing when clicking on it
     };
 
-    textarea.addEventListener("focus", handleFocus);
-    textarea.addEventListener("blur", handleBlur);
-    textarea.addEventListener("mouseup", handleEvents);
-    textarea.addEventListener("keyup", handleEvents);
-    textarea.addEventListener("keydown", handleEvents);
-    textarea.addEventListener("select", handleEvents);
-    textarea.addEventListener("input", handleEvents);
-    document.addEventListener("selectionchange", handleEvents);
+    editableDiv.addEventListener("focus", handleFocus);
+    editableDiv.addEventListener("blur", handleBlur);
+    editableDiv.addEventListener("mouseup", handleEvents);
+    editableDiv.addEventListener("keyup", handleEvents);
+    editableDiv.addEventListener("keydown", handleEvents);
+      editableDiv.addEventListener("input", handleEvents);
+      document.addEventListener("selectionchange", handleEvents);
 
-    // Initial position when editing starts
-    if (document.activeElement === textarea) {
-      handleFocus();
-    }
+      // Initial formatting state when editing starts
+      if (document.activeElement === editableDiv) {
+        handleFocus();
+      }
 
-    return () => {
-      textarea.removeEventListener("focus", handleFocus);
-      textarea.removeEventListener("blur", handleBlur);
-      textarea.removeEventListener("mouseup", handleEvents);
-      textarea.removeEventListener("keyup", handleEvents);
-      textarea.removeEventListener("keydown", handleEvents);
-      textarea.removeEventListener("select", handleEvents);
-      textarea.removeEventListener("input", handleEvents);
-      document.removeEventListener("selectionchange", handleEvents);
-    };
-  }, [isEditing, updateToolbarPosition]);
+      return () => {
+        editableDiv.removeEventListener("focus", handleFocus);
+        editableDiv.removeEventListener("blur", handleBlur);
+        editableDiv.removeEventListener("mouseup", handleEvents);
+        editableDiv.removeEventListener("keyup", handleEvents);
+        editableDiv.removeEventListener("keydown", handleEvents);
+        editableDiv.removeEventListener("input", handleEvents);
+        document.removeEventListener("selectionchange", handleEvents);
+      };
+    }, [isEditing, updateActiveFormatting]);
 
   const insertMarkdown = (before: string, after: string = before) => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv) return;
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const selectedText = range.toString();
 
     if (selectedText) {
-      const newText =
-        content.substring(0, start) + before + selectedText + after + content.substring(end);
-      setContent(newText);
-      setTimeout(() => {
-        textarea.focus();
-        textarea.setSelectionRange(start + before.length, end + before.length);
-        updateToolbarPosition();
-      }, 0);
+      // Wrap selected text
+      const markdownText = before + selectedText + after;
+      range.deleteContents();
+      const textNode = document.createTextNode(markdownText);
+      range.insertNode(textNode);
+      range.setStartAfter(textNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
     } else {
-      const newText = content.substring(0, start) + before + after + content.substring(end);
-      setContent(newText);
-      setTimeout(() => {
-        textarea.focus();
-        const newCursorPos = start + before.length;
-        textarea.setSelectionRange(newCursorPos, newCursorPos);
-        updateToolbarPosition();
-      }, 0);
+      // Insert markdown at cursor
+      const textNode = document.createTextNode(before + after);
+      range.insertNode(textNode);
+      // Position cursor between before and after
+      range.setStart(textNode, before.length);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
+
+    // Update content from HTML
+    syncContentFromHTML();
+    updateActiveFormatting();
   };
 
   const insertHeading = (level: number) => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv) return;
 
-    const start = textarea.selectionStart;
-    const lineStart = content.lastIndexOf("\n", start - 1) + 1;
-    const lineEnd = content.indexOf("\n", start);
-    const lineContent = content.substring(lineStart, lineEnd >= 0 ? lineEnd : undefined);
-    const cleanedLine = lineContent.replace(/^#{1,3} /, "");
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
     const headingMarker = "#".repeat(level) + " ";
-    const newText =
-      content.substring(0, lineStart) + headingMarker + cleanedLine + (lineEnd >= 0 ? content.substring(lineEnd) : "");
+    
+    // Get current line
+    range.expand("line");
+    const lineText = range.toString();
+    const cleanedLine = lineText.replace(/^#{1,3} /, "").replace(/\n$/, "");
+    
+    // Replace line with heading
+    range.deleteContents();
+    const textNode = document.createTextNode(headingMarker + cleanedLine);
+    range.insertNode(textNode);
+    
+    // Position cursor at end of line
+    range.setStartAfter(textNode);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
 
-    setContent(newText);
-    setTimeout(() => {
-      textarea.focus();
-      const newCursorPos = lineStart + headingMarker.length + cleanedLine.length;
-      textarea.setSelectionRange(newCursorPos, newCursorPos);
-      updateToolbarPosition();
-    }, 0);
+    syncContentFromHTML();
+    updateActiveFormatting();
+  };
+
+  // Convert HTML back to markdown
+  const htmlToMarkdown = (html: string): string => {
+    if (!html || html.trim() === '') return '';
+    
+    // Create a temporary div to parse HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    
+    let md = '';
+    
+    const processNode = (node: Node): string => {
+      let result = '';
+      
+      if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent || '';
+      }
+      
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement;
+        const tagName = el.tagName.toLowerCase();
+        const children = Array.from(node.childNodes);
+        const childText = children.map(processNode).join('');
+        
+        switch (tagName) {
+          case 'h1':
+            return '# ' + childText + '\n';
+          case 'h2':
+            return '## ' + childText + '\n';
+          case 'h3':
+            return '### ' + childText + '\n';
+          case 'strong':
+          case 'b':
+            return '**' + childText + '**';
+          case 'em':
+          case 'i':
+            return '*' + childText + '*';
+          case 'u':
+            return '<u>' + childText + '</u>';
+          case 'code':
+            return '`' + childText + '`';
+          case 'br':
+            return '\n';
+          case 'p':
+            return childText + '\n';
+          case 'div':
+            return childText;
+          default:
+            return childText;
+        }
+      }
+      
+      return '';
+    };
+    
+    md = Array.from(tempDiv.childNodes).map(processNode).join('');
+    
+    // Clean up extra newlines
+    md = md.replace(/\n{3,}/g, '\n\n');
+    
+    return md.trim();
+  };
+
+  // Sync content from HTML in contenteditable
+  const syncContentFromHTML = () => {
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv) return;
+    
+    const html = editableDiv.innerHTML;
+    const markdown = htmlToMarkdown(html);
+    setContent(markdown);
+  };
+
+  // Helper function to apply formatting
+  const applyFormatting = (command: string) => {
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (editableDiv) {
+      editableDiv.focus();
+      document.execCommand(command, false);
+      syncContentFromHTML();
+      updateActiveFormatting();
+    }
   };
 
   if (isEditing) {
     return (
-      <div className="relative">
-        {/* Floating bubble toolbar */}
-        {showToolbar && toolbarPosition.top > 0 && (
-          <div
-            ref={toolbarRef}
-            className="fixed z-[100] grid grid-cols-3 gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
-            style={{
-              top: `${toolbarPosition.top}px`,
-              left: `${toolbarPosition.left}px`,
-              transform: "translateY(-50%)",
-            }}
+      <div 
+        className="relative overflow-visible"
+        onMouseDown={(e) => {
+          // Prevent drag events from propagating when interacting with text
+          e.stopPropagation();
+        }}
+        onDragStart={(e) => {
+          // Prevent dragging the block when editing text
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+        {/* Thin top toolbar */}
+        <div className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] border-b border-[var(--border)] rounded-t-[4px] z-10">
+          <button
             onMouseDown={(e) => {
               e.preventDefault();
-              e.stopPropagation();
-              // Keep textarea focused
-              if (textareaRef.current) {
-                textareaRef.current.focus();
-              }
+              applyFormatting('bold');
             }}
+            className={cn(
+              "flex h-5 w-5 items-center justify-center rounded transition-colors",
+              activeFormatting.bold
+                ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            )}
+            title="Bold"
           >
-            <button
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insertMarkdown("**");
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-              title="Bold"
-            >
-              <Bold className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insertMarkdown("*");
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-              title="Italic"
-            >
-              <Italic className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insertMarkdown("__", "__");
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-              title="Underline"
-            >
-              <Underline className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insertMarkdown("`");
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-              title="Code"
-            >
-              <Code className="h-3.5 w-3.5" />
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
-                  <Type className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={() => insertHeading(1)}>Heading 1</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => insertHeading(2)}>Heading 2</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <div className="h-7 w-7" /> {/* Empty space for grid alignment */}
-          </div>
-        )}
+            <Bold className="h-3 w-3" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyFormatting('italic');
+            }}
+            className={cn(
+              "flex h-5 w-5 items-center justify-center rounded transition-colors",
+              activeFormatting.italic
+                ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            )}
+            title="Italic"
+          >
+            <Italic className="h-3 w-3" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyFormatting('underline');
+            }}
+            className={cn(
+              "flex h-5 w-5 items-center justify-center rounded transition-colors",
+              activeFormatting.underline
+                ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            )}
+            title="Underline"
+          >
+            <Underline className="h-3 w-3" />
+          </button>
+          <div className="h-4 w-px bg-[var(--border)] mx-0.5" />
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              insertMarkdown("`");
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            title="Code"
+          >
+            <Code className="h-3 w-3" />
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                <Type className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => insertHeading(1)}>Heading 1</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertHeading(2)}>Heading 2</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-        <textarea
+        <div
           ref={textareaRef}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
+          contentEditable
+          suppressContentEditableWarning
+          onMouseDown={(e) => {
+            // Stop propagation to prevent block dragging
+            e.stopPropagation();
+          }}
+          onDragStart={(e) => {
+            // Prevent dragging when selecting text
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onSelect={(e) => {
+            // Stop propagation when selecting text
+            e.stopPropagation();
+          }}
+          onFocus={(e) => {
+            const editableDiv = e.currentTarget;
+            // Clear placeholder if it's present
+            const textContent = editableDiv.textContent?.trim() || '';
+            if (textContent === 'Click to add text…' || textContent === 'Start typing…') {
+              editableDiv.innerHTML = '';
+              // Position cursor at start
+              const range = document.createRange();
+              range.selectNodeContents(editableDiv);
+              range.collapse(true);
+              const selection = window.getSelection();
+              selection?.removeAllRanges();
+              selection?.addRange(range);
+            }
+          }}
           onBlur={handleBlur}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setContent((block.content?.text as string) || "");
-              setShowToolbar(false);
               setIsEditing(false);
             }
           }}
-          className="w-full resize-none rounded-[4px] bg-[var(--surface)] px-2 py-1 text-sm leading-normal text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none overflow-hidden"
-          placeholder="Start typing…"
+          onInput={(e) => {
+            const editableDiv = e.currentTarget as HTMLDivElement;
+            // Clear placeholder on first input
+            const textContent = editableDiv.textContent?.trim() || '';
+            if (textContent === 'Click to add text…' || textContent === 'Start typing…') {
+              editableDiv.innerHTML = '';
+            }
+            syncContentFromHTML();
+          }}
+          className="w-full resize-none rounded-[4px] bg-[var(--surface)] px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
           style={{ minHeight: '20px', height: 'auto' }}
         />
         {saveStatus !== "idle" && (
@@ -377,59 +562,6 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       </div>
     );
   }
-
-  const formatText = (text: string): string => {
-    if (!text || text.trim() === "") {
-      return '<span class="text-[var(--tertiary-foreground)] italic">Click to add text…</span>';
-    }
-
-    const lines = text.split("\n");
-    const formattedLines = lines.map((line) => {
-      if (!line.trim()) return "<br/>";
-
-      let formatted = line;
-      formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-medium text-[var(--foreground)]">$1</strong>');
-      formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
-      formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-sm bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>');
-
-      if (/^### /.test(formatted)) {
-        return `<h3 class="text-base font-medium text-[var(--foreground)] mb-2">${formatted.replace(/^### /, "")}</h3>`;
-      }
-      if (/^## /.test(formatted)) {
-        return `<h2 class="text-lg font-semibold text-[var(--foreground)] mb-2">${formatted.replace(/^## /, "")}</h2>`;
-      }
-      if (/^# /.test(formatted)) {
-        return `<h1 class="text-xl font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^# /, "")}</h1>`;
-      }
-
-      // Specific list item styles
-      if (/^• /.test(formatted)) {
-        return `<div class="flex items-start gap-2 mb-1.5"><span class="text-[var(--muted-foreground)]">•</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/^• /, '')}</span></div>`;
-      }
-      if (/^→ /.test(formatted)) {
-        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--info)]"><span>→</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/^→ /, '')}</span></div>`;
-      }
-      if (/✅ /.test(formatted)) {
-        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--success)]"><span>✅</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/✅ /, '')}</span></div>`;
-      }
-      if (/⚠️ /.test(formatted)) {
-        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--warning)]"><span>⚠️</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/⚠️ /, '')}</span></div>`;
-      }
-      if (/💬 /.test(formatted)) {
-        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--muted-foreground)]"><span>💬</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/💬 /, '')}</span></div>`;
-      }
-      if (/🔄 /.test(formatted)) {
-        return `<div class="flex items-start gap-2 mb-1.5 text-[var(--info)]"><span>🔄</span><span class="text-sm text-[var(--foreground)]">${formatted.replace(/🔄 /, '')}</span></div>`;
-      }
-      if (/⭐/.test(formatted)) {
-        return `<div class="mb-1.5 text-sm text-[var(--foreground)]">${formatted}</div>`;
-      }
-
-      return `<p class="mb-1.5 text-sm leading-relaxed text-[var(--foreground)]">${formatted}</p>`;
-    });
-
-    return formattedLines.join("");
-  };
 
   const formatted = formatText(content);
 
