@@ -418,7 +418,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
 
   return (
     <>
-      <div className="border-b border-[var(--border)] bg-[var(--background)] backdrop-blur-sm">
+      <div className="border-b border-[var(--border)] bg-transparent backdrop-blur-sm">
         {renderBar("inline")}
       </div>
 

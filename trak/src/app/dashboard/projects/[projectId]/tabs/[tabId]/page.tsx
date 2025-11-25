@@ -110,7 +110,7 @@ export default async function TabPage({
   }
 
   return (
-    <div className="min-h-screen bg-[var(--background)]">
+    <div className="min-h-screen bg-transparent">
       <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
         {/* Project Header - Minimal, elegant */}
         <div className="pt-4 pb-2">
@@ -118,7 +118,7 @@ export default async function TabPage({
         </div>
 
         {/* Tab Navigation - Sticky */}
-        <div className="sticky top-0 z-40 bg-[var(--background)]">
+        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm">
           <TabBar 
             tabs={hierarchicalTabs} 
             projectId={projectId}

@@ -206,7 +206,6 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      setShowToolbar(false);
       setIsEditing(false);
       if (content !== (block.content?.text as string)) {
         await saveContent(content);
@@ -313,8 +312,66 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     const range = selection.getRangeAt(0);
     const headingMarker = "#".repeat(level) + " ";
     
-    // Get current line
-    range.expand("line");
+    // Expand range to include the entire line by finding line boundaries
+    // Get the editable div's text content to find line boundaries
+    const editableText = editableDiv.textContent || "";
+    const editableRange = document.createRange();
+    editableRange.selectNodeContents(editableDiv);
+    
+    // Find the character offset of the selection within the editable div
+    const preRange = document.createRange();
+    preRange.setStart(editableDiv, 0);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    const startOffset = preRange.toString().length;
+    
+    // Find start of line (look backwards for newline)
+    let lineStart = 0;
+    for (let i = startOffset - 1; i >= 0; i--) {
+      if (editableText[i] === '\n') {
+        lineStart = i + 1;
+        break;
+      }
+    }
+    
+    // Find end of line (look forwards for newline)
+    let lineEnd = editableText.length;
+    for (let i = startOffset; i < editableText.length; i++) {
+      if (editableText[i] === '\n') {
+        lineEnd = i;
+        break;
+      }
+    }
+    
+    // Create range for the entire line
+    const lineRange = document.createRange();
+    let charCount = 0;
+    let startNode: Node | null = null;
+    let startNodeOffset = 0;
+    let endNode: Node | null = null;
+    let endNodeOffset = 0;
+    
+    const walker = document.createTreeWalker(editableDiv, NodeFilter.SHOW_TEXT, null);
+    let node;
+    
+    while ((node = walker.nextNode())) {
+      const textLength = node.textContent?.length || 0;
+      if (!startNode && charCount + textLength >= lineStart) {
+        startNode = node;
+        startNodeOffset = lineStart - charCount;
+      }
+      if (charCount + textLength >= lineEnd) {
+        endNode = node;
+        endNodeOffset = lineEnd - charCount;
+        break;
+      }
+      charCount += textLength;
+    }
+    
+    if (startNode && endNode) {
+      range.setStart(startNode, startNodeOffset);
+      range.setEnd(endNode, endNodeOffset);
+    }
+    
     const lineText = range.toString();
     const cleanedLine = lineText.replace(/^#{1,3} /, "").replace(/\n$/, "");
     

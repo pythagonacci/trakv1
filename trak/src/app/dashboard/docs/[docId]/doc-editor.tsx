@@ -57,6 +57,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
   const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(false);
   const [floatingToolbarVisible, setFloatingToolbarVisible] = useState<boolean>(false);
   const [topBarHeight, setTopBarHeight] = useState<number>(0);
+  const [isMounted, setIsMounted] = useState(false);
   const { setHeaderHidden } = useDashboardHeader();
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -129,6 +130,11 @@ export default function DocEditor({ doc }: DocEditorProps) {
       }
     };
   }, [title, doc.id, doc.title, router]);
+
+  // Mount state to prevent hydration mismatch with Radix UI
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Theme persistence (local only)
   useEffect(() => {
@@ -424,30 +430,38 @@ export default function DocEditor({ doc }: DocEditorProps) {
               {isToolbarPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">{isToolbarPinned ? "Unpin" : "Pin"}</span>
             </button>
-            {/* Export Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
-                  <Download className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Export</span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem onClick={() => handleExport("pdf")}>
-                  <Download className="h-4 w-4" />
-                  Export as PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport("md")}>
-                  <Download className="h-4 w-4" />
-                  Export as Markdown
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport("txt")}>
-                  <Download className="h-4 w-4" />
-                  Export as Text
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Export Dropdown - Only render after mount to prevent hydration mismatch */}
+            {isMounted ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                    <Download className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Export</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={() => handleExport("pdf")}>
+                    <Download className="h-4 w-4" />
+                    Export as PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("md")}>
+                    <Download className="h-4 w-4" />
+                    Export as Markdown
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("txt")}>
+                    <Download className="h-4 w-4" />
+                    Export as Text
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] opacity-50" disabled>
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            )}
 
             {/* Save Status */}
             <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
