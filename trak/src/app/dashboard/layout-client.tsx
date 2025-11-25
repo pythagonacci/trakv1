@@ -26,6 +26,7 @@ import {
   DashboardHeaderProvider,
   useDashboardHeader,
 } from "./header-visibility-context";
+import GlobalSearch from "./global-search";
 
 interface User {
   id: string;
@@ -206,6 +207,12 @@ function Sidebar({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {!collapsed && (
+          <div className="px-3 pb-3">
+            <GlobalSearch />
           </div>
         )}
 
