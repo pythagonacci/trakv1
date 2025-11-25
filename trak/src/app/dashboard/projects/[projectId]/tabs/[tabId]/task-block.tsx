@@ -850,12 +850,53 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                     {task.status === "in-progress" && getStatusBadge(task.status)}
                     
                     {/* 2. Priority */}
-                    {task.priority && task.priority !== "none" && (
-                      <span className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-xs font-medium", getPriorityColor(task.priority))}>
-                        {shouldShowIcons(task) && <Flag className="h-2.5 w-2.5" />}
-                        {getPriorityLabel(task.priority)}
-                      </span>
-                    )}
+                    {(task.priority && task.priority !== "none") || shouldShowIcons(task) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button 
+                            className={cn(
+                              "inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-xs font-medium transition-colors hover:opacity-80 cursor-pointer",
+                              task.priority && task.priority !== "none" 
+                                ? getPriorityColor(task.priority)
+                                : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                            )}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {((task.priority && task.priority !== "none") || shouldShowIcons(task)) && <Flag className="h-2.5 w-2.5" />}
+                            {task.priority && task.priority !== "none" ? getPriorityLabel(task.priority) : ""}
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateTask(task.id, { priority: "urgent" }); }}>
+                            <span className="inline-flex items-center gap-2 w-full">
+                              <span className="w-2 h-2 rounded-full bg-red-500" />
+                              Urgent
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateTask(task.id, { priority: "high" }); }}>
+                            <span className="inline-flex items-center gap-2 w-full">
+                              <span className="w-2 h-2 rounded-full bg-orange-500" />
+                              High
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateTask(task.id, { priority: "medium" }); }}>
+                            <span className="inline-flex items-center gap-2 w-full">
+                              <span className="w-2 h-2 rounded-full bg-blue-500" />
+                              Medium
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateTask(task.id, { priority: "low" }); }}>
+                            <span className="inline-flex items-center gap-2 w-full">
+                              <span className="w-2 h-2 rounded-full bg-gray-500" />
+                              Low
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateTask(task.id, { priority: "none" }); }}>
+                            None
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
                     
                     {/* 3. Assignees */}
                     {shouldShowAssigneesIcon(task) && (
