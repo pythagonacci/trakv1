@@ -39,6 +39,7 @@ interface RichTextEditorProps {
   onToolbarHoverStart?: () => void;
   onToolbarHoverEnd?: () => void;
   pinnedToolbarOffset?: number;
+  autoFocus?: boolean;
 }
 
 export default function RichTextEditor({
@@ -51,6 +52,7 @@ export default function RichTextEditor({
   onToolbarHoverStart,
   onToolbarHoverEnd,
   pinnedToolbarOffset,
+  autoFocus = false,
 }: RichTextEditorProps) {
   const [isMounted, setIsMounted] = useState(false);
 
@@ -109,6 +111,19 @@ export default function RichTextEditor({
       },
     },
   });
+
+  // Auto-focus the editor when it's ready
+  useEffect(() => {
+    if (autoFocus && editor && isMounted) {
+      // Small delay to ensure the editor is fully rendered and DOM is ready
+      const timer = setTimeout(() => {
+        // Focus the editor and place cursor at the start
+        editor.commands.setTextSelection(0);
+        editor.commands.focus();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [editor, isMounted, autoFocus]);
 
   if (!isMounted || !editor) {
     return (

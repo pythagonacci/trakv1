@@ -1,3 +1,0 @@
-definitely fix styling 
--> assignee should show on the event bar 
--> allow for blocks to be added in the timeline info 

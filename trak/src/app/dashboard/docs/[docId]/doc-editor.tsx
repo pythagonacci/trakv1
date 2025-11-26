@@ -54,7 +54,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
   const [lastSaved, setLastSaved] = useState<Date | null>(new Date(doc.updated_at));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [docTheme, setDocTheme] = useState<string>("sand");
-  const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(false);
+  const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(true); // Default to pinned
   const [floatingToolbarVisible, setFloatingToolbarVisible] = useState<boolean>(false);
   const [topBarHeight, setTopBarHeight] = useState<number>(0);
   const [isMounted, setIsMounted] = useState(false);
@@ -150,11 +150,15 @@ export default function DocEditor({ doc }: DocEditorProps) {
     localStorage.setItem("trak-doc-theme", docTheme);
   }, [docTheme]);
 
-  // Pin persistence (local only)
+  // Pin persistence (local only) - check localStorage, but default to true if not set
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedPin = localStorage.getItem("trak-doc-toolbar-pinned");
-    if (savedPin === "true") {
+    if (savedPin !== null) {
+      // Only use saved value if it exists in localStorage (user has changed it)
+      setIsToolbarPinned(savedPin === "true");
+    } else {
+      // Default to pinned if no saved preference
       setIsToolbarPinned(true);
     }
   }, []);
@@ -504,6 +508,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
             }
             onToolbarHoverStart={handleToolbarEnter}
             onToolbarHoverEnd={handleToolbarLeave}
+            autoFocus={true}
           />
         </div>
       </div>

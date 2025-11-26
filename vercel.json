@@ -1,8 +1,0 @@
-{
-  "buildCommand": "npm ci && npm run build",
-  "installCommand": "npm ci",
-  "devCommand": "npm run dev",
-  "framework": null,
-  "rootDirectory": "trak"
-}
-

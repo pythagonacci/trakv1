@@ -385,6 +385,11 @@ function Header() {
     return "Dashboard";
   };
 
+  // Don't show header on docs pages
+  if (pathname?.includes("/docs")) {
+    return null;
+  }
+
   return (
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]">
       <div className="flex w-full items-center justify-between px-3 py-2.5 md:px-4 lg:px-5">
