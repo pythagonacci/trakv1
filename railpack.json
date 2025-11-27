@@ -1,8 +1,0 @@
-{
-  "language": "node",
-  "root": "./trak",
-  "buildCommand": "npm ci && npm run build",
-  "startCommand": "npm start",
-  "installCommand": "npm ci"
-}
-

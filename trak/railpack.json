@@ -1,0 +1,8 @@
+{
+  "build": {
+    "builder": "next",
+    "buildCommand": "npm run build",
+    "startCommand": "npm start"
+  }
+}
+
