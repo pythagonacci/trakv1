@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Loader2, Download, ChevronDown, Pin, PinOff } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, ChevronDown, Pin, PinOff, Type } from "lucide-react";
 import RichTextEditor from "@/components/editor/rich-text-editor";
 import { updateDoc } from "@/app/actions/doc";
 import { cn } from "@/lib/utils";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
+import { useTheme } from "@/app/dashboard/theme-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,7 +26,7 @@ interface DocEditorProps {
   doc: Doc;
 }
 
-const DOC_THEMES = [
+const LIGHT_DOC_THEMES = [
   {
     id: "sand",
     label: "Sand",
@@ -46,15 +47,56 @@ const DOC_THEMES = [
   },
 ];
 
+const DARK_DOC_THEMES = [
+  {
+    id: "midnight",
+    label: "Midnight",
+    pageBg: "#1c1c1c",
+    paperBg: "#252526",
+  },
+  {
+    id: "navy",
+    label: "Navy",
+    pageBg: "#1a1d26",
+    paperBg: "#242732",
+  },
+  {
+    id: "forest",
+    label: "Forest",
+    pageBg: "#1a1f1c",
+    paperBg: "#242a26",
+  },
+  {
+    id: "amber",
+    label: "Amber",
+    pageBg: "#1f1c18",
+    paperBg: "#282520",
+  },
+  {
+    id: "slate",
+    label: "Slate",
+    pageBg: "#1e2024",
+    paperBg: "#272a2e",
+  },
+  {
+    id: "violet",
+    label: "Violet",
+    pageBg: "#1d1a23",
+    paperBg: "#26232d",
+  },
+];
+
 export default function DocEditor({ doc }: DocEditorProps) {
   const router = useRouter();
+  const { theme: globalTheme } = useTheme();
   const [title, setTitle] = useState(doc.title);
   const [content, setContent] = useState(doc.content);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(new Date(doc.updated_at));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [docTheme, setDocTheme] = useState<string>("sand");
-  const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(true); // Default to pinned
+  const [lineSpacing, setLineSpacing] = useState<string>("1.5");
+  const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(false);
   const [floatingToolbarVisible, setFloatingToolbarVisible] = useState<boolean>(false);
   const [topBarHeight, setTopBarHeight] = useState<number>(0);
   const [isMounted, setIsMounted] = useState(false);
@@ -136,29 +178,34 @@ export default function DocEditor({ doc }: DocEditorProps) {
     setIsMounted(true);
   }, []);
 
-  // Theme persistence (local only)
+  const availableThemes = useMemo(() => {
+    return globalTheme === "brutalist" ? DARK_DOC_THEMES : LIGHT_DOC_THEMES;
+  }, [globalTheme]);
+
+  // Theme persistence (local only) - separate for light and dark modes
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = localStorage.getItem("trak-doc-theme");
-    if (saved && DOC_THEMES.some((t) => t.id === saved)) {
+    const themeKey = `trak-doc-theme-${globalTheme}`;
+    const saved = localStorage.getItem(themeKey);
+    if (saved && availableThemes.some((t) => t.id === saved)) {
       setDocTheme(saved);
+    } else {
+      // Set default theme if no saved preference
+      setDocTheme(availableThemes[0].id);
     }
-  }, []);
+  }, [globalTheme, availableThemes]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    localStorage.setItem("trak-doc-theme", docTheme);
-  }, [docTheme]);
+    const themeKey = `trak-doc-theme-${globalTheme}`;
+    localStorage.setItem(themeKey, docTheme);
+  }, [docTheme, globalTheme]);
 
-  // Pin persistence (local only) - check localStorage, but default to true if not set
+  // Pin persistence (local only)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedPin = localStorage.getItem("trak-doc-toolbar-pinned");
-    if (savedPin !== null) {
-      // Only use saved value if it exists in localStorage (user has changed it)
-      setIsToolbarPinned(savedPin === "true");
-    } else {
-      // Default to pinned if no saved preference
+    if (savedPin === "true") {
       setIsToolbarPinned(true);
     }
   }, []);
@@ -168,10 +215,24 @@ export default function DocEditor({ doc }: DocEditorProps) {
     localStorage.setItem("trak-doc-toolbar-pinned", isToolbarPinned ? "true" : "false");
   }, [isToolbarPinned]);
 
-  const theme = useMemo(
-    () => DOC_THEMES.find((t) => t.id === docTheme) || DOC_THEMES[0],
-    [docTheme]
-  );
+  // Line spacing persistence
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("trak-doc-line-spacing");
+    if (saved) {
+      setLineSpacing(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("trak-doc-line-spacing", lineSpacing);
+  }, [lineSpacing]);
+  
+  const theme = useMemo(() => {
+    const selectedTheme = availableThemes.find((t) => t.id === docTheme) || availableThemes[0];
+    return selectedTheme;
+  }, [docTheme, availableThemes]);
 
   // Measure top bar height for toolbar offset
   useEffect(() => {
@@ -405,7 +466,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
 
           <div className="flex items-center gap-3 flex-shrink-0">
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              {DOC_THEMES.map((t) => (
+              {availableThemes.map((t) => (
                 <button
                   key={t.id}
                   onClick={() => setDocTheme(t.id)}
@@ -419,6 +480,31 @@ export default function DocEditor({ doc }: DocEditorProps) {
                 />
               ))}
             </div>
+
+            {/* Line Spacing Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                  <Type className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{lineSpacing === "1" ? "Single" : lineSpacing === "2" ? "Double" : `${lineSpacing}x`}</span>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-32">
+                <DropdownMenuItem onClick={() => setLineSpacing("1")}>
+                  Single
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLineSpacing("1.15")}>
+                  1.15
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLineSpacing("1.5")}>
+                  1.5
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLineSpacing("2")}>
+                  Double
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <button
               type="button"
@@ -508,7 +594,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
             }
             onToolbarHoverStart={handleToolbarEnter}
             onToolbarHoverEnd={handleToolbarLeave}
-            autoFocus={true}
+            lineSpacing={lineSpacing}
           />
         </div>
       </div>

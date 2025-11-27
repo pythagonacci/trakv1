@@ -40,6 +40,7 @@ interface RichTextEditorProps {
   onToolbarHoverEnd?: () => void;
   pinnedToolbarOffset?: number;
   autoFocus?: boolean;
+  lineSpacing?: string;
 }
 
 export default function RichTextEditor({
@@ -53,6 +54,7 @@ export default function RichTextEditor({
   onToolbarHoverEnd,
   pinnedToolbarOffset,
   autoFocus = false,
+  lineSpacing = "1.5",
 }: RichTextEditorProps) {
   const [isMounted, setIsMounted] = useState(false);
 
@@ -108,6 +110,7 @@ export default function RichTextEditor({
     editorProps: {
       attributes: {
         class: "prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[1000px] px-16 py-12",
+        style: `--line-spacing: ${lineSpacing};`,
       },
     },
   });
@@ -182,7 +185,10 @@ export default function RichTextEditor({
   };
 
   return (
-    <div className={cn("bg-[var(--background)]", className)}>
+    <div 
+      className={cn("bg-[var(--background)]", className)}
+      style={{ "--line-spacing": lineSpacing } as React.CSSProperties}
+    >
       {/* Toolbar */}
       <div
         className={cn(
@@ -348,7 +354,9 @@ export default function RichTextEditor({
       </div>
 
       {/* Editor content */}
-      <EditorContent editor={editor} />
+      <div style={{ "--line-spacing": lineSpacing } as React.CSSProperties}>
+        <EditorContent editor={editor} />
+      </div>
     </div>
   );
 }
