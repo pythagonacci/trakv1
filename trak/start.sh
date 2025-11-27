@@ -8,7 +8,20 @@ echo "Current directory: $(pwd)"
 echo "Contents of current directory:"
 ls -la
 
-# Install production dependencies if node_modules doesn't exist
+# Check for standalone build first (Next.js output: 'standalone' mode)
+# This is the preferred method as it bundles all dependencies
+if [ -d ".next/standalone" ]; then
+  echo "Found standalone build, using it..."
+  cd .next/standalone
+  if [ -f "server.js" ]; then
+    exec node server.js --port ${PORT:-3000}
+  else
+    echo "Error: server.js not found in standalone build"
+    exit 1
+  fi
+fi
+
+# Fallback: Check if we have node_modules
 if [ ! -d "node_modules" ]; then
   echo "node_modules not found. Installing production dependencies..."
   if command -v npm &> /dev/null; then
