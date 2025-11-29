@@ -2,8 +2,17 @@
 
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+
+/*
+ * ATELIER STONE DIALOG STYLING
+ * - No blur effects (matte, solid backgrounds)
+ * - Very diffuse, low-opacity shadow (exception per theme spec)
+ * - 2-4px border radius
+ * - Structural borders
+ */
 
 const Dialog = DialogPrimitive.Root
 
@@ -31,7 +40,10 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-200 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out",
+      // Matte overlay - no blur, solid semi-transparent
+      "fixed inset-0 bg-[#2D3236]/40 transition-opacity duration-150 ease-out",
+      "data-[state=open]:animate-in data-[state=closed]:animate-out",
+      "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
       className
     )}
     {...props}
@@ -48,15 +60,30 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 w-full max-w-lg rounded-xl border border-[var(--border)] bg-white dark:bg-[#111] p-6 shadow-popover transition-all duration-200 ease-out focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out",
+        "relative z-50 w-full max-w-lg",
+        // Atelier Stone styling
+        "rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-6",
+        // Diffuse shadow (exception for modals)
+        "shadow-[0_4px_24px_rgba(0,0,0,0.05)]",
+        "transition-all duration-150 ease-out focus:outline-none",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out",
+        "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+        "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
         className
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-3 top-3 rounded-lg p-2 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
+      <DialogPrimitive.Close 
+        className={cn(
+          "absolute right-4 top-4 rounded-[2px] p-1.5",
+          "text-[var(--muted-foreground)] transition-colors",
+          "hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+          "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--focus-ring)]"
+        )}
+      >
+        <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
-        ×
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
@@ -64,12 +91,19 @@ const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("mb-4 space-y-1", className)} {...props} />
+  <div className={cn("mb-5 space-y-2", className)} {...props} />
 )
 DialogHeader.displayName = "DialogHeader"
 
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end", className)} {...props} />
+  <div 
+    className={cn(
+      "mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end",
+      "pt-4 border-t border-[var(--border)]", // Structural divider
+      className
+    )} 
+    {...props} 
+  />
 )
 DialogFooter.displayName = "DialogFooter"
 
@@ -79,7 +113,11 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("text-lg font-semibold leading-tight text-[var(--foreground)]", className)}
+    className={cn(
+      "text-lg font-semibold leading-tight text-[var(--foreground)]",
+      "font-[var(--font-serif)]", // Serif for headings
+      className
+    )}
     {...props}
   />
 ))
@@ -91,7 +129,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-[var(--muted-foreground)]", className)}
+    className={cn("text-sm text-[var(--muted-foreground)] leading-relaxed", className)}
     {...props}
   />
 ))

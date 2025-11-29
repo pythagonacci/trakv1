@@ -1,10 +1,26 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Newsreader, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 
+// Body text - Clean geometric sans
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
+  display: 'swap',
+});
+
+// Headings - Serif font for "historic studio" feel
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  variable: '--font-serif',
+  display: 'swap',
+  weight: ['400', '500', '600', '700'],
+});
+
+// Code - Monospace
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
   display: 'swap',
 });
 
@@ -20,7 +36,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} bg-[var(--background)] text-[var(--foreground)]`}>{children}</body>
+      <body 
+        className={`${inter.variable} ${newsreader.variable} ${jetbrainsMono.variable} bg-[var(--background)] text-[var(--foreground)]`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

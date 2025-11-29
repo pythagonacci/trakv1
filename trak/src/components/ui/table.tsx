@@ -4,9 +4,17 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/*
+ * ATELIER STONE TABLE STYLING
+ * - Flat/matte design, no shadows
+ * - 2px border radius
+ * - Airy row heights and padding for "resilient" feel
+ * - Structural borders for visual hierarchy
+ */
+
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <div className="w-full overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+    <div className="w-full overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)]">
       <table
         ref={ref}
         className={cn("w-full caption-bottom text-sm", className)}
@@ -19,7 +27,14 @@ Table.displayName = "Table"
 
 const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
   ({ className, ...props }, ref) => (
-    <thead ref={ref} className={cn("bg-[var(--surface-muted)] text-[var(--tertiary-foreground)]", className)} {...props} />
+    <thead 
+      ref={ref} 
+      className={cn(
+        "bg-[var(--background)] text-[var(--tertiary-foreground)] border-b border-[var(--border)]",
+        className
+      )} 
+      {...props} 
+    />
   )
 )
 TableHeader.displayName = "TableHeader"
@@ -33,7 +48,14 @@ TableBody.displayName = "TableBody"
 
 const TableFooter = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
   ({ className, ...props }, ref) => (
-    <tfoot ref={ref} className={cn("bg-surface text-[var(--foreground)]", className)} {...props} />
+    <tfoot 
+      ref={ref} 
+      className={cn(
+        "bg-[var(--background)] text-[var(--foreground)] border-t border-[var(--border)]",
+        className
+      )} 
+      {...props} 
+    />
   )
 )
 TableFooter.displayName = "TableFooter"
@@ -43,7 +65,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        "transition-colors duration-150 ease-out hover:bg-[var(--surface-hover)] data-[state=selected]:bg-[var(--surface-hover)]",
+        "transition-colors duration-150 hover:bg-[var(--surface-hover)] data-[state=selected]:bg-[var(--surface-hover)]",
         className
       )}
       {...props}
@@ -57,7 +79,8 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
     <th
       ref={ref}
       className={cn(
-        "h-9 px-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--tertiary-foreground)]",
+        // Airy height for table headers
+        "h-12 px-4 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]",
         className
       )}
       {...props}
@@ -70,7 +93,11 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<
   ({ className, ...props }, ref) => (
     <td
       ref={ref}
-      className={cn("px-3 py-2 align-middle text-sm text-[var(--foreground)]", className)}
+      className={cn(
+        // Airy padding for table cells
+        "px-4 py-4 align-middle text-sm text-[var(--foreground)]",
+        className
+      )}
       {...props}
     />
   )

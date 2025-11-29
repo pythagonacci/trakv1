@@ -6,8 +6,13 @@ import { cva } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/*
+ * ATELIER STONE LABEL STYLING
+ * - Slightly wider letter-spacing for structural feel
+ * - Clean, readable typography
+ */
 const labelVariants = cva(
-  "text-sm font-medium text-[var(--foreground)] leading-tight peer-disabled:cursor-not-allowed peer-disabled:opacity-60"
+  "text-sm font-medium text-[var(--foreground)] leading-tight tracking-wide peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
 )
 
 const Label = React.forwardRef<

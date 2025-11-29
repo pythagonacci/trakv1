@@ -4,47 +4,73 @@
 
 @layer base {
   :root {
-    --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --font-mono: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* ===== ATELIER STONE THEME ===== */
+    /* A productivity-focused theme inspired by Sarajevo */
+    /* Blends "monumental structure" (Brutalist/Deco) with "airy resilience" */
+    
+    /* Typography */
+    --font-sans: 'Inter', 'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-serif: 'Newsreader', 'Georgia', 'Cambria', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-    --background: #fafafa;
-    --surface: #ffffff;
-    --surface-hover: #f6f6f6;
-    --surface-muted: #efefef;
-    --border: #e5e5e5;
-    --border-strong: #d4d4d4;
-    --foreground: #1f1f1f;
-    --muted-foreground: #545454;
-    --tertiary-foreground: #9f9f9f;
+    /* Backgrounds - Warm, matte, no high-glare */
+    --background: #F2F0EB; /* Plaster Canvas - warm off-white, matte */
+    --surface: #FFFFFF; /* Card White - for active content only */
+    --surface-hover: #EBE9E4; /* Slightly darker plaster for hover states */
+    --surface-muted: #E8E6E1; /* Muted plaster for secondary surfaces */
+    
+    /* Borders - Structural, visible but light */
+    --border: #D1D4D6; /* River Mist - structural dividers */
+    --border-strong: #B8BCBF; /* Stronger river mist for emphasis */
+    
+    /* Typography Colors */
+    --foreground: #2D3236; /* Miljacka Slate - deep iron grey, not black */
+    --muted-foreground: #6B7280; /* Standard cool gray for metadata */
+    --tertiary-foreground: #9CA3AF; /* Lighter gray for placeholders */
 
-    --primary: #1f1f1f;
-    --primary-foreground: #ffffff;
-    --focus-ring: rgba(31, 31, 31, 0.22);
-    --ring-offset: #fafafa;
+    /* Primary Action - Coffee Patina (bronze/brown) */
+    --primary: #9C7C58; /* Coffee Patina - bronze/brown for buttons, active tabs */
+    --primary-foreground: #FFFFFF;
+    --primary-hover: #8A6D4C; /* Darker coffee for hover */
+    --focus-ring: rgba(156, 124, 88, 0.3); /* Coffee with transparency */
+    --ring-offset: #F2F0EB;
 
-    --success: #0ea5e9;
-    --warning: #f59e0b;
-    --error: #ef4444;
-    --info: #2563eb;
+    /* Semantic Colors - Muted, low saturation */
+    --success: #6B827D; /* Oxidized Sage - muted copper green */
+    --success-foreground: #FFFFFF;
+    --warning: #C9A857; /* Antique Gold - muted amber */
+    --warning-foreground: #2D3236;
+    --error: #B85C5C; /* Muted Rose - terra-cotta, low saturation */
+    --error-foreground: #FFFFFF;
+    --info: #6B8CAE; /* Dusty Denim - muted blue */
+    --info-foreground: #FFFFFF;
 
-    --radius-xs: 4px;
-    --radius-sm: 5px;
-    --radius-md: 6px;
-    --radius-lg: 8px;
-    --radius-xl: 10px;
+    /* Border Radius - "Cut stone" look, very small */
+    --radius-xs: 2px;
+    --radius-sm: 2px;
+    --radius-md: 2px;
+    --radius-lg: 4px;
+    --radius-xl: 4px;
+    
+    /* Shadows - Minimal, replaced with borders */
+    --shadow-card: none;
+    --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.05);
   }
 
+  /* Dark Theme - Maintains Atelier Stone aesthetic */
   .dark {
-    --background: #101010;
-    --surface: #141414;
-    --surface-hover: #1d1d1d;
-    --surface-muted: #202020;
-    --border: #2a2a2a;
-    --border-strong: #383838;
-    --foreground: #e5e5e5;
-    --muted-foreground: #a8a8a8;
-    --tertiary-foreground: #7d7d7d;
-    --ring-offset: #101010;
+    --background: #1A1918; /* Dark plaster */
+    --surface: #242321; /* Dark card */
+    --surface-hover: #2D2C2A;
+    --surface-muted: #323130;
+    --border: #3D3B39;
+    --border-strong: #504D4A;
+    --foreground: #E8E6E1;
+    --muted-foreground: #9CA3AF;
+    --tertiary-foreground: #6B7280;
+    --ring-offset: #1A1918;
+    --primary: #B89A74; /* Lighter coffee for dark mode */
+    --primary-hover: #C9AB85;
   }
 
   /* Brutalist Theme - Cursor Black Midnight dark mode with no rounded corners */
@@ -84,41 +110,55 @@
     font-feature-settings: "rlig" 1, "calt" 1;
     min-height: 100vh;
     font-size: 14px;
+    line-height: 1.6;
   }
 
+  /* Headings - Serif font for "historic studio" feel */
   h1 {
-    @apply text-[24px] font-semibold text-[var(--foreground)] leading-snug;
+    font-family: var(--font-serif);
+    @apply text-[26px] font-semibold text-[var(--foreground)] leading-tight tracking-tight;
   }
 
   h2 {
-    @apply text-[20px] font-semibold text-[var(--foreground)] leading-snug;
+    font-family: var(--font-serif);
+    @apply text-[22px] font-semibold text-[var(--foreground)] leading-tight tracking-tight;
   }
 
   h3 {
-    @apply text-[16px] font-medium text-[var(--foreground)] leading-snug;
+    font-family: var(--font-serif);
+    @apply text-[18px] font-medium text-[var(--foreground)] leading-snug;
+  }
+
+  h4 {
+    font-family: var(--font-sans);
+    @apply text-[15px] font-semibold text-[var(--foreground)] leading-snug tracking-wide;
+    letter-spacing: 0.02em;
   }
 
   p {
-    @apply text-[13px] leading-relaxed text-[var(--muted-foreground)];
+    @apply text-[14px] leading-relaxed text-[var(--muted-foreground)];
   }
 
   label {
-    @apply text-[11px] font-medium text-[var(--foreground)];
+    @apply text-[12px] font-medium text-[var(--foreground)] tracking-wide;
+    letter-spacing: 0.01em;
   }
 
   a {
-    @apply text-[var(--foreground)] underline-offset-4 hover:underline;
+    @apply text-[var(--primary)] underline-offset-4 hover:underline;
   }
 
   code {
     border-radius: var(--radius-sm);
     background-color: var(--surface-muted);
-    padding: 0.125rem 0.25rem;
-    font-size: 0.75rem;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.8rem;
     font-weight: 500;
+    font-family: var(--font-mono);
     color: var(--foreground);
   }
 
+  /* Form elements - Flat, matte, structural */
   input,
   textarea,
   select {
@@ -127,12 +167,19 @@
     background-color: var(--surface);
     font-size: 0.875rem;
     color: var(--foreground);
+    transition: border-color 0.15s ease-out;
   }
   
   input::placeholder,
   textarea::placeholder,
   select::placeholder {
     color: var(--tertiary-foreground);
+  }
+  
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: var(--border-strong);
   }
 
   /* Brutalist theme - remove all rounded corners */
@@ -143,13 +190,6 @@
   }
 
   /* Brutalist theme styling is handled at component level, not via CSS overrides */
-
-  input:focus,
-  textarea:focus,
-  select:focus {
-    outline: none !important;
-    box-shadow: none !important;
-  }
 }
 
 @layer utilities {
@@ -169,28 +209,54 @@
     border-color: var(--border-strong);
   }
 
+  /* ===== ATELIER STONE SHADOWS ===== */
+  /* Minimal shadows - prefer borders for structure */
   .shadow-card {
-    @apply shadow-[0_4px_16px_rgba(0,0,0,0.04)];
+    box-shadow: none;
   }
 
   .shadow-popover {
-    @apply shadow-[0_12px_28px_rgba(0,0,0,0.08)];
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  }
+  
+  /* Modal shadow - very diffuse, low opacity (exception per theme spec) */
+  .shadow-modal {
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
   }
 
-  /* Block entrance animation - swoosh effect */
+  /* Deco-style divider - double line effect */
+  .divider-deco {
+    border-top: 2px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    height: 4px;
+    background: transparent;
+  }
+  
+  /* Thick structural divider */
+  .divider-structural {
+    border-top: 3px solid var(--border);
+  }
+
+  /* Block entrance animation - subtle, structural */
   @keyframes block-swoosh-in {
     0% {
       opacity: 0;
-      transform: translateY(20px) scale(0.96);
+      transform: translateY(8px);
     }
     100% {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: translateY(0);
     }
   }
 
   .animate-block-swoosh-in {
-    animation: block-swoosh-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: block-swoosh-in 0.25s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+  }
+  
+  /* Focus states - structural, not glowy */
+  .focus-structural:focus-visible {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
   }
 }
 

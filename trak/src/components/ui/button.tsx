@@ -4,29 +4,44 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/* 
+ * ATELIER STONE BUTTON STYLING
+ * - Solid backgrounds, flat (no heavy shadows)
+ * - 2px border radius ("cut stone" look)
+ * - Coffee Patina (#9C7C58) as primary action color
+ */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ring-offset)] disabled:pointer-events-none disabled:opacity-60",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ring-offset)] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
+        // Primary: Coffee Patina - bronze/brown for main actions
         default:
-          "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:bg-[#1f2937] active:bg-[#0f172a]",
+          "rounded-[2px] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] active:bg-[#7A6348]",
+        // Secondary: Flat with structural border
         secondary:
-          "bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+          "rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
+        // Ghost: Minimal, text-only appearance
         ghost:
-          "bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+          "rounded-[2px] bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+        // Outline: Structural border, transparent bg
         outline:
-          "border border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+          "rounded-[2px] border border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
+        // Destructive: Muted Rose (#B85C5C) - terra-cotta
         destructive:
-          "bg-[#ef4444] text-white shadow-sm hover:bg-[#dc2626] focus-visible:ring-[#fca5a5]",
+          "rounded-[2px] bg-[var(--error)] text-[var(--error-foreground)] hover:bg-[#A54F4F] active:bg-[#944545]",
+        // Success: Oxidized Sage (#6B827D)
+        success:
+          "rounded-[2px] bg-[var(--success)] text-[var(--success-foreground)] hover:bg-[#5D746F] active:bg-[#4F6661]",
+        // Light: Surface with subtle border (no shadow)
         light:
-          "bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border)] shadow-sm hover:shadow-md",
+          "rounded-[2px] bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--border-strong)]",
       },
       size: {
-        default: "h-9 px-3.5",
-        sm: "h-8 px-3",
-        lg: "h-10 px-4",
-        icon: "h-8 w-8",
+        default: "h-9 px-4 py-2",
+        sm: "h-8 px-3 text-xs",
+        lg: "h-11 px-5 text-base",
+        icon: "h-9 w-9",
       },
     },
     defaultVariants: {
