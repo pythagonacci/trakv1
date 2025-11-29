@@ -16,6 +16,9 @@ import {
   X,
   Home,
   Calendar as CalendarIcon,
+  Palette,
+  Square,
+  CheckSquare,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,6 +30,7 @@ import {
   useDashboardHeader,
 } from "./header-visibility-context";
 import GlobalSearch from "./global-search";
+import { useTheme } from "./theme-context";
 
 interface User {
   id: string;
@@ -78,6 +82,7 @@ function Sidebar({
 }) {
   const pathname = usePathname();
   const { currentWorkspace, workspaces, switchWorkspace, isSwitching } = useWorkspace();
+  const { theme, setTheme } = useTheme();
   const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
@@ -267,6 +272,14 @@ function Sidebar({
             Calendar
           </NavLink>
           <NavLink
+            href="/dashboard/tasks"
+            icon={<CheckSquare className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/tasks")}
+            collapsed={collapsed}
+          >
+            Tasks
+          </NavLink>
+          <NavLink
             href="/dashboard/payments"
             icon={<CreditCard className="h-4 w-4" />}
             active={pathname?.startsWith("/dashboard/payments")}
@@ -276,6 +289,27 @@ function Sidebar({
             Payments
           </NavLink>
         </nav>
+      </div>
+
+      {/* Theme Toggle */}
+      <div className="border-t border-[var(--border)]/50 px-3 py-2">
+        {collapsed ? (
+          <button
+            onClick={() => setTheme(theme === "default" ? "brutalist" : "default")}
+            className="flex h-9 w-9 items-center justify-center border border-[var(--border)]/60 bg-[var(--surface)] text-[var(--muted-foreground)] transition-all duration-200 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            title={`Theme: ${theme === "brutalist" ? "Brutalist" : "Default"}`}
+          >
+            <Palette className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            onClick={() => setTheme(theme === "default" ? "brutalist" : "default")}
+            className="flex w-full items-center gap-2.5 border border-[var(--border)]/60 bg-[var(--surface)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          >
+            <Palette className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">Theme: {theme === "brutalist" ? "Brutalist" : "Default"}</span>
+          </button>
+        )}
       </div>
 
       <div className="border-t border-[var(--border)]/50 px-3 py-3" ref={userDropdownRef}>
