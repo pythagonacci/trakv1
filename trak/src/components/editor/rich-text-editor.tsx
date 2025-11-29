@@ -99,7 +99,7 @@ export default function RichTextEditor({
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: "text-blue-500 underline cursor-pointer",
+          class: "text-[var(--primary)] underline cursor-pointer hover:text-[var(--primary-hover)]",
         },
       }),
     ],

@@ -27,6 +27,10 @@ export default function SpaceHeader({ space }: SpaceHeaderProps) {
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="space-y-2">
+          {/* Velvet Purple internal badge */}
+          <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--velvet-purple)]">
+            Internal
+          </span>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
             {space.name}
           </h1>

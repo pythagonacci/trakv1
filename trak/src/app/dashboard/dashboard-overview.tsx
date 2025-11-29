@@ -124,10 +124,10 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
   const getPriorityColor = (priority?: Task["priority"]) => {
     const isBrutalist = theme === "brutalist";
     switch (priority) {
-      case "urgent": return isBrutalist ? "text-white bg-[#dc2626]/70" : "text-red-600 bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800 dark:text-red-300";
-      case "high": return isBrutalist ? "text-white bg-[#f97316]/60" : "text-orange-600 bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800 dark:text-orange-300";
-      case "medium": return isBrutalist ? "text-white bg-[#3b82f6]/60" : "text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300";
-      case "low": return isBrutalist ? "text-white bg-[#6b7280]/60" : "text-gray-600 bg-gray-50 border-gray-200 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-300";
+      case "urgent": return isBrutalist ? "text-white bg-[var(--tile-orange)]/80" : "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
+      case "high": return isBrutalist ? "text-white bg-[var(--tram-yellow)]/70" : "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
+      case "medium": return isBrutalist ? "text-white bg-[var(--river-indigo)]/70" : "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
+      case "low": return isBrutalist ? "text-white bg-[var(--dome-teal)]/60" : "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
       default: return "";
     }
   };
@@ -172,14 +172,14 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
           </Button>
           <button 
             onClick={() => router.push("/dashboard/tasks")}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[#5A8FD0] hover:bg-[#4A7FC0] transition-colors flex items-center gap-1.5"
+            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors flex items-center gap-1.5"
           >
             <CheckSquare className="h-4 w-4" />
             Add Task
           </button>
           <button 
             onClick={() => router.push("/dashboard/projects")}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[#5A8FD0] hover:bg-[#4A7FC0] transition-colors"
+            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
           >
             New project
           </button>
@@ -334,8 +334,8 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
                           <span className={cn(
                             "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
                             theme === "brutalist"
-                              ? "text-white bg-[#3b82f6]/60"
-                              : "border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 text-blue-700 dark:text-blue-300"
+                              ? "text-white bg-[var(--tram-yellow)]/70"
+                              : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
                           )}>
                             <Calendar className="h-2.5 w-2.5" />
                             {formatDueDate(task.dueDate, task.dueTime)}
@@ -595,8 +595,8 @@ function UpdateRow({
             <span className={cn(
               "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
               theme === "brutalist"
-                ? "text-white bg-[#3b82f6]/60"
-                : "border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 text-blue-700 dark:text-blue-300"
+                ? "text-white bg-[var(--tram-yellow)]/70"
+                : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
             )}>
               <Calendar className="h-2.5 w-2.5" />
               {formatDueDate(dueDate, dueTime)}

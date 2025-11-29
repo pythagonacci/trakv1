@@ -3,7 +3,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /*
- * ATELIER STONE CARD STYLING
+ * SARAJEVO CARD STYLING
  * - "Cut stone" look with 2px border radius
  * - No heavy shadows - depth from borders and padding
  * - Structural borders for visual hierarchy

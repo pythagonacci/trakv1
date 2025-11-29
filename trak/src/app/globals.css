@@ -4,9 +4,10 @@
 
 @layer base {
   :root {
-    /* ===== ATELIER STONE THEME ===== */
-    /* A productivity-focused theme inspired by Sarajevo */
+    /* ===== SARAJEVO THEME ===== */
+    /* A productivity-focused theme inspired by Sarajevo, Bosnia */
     /* Blends "monumental structure" (Brutalist/Deco) with "airy resilience" */
+    /* Features the Sarajevo Arts Palette: Tile Orange, Dome Teal, River Indigo, Tram Yellow, Velvet Purple */
     
     /* Typography */
     --font-sans: 'Inter', 'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -44,6 +45,18 @@
     --error-foreground: #FFFFFF;
     --info: #6B8CAE; /* Dusty Denim - muted blue */
     --info-foreground: #FFFFFF;
+    
+    /* ===== SARAJEVO ARTS PALETTE ===== */
+    /* Rich, earthy colors inspired by Sarajevo's artistic heritage */
+    --tile-orange: #C77D63; /* Terracotta roofs - High Priority, Urgent */
+    --dome-teal: #4A7A78; /* Copper oxidation - Done states, folders, icons */
+    --river-indigo: #52637A; /* Miljacka at dusk - New tags, nav icons */
+    --tram-yellow: #D4A353; /* Electric trams - In Progress, Warning */
+    --velvet-purple: #7D6B7D; /* Dried flowers/smoke - Personal, Admin */
+    
+    /* Navigation icon color */
+    --nav-icon: #52637A; /* River Indigo for sidebar icons */
+    --nav-icon-active: #4A7A78; /* Dome Teal for active state */
 
     /* Border Radius - "Cut stone" look, very small */
     --radius-xs: 2px;
@@ -57,7 +70,7 @@
     --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.05);
   }
 
-  /* Dark Theme - Maintains Atelier Stone aesthetic */
+  /* Dark Theme - Maintains Sarajevo aesthetic */
   .dark {
     --background: #1A1918; /* Dark plaster */
     --surface: #242321; /* Dark card */
@@ -71,6 +84,15 @@
     --ring-offset: #1A1918;
     --primary: #B89A74; /* Lighter coffee for dark mode */
     --primary-hover: #C9AB85;
+    
+    /* Arts palette - slightly lighter for dark mode */
+    --tile-orange: #D98E74;
+    --dome-teal: #5A8A88;
+    --river-indigo: #6B7C94;
+    --tram-yellow: #E4B363;
+    --velvet-purple: #8D7B8D;
+    --nav-icon: #6B7C94;
+    --nav-icon-active: #5A8A88;
   }
 
   /* Brutalist Theme - Cursor Black Midnight dark mode with no rounded corners */
@@ -209,7 +231,7 @@
     border-color: var(--border-strong);
   }
 
-  /* ===== ATELIER STONE SHADOWS ===== */
+  /* ===== SARAJEVO SHADOWS ===== */
   /* Minimal shadows - prefer borders for structure */
   .shadow-card {
     box-shadow: none;
@@ -235,6 +257,32 @@
   /* Thick structural divider */
   .divider-structural {
     border-top: 3px solid var(--border);
+  }
+  
+  /* ===== SELECTION STATE UTILITIES (Arts Palette) ===== */
+  /* Use these for selected rows, cards, and interactive elements */
+  .selected-coffee {
+    background-color: rgba(156, 124, 88, 0.05);
+    border-color: rgba(156, 124, 88, 0.2);
+  }
+  
+  .selected-teal {
+    background-color: rgba(74, 122, 120, 0.05);
+    border-color: rgba(74, 122, 120, 0.2);
+  }
+  
+  .selected-indigo {
+    background-color: rgba(82, 99, 122, 0.05);
+    border-color: rgba(82, 99, 122, 0.2);
+  }
+  
+  /* Row hover with Arts palette tint */
+  .row-hover-teal:hover {
+    background-color: rgba(74, 122, 120, 0.04);
+  }
+  
+  .row-hover-coffee:hover {
+    background-color: rgba(156, 124, 88, 0.04);
   }
 
   /* Block entrance animation - subtle, structural */
@@ -372,13 +420,13 @@
 }
 
 .ProseMirror a {
-  color: #2563eb;
+  color: var(--primary);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .ProseMirror a:hover {
-  color: #1d4ed8;
+  color: var(--primary-hover);
 }
 
 .ProseMirror hr {

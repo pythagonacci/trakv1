@@ -284,7 +284,8 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
             onClick={() => setBlockReferenceSelectorOpen(true)}
             className="flex cursor-pointer items-center gap-2.5 rounded-[4px] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-blue-50 text-blue-600">
+            {/* Velvet Purple for references/links */}
+            <div className="flex h-7 w-7 items-center justify-center rounded-[2px] bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)]">
               <Copy className="w-4 h-4" />
             </div>
             <div className="flex-1">

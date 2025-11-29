@@ -7,7 +7,7 @@ import { cva } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 /*
- * ATELIER STONE LABEL STYLING
+ * SARAJEVO LABEL STYLING
  * - Slightly wider letter-spacing for structural feel
  * - Clean, readable typography
  */

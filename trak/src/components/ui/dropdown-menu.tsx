@@ -7,7 +7,7 @@ import { Check, ChevronRight, Circle } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /*
- * ATELIER STONE DROPDOWN STYLING
+ * SARAJEVO DROPDOWN STYLING
  * - Flat/matte surfaces, no heavy shadows
  * - 2px border radius
  * - Structural borders

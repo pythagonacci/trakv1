@@ -7,7 +7,7 @@ import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /*
- * ATELIER STONE DIALOG STYLING
+ * SARAJEVO DIALOG STYLING
  * - No blur effects (matte, solid backgrounds)
  * - Very diffuse, low-opacity shadow (exception per theme spec)
  * - 2-4px border radius
@@ -61,7 +61,7 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         "relative z-50 w-full max-w-lg",
-        // Atelier Stone styling
+        // Sarajevo theme styling
         "rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-6",
         // Diffuse shadow (exception for modals)
         "shadow-[0_4px_24px_rgba(0,0,0,0.05)]",

@@ -20,8 +20,8 @@ interface ClientsTableProps {
 export default function ClientsTable({ clients, workspaceId }: ClientsTableProps) {
   if (clients.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface)]">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] mb-4">
+      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border)] rounded-[4px] bg-[var(--surface)]">
+        <div className="flex h-12 w-12 items-center justify-center rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] mb-4">
           <Building2 className="h-6 w-6" />
         </div>
         <h3 className="text-lg font-semibold text-[var(--foreground)] mb-2">
@@ -64,7 +64,7 @@ export default function ClientsTable({ clients, workspaceId }: ClientsTableProps
               >
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] font-medium">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] font-semibold">
                       {client.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="font-medium text-[var(--foreground)]">
@@ -93,7 +93,7 @@ export default function ClientsTable({ clients, workspaceId }: ClientsTableProps
                   )}
                 </td>
                 <td className="px-4 py-4 text-center">
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium text-[var(--foreground)]">
+                  <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--dome-teal)]/20 bg-[var(--dome-teal)]/10 px-2.5 py-1 text-xs font-medium text-[var(--dome-teal)]">
                     <Briefcase className="h-3 w-3" />
                     {client.projectCount || 0}
                   </div>

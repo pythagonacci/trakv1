@@ -133,7 +133,7 @@ function Sidebar({
   return (
     <aside
       className={cn(
-        // ATELIER STONE SIDEBAR: Matte, structural, no glass effects
+        // SARAJEVO SIDEBAR: Matte, structural, no glass effects
         "flex h-screen flex-col border-r border-[var(--border)] bg-[var(--background)] transition-all duration-200 ease-out flex-shrink-0 relative z-50",
         collapsed ? "w-16" : "w-56"
       )}
@@ -169,7 +169,7 @@ function Sidebar({
               disabled={isSwitching}
               className="flex w-full items-center gap-2.5 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[var(--surface-hover)] disabled:opacity-50"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-[2px] bg-[var(--primary)]/10 border border-[var(--border)] text-[10px] font-semibold text-[var(--foreground)]">
+              <div className="flex h-8 w-8 items-center justify-center rounded-[2px] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[10px] font-semibold text-[var(--river-indigo)]">
                 {isSwitching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : getInitials(currentWorkspace?.name)}
               </div>
               <div className="min-w-0 flex-1">
@@ -199,7 +199,7 @@ function Sidebar({
                     disabled={isSwitching}
                     className="flex w-full items-center gap-2.5 rounded-[2px] px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
                   >
-                    <div className="flex h-6 w-6 items-center justify-center rounded-[2px] bg-[var(--primary)]/10 border border-[var(--border)] text-[var(--foreground)] text-xs font-semibold">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-[2px] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
                       {getInitials(workspace.name)}
                     </div>
                     <div className="min-w-0 flex-1 text-left">
@@ -208,7 +208,7 @@ function Sidebar({
                         {workspace.role}
                       </p>
                     </div>
-                    {currentWorkspace?.id === workspace.id && <Check className="h-3.5 w-3.5 text-[var(--primary)]" />}
+                    {currentWorkspace?.id === workspace.id && <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />}
                   </button>
                 ))}
               </div>
@@ -292,23 +292,23 @@ function Sidebar({
         </nav>
       </div>
 
-      {/* Theme Toggle */}
+      {/* Theme Toggle - Arts Palette accent */}
       <div className="border-t border-[var(--border)] px-3 py-2">
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-            title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Atelier Stone"}`}
+            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
+            title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
           >
             <Palette className="h-4 w-4" />
           </button>
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-            className="flex w-full items-center gap-2.5 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            className="flex w-full items-center gap-2.5 rounded-[2px] border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 px-3 py-2 text-sm text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
           >
             <Palette className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Atelier Stone"}</span>
+            <span className="text-xs font-medium">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
           </button>
         )}
       </div>
@@ -317,7 +317,7 @@ function Sidebar({
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--border)] bg-[var(--primary)]/10 text-[var(--foreground)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--surface-hover)]"
+            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--velvet-purple)]/15"
           >
             {getUserInitials()}
           </button>
@@ -327,7 +327,7 @@ function Sidebar({
             className="flex w-full items-center justify-between rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-[2px] bg-[var(--primary)]/10 border border-[var(--border)] text-[var(--foreground)] text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-[2px] bg-[var(--velvet-purple)]/10 border border-[var(--velvet-purple)]/20 text-[var(--velvet-purple)] text-xs font-semibold">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
@@ -380,11 +380,11 @@ function NavLink({
       href={href}
       prefetch={prefetch}
       className={cn(
-        // ATELIER STONE NAV: Flat, structural, no shadows
+        // SARAJEVO NAV with ARTS PALETTE colors
         "group flex w-full items-center rounded-[2px] text-sm font-medium transition-colors duration-150",
-        collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2",
+        collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
         active
-          ? "bg-[var(--surface)] text-[var(--foreground)] border-l-2 border-[var(--primary)]"
+          ? "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border-l-2 border-[var(--dome-teal)]"
           : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
       )}
       title={collapsed ? (children as string) : undefined}
@@ -393,8 +393,8 @@ function NavLink({
         className={cn(
           "flex h-8 w-8 items-center justify-center rounded-[2px] transition-colors duration-150",
           active
-            ? "bg-[var(--primary)]/10 text-[var(--primary)]"
-            : "text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]"
+            ? "bg-[var(--dome-teal)]/15 text-[var(--dome-teal)]"
+            : "text-[var(--river-indigo)] group-hover:text-[var(--dome-teal)]"
         )}
       >
         {icon}

@@ -164,16 +164,16 @@ export default function CreateTabDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[var(--background)] rounded-2xl border border-[var(--border)] shadow-popover max-w-md w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-[#2D3236]/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-[var(--surface)] rounded-[2px] border border-[var(--border)] shadow-[0_4px_24px_rgba(0,0,0,0.05)] max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <h2 className="text-xl font-semibold text-[var(--foreground)]">
+          <h2 className="text-xl font-semibold text-[var(--foreground)] font-[var(--font-serif)]">
             Create New Tab
           </h2>
           <button
             onClick={handleClose}
-            className="rounded-lg p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            className="rounded-[2px] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             disabled={isSubmitting}
           >
             <X className="h-5 w-5" />
@@ -184,15 +184,15 @@ export default function CreateTabDialog({
         <form onSubmit={handleSubmit} className="space-y-5 px-6 py-6">
           {/* Error Message */}
           {formError && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-              <p className="text-sm text-red-600">{formError}</p>
+            <div className="rounded-[2px] border border-[var(--error)]/30 bg-[var(--error)]/10 px-4 py-3">
+              <p className="text-sm text-[var(--error)]">{formError}</p>
             </div>
           )}
 
           {/* Tab Name */}
           <div className="space-y-2">
             <label htmlFor="tab-name" className="block text-sm font-medium text-[var(--foreground)]">
-              Tab Name <span className="text-red-500">*</span>
+              Tab Name <span className="text-[var(--error)]">*</span>
             </label>
             <input
               id="tab-name"
@@ -200,7 +200,7 @@ export default function CreateTabDialog({
               value={tabName}
               onChange={(e) => setTabName(e.target.value)}
               placeholder="Enter tab name"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--primary)] focus:outline-none transition-colors"
               disabled={isSubmitting}
               autoFocus
               maxLength={100}
@@ -233,14 +233,14 @@ export default function CreateTabDialog({
           {isSubTab && (
             <div className="space-y-2">
               <label htmlFor="parent-tab" className="block text-sm font-medium text-[var(--foreground)]">
-                Parent Tab <span className="text-red-500">*</span>
+                Parent Tab <span className="text-[var(--error)]">*</span>
               </label>
               {isLoadingParents ? (
-                <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2">
+                <div className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
                   <p className="text-sm text-[var(--muted-foreground)]">Loading tabs...</p>
                 </div>
               ) : flatParents.length === 0 ? (
-                <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2">
+                <div className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
                   <p className="text-sm text-[var(--muted-foreground)]">No tabs available. Create a top-level tab first.</p>
                 </div>
               ) : (
@@ -248,7 +248,7 @@ export default function CreateTabDialog({
                   id="parent-tab"
                   value={selectedParentId || ""}
                   onChange={(e) => setSelectedParentId(e.target.value || null)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+                  className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none transition-colors"
                   disabled={isSubmitting}
                   required={isSubTab}
                 >
@@ -264,18 +264,18 @@ export default function CreateTabDialog({
           )}
 
           {/* Actions */}
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3 pt-4 border-t border-[var(--border)]">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-all duration-150 hover:bg-surface-hover"
+              className="flex-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] shadow-sm transition-all duration-150 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex-1 rounded-[2px] bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--primary-foreground)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isSubmitting}
             >
               {isSubmitting ? "Creating..." : "Create Tab"}

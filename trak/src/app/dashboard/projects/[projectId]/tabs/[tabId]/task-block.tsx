@@ -215,10 +215,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   
   // Common tag options (these are just suggestions)
   const commonTags = [
-    { name: "Bug", color: "#ef4444" },
-    { name: "Feature", color: "#3b82f6" },
-    { name: "Design", color: "#a855f7" },
-    { name: "Frontend", color: "#06b6d4" },
+    { name: "Bug", color: "#C77D63" }, /* Tile Orange - Sarajevo Arts */
+    { name: "Feature", color: "#52637A" }, /* River Indigo - Sarajevo Arts */
+    { name: "Design", color: "#7D6B7D" }, /* Velvet Purple - Sarajevo Arts */
+    { name: "Frontend", color: "#4A7A78" }, /* Dome Teal - Sarajevo Arts */
     { name: "Backend", color: "#10b981" },
     { name: "Urgent", color: "#f97316" },
     { name: "Research", color: "#8b5cf6" },
@@ -422,7 +422,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     status === "done" ? (
       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
     ) : status === "in-progress" ? (
-      <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+      <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
     ) : (
       <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
     );
@@ -434,8 +434,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
         <span className={cn(
           "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium",
           isBrutalist 
-            ? "text-white bg-[#3b82f6]/60"
-            : "border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 text-blue-700 dark:text-blue-300"
+            ? "text-white bg-[var(--tram-yellow)]/70"
+            : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
         )}>
           <Clock className="h-2.5 w-2.5" />
           In Progress
@@ -448,10 +448,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   const getPriorityColor = (priority?: Task["priority"]) => {
     const isBrutalist = theme === "brutalist";
     switch (priority) {
-      case "urgent": return isBrutalist ? "text-white bg-[#dc2626]/70" : "text-red-600 bg-red-50 border-red-200";
-      case "high": return isBrutalist ? "text-white bg-[#f97316]/60" : "text-orange-600 bg-orange-50 border-orange-200";
-      case "medium": return isBrutalist ? "text-white bg-[#3b82f6]/60" : "text-blue-600 bg-blue-50 border-blue-200";
-      case "low": return isBrutalist ? "text-white bg-[#6b7280]/60" : "text-gray-600 bg-gray-50 border-gray-200";
+      case "urgent": return isBrutalist ? "text-white bg-[var(--tile-orange)]/80" : "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border-[var(--tile-orange)]/30";
+      case "high": return isBrutalist ? "text-white bg-[var(--tram-yellow)]/70" : "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border-[var(--tram-yellow)]/30";
+      case "medium": return isBrutalist ? "text-white bg-[var(--river-indigo)]/70" : "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border-[var(--river-indigo)]/30";
+      case "low": return isBrutalist ? "text-white bg-[var(--dome-teal)]/60" : "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border-[var(--dome-teal)]/30";
       default: return "";
     }
   };
@@ -895,7 +895,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateTask(task.id, { priority: "medium" }); }}>
                             <span className="inline-flex items-center gap-2 w-full">
-                              <span className="w-2 h-2 rounded-full bg-blue-500" />
+                              <span className="w-2 h-2 rounded-full bg-[var(--river-indigo)]" />
                               Medium
                             </span>
                           </DropdownMenuItem>
@@ -919,10 +919,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button className={cn(
-                              "inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors",
+                              "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
                               theme === "brutalist"
-                                ? "text-white bg-[var(--info)]/60 hover:bg-[var(--info)]/80"
-                                : "border border-[var(--border)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                ? "text-white bg-[var(--velvet-purple)]/70 hover:bg-[var(--velvet-purple)]/80"
+                                : "border border-[var(--velvet-purple)]/25 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] hover:bg-[var(--velvet-purple)]/15"
                             )}>
                               <Users className="h-3 w-3" />
                               {task.assignees && task.assignees.length > 0 && (
@@ -1103,7 +1103,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                       High
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => updateTask(task.id, { priority: "medium" })}>
-                      <Flag className="mr-2 h-4 w-4 text-blue-600" />
+                      <Flag className="mr-2 h-4 w-4 text-[var(--river-indigo)]" />
                       Medium
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => updateTask(task.id, { priority: "low" })}>

@@ -3,7 +3,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /*
- * ATELIER STONE INPUT STYLING
+ * SARAJEVO INPUT STYLING
  * - Flat/matte appearance, no shadows
  * - 2px border radius ("cut stone" look)
  * - Structural borders for clarity

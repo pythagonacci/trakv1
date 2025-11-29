@@ -101,9 +101,9 @@ export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="space-y-2">
           {project.client && (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--info)]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--info)]">
+            <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--velvet-purple)]">
               {project.client.name}
-              {project.client.company && <span className="text-[var(--info)]/70">· {project.client.company}</span>}
+              {project.client.company && <span className="text-[var(--velvet-purple)]/70">· {project.client.company}</span>}
             </span>
           )}
           <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">

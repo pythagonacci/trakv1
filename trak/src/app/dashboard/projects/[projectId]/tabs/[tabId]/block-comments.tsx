@@ -262,7 +262,11 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                     <div className="flex items-start justify-between gap-1.5 w-full">
                       <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="font-normal text-[var(--foreground)] text-xs">
+                          {/* Velvet Purple avatar initial */}
+                          <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-[var(--velvet-purple)]/15 text-[var(--velvet-purple)] text-[9px] font-semibold flex-shrink-0">
+                            {(isOwnComment ? "Y" : authorDisplay.charAt(0).toUpperCase())}
+                          </span>
+                          <span className="font-medium text-[var(--foreground)] text-xs">
                             {isOwnComment ? "You" : authorDisplay}
                           </span>
                           <span className="text-[var(--tertiary-foreground)] text-xs font-normal">{timeAgo}</span>

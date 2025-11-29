@@ -3,8 +3,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 
 // Theme types:
-// - "default" / "atelier-stone": Light mode with warm, matte, structural aesthetic
-// - "dark": Dark mode variant of Atelier Stone
+// - "default" / "sarajevo": Light mode inspired by Sarajevo - warm plaster, arts palette
+// - "dark": Dark mode variant of Sarajevo theme
 // - "brutalist": High contrast dark mode with no rounded corners
 type Theme = "default" | "dark" | "brutalist";
 

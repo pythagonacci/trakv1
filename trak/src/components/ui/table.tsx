@@ -5,7 +5,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /*
- * ATELIER STONE TABLE STYLING
+ * SARAJEVO TABLE STYLING
  * - Flat/matte design, no shadows
  * - 2px border radius
  * - Airy row heights and padding for "resilient" feel
@@ -65,7 +65,8 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        "transition-colors duration-150 hover:bg-[var(--surface-hover)] data-[state=selected]:bg-[var(--surface-hover)]",
+        // Arts palette selection state - Dome Teal tint for selected rows
+        "transition-colors duration-150 hover:bg-[var(--dome-teal)]/[0.04] data-[state=selected]:bg-[var(--dome-teal)]/[0.06] data-[state=selected]:border-l-2 data-[state=selected]:border-l-[var(--dome-teal)]",
         className
       )}
       {...props}

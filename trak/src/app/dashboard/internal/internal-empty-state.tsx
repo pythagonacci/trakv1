@@ -9,10 +9,11 @@ interface EmptyStateProps {
 
 export default function InternalEmptyState({ onCreateClick }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center border border-dashed border-[var(--border)] rounded-xl p-12 bg-[var(--surface)]/50">
+    <div className="flex flex-col items-center justify-center border border-dashed border-[var(--border)] rounded-[4px] p-12 bg-[var(--surface)]/50">
       <div className="flex flex-col items-center max-w-md text-center space-y-4">
-        <div className="rounded-full bg-[var(--surface-muted)] p-4">
-          <BookOpen className="h-8 w-8 text-[var(--muted-foreground)]" />
+        {/* Velvet Purple for internal/admin spaces */}
+        <div className="rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 p-4">
+          <BookOpen className="h-8 w-8 text-[var(--velvet-purple)]" />
         </div>
         <div className="space-y-2">
           <h3 className="text-lg font-semibold text-[var(--foreground)]">No internal spaces yet</h3>

@@ -119,20 +119,21 @@ export default function GlobalSearch() {
     setSelectedIndex(-1);
   };
 
+  // SARAJEVO ARTS PALETTE for search result icons
   const getResultIcon = (type: SearchResultType) => {
     switch (type) {
       case "project":
-        return <Folder className="h-4 w-4" />;
+        return <Folder className="h-4 w-4 text-[var(--dome-teal)]" />;
       case "task":
-        return <CheckSquare className="h-4 w-4" />;
+        return <CheckSquare className="h-4 w-4 text-[var(--river-indigo)]" />;
       case "doc":
-        return <FileText className="h-4 w-4" />;
+        return <FileText className="h-4 w-4 text-[var(--tram-yellow)]" />;
       case "text_block":
-        return <File className="h-4 w-4" />;
+        return <File className="h-4 w-4 text-[var(--velvet-purple)]" />;
       case "tab":
-        return <Layers className="h-4 w-4" />;
+        return <Layers className="h-4 w-4 text-[var(--tile-orange)]" />;
       default:
-        return <FileText className="h-4 w-4" />;
+        return <FileText className="h-4 w-4 text-[var(--tram-yellow)]" />;
     }
   };
 
@@ -187,7 +188,7 @@ export default function GlobalSearch() {
           }}
           onKeyDown={handleKeyDown}
           placeholder="Search projects, tasks, docs... (Cmd+K)"
-          className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] px-10 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent transition-all"
+          className="w-full max-w-md rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-10 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition-colors"
         />
         {query && (
           <button
@@ -211,7 +212,7 @@ export default function GlobalSearch() {
 
       {/* Search Results */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-2 max-h-[600px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-xl z-50">
+        <div className="absolute top-full left-0 right-0 mt-2 max-h-[600px] overflow-y-auto rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_16px_rgba(0,0,0,0.04)] z-50">
           {query.length < 2 ? (
             <div className="p-4 text-center text-sm text-[var(--muted-foreground)]">
               Type at least 2 characters to search...

@@ -10,16 +10,17 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
   const { theme } = useTheme();
   const isBrutalist = theme === "brutalist";
   
+  // SARAJEVO ARTS PALETTE for status badges
   const styles = {
     not_started: isBrutalist 
-      ? "bg-[var(--foreground)]/60 text-white"
-      : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70",
+      ? "bg-[var(--river-indigo)]/70 text-white"
+      : "bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/20",
     in_progress: isBrutalist
-      ? "bg-[var(--info)]/60 text-white"
-      : "bg-[var(--info)]/10 text-[var(--info)]",
+      ? "bg-[var(--tram-yellow)]/70 text-white"
+      : "bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/20",
     complete: isBrutalist
-      ? "bg-[var(--success)]/60 text-white"
-      : "bg-[var(--success)]/10 text-[var(--success)]",
+      ? "bg-[var(--dome-teal)]/70 text-white"
+      : "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/20",
   } as const;
 
   const labels = {
@@ -30,7 +31,7 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
 
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${styles[status]}`}
+      className={`inline-flex items-center rounded-[2px] px-2 py-0.5 text-[10px] font-medium ${styles[status]}`}
     >
       {labels[status]}
     </span>

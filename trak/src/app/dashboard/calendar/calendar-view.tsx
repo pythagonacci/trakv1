@@ -93,38 +93,45 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
   const [addEventTime, setAddEventTime] = useState<string | undefined>(undefined);
   const [calendarTheme, setCalendarTheme] = useState<string>("default");
 
+  // SARAJEVO ARTS PALETTE for calendar events
   const getEventClassName = (event: CalendarEvent, textSize: string = "text-[10px]") => {
     const isBrutalist = theme === "brutalist";
-    const baseClasses = `rounded-lg px-2 py-1 ${textSize} font-medium cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md backdrop-blur-sm`;
+    const baseClasses = `rounded-[2px] px-2 py-1 ${textSize} font-medium cursor-pointer transition-all hover:scale-[1.01] hover:shadow-sm`;
     
     if (event.type === "project") {
       return isBrutalist
-        ? `${baseClasses} text-white bg-[#a855f7]/60`
-        : `${baseClasses} bg-purple-100/80 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/30`;
+        ? `${baseClasses} text-white bg-[var(--velvet-purple)]/70`
+        : `${baseClasses} bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] border border-[var(--velvet-purple)]/25`;
     }
     
     if (event.priority === "urgent") {
       return isBrutalist
-        ? `${baseClasses} text-white bg-[#dc2626]/70`
-        : `${baseClasses} bg-red-100/80 text-red-700 dark:bg-red-950/40 dark:text-red-300 border border-red-200/50 dark:border-red-800/30`;
+        ? `${baseClasses} text-white bg-[var(--tile-orange)]/80`
+        : `${baseClasses} bg-[var(--tile-orange)]/10 text-[var(--tile-orange)] border border-[var(--tile-orange)]/25`;
     }
     
     if (event.priority === "high") {
       return isBrutalist
-        ? `${baseClasses} text-white bg-[#f97316]/60`
-        : `${baseClasses} bg-orange-100/80 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-200/50 dark:border-orange-800/30`;
+        ? `${baseClasses} text-white bg-[var(--tram-yellow)]/70`
+        : `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
     }
     
     if (event.priority === "medium") {
       return isBrutalist
-        ? `${baseClasses} text-white bg-[#3b82f6]/60`
-        : `${baseClasses} bg-blue-100/80 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30`;
+        ? `${baseClasses} text-white bg-[var(--river-indigo)]/70`
+        : `${baseClasses} bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25`;
     }
     
-    // Default/no priority
+    if (event.priority === "low") {
+      return isBrutalist
+        ? `${baseClasses} text-white bg-[var(--dome-teal)]/60`
+        : `${baseClasses} bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/25`;
+    }
+    
+    // Default/no priority - use River Indigo
     return isBrutalist
-      ? `${baseClasses} text-white bg-[#3b82f6]/60`
-      : `${baseClasses} bg-blue-100/80 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30`;
+      ? `${baseClasses} text-white bg-[var(--river-indigo)]/70`
+      : `${baseClasses} bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25`;
   };
   const dayViewRef = useRef<HTMLDivElement>(null);
   const hasScrolledToStart = useRef(false);
@@ -551,12 +558,12 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
                 onClick={() => handleDayClick(currentDate)}
                 className={cn(
                   "border-b border-[var(--border)]/30 bg-[var(--surface)]/80 backdrop-blur-md px-6 py-4 rounded-t-xl",
-                  isToday(currentDate) && "bg-gradient-to-r from-blue-50/90 to-blue-100/50 dark:from-blue-950/40 dark:to-blue-900/20"
+                  isToday(currentDate) && "bg-[var(--dome-teal)]/5"
                 )}
               >
                 <div className={cn(
                   "text-sm font-medium text-[var(--muted-foreground)]",
-                  isToday(currentDate) && "text-blue-600 dark:text-blue-400"
+                  isToday(currentDate) && "text-[var(--dome-teal)]"
                 )}>
                   {currentDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
                 </div>

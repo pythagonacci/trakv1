@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 /* 
- * ATELIER STONE BUTTON STYLING
+ * SARAJEVO BUTTON STYLING
  * - Solid backgrounds, flat (no heavy shadows)
  * - 2px border radius ("cut stone" look)
  * - Coffee Patina (#9C7C58) as primary action color

@@ -166,16 +166,16 @@ export default function ProjectDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[var(--border)] bg-white/95 shadow-popover dark:bg-[#111]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D3236]/40 p-4">
+      <div className="w-full max-w-lg overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.05)]">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <h2 className="text-lg font-semibold text-[var(--foreground)]">
+          <h2 className="text-lg font-semibold text-[var(--foreground)] font-[var(--font-serif)]">
             {mode === "create" ? "New Project" : "Edit Project"}
           </h2>
           <button
             onClick={handleClose}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--border)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             disabled={isSubmitting}
           >
             <X className="h-4 w-4" />
@@ -186,8 +186,8 @@ export default function ProjectDialog({
         <form onSubmit={handleSubmit} className="space-y-5 px-6 py-5">
           {/* Error Message */}
           {formError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-              <p className="text-sm font-medium text-red-600">{formError}</p>
+            <div className="rounded-[2px] border border-[var(--error)]/30 bg-[var(--error)]/10 px-4 py-3">
+              <p className="text-sm font-medium text-[var(--error)]">{formError}</p>
             </div>
           )}
 
@@ -202,7 +202,7 @@ export default function ProjectDialog({
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="Enter project name"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm transition-all focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
               autoFocus
             />
@@ -221,13 +221,13 @@ export default function ProjectDialog({
               onFocus={() => setShowClientDropdown(clientInput.length > 0)}
               onBlur={() => setTimeout(() => setShowClientDropdown(false), 200)}
               placeholder="Type client name..."
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             />
             
             {/* Dropdown for existing clients or create new */}
             {showClientDropdown && (
-              <div className="absolute z-10 mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg max-h-60 overflow-auto">
+              <div className="absolute z-10 mt-1 w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_16px_rgba(0,0,0,0.04)] max-h-60 overflow-auto">
                 {filteredClients.length > 0 ? (
                   <>
                     {filteredClients.map((client) => (
@@ -248,7 +248,7 @@ export default function ProjectDialog({
                   <div className="px-3 py-2 text-sm">
                     <div className="text-[var(--muted-foreground)] mb-1">No existing clients found</div>
                     <div className="font-medium text-[var(--foreground)]">
-                      Will create: <span className="text-blue-600">{clientInput}</span>
+                      Will create: <span className="text-[var(--primary)]">{clientInput}</span>
                     </div>
                   </div>
                 ) : null}
@@ -256,7 +256,7 @@ export default function ProjectDialog({
             )}
             
             {clientInput && !formData.client_id && (
-              <p className="mt-1 text-xs text-blue-600">
+              <p className="mt-1 text-xs text-[var(--primary)]">
                 ✨ New client "{clientInput}" will be created
               </p>
             )}
@@ -271,7 +271,7 @@ export default function ProjectDialog({
               id="status"
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value as FormData["status"] })}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             >
               <option value="not_started">Not started</option>
@@ -291,23 +291,23 @@ export default function ProjectDialog({
               value={formData.due_date}
               onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
               placeholder="YYYY-MM-DD or custom text"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm focus:border-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             />
           </div>
 
-          <div className="flex gap-3 pt-6">
+          <div className="flex gap-3 pt-6 border-t border-[var(--border)]">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+              className="flex-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] shadow-sm transition-colors hover:bg-[#1f2937] disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex-1 rounded-[2px] bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--primary-foreground)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isSubmitting}
             >
               {isSubmitting ? "Saving..." : mode === "create" ? "Create project" : "Save changes"}

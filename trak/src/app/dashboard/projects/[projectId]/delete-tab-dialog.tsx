@@ -54,21 +54,21 @@ export default function DeleteTabDialog({
   if (!isOpen || !tab) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-popover">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D3236]/40 p-4">
+      <div className="w-full max-w-md rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.05)]">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[2px] bg-[var(--error)]/10 text-[var(--error)]">
               <AlertTriangle className="h-5 w-5" />
             </div>
-            <h2 className="text-xl font-semibold text-[var(--foreground)]">
+            <h2 className="text-xl font-semibold text-[var(--foreground)] font-[var(--font-serif)]">
               Delete Tab
             </h2>
           </div>
           <button
             onClick={handleClose}
-            className="rounded-lg p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+            className="rounded-[2px] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             disabled={isDeleting}
           >
             <X className="h-5 w-5" />
@@ -78,8 +78,8 @@ export default function DeleteTabDialog({
         {/* Dialog Body */}
         <div className="space-y-4 px-6 py-6">
           {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-              <p className="text-sm text-red-600">{error}</p>
+            <div className="rounded-[2px] border border-[var(--error)]/30 bg-[var(--error)]/10 px-4 py-3">
+              <p className="text-sm text-[var(--error)]">{error}</p>
             </div>
           )}
 
@@ -98,7 +98,7 @@ export default function DeleteTabDialog({
           <button
             type="button"
             onClick={handleClose}
-            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-all duration-150 hover:bg-surface-hover"
+            className="flex-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]"
             disabled={isDeleting}
           >
             Cancel
@@ -106,7 +106,7 @@ export default function DeleteTabDialog({
           <button
             type="button"
             onClick={handleDelete}
-            className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex-1 rounded-[2px] bg-[var(--error)] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#A54F4F] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={isDeleting}
           >
             {isDeleting ? "Deleting..." : "Delete Tab"}

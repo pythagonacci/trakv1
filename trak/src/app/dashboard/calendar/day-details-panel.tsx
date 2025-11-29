@@ -27,22 +27,23 @@ export default function DayDetailsPanel({
   const router = useRouter();
   const { theme } = useTheme();
   
+  // SARAJEVO ARTS PALETTE for priority badges
   const getPriorityBadgeClassName = (priority: string) => {
     const isBrutalist = theme === "brutalist";
     if (isBrutalist) {
       switch (priority) {
-        case "urgent": return "text-white bg-[#dc2626]/70";
-        case "high": return "text-white bg-[#f97316]/60";
-        case "medium": return "text-white bg-[#3b82f6]/60";
-        case "low": return "text-white bg-[#6b7280]/60";
+        case "urgent": return "text-white bg-[var(--tile-orange)]/80";
+        case "high": return "text-white bg-[var(--tram-yellow)]/70";
+        case "medium": return "text-white bg-[var(--river-indigo)]/70";
+        case "low": return "text-white bg-[var(--dome-teal)]/60";
         default: return "";
       }
     } else {
       switch (priority) {
-        case "urgent": return "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300";
-        case "high": return "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300";
-        case "medium": return "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300";
-        case "low": return "bg-gray-100 text-gray-700 dark:bg-gray-900 dark:text-gray-300";
+        case "urgent": return "bg-[var(--tile-orange)]/10 text-[var(--tile-orange)] border border-[var(--tile-orange)]/25";
+        case "high": return "bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25";
+        case "medium": return "bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25";
+        case "low": return "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/25";
         default: return "";
       }
     }

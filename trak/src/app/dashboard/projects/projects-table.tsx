@@ -317,7 +317,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
           </div>
           <button 
             onClick={handleOpenCreate} 
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[#1F8AFF] hover:bg-[#0F7AEF] transition-colors"
+            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
           >
             New project
           </button>
