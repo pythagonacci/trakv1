@@ -120,10 +120,47 @@ export default function RichTextEditor({
     if (autoFocus && editor && isMounted) {
       // Small delay to ensure the editor is fully rendered and DOM is ready
       const timer = setTimeout(() => {
-        // Focus the editor and place cursor at the start
-        editor.commands.setTextSelection(0);
-        editor.commands.focus();
-      }, 150);
+        try {
+          // Check if document is empty (only has empty paragraph)
+          const isEmpty = editor.state.doc.content.childCount === 1 && 
+                          editor.state.doc.content.firstChild?.type.name === 'paragraph' &&
+                          editor.state.doc.content.firstChild?.content.size === 0;
+          
+          // Focus the editor first
+          editor.commands.focus();
+          
+          // Place cursor at the start for empty docs, or at the end for docs with content
+          if (isEmpty) {
+            editor.commands.setTextSelection(1); // Position after the paragraph node
+          } else {
+            // For documents with content, place cursor at the end
+            const docSize = editor.state.doc.content.size;
+            editor.commands.setTextSelection(docSize);
+          }
+          
+          // Ensure the DOM element receives focus and cursor is visible
+          const editorElement = editor.view.dom as HTMLElement;
+          if (editorElement) {
+            editorElement.focus();
+            
+            // Force cursor to be visible by ensuring contentEditable has focus
+            const editableElement = editorElement.querySelector('[contenteditable]') as HTMLElement;
+            if (editableElement) {
+              editableElement.focus();
+            }
+          }
+        } catch (error) {
+          console.error('Error focusing editor:', error);
+          // Fallback: just focus
+          try {
+            editor.commands.focus();
+            const editorElement = editor.view.dom as HTMLElement;
+            editorElement?.focus();
+          } catch (e) {
+            // Silent fail
+          }
+        }
+      }, 200); // Delay to ensure everything is rendered
       return () => clearTimeout(timer);
     }
   }, [editor, isMounted, autoFocus]);

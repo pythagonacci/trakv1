@@ -457,8 +457,21 @@ export default function DocEditor({ doc }: DocEditorProps) {
 
             <input
               type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              value={title === "Untitled Document" ? "" : title}
+              onChange={(e) => setTitle(e.target.value || "Untitled Document")}
+              onFocus={(e) => {
+                // Clear "Untitled Document" when clicking/focusing
+                if (title === "Untitled Document") {
+                  setTitle("");
+                  e.target.select();
+                }
+              }}
+              onBlur={(e) => {
+                // Restore placeholder if empty
+                if (!e.target.value.trim()) {
+                  setTitle("Untitled Document");
+                }
+              }}
               className="flex-1 text-base font-semibold bg-transparent border-none outline-none text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] min-w-0"
               placeholder="Untitled Document"
             />
@@ -595,6 +608,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
             onToolbarHoverStart={handleToolbarEnter}
             onToolbarHoverEnd={handleToolbarLeave}
             lineSpacing={lineSpacing}
+            autoFocus={true}
           />
         </div>
       </div>
