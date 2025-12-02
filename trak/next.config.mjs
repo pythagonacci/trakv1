@@ -1,11 +1,20 @@
+import { fileURLToPath } from 'url';
+import path from 'path';
+
 /** @type {import('next').NextConfig} */
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+
 const nextConfig = {
   // Output standalone build for deployment (only in production)
   ...(process.env.NODE_ENV === 'production' && { output: 'standalone' }),
   
+  turbopack: {
+    root: projectRoot,
+  },
+  
   // Performance optimizations
   experimental: {
-    reactCompiler: true,
     optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
   },
   

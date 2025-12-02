@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout, Copy } from "lucide-react";
-import { createBlock, type BlockType } from "@/app/actions/block";
+import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -21,6 +21,7 @@ interface AddBlockButtonProps {
   variant?: "default" | "large";
   parentBlockId?: string | null;
   onBlockCreated?: (block: any) => void;
+  onBlockResolved?: (tempId: string, savedBlock: Block) => void;
   getNextPosition?: () => number;
 }
 
@@ -105,7 +106,7 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
   },
 ];
 
-export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, getNextPosition }: AddBlockButtonProps) {
+export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, onBlockResolved, getNextPosition }: AddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [docSelectorOpen, setDocSelectorOpen] = useState(false);
@@ -123,8 +124,9 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     const nextPosition = getNextPosition?.() ?? 0;
 
     // Create optimistic block IMMEDIATELY (before server call)
+    const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock = {
-      id: `temp-${Date.now()}-${Math.random()}`, // Temporary ID
+      id: optimisticBlockId, // Temporary ID
       tab_id: tabId,
       parent_block_id: parentBlockId || null,
       type: type,
@@ -162,7 +164,9 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         return;
       }
 
-      // Server succeeded - data will sync in background
+      if (result.data) {
+        onBlockResolved?.(optimisticBlockId, result.data);
+      }
     } catch (error) {
       console.error("Create block exception:", error);
       // Remove optimistic block on error
@@ -202,8 +206,9 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     const nextPosition = getNextPosition?.() ?? 0;
 
     // Create optimistic block IMMEDIATELY
+    const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock = {
-      id: `temp-${Date.now()}-${Math.random()}`,
+      id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: parentBlockId || null,
       type: "doc_reference" as BlockType,
@@ -244,7 +249,9 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         return;
       }
 
-      // Server succeeded - data will sync in background
+      if (result.data) {
+        onBlockResolved?.(optimisticBlockId, result.data);
+      }
     } catch (error) {
       console.error("Create doc reference exception:", error);
       router.refresh();

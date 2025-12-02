@@ -71,6 +71,21 @@ interface TableBlockProps {
   onUpdate?: (updatedBlock?: Block) => void;
 }
 
+const normalizeCellsMatrix = (
+  source: string[][] | undefined,
+  rows: number,
+  cols: number
+): string[][] => {
+  const normalized: string[][] = [];
+  for (let r = 0; r < rows; r++) {
+    normalized[r] = [];
+    for (let c = 0; c < cols; c++) {
+      normalized[r][c] = source?.[r]?.[c] ?? "";
+    }
+  }
+  return normalized;
+};
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -229,7 +244,10 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   const title = content.title || "";
   const rows = content.rows || 3;
   const cols = content.cols || 3;
-  const cells = content.cells || [];
+  const cells = useMemo(
+    () => normalizeCellsMatrix(content.cells, rows, cols),
+    [content.cells, rows, cols]
+  );
   const columnWidths = content.columnWidths || Array(cols).fill(150);
   
   // Initialize columns if not present (backward compatibility)
@@ -489,26 +507,21 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [editingCell, undo, redo, copyCell, pasteCells]);
 
-  // Ensure cells array matches rows/cols dimensions
+  // Ensure source cells array matches rows/cols dimensions for legacy data
   useEffect(() => {
-    const currentRows = cells.length;
-    const currentCols = cells[0]?.length || 0;
+    const sourceCells = content.cells || [];
+    const currentRows = sourceCells.length;
+    const currentCols = sourceCells[0]?.length || 0;
 
     if (currentRows !== rows || currentCols !== cols) {
-      const newCells: string[][] = [];
-      for (let r = 0; r < rows; r++) {
-        newCells[r] = [];
-        for (let c = 0; c < cols; c++) {
-          newCells[r][c] = cells[r]?.[c] || "";
-        }
-      }
+      const normalized = normalizeCellsMatrix(content.cells, rows, cols);
       updateBlock({
         blockId: block.id,
         content: {
           ...content,
           rows,
           cols,
-          cells: newCells,
+          cells: normalized,
           columnWidths: columnWidths.length === cols ? columnWidths : Array(cols).fill(150),
           columns,
         },
@@ -520,7 +533,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         }
       });
     }
-  }, [rows, cols, cells, block.id, content, columnWidths, columns, onUpdate]);
+  }, [rows, cols, content.cells, block.id, content, columnWidths, columns, onUpdate]);
 
   // Sync tempColumnWidths when columnWidths prop changes
   useEffect(() => {

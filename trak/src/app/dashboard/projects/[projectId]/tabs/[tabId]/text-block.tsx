@@ -35,8 +35,24 @@ const formatText = (text: string): string => {
     return '<span class="text-[var(--tertiary-foreground)] italic">Click to add text…</span>';
   }
 
+  const normalizeUnmatchedBold = (input: string) => {
+    let result = input;
+    let boldTokens = (result.match(/\*\*/g) || []).length;
+
+    // If there's an unmatched ** token, drop the last occurrence so it doesn't render literally
+    if (boldTokens % 2 !== 0) {
+      const lastIndex = result.lastIndexOf("**");
+      if (lastIndex !== -1) {
+        result = result.slice(0, lastIndex) + result.slice(lastIndex + 2);
+      }
+    }
+
+    return result;
+  };
+
   const lines = text.split("\n");
-  const formattedLines = lines.map((line) => {
+  const formattedLines = lines.map((rawLine) => {
+    const line = normalizeUnmatchedBold(rawLine);
     if (!line.trim()) return "<br/>";
 
     let formatted = line;
@@ -430,12 +446,12 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             return '<u>' + childText + '</u>';
           case 'code':
             return '`' + childText + '`';
-          case 'br':
+        case 'br':
             return '\n';
-          case 'p':
+        case 'p':
             return childText + '\n';
-          case 'div':
-            return childText;
+        case 'div':
+            return childText + '\n';
           default:
             return childText;
         }

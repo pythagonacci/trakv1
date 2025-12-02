@@ -248,7 +248,7 @@ function summarizeBlockPreview(
         detailLines: content.description ? [truncatePreviewText(content.description, 80)] : undefined,
       };
     default:
-      return { summary: block.type.replace(/_/g, " ") };
+      return { summary: String(block.type).replace(/_/g, " ") };
   }
 }
 
@@ -502,7 +502,28 @@ export async function getAllProjects(
     return { error: fetchError.message }
   }
 
-  let enrichedProjects = (projects || []) as ProjectRow[]
+  const normalizedProjects: ProjectRow[] = (projects || []).map((project: any) => {
+    const rawClient = Array.isArray(project.client) ? project.client[0] : project.client;
+    return {
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      due_date_date: project.due_date_date,
+      due_date_text: project.due_date_text,
+      client_id: project.client_id,
+      created_at: project.created_at,
+      updated_at: project.updated_at,
+      client: rawClient
+        ? {
+            id: rawClient.id,
+            name: rawClient.name ?? null,
+            company: rawClient.company ?? null,
+          }
+        : null,
+    };
+  });
+
+  let enrichedProjects = normalizedProjects
 
   if (options?.includeFirstTabPreview && enrichedProjects.length > 0) {
     try {

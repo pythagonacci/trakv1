@@ -626,6 +626,32 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     return maxPos + 1;
   };
 
+  const resolveOptimisticBlock = React.useCallback((tempId: string, savedBlock: Block) => {
+    setBlocks((prevBlocks) => {
+      let replaced = false;
+      const updated = prevBlocks.map((block) => {
+        if (block.id === tempId) {
+          replaced = true;
+          return {
+            ...savedBlock,
+            position: block.position ?? savedBlock.position ?? getNextPosition(),
+            column: block.column ?? savedBlock.column ?? 0,
+          };
+        }
+        return block;
+      });
+      return replaced ? updated : prevBlocks;
+    });
+
+    setNewBlockIds((prev) => {
+      const next = new Set(prev);
+      if (next.delete(tempId)) {
+        next.add(savedBlock.id);
+      }
+      return next;
+    });
+  }, [getNextPosition]);
+
   // Handle optimistic block creation
   const handleBlockCreated = (newBlock: Block) => {
     // Immediately add the new block to local state (optimistic update)
@@ -676,8 +702,9 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     setIsCreatingBlock(true);
 
     // Create optimistic block IMMEDIATELY
+    const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock: Block = {
-      id: `temp-${Date.now()}-${Math.random()}`,
+      id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: null,
       type: "text",
@@ -711,7 +738,9 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         return;
       }
 
-      // Server succeeded - data will sync in background
+      if (result.data) {
+        resolveOptimisticBlock(optimisticBlockId, result.data);
+      }
     } catch (error) {
       console.error("Create block exception:", error);
       router.refresh();
@@ -837,6 +866,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           tabId={tabId}
           projectId={projectId}
           onBlockCreated={handleBlockCreated}
+          onBlockResolved={resolveOptimisticBlock}
           getNextPosition={getNextPosition}
         />
       </div>
