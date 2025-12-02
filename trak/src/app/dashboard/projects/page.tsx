@@ -2,7 +2,9 @@ import { getAllProjects } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import ProjectsTable from "./projects-table";
+import ProjectsGrid from "./projects-grid";
 import FilterBar from "./filter-bar";
+import ProjectsViewToggle from "./projects-view-toggle";
 
 // Keep dynamic for real-time data, but allow short caching
 export const dynamic = "force-dynamic";
@@ -28,6 +30,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   // Await search params and build filters
   const params = await searchParams;
+  const view = (params.view as "list" | "grid") || "list";
   const filters = {
     project_type: 'project' as const,
     status: params.status as 'not_started' | 'in_progress' | 'complete' | undefined,
@@ -38,8 +41,10 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   };
 
   // 🚀 PARALLEL QUERIES - Fetch projects and clients simultaneously
+  const includePreview = view === "grid";
+
   const [projectsResult, clientsResult] = await Promise.all([
-    getAllProjects(workspaceId, filters),
+    getAllProjects(workspaceId, filters, { includeFirstTabPreview: includePreview }),
     getAllClients(workspaceId),
   ]);
   
@@ -69,20 +74,32 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       client_id: project.client_id,
       client_name: client?.name || null,
       created_at: project.created_at,
+      first_tab_preview: project.first_tab_preview || null,
     };
   });
 
   return (
     <div>
-      <FilterBar clients={clients} />
-      <ProjectsTable 
-        projects={mappedProjects} 
-        workspaceId={workspaceId}
-        currentSort={{
-          sort_by: filters.sort_by,
-          sort_order: filters.sort_order,
-        }}
-      />
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <FilterBar clients={clients} />
+        <ProjectsViewToggle currentView={view} />
+      </div>
+      
+      {view === "grid" ? (
+        <ProjectsGrid 
+          projects={mappedProjects} 
+          workspaceId={workspaceId}
+        />
+      ) : (
+        <ProjectsTable 
+          projects={mappedProjects} 
+          workspaceId={workspaceId}
+          currentSort={{
+            sort_by: filters.sort_by,
+            sort_order: filters.sort_order,
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getServerUser } from '@/lib/auth/get-server-user'
 import { createTab } from './tab'
+import type { BlockType } from './block';
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
@@ -23,12 +24,232 @@ type ProjectData = {
 
 // Type for project filters
 type ProjectFilters = {
-  project_type?: ProjectType
-  status?: ProjectStatus
-  client_id?: string
-  search?: string  // NEW: Search by project name or client name
-  sort_by?: 'created_at' | 'updated_at' | 'due_date_date' | 'name'
-  sort_order?: 'asc' | 'desc'
+  project_type?: ProjectType;
+  status?: ProjectStatus;
+  client_id?: string;
+  search?: string; // NEW: Search by project name or client name
+  sort_by?: "created_at" | "updated_at" | "due_date_date" | "name";
+  sort_order?: "asc" | "desc";
+};
+
+type ProjectRow = {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+  due_date_date: string | null;
+  due_date_text: string | null;
+  client_id: string | null;
+  created_at: string;
+  updated_at: string;
+  client: {
+    id: string;
+    name: string | null;
+    company?: string | null;
+  } | null;
+};
+
+type BlockPreviewPayload = {
+  summary: string;
+  detailLines?: string[];
+  meta?: string;
+};
+
+type TabPreviewBlock = {
+  id: string;
+  type: BlockType;
+  column: number | null;
+  position: number | null;
+  summary: string;
+  detailLines?: string[];
+  meta?: string;
+};
+
+export type ProjectFirstTabPreview = {
+  tab_id: string;
+  tab_name: string;
+  blocks: TabPreviewBlock[];
+};
+
+type ProjectWithPreview = ProjectRow & {
+  first_tab_preview?: ProjectFirstTabPreview | null;
+};
+
+type ProjectQueryOptions = {
+  includeFirstTabPreview?: boolean;
+};
+
+type PreviewContext = {
+  pdfFileNames?: Map<string, string>;
+};
+
+function truncatePreviewText(input?: string | null, maxLength: number = 80) {
+  if (!input) return "";
+  const clean = input.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength - 1)}…`;
+}
+
+function getTitle(input?: unknown) {
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function extractPlainTextLines(text: string | undefined, maxLines = 3) {
+  if (!text) return [];
+  const normalized = text
+    .replace(/`/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/#+\s/g, "")
+    .replace(/[-+] /g, "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return normalized.slice(0, maxLines);
+}
+
+function summarizeBlockPreview(
+  block: { type: BlockType; content?: Record<string, any> | null },
+  context: PreviewContext = {}
+): BlockPreviewPayload {
+  const content = (block.content ?? {}) as Record<string, any>;
+
+  switch (block.type) {
+    case "text": {
+      const lines = extractPlainTextLines(content.text, 3);
+      return {
+        summary: lines[0] || "Empty text block",
+        detailLines: lines.slice(1),
+      };
+    }
+    case "task": {
+      const tasks = Array.isArray(content.tasks) ? content.tasks : [];
+      const completed = tasks.filter(
+        (task) => task.completed || task.done || task.status === "done"
+      ).length;
+      const title = getTitle(content.title);
+      const detailLines: string[] = [];
+      if (tasks.length) {
+        detailLines.push(`${completed}/${tasks.length} tasks done`);
+      } else {
+        detailLines.push("No tasks yet");
+      }
+      detailLines.push(
+        ...tasks.slice(0, 3).map((task) => {
+          const label = task.title || task.text || "Untitled task";
+          const icon = task.completed || task.done || task.status === "done" ? "✓" : "•";
+          return `${icon} ${label}`;
+        })
+      );
+
+      return {
+        summary: title || (tasks.length ? "Task list" : "Tasks"),
+        detailLines,
+      };
+    }
+    case "link":
+      return {
+        summary: truncatePreviewText(content.title || content.url, 80) || "Link",
+        detailLines: content.description ? [truncatePreviewText(content.description, 90)] : undefined,
+        meta: content.url ? truncatePreviewText(content.url, 90) : undefined,
+      };
+    case "divider":
+      return { summary: "Divider" };
+    case "table": {
+      const title = getTitle(content.title);
+      const rows =
+        typeof content.rows === "number"
+          ? content.rows
+          : Array.isArray(content.cells)
+          ? content.cells.length
+          : undefined;
+      const cols =
+        typeof content.cols === "number"
+          ? content.cols
+          : Array.isArray(content.cells) && Array.isArray(content.cells[0])
+          ? content.cells[0].length
+          : undefined;
+      const firstRow =
+        Array.isArray(content.cells) && Array.isArray(content.cells[0])
+          ? content.cells[0].slice(0, 3).map((cell: string) => truncatePreviewText(cell, 30))
+          : null;
+      return {
+        summary: title || (rows && cols ? `${rows}×${cols} table` : "Table"),
+        detailLines: [
+          ...(rows && cols ? [`${rows} rows · ${cols} columns`] : []),
+          ...(firstRow ? [`Row 1: ${firstRow.join(" | ")}`] : []),
+        ],
+      };
+    }
+    case "timeline": {
+      const events = Array.isArray(content.events) ? content.events.length : 0;
+      const title = getTitle(content.title);
+      const eventLines =
+        events && Array.isArray(content.events)
+          ? content.events.slice(0, 3).map((event: any) => truncatePreviewText(event.title || event.name || "Untitled event"))
+          : [];
+      return {
+        summary: title || "Timeline",
+        detailLines: [
+          events ? `${events} scheduled` : "No events yet",
+          ...eventLines,
+        ].filter(Boolean) as string[],
+      };
+    }
+    case "file": {
+      const files = Array.isArray(content.files) ? content.files.length : 0;
+      const detailLines = content.files
+        ? content.files.slice(0, 3).map((file: any) => file.name || file.fileName || "Attachment")
+        : undefined;
+      return {
+        summary: files ? `${files} file${files === 1 ? "" : "s"}` : "File block",
+        detailLines,
+      };
+    }
+    case "video":
+      return {
+        summary: content.caption || "Video",
+        meta: content.url || content.provider || undefined,
+      };
+    case "image":
+      return {
+        summary: content.caption || "Image",
+        meta: content.alt || undefined,
+      };
+    case "embed":
+      return {
+        summary: truncatePreviewText(content.title || content.url, 70) || "Embed",
+        meta: content.url || undefined,
+      };
+    case "pdf": {
+      const fileId = typeof content.fileId === "string" ? content.fileId : undefined;
+      const fileName = fileId ? context.pdfFileNames?.get(fileId) : undefined;
+      const summary = truncatePreviewText(content.title || fileName || content.fileName, 90) || "PDF";
+      return {
+        summary,
+        meta: fileName && summary !== fileName ? fileName : undefined,
+      };
+    }
+    case "section":
+      return {
+        summary: content.title || "Section",
+        detailLines: content.description ? [truncatePreviewText(content.description, 80)] : undefined,
+      };
+    case "doc_reference":
+      return {
+        summary: content.docTitle || content.title || "Linked document",
+        detailLines: content.description ? [truncatePreviewText(content.description, 80)] : undefined,
+      };
+    default:
+      return { summary: block.type.replace(/_/g, " ") };
+  }
 }
 
 // 1. CREATE PROJECT
@@ -201,7 +422,11 @@ export async function getOrCreateFilesSpace(workspaceId: string) {
 }
 
 // 2. GET ALL PROJECTS (with filters and search) - OPTIMIZED
-export async function getAllProjects(workspaceId: string, filters?: ProjectFilters) {
+export async function getAllProjects(
+  workspaceId: string,
+  filters?: ProjectFilters,
+  options?: ProjectQueryOptions
+) {
   const authResult = await getServerUser()
   if (!authResult) {
     return { error: 'Unauthorized' }
@@ -277,7 +502,119 @@ export async function getAllProjects(workspaceId: string, filters?: ProjectFilte
     return { error: fetchError.message }
   }
 
-  return { data: projects }
+  let enrichedProjects = (projects || []) as ProjectRow[]
+
+  if (options?.includeFirstTabPreview && enrichedProjects.length > 0) {
+    try {
+      const projectIds = enrichedProjects.map((project) => project.id)
+      const { data: tabs, error: tabsError } = await supabase
+        .from('tabs')
+        .select('id, project_id, name, position, parent_tab_id')
+        .in('project_id', projectIds)
+        .is('parent_tab_id', null)
+        .order('project_id', { ascending: true })
+        .order('position', { ascending: true })
+
+      if (tabsError) {
+        console.error('Failed to fetch tabs for previews:', tabsError)
+      } else {
+        const firstTabByProject = new Map<string, { id: string; name: string }>()
+        tabs?.forEach((tab) => {
+          if (!firstTabByProject.has(tab.project_id)) {
+            firstTabByProject.set(tab.project_id, { id: tab.id, name: tab.name })
+          }
+        })
+
+        const tabIds = Array.from(firstTabByProject.values()).map((tab) => tab.id)
+        const previewBlocksByTab = new Map<string, TabPreviewBlock[]>()
+
+        if (tabIds.length > 0) {
+          const { data: blocks, error: blocksError } = await supabase
+            .from('blocks')
+            .select('id, tab_id, type, content, column, position, parent_block_id')
+            .in('tab_id', tabIds)
+            .is('parent_block_id', null)
+            .lte('position', 3)
+            .order('column', { ascending: true })
+            .order('position', { ascending: true })
+
+          if (blocksError) {
+            console.error('Failed to fetch block previews:', blocksError)
+          } else if (blocks && blocks.length > 0) {
+            const pdfFileIds = Array.from(
+              new Set(
+                blocks
+                  .filter((block) => block.type === 'pdf')
+                  .map((block) => {
+                    const content = (block.content ?? {}) as Record<string, any>;
+                    const fileId = content?.fileId;
+                    return typeof fileId === 'string' ? fileId : null;
+                  })
+                  .filter((value): value is string => Boolean(value))
+              )
+            )
+
+            const pdfFileNames = new Map<string, string>()
+            if (pdfFileIds.length > 0) {
+              const { data: pdfFiles, error: pdfError } = await supabase
+                .from('files')
+                .select('id, file_name')
+                .in('id', pdfFileIds)
+
+              if (pdfError) {
+                console.error('Failed to fetch pdf filenames for previews:', pdfError)
+              } else {
+                pdfFiles?.forEach((file) => {
+                  if (file?.id && file?.file_name) {
+                    pdfFileNames.set(file.id, file.file_name)
+                  }
+                })
+              }
+            }
+
+            blocks.forEach((block) => {
+              const preview = summarizeBlockPreview(block as any, { pdfFileNames })
+              const previewEntry: TabPreviewBlock = {
+                id: block.id,
+                type: block.type as BlockType,
+                column: block.column,
+                position: block.position,
+                summary: preview.summary || block.type,
+                detailLines: preview.detailLines,
+                meta: preview.meta,
+              }
+
+              const existing = previewBlocksByTab.get(block.tab_id) || []
+              if (existing.length < 6) {
+                existing.push(previewEntry)
+                previewBlocksByTab.set(block.tab_id, existing)
+              }
+            })
+          }
+        }
+
+        enrichedProjects = enrichedProjects.map((project) => {
+          const firstTab = firstTabByProject.get(project.id)
+          if (!firstTab) {
+            return { ...project, first_tab_preview: null }
+          }
+
+          return {
+            ...project,
+            first_tab_preview: {
+              tab_id: firstTab.id,
+              tab_name: firstTab.name,
+              blocks: previewBlocksByTab.get(firstTab.id) || [],
+            },
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Failed to build project previews:', error)
+    }
+  }
+
+  return { data: enrichedProjects as ProjectWithPreview[] }
 }
 
 // 3. GET SINGLE PROJECT (with full details)

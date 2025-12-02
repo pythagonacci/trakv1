@@ -1,13 +1,11 @@
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  reactCompiler: true,
-  
-  // Output standalone build for deployment
-  output: 'standalone',
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Output standalone build for deployment (only in production)
+  ...(process.env.NODE_ENV === 'production' && { output: 'standalone' }),
   
   // Performance optimizations
   experimental: {
+    reactCompiler: true,
     optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
   },
   
@@ -24,3 +22,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+

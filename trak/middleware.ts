@@ -1,5 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { CookieOptions, createServerClient } from "@supabase/ssr";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import type { CookieOptions } from "@supabase/ssr";
 
 const PUBLIC_PATHS = new Set([
   "/login",
