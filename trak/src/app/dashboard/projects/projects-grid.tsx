@@ -151,7 +151,7 @@ const renderFirstTabSnapshot = (preview?: FirstTabPreview | null) => {
                 key={block.id}
                 className="flex items-start gap-2 rounded-[2px] bg-[var(--surface)]/80 px-2 py-1"
               >
-                <Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--muted-foreground)]" />
+                <Icon className="mt-0.5 h-2.5 w-2.5 flex-shrink-0 text-[var(--muted-foreground)]" />
                 <div className="flex-1">
                   <p className="text-[11px] font-medium leading-tight text-[var(--foreground)] line-clamp-1">
                     {block.summary || block.type}
