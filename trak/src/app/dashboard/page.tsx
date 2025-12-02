@@ -79,9 +79,14 @@ export default async function DashboardPage() {
   // Extract uncompleted tasks from project blocks
   const projectTasks = taskBlocks
     .map((block: any) => {
-      const tasks = block.content?.tasks || [];
+      const tasks = Array.isArray(block.content?.tasks) ? block.content.tasks : [];
       return tasks
-        .filter((task: any) => !task.completed)
+        .filter((task: any) => {
+          const status = typeof task.status === "string" ? task.status.toLowerCase() : "";
+          const isDoneStatus = status === "done" || status === "complete" || status === "completed";
+          const isDoneFlag = task.completed || task.done;
+          return !(isDoneStatus || isDoneFlag);
+        })
         .map((task: any) => ({
           id: `${block.id}-${task.id}`,
           text: task.text,
@@ -92,6 +97,7 @@ export default async function DashboardPage() {
           priority: task.priority,
           dueDate: task.dueDate,
           dueTime: task.dueTime,
+          status: task.status ?? (task.completed || task.done ? "done" : "todo"),
         }));
     })
     .flat();
