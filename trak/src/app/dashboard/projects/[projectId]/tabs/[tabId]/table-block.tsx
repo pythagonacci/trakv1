@@ -235,6 +235,20 @@ function validateCell(value: string, config: ColumnConfig): { valid: boolean; er
   return { valid: true };
 }
 
+const renderMultilineText = (value: string) => {
+  if (!value) return null;
+  const lines = value.split(/\r?\n/);
+  return (
+    <div className="flex flex-col gap-0.5">
+      {lines.map((line, idx) => (
+        <span key={`line-${idx}`} className="whitespace-pre-wrap break-words">
+          {line === "" ? "\u00a0" : line}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -687,8 +701,15 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
     [cells, block.id, content, columns, onUpdate, addToHistory, cellError]
   );
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>, row: number, col: number) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>,
+    row: number,
+    col: number
+  ) => {
+    const colType = columns[col]?.type ?? "text";
+    const allowsPlainNewline = colType === "text";
+
+    const commitCell = () => {
       e.preventDefault();
       saveCell(row, col, editValue);
       setEditingCell(null);
@@ -699,8 +720,15 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
       } else if (row < rows - 1) {
         startEditing(row + 1, 0);
       }
-    } else if (e.key === "Enter" && e.shiftKey) {
-      // Shift+Enter: insert newline (default behavior)
+    };
+
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      commitCell();
+    } else if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      if (!allowsPlainNewline) {
+        commitCell();
+      }
+      // For text columns we allow natural newline insertion (no preventDefault)
     } else if (e.key === "Escape") {
       setEditingCell(null);
       setEditValue("");
@@ -1118,7 +1146,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
       return evaluated;
     }
     
-    return cellValue;
+    return renderMultilineText(cellValue);
   };
 
   return (
@@ -1695,7 +1723,7 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="font-medium text-[var(--foreground)] mb-2">Keyboard Shortcuts</div>
-                  <div className="space-y-1.5 text-sm text-[var(--muted-foreground)]">
+                    <div className="space-y-1.5 text-sm text-[var(--muted-foreground)]">
                     <div className="flex items-center gap-2">
                       <kbd className="px-1.5 py-0.5 bg-[var(--background)] rounded border border-[var(--border)] text-xs">Tab</kbd>
                       <span>Move to next cell</span>
@@ -1704,10 +1732,14 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
                       <kbd className="px-1.5 py-0.5 bg-[var(--background)] rounded border border-[var(--border)] text-xs">Shift+Tab</kbd>
                       <span>Move to previous cell</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <kbd className="px-1.5 py-0.5 bg-[var(--background)] rounded border border-[var(--border)] text-xs">Enter</kbd>
-                      <span>Save and move down</span>
-                    </div>
+                      <div className="flex items-center gap-2">
+                        <kbd className="px-1.5 py-0.5 bg-[var(--background)] rounded border border-[var(--border)] text-xs">Enter</kbd>
+                        <span>New line (text columns)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <kbd className="px-1.5 py-0.5 bg-[var(--background)] rounded border border-[var(--border)] text-xs">Cmd/Ctrl+Enter</kbd>
+                        <span>Save cell & move down</span>
+                      </div>
                     <div className="flex items-center gap-2">
                       <kbd className="px-1.5 py-0.5 bg-[var(--background)] rounded border border-[var(--border)] text-xs">Esc</kbd>
                       <span>Cancel editing</span>
