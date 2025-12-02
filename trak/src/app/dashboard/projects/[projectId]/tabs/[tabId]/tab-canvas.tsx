@@ -184,13 +184,52 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   };
 
   const handleDelete = async (blockId: string) => {
-    const result = await deleteBlock(blockId);
-    if (result.error) {
-      console.error("Failed to delete block:", result.error);
-      alert(`Error deleting block: ${result.error}`);
+    const blockIndex = blocks.findIndex((block) => block.id === blockId);
+    const blockSnapshot = blockIndex >= 0 ? blocks[blockIndex] : undefined;
+
+    // Optimistically remove the block
+    setBlocks((prevBlocks) => prevBlocks.filter((block) => block.id !== blockId));
+    setNewBlockIds((prev) => {
+      if (!prev.has(blockId)) return prev;
+      const next = new Set(prev);
+      next.delete(blockId);
+      return next;
+    });
+
+    // Temp / optimistic blocks might not exist server-side
+    if (blockId.startsWith("temp-")) {
       return;
     }
-    router.refresh();
+
+    try {
+      const result = await deleteBlock(blockId);
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      router.refresh();
+    } catch (error) {
+      console.error("Failed to delete block:", error);
+      alert(
+        `Error deleting block: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+
+      if (blockSnapshot) {
+        setBlocks((prevBlocks) => {
+          if (prevBlocks.some((block) => block.id === blockId)) {
+            return prevBlocks;
+          }
+          const next = [...prevBlocks];
+          const insertionIndex = Math.min(
+            blockIndex >= 0 ? blockIndex : next.length,
+            next.length
+          );
+          next.splice(insertionIndex, 0, blockSnapshot);
+          return next;
+        });
+      }
+    }
   };
 
   const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section" | "doc_reference") => {
@@ -297,7 +336,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     console.log("Found dragged block:", draggedBlock.id, "Type:", draggedBlock.type, "Position:", draggedBlock.position, "Column:", draggedBlock.column);
 
     // Try to find the over block
-    let overBlock = blocks.find((b) => b.id === over.id);
+    const overBlock = blocks.find((b) => b.id === over.id);
     console.log("Looking for over block:", over.id, "Found:", overBlock ? `${overBlock.id} (pos: ${overBlock.position}, col: ${overBlock.column})` : "not found");
 
     // Determine drag type based on overBlock position (if found)
