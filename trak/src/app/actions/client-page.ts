@@ -14,6 +14,7 @@ export interface ClientPageProject {
   due_date_date: string | null;
   due_date_text: string | null;
   client_page_enabled: boolean;
+  client_comments_enabled: boolean;
   public_token: string | null;
   updated_at: string;
   client: {
@@ -187,6 +188,74 @@ export async function disableClientPage(projectId: string) {
 }
 
 // ============================================================================
+// 2b. UPDATE CLIENT PAGE SETTINGS
+// ============================================================================
+
+export async function updateClientPageSettings(
+  projectId: string,
+  settings: { clientCommentsEnabled?: boolean }
+) {
+  try {
+    const supabase = await createClient();
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { error: "Unauthorized" };
+    }
+
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, workspace_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError || !project) {
+      return { error: "Project not found" };
+    }
+
+    const { data: member, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", project.workspace_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (memberError || !member) {
+      return { error: "Not a member of this workspace" };
+    }
+
+    const updatePayload: Record<string, boolean> = {};
+    if (typeof settings.clientCommentsEnabled === "boolean") {
+      updatePayload.client_comments_enabled = settings.clientCommentsEnabled;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return { error: "No settings provided" };
+    }
+
+    const { error: updateError } = await supabase
+      .from("projects")
+      .update(updatePayload)
+      .eq("id", projectId);
+
+    if (updateError) {
+      console.error("Update client page settings error:", updateError);
+      return { error: "Failed to update settings" };
+    }
+
+    revalidatePath(`/dashboard/projects/${projectId}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Update client page settings exception:", error);
+    return { error: "Failed to update settings" };
+  }
+}
+
+// ============================================================================
 // 3. GET PROJECT BY PUBLIC TOKEN (NO AUTH REQUIRED)
 // ============================================================================
 
@@ -208,6 +277,7 @@ export async function getProjectByPublicToken(publicToken: string) {
         due_date_date,
         due_date_text,
         client_page_enabled,
+        client_comments_enabled,
         public_token,
         updated_at,
         client:clients(id, name, company)

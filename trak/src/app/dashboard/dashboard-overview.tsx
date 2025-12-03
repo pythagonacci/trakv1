@@ -14,6 +14,7 @@ import {
   Flag,
   Calendar,
   CheckSquare,
+  MessageSquare,
 } from "lucide-react";
 import {
   Card,
@@ -55,9 +56,22 @@ interface DashboardOverviewProps {
   docs: Doc[];
   tasks: Task[];
   workspaceId: string;
+  clientFeedback: ClientFeedback[];
 }
 
-export default function DashboardOverview({ projects, docs, tasks }: DashboardOverviewProps) {
+interface ClientFeedback {
+  id: string;
+  text: string;
+  author: string;
+  projectName: string;
+  tabName: string;
+  projectId?: string | null;
+  tabId?: string | null;
+  blockId: string;
+  timestamp?: string;
+}
+
+export default function DashboardOverview({ projects, docs, tasks, clientFeedback }: DashboardOverviewProps) {
   const router = useRouter();
   const { theme } = useTheme();
 
@@ -75,21 +89,26 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
   const notStartedCount = projects.filter((p) => p.status === "not_started").length;
   const completedCount = projects.filter((p) => p.status === "complete").length;
 
-  const clientUpdates = tasks
-    .filter(
-      (task) =>
-        /client/i.test(task.text) ||
-        /client/i.test(task.projectName) ||
-        /client/i.test(task.tabName)
-    )
-    .slice(0, 3);
-  const clientUpdateIds = new Set(clientUpdates.map((task) => task.id));
-  const remainingUpdates = tasks.filter((task) => !clientUpdateIds.has(task.id));
-  const teamUpdates = remainingUpdates.slice(0, 3);
-  const materialUpdates = remainingUpdates.slice(3, 6);
+  const clientFeedbackItems = clientFeedback.slice(0, 4);
+  const teamUpdates = tasks.slice(0, 3);
+  const materialUpdates = tasks.slice(3, 6);
   const clientDocs = docs.slice(0, 3);
   const todayTasks = tasks.slice(0, 6);
-  const feedbackCount = teamUpdates.length + materialUpdates.length + clientDocs.length;
+  const feedbackCount = clientFeedback.length;
+  const formatRelativeTime = (value?: string) => {
+    if (!value) return "";
+    const date = new Date(value);
+    const diff = Date.now() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
 
   const formatDate = (value: string) =>
     new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -204,22 +223,21 @@ export default function DashboardOverview({ projects, docs, tasks }: DashboardOv
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <UpdatesCard
           title="Client feedback"
-          description="Feedback/comments pulled directly from project tabs."
-          items={clientUpdates}
+          description="Latest comments left on shared client pages."
+          items={clientFeedbackItems}
           emptyMessage="No client feedback yet."
-          renderItem={(task) => (
+          renderItem={(feedback) => (
             <UpdateRow
-              key={task.id}
-              title={task.text}
-              subtitle={`${task.projectName} · ${task.tabName}`}
-              priority={task.priority}
-              dueDate={task.dueDate}
-              dueTime={task.dueTime}
-              getPriorityColor={getPriorityColor}
-              getPriorityLabel={getPriorityLabel}
-              formatDueDate={formatDueDate}
-              onClick={() =>
-                router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+              key={feedback.id}
+              title={`“${feedback.text}”`}
+              subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
+                feedback.timestamp
+              )}`}
+              icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
+              onClick={
+                feedback.projectId && feedback.tabId
+                  ? () => router.push(`/dashboard/projects/${feedback.projectId}/tabs/${feedback.tabId}`)
+                  : undefined
               }
             />
           )}

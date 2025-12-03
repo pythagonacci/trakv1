@@ -3,6 +3,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import DashboardOverview from "./dashboard-overview";
 import { getServerUser } from "@/lib/auth/get-server-user";
 import { getStandaloneTasks } from "@/app/actions/standalone-task";
+import { BlockComment } from "@/types/block-comment";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,7 +29,7 @@ export default async function DashboardPage() {
   }
 
   // Fetch dashboard data
-  const [projectsResult, docsResult, tasksResult, standaloneTasksResult] = await Promise.all([
+  const [projectsResult, docsResult, tasksResult, standaloneTasksResult, commentBlocksResult] = await Promise.all([
     // Get projects
     supabase
       .from("projects")
@@ -69,12 +70,35 @@ export default async function DashboardPage() {
     
     // Get standalone tasks
     getStandaloneTasks(workspaceId),
+
+    // Blocks with potential client comments
+    supabase
+      .from("blocks")
+      .select(`
+        id,
+        content,
+        updated_at,
+        tab:tabs!blocks_tab_id_fkey(
+          id,
+          name,
+          project:projects!tabs_project_id_fkey(
+            id,
+            name,
+            workspace_id
+          )
+        )
+      `)
+      .eq("tab.project.workspace_id", workspaceId)
+      .not("content->>_blockComments", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(40),
   ]);
 
   const projects = projectsResult.data || [];
   const docs = docsResult.data || [];
   const taskBlocks = tasksResult.data || [];
   const standaloneTasks = standaloneTasksResult.data || [];
+  const commentBlocks = commentBlocksResult.data || [];
 
   // Extract uncompleted tasks from project blocks
   const projectTasks = taskBlocks
@@ -120,12 +144,39 @@ export default async function DashboardPage() {
   // Combine and limit to 10
   const tasks = [...projectTasks, ...standaloneTasksFormatted].slice(0, 10);
 
+  const clientFeedback = commentBlocks
+    .flatMap((block: any) => {
+      const comments: BlockComment[] = Array.isArray(block.content?._blockComments)
+        ? block.content._blockComments
+        : [];
+      return comments
+        .filter((comment) => comment?.source === "external")
+        .map((comment) => ({
+          id: comment.id ?? `${block.id}-${comment.timestamp}`,
+          text: comment.text,
+          author: comment.author_name || comment.author_email?.split("@")[0] || "Client",
+          projectName: block.tab?.project?.name || "Unknown project",
+          tabName: block.tab?.name || "Untitled tab",
+          projectId: block.tab?.project?.id || null,
+          tabId: block.tab?.id || null,
+          blockId: block.id,
+          timestamp: comment.timestamp,
+        }));
+    })
+    .sort((a, b) => {
+      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return bTime - aTime;
+    })
+    .slice(0, 10);
+
   return (
     <DashboardOverview
       projects={projects}
       docs={docs}
       tasks={tasks}
       workspaceId={workspaceId}
+      clientFeedback={clientFeedback}
     />
   );
 }

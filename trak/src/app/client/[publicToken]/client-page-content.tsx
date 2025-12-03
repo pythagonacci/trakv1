@@ -1,10 +1,14 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Block } from "@/app/actions/block";
 import { cn } from "@/lib/utils";
 import ClientDocViewer from "./client-doc-viewer";
 import dynamic from "next/dynamic";
+import { useClientCommentIdentity } from "./use-client-comment-identity";
+import { ClientBlockCommentsPanel } from "./client-block-comments";
+import { BlockComment } from "@/types/block-comment";
+import { MessageSquare } from "lucide-react";
 
 const TimelineBlock = dynamic(
   () => import("@/app/dashboard/projects/[projectId]/tabs/[tabId]/timeline-block"),
@@ -201,6 +205,7 @@ const renderTableCellValue = (value: string, column?: ColumnConfig): ReactNode =
 interface ClientPageContentProps {
   blocks: Block[];
   publicToken: string;
+  allowComments?: boolean;
 }
 
 const formatShortDate = (date?: string) => {
@@ -214,7 +219,22 @@ const formatShortDate = (date?: string) => {
   });
 };
 
-export default function ClientPageContent({ blocks, publicToken }: ClientPageContentProps) {
+export default function ClientPageContent({ blocks, publicToken, allowComments = false }: ClientPageContentProps) {
+  const [blockState, setBlockState] = useState(blocks);
+  const { identity, setIdentityName } = useClientCommentIdentity(publicToken, allowComments);
+
+  const handleCommentsChange = (blockId: string, updatedComments: BlockComment[]) => {
+    setBlockState((prev) =>
+      prev.map((block) =>
+        block.id === blockId
+          ? {
+              ...block,
+              content: { ...(block.content || {}), _blockComments: updatedComments },
+            }
+          : block
+      )
+    );
+  };
   if (blocks.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -224,7 +244,7 @@ export default function ClientPageContent({ blocks, publicToken }: ClientPageCon
   }
 
   // Group blocks by row (position) and column
-  const blockRows = blocks.reduce((rows, block) => {
+  const blockRows = blockState.reduce((rows, block) => {
     const rowIndex = Math.floor(block.position);
     if (!rows[rowIndex]) {
       rows[rowIndex] = [];
@@ -256,7 +276,15 @@ export default function ClientPageContent({ blocks, publicToken }: ClientPageCon
               {rowBlocks
                 .sort((a, b) => a.column - b.column)
                 .map((block) => (
-                  <ReadOnlyBlock key={block.id} block={block} publicToken={publicToken} />
+                  <ReadOnlyBlock
+                    key={block.id}
+                    block={block}
+                    publicToken={publicToken}
+                    allowComments={allowComments}
+                    identity={identity}
+                    setIdentityName={setIdentityName}
+                    onCommentsChange={handleCommentsChange}
+                  />
                 ))}
             </div>
           );
@@ -266,7 +294,31 @@ export default function ClientPageContent({ blocks, publicToken }: ClientPageCon
 }
 
 // Read-only block renderer (no editing, no menus)
-function ReadOnlyBlock({ block, publicToken }: { block: Block; publicToken: string }) {
+import type { ClientCommentIdentity } from "./use-client-comment-identity";
+
+function ReadOnlyBlock({
+  block,
+  publicToken,
+  allowComments,
+  identity,
+  setIdentityName,
+  onCommentsChange,
+}: {
+  block: Block;
+  publicToken: string;
+  allowComments: boolean;
+  identity: ClientCommentIdentity | null;
+  setIdentityName: (name: string) => void;
+  onCommentsChange: (blockId: string, comments: BlockComment[]) => void;
+}) {
+  const supportsComments = allowComments && block.type !== "divider";
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const blockContent = (block.content || {}) as Record<string, any>;
+  const blockComments: BlockComment[] = Array.isArray(blockContent._blockComments)
+    ? (blockContent._blockComments as BlockComment[])
+    : [];
+  const commentCount = blockComments.length;
+
   const renderContent = () => {
     switch (block.type) {
       case "text":
@@ -363,14 +415,45 @@ function ReadOnlyBlock({ block, publicToken }: { block: Block; publicToken: stri
     }
   };
 
-  // Don't wrap dividers or doc_references in a card (they have their own styling)
-  if (block.type === "divider" || block.type === "doc_reference") {
-    return renderContent();
+  const cardElement =
+    block.type === "divider" || block.type === "doc_reference" ? (
+      renderContent()
+    ) : (
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
+        {renderContent()}
+      </div>
+    );
+
+  if (!supportsComments) {
+    return cardElement;
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
-      {renderContent()}
+    <div className="flex items-start gap-0">
+      <div className="relative flex-1">
+        <button
+          onClick={() => setCommentsOpen((prev) => !prev)}
+          className={cn(
+            "absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-[var(--tertiary-foreground)] shadow-sm transition-colors",
+            commentsOpen && "text-[var(--foreground)] border-[var(--border-strong)]"
+          )}
+        >
+          <MessageSquare className="h-3 w-3" />
+          {commentCount > 0 && <span>{commentCount}</span>}
+        </button>
+        {cardElement}
+      </div>
+      {commentsOpen && (
+        <ClientBlockCommentsPanel
+          block={block}
+          comments={blockComments}
+          publicToken={publicToken}
+          identity={identity}
+          setIdentityName={setIdentityName}
+          onCommentsChange={(next) => onCommentsChange(block.id, next)}
+          onClose={() => setCommentsOpen(false)}
+        />
+      )}
     </div>
   );
 }

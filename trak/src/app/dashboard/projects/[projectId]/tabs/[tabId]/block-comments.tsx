@@ -6,15 +6,7 @@ import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getCurrentUser } from "@/app/actions/auth";
-
-interface BlockComment {
-  id: string;
-  author_id: string;
-  author_name?: string;
-  author_email?: string;
-  text: string;
-  timestamp: string;
-}
+import { BlockComment } from "@/types/block-comment";
 
 interface BlockCommentsProps {
   block: Block;
@@ -156,8 +148,11 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
     if (!currentUser) return;
 
     const comment = comments.find((c) => c.id === commentId);
-    // Only allow deleting own comments (or enhance with permissions later)
-    if (comment && comment.author_id !== currentUser.id) return;
+    const isExternal = comment?.source === "external";
+    const isOwn = comment && currentUser && comment.author_id === currentUser.id;
+    if (!isExternal && !isOwn) {
+      return;
+    }
 
     const updatedComments = comments.filter((c) => c.id !== commentId);
     const blockContent = { ...block.content, _blockComments: updatedComments };
@@ -250,6 +245,8 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
             >
               {comments.map((comment) => {
                 const isOwnComment = currentUser && comment.author_id === currentUser.id;
+                const isExternal = comment.source === "external";
+                const canDelete = isExternal || Boolean(isOwnComment);
                 // Always show the saved author name, fallback to email, then "Unknown"
                 const authorDisplay = comment.author_name || comment.author_email?.split("@")[0] || "Unknown";
                 const timeAgo = getTimeAgo(new Date(comment.timestamp));
@@ -269,13 +266,18 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                           <span className="font-medium text-[var(--foreground)] text-xs">
                             {isOwnComment ? "You" : authorDisplay}
                           </span>
+                          {isExternal && (
+                            <span className="text-[9px] uppercase tracking-wide rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5">
+                              Client
+                            </span>
+                          )}
                           <span className="text-[var(--tertiary-foreground)] text-xs font-normal">{timeAgo}</span>
                         </div>
                         <p className="text-[var(--muted-foreground)] leading-normal whitespace-pre-wrap break-words text-xs font-normal">
                           {comment.text}
                         </p>
                       </div>
-                      {isOwnComment && (
+                      {canDelete && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

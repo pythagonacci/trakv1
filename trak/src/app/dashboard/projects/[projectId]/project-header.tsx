@@ -25,6 +25,7 @@ interface ProjectHeaderProps {
     due_date_date?: string | null;
     due_date_text?: string | null;
     client_page_enabled?: boolean;
+    client_comments_enabled?: boolean;
     public_token?: string | null;
     client?: {
       id: string;
@@ -158,6 +159,7 @@ export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
               projectId={project.id}
               clientPageEnabled={project.client_page_enabled || false}
               publicToken={project.public_token || null}
+              clientCommentsEnabled={project.client_comments_enabled || false}
             />
           )}
           

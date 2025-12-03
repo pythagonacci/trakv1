@@ -173,9 +173,52 @@ export default function BlockWrapper({
         }}
       >
         {!borderless && (
-          <div className="absolute -top-3 right-3 hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">
-            {block.type}
+          <div className="absolute -top-3 right-3 flex items-center gap-2">
+            <div className="hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">
+              {block.type}
+            </div>
+            {!readOnly && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCommentsOpen((prev) => !prev);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                  hasComments || commentsOpen
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                )}
+                title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
+                aria-pressed={commentsOpen}
+              >
+                <MessageSquare className="h-3 w-3" />
+                {hasComments ? comments.length : "Comment"}
+              </button>
+            )}
           </div>
+        )}
+
+        {borderless && !readOnly && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setCommentsOpen((prev) => !prev);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className={cn(
+              "absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+              hasComments || commentsOpen
+                ? "border-blue-200 bg-blue-50 text-blue-700"
+                : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+            )}
+            title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
+            aria-pressed={commentsOpen}
+          >
+            <MessageSquare className="h-3 w-3" />
+            {hasComments ? comments.length : "Comment"}
+          </button>
         )}
         
         {block.is_template && (

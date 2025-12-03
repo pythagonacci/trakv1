@@ -85,7 +85,11 @@ export default async function ClientPage({
 
         {/* Tab Content (Read-only) */}
         <div className="pb-8">
-          <ClientPageContent blocks={blocks} publicToken={publicToken} />
+          <ClientPageContent
+            blocks={blocks}
+            publicToken={publicToken}
+            allowComments={project.client_comments_enabled ?? false}
+          />
         </div>
       </div>
     </div>

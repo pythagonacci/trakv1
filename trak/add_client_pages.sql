@@ -6,6 +6,7 @@
 -- 1. Add client page fields to projects table
 ALTER TABLE projects
 ADD COLUMN IF NOT EXISTS client_page_enabled BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS client_comments_enabled BOOLEAN DEFAULT FALSE,
 ADD COLUMN IF NOT EXISTS public_token TEXT UNIQUE;
 
 -- Create index for fast public token lookups
@@ -72,6 +73,7 @@ $$ LANGUAGE plpgsql;
 
 -- 5. Add comment documentation
 COMMENT ON COLUMN projects.client_page_enabled IS 'Whether this project has a public client page enabled';
+COMMENT ON COLUMN projects.client_comments_enabled IS 'Whether public client pages allow external comments';
 COMMENT ON COLUMN projects.public_token IS 'Unique token for accessing the public client page';
 COMMENT ON COLUMN tabs.is_client_visible IS 'Whether this tab is visible on the public client page';
 COMMENT ON COLUMN tabs.client_title IS 'Optional custom title to display on client page (overrides internal tab name)';

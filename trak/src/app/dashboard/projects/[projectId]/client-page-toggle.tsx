@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Link2, Copy, Check, BarChart3 } from "lucide-react";
-import { enableClientPage, disableClientPage } from "@/app/actions/client-page";
+import { useState, useMemo, useEffect } from "react";
+import { Link2, Copy, Check, BarChart3, MessageCircle } from "lucide-react";
+import { enableClientPage, disableClientPage, updateClientPageSettings } from "@/app/actions/client-page";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -11,17 +11,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 
 interface ClientPageToggleProps {
   projectId: string;
   clientPageEnabled: boolean;
   publicToken: string | null;
+  clientCommentsEnabled: boolean;
 }
 
 export default function ClientPageToggle({
   projectId,
   clientPageEnabled,
   publicToken,
+  clientCommentsEnabled,
 }: ClientPageToggleProps) {
   const router = useRouter();
   const [isEnabled, setIsEnabled] = useState(clientPageEnabled);
@@ -29,6 +32,12 @@ export default function ClientPageToggle({
   const [isLoading, setIsLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [allowComments, setAllowComments] = useState(clientCommentsEnabled);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+
+  useEffect(() => {
+    setAllowComments(clientCommentsEnabled);
+  }, [clientCommentsEnabled]);
 
   const clientPageUrl = useMemo(() => {
     if (!token) return "";
@@ -78,6 +87,30 @@ export default function ClientPageToggle({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleCommentsToggle = async (nextValue: boolean) => {
+    if (!token) {
+      alert("Generate a client link before enabling comments.");
+      return;
+    }
+
+    setAllowComments(nextValue);
+    setIsUpdatingSettings(true);
+
+    const result = await updateClientPageSettings(projectId, {
+      clientCommentsEnabled: nextValue,
+    });
+
+    if (result?.error) {
+      console.error("Failed to update client comment settings:", result.error);
+      alert(`Failed to update comment settings: ${result.error}`);
+      setAllowComments((prev) => !nextValue);
+    } else {
+      router.refresh();
+    }
+
+    setIsUpdatingSettings(false);
   };
 
   return (
@@ -151,6 +184,31 @@ export default function ClientPageToggle({
               Open client page in new tab →
             </a>
 
+            {/* Client comment permissions */}
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/60 p-3 flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)]">
+                    <MessageCircle className="h-4 w-4 text-[var(--tertiary-foreground)]" />
+                    Allow client comments
+                  </div>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    Let clients leave block-level comments after signing their name. Comments sync back to the dashboard.
+                  </p>
+                </div>
+                <Switch
+                  checked={allowComments}
+                  disabled={!token || isUpdatingSettings}
+                  onCheckedChange={handleCommentsToggle}
+                />
+              </div>
+              {!token && (
+                <p className="text-[11px] text-[var(--warning)]">
+                  Enable the client page to generate a link before turning on comments.
+                </p>
+              )}
+            </div>
+
             {/* Instructions */}
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3">
               <p className="text-sm font-medium text-[var(--foreground)] mb-2">
@@ -160,6 +218,7 @@ export default function ClientPageToggle({
                 <li>Mark tabs as "Visible to client" from the tab menu</li>
                 <li>Share this link with your client</li>
                 <li>They can view updates in real-time</li>
+                <li>If enabled, clients can leave comments with their name</li>
               </ol>
             </div>
 
