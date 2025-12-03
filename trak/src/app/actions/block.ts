@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { revalidatePath } from "next/cache";
 import { cache } from "react";
+import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
 
 // ============================================================================
 // TYPES
@@ -172,7 +173,7 @@ export async function createBlock(data: {
     // 3. Get project to get workspace_id
     const { data: project, error: projectError } = await supabase
       .from("projects")
-      .select("id, workspace_id")
+      .select("id, workspace_id, client_page_enabled, public_token")
       .eq("id", tab.project_id)
       .single();
 
@@ -345,6 +346,10 @@ export async function createBlock(data: {
 
     // Revalidate the tab page path
     revalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${data.tabId}`);
+    await revalidateClientPages(tab.project_id, data.tabId, {
+      publicToken: project.public_token ?? undefined,
+      clientPageEnabled: project.client_page_enabled ?? undefined,
+    });
 
     return { data: block };
   } catch (error) {
@@ -423,7 +428,7 @@ export async function updateBlock(data: {
     // 3. Get project to get workspace_id
     const { data: project, error: projectError } = await supabase
       .from("projects")
-      .select("id, workspace_id")
+      .select("id, workspace_id, client_page_enabled, public_token")
       .eq("id", projectId)
       .single();
 
@@ -472,6 +477,10 @@ export async function updateBlock(data: {
 
     // 8. Revalidate the tab page path
     revalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+    await revalidateClientPages(projectId, block.tab_id, {
+      publicToken: project.public_token ?? undefined,
+      clientPageEnabled: project.client_page_enabled ?? undefined,
+    });
 
     return { data: updatedBlock };
   } catch (error) {
@@ -524,7 +533,7 @@ export async function deleteBlock(blockId: string) {
     // 4. Get project to get workspace_id
     const { data: project, error: projectError } = await supabase
       .from("projects")
-      .select("id, workspace_id")
+      .select("id, workspace_id, client_page_enabled, public_token")
       .eq("id", projectId)
       .single();
 
@@ -557,6 +566,10 @@ export async function deleteBlock(blockId: string) {
 
     // 7. Revalidate the tab page path
     revalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+    await revalidateClientPages(projectId, block.tab_id, {
+      publicToken: project.public_token ?? undefined,
+      clientPageEnabled: project.client_page_enabled ?? undefined,
+    });
 
     return { success: true };
   } catch (error) {
@@ -623,7 +636,7 @@ export async function moveBlock(data: {
     // 5. Get source project to verify workspace
     const { data: sourceProject, error: sourceProjectError } = await supabase
       .from("projects")
-      .select("id, workspace_id")
+      .select("id, workspace_id, client_page_enabled, public_token")
       .eq("id", sourceTab.project_id)
       .single();
 
@@ -634,7 +647,7 @@ export async function moveBlock(data: {
     // 6. Get target project to verify workspace
     const { data: targetProject, error: targetProjectError } = await supabase
       .from("projects")
-      .select("id, workspace_id")
+      .select("id, workspace_id, client_page_enabled, public_token")
       .eq("id", targetTab.project_id)
       .single();
 
@@ -683,8 +696,16 @@ export async function moveBlock(data: {
 
     // 11. Revalidate both source and target tab paths (if different)
     revalidatePath(`/dashboard/projects/${sourceTab.project_id}/tabs/${sourceBlock.tab_id}`);
+    await revalidateClientPages(sourceTab.project_id, sourceBlock.tab_id, {
+      publicToken: sourceProject.public_token ?? undefined,
+      clientPageEnabled: sourceProject.client_page_enabled ?? undefined,
+    });
     if (data.targetTabId !== sourceBlock.tab_id) {
       revalidatePath(`/dashboard/projects/${targetTab.project_id}/tabs/${data.targetTabId}`);
+      await revalidateClientPages(targetTab.project_id, data.targetTabId, {
+        publicToken: targetProject.public_token ?? undefined,
+        clientPageEnabled: targetProject.client_page_enabled ?? undefined,
+      });
     }
 
     return { data: movedBlock };
@@ -736,7 +757,7 @@ export async function duplicateBlock(blockId: string) {
     // 4. Get project to get workspace_id
     const { data: project, error: projectError } = await supabase
       .from("projects")
-      .select("id, workspace_id")
+      .select("id, workspace_id, client_page_enabled, public_token")
       .eq("id", tab.project_id)
       .single();
 
@@ -807,6 +828,10 @@ export async function duplicateBlock(blockId: string) {
 
     // 9. Revalidate the tab page path
     revalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${sourceBlock.tab_id}`);
+    await revalidateClientPages(tab.project_id, sourceBlock.tab_id, {
+      publicToken: project.public_token ?? undefined,
+      clientPageEnabled: project.client_page_enabled ?? undefined,
+    });
 
     return { data: duplicateBlock };
   } catch (error) {

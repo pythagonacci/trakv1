@@ -38,27 +38,46 @@ async function getBlockContext(blockId: string) {
     return { error: ERROR_MESSAGES.missingBlock };
   }
 
+  const blockRecord = block as {
+    id: string;
+    content: Record<string, any>;
+    tab_id: string;
+  };
+
   const { data: tab, error: tabError } = await supabase
     .from("tabs")
     .select("id, project_id, is_client_visible")
-    .eq("id", block.tab_id)
+    .eq("id", blockRecord.tab_id)
     .single();
 
-  if (tabError || !tab || !tab.is_client_visible) {
+  const tabRecord = tab as {
+    id: string;
+    project_id: string;
+    is_client_visible: boolean;
+  } | null;
+
+  if (tabError || !tabRecord || !tabRecord.is_client_visible) {
     return { error: ERROR_MESSAGES.forbidden };
   }
 
   const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("id, client_page_enabled, client_comments_enabled, public_token")
-    .eq("id", tab.project_id)
+    .eq("id", tabRecord.project_id)
     .single();
 
   if (projectError || !project) {
     return { error: ERROR_MESSAGES.forbidden };
   }
 
-  return { block, tab, project, supabase };
+  const projectRecord = project as {
+    id: string;
+    client_page_enabled: boolean;
+    client_comments_enabled: boolean;
+    public_token: string | null;
+  };
+
+  return { block: blockRecord, tab: tabRecord, project: projectRecord, supabase };
 }
 
 async function revalidateSurfaces(projectId: string, tabId: string, publicToken: string | null) {

@@ -42,8 +42,8 @@ export default async function ClientTabPage({
       {/* Client-side analytics tracker */}
       <ClientPageTracker publicToken={publicToken} tabId={tabId} />
 
-      {/* Auto-refresh every 20 seconds */}
-      <AutoRefresh intervalSeconds={20} />
+      {/* Auto-refresh every 30 seconds */}
+      <AutoRefresh />
 
       {/* "My Trak" Banner (placeholder CTA) */}
       <ClientPageBanner />

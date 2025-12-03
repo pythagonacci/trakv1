@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Block } from "@/app/actions/block";
 import { cn } from "@/lib/utils";
 import ClientDocViewer from "./client-doc-viewer";
@@ -223,6 +223,10 @@ export default function ClientPageContent({ blocks, publicToken, allowComments =
   const [blockState, setBlockState] = useState(blocks);
   const { identity, setIdentityName } = useClientCommentIdentity(publicToken, allowComments);
 
+  useEffect(() => {
+    setBlockState(blocks);
+  }, [blocks]);
+
   const handleCommentsChange = (blockId: string, updatedComments: BlockComment[]) => {
     setBlockState((prev) =>
       prev.map((block) =>
@@ -276,15 +280,16 @@ export default function ClientPageContent({ blocks, publicToken, allowComments =
               {rowBlocks
                 .sort((a, b) => a.column - b.column)
                 .map((block) => (
-                  <ReadOnlyBlock
-                    key={block.id}
-                    block={block}
-                    publicToken={publicToken}
-                    allowComments={allowComments}
-                    identity={identity}
-                    setIdentityName={setIdentityName}
-                    onCommentsChange={handleCommentsChange}
-                  />
+                  <div key={block.id} className="min-w-0">
+                    <ReadOnlyBlock
+                      block={block}
+                      publicToken={publicToken}
+                      allowComments={allowComments}
+                      identity={identity}
+                      setIdentityName={setIdentityName}
+                      onCommentsChange={handleCommentsChange}
+                    />
+                  </div>
                 ))}
             </div>
           );
@@ -417,9 +422,9 @@ function ReadOnlyBlock({
 
   const cardElement =
     block.type === "divider" || block.type === "doc_reference" ? (
-      renderContent()
+      <div className="min-w-0">{renderContent()}</div>
     ) : (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
+      <div className="w-full min-w-0 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
         {renderContent()}
       </div>
     );
@@ -430,7 +435,7 @@ function ReadOnlyBlock({
 
   return (
     <div className="flex items-start gap-0">
-      <div className="relative flex-1">
+      <div className="relative flex-1 min-w-0">
         <button
           onClick={() => setCommentsOpen((prev) => !prev)}
           className={cn(

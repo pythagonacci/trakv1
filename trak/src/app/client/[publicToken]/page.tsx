@@ -28,12 +28,6 @@ export default async function ClientPage({
 
   const { project, tabs } = result.data;
   
-  console.log('Client page loaded:', { 
-    projectId: project.id, 
-    tabCount: tabs.length,
-    visibleTabs: tabs.filter(t => t.is_client_visible).length 
-  });
-
   // If no visible tabs, show message
   if (tabs.length === 0) {
     return (
@@ -62,8 +56,8 @@ export default async function ClientPage({
       {/* Client-side analytics tracker */}
       <ClientPageTracker publicToken={publicToken} tabId={firstTab.id} />
 
-      {/* Auto-refresh every 20 seconds */}
-      <AutoRefresh intervalSeconds={20} />
+      {/* Auto-refresh every 30 seconds */}
+      <AutoRefresh />
 
       {/* "My Trak" Banner (placeholder CTA) */}
       <ClientPageBanner />

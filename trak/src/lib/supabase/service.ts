@@ -20,11 +20,11 @@ async function initServiceClient() {
   });
 }
 
-export async function createServiceClient() {
+export async function createServiceClient(): Promise<ReturnType<typeof createClient>> {
   if (!cachedClientPromise) {
     cachedClientPromise = initServiceClient();
   }
 
-  return cachedClientPromise;
+  return cachedClientPromise!;
 }
 
