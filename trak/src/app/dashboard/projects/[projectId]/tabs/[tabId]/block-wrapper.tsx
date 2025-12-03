@@ -60,6 +60,7 @@ interface BlockWrapperProps {
   ) => void;
   onUpdate?: () => void;
   isDragging?: boolean;
+  readOnly?: boolean;
 }
 
 export default function BlockWrapper({
@@ -71,6 +72,7 @@ export default function BlockWrapper({
   onConvert,
   onUpdate,
   isDragging: externalIsDragging,
+  readOnly = false,
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
@@ -83,7 +85,7 @@ export default function BlockWrapper({
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
-    disabled: block.type === "divider",
+    disabled: readOnly || block.type === "divider",
   });
 
   const isDragging = externalIsDragging || isDraggingInternal;
@@ -120,27 +122,32 @@ export default function BlockWrapper({
     <div 
       ref={setNodeRef} 
       style={style} 
-      className={cn("group relative w-full", !isTextBlock && "cursor-move")}
-      {...attributes}
-      {...(!isTextBlock ? listeners : {})}
+      className={cn(
+        "group relative w-full",
+        !isTextBlock && !readOnly && "cursor-move"
+      )}
+      {...(!readOnly ? attributes : {})}
+      {...(!readOnly && !isTextBlock ? listeners : {})}
     >
-      <div
-        className={cn(
-          "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
-          "group-hover:flex group-focus-within:flex"
-        )}
-      >
-        <button
-          {...listeners}
-          {...attributes}
-          className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] cursor-move"
-          aria-label="Drag block"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
+      {!readOnly && (
+        <div
+          className={cn(
+            "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
+            "group-hover:flex group-focus-within:flex"
+          )}
         >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
-      </div>
+          <button
+            {...listeners}
+            {...attributes}
+            className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] cursor-move"
+            aria-label="Drag block"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       <div
         className={cn(
@@ -178,81 +185,83 @@ export default function BlockWrapper({
           </div>
         )}
 
-        <div
-          className={cn(
-            "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out z-30",
-            "group-hover:flex group-focus-within:flex",
-            menuOpen && "flex"
-          )}
-        >
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <button className="flex h-7 w-7 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <span className="flex items-center gap-2">
-                    <Maximize2 className="h-4 w-4" />
-                    Convert block
-                  </span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-52">
-                  {blockTypeOptions
-                    .filter((option) => option.type !== block.type)
-                    .map((option) => (
-                      <DropdownMenuItem
-                        key={option.type}
-                        onClick={() => {
-                          onConvert?.(block.id, option.type);
-                          setMenuOpen(false);
-                        }}
-                      >
-                        {option.icon}
-                        <span>{option.label}</span>
-                      </DropdownMenuItem>
-                    ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              
-              {!block.is_template && !block.original_block_id && (
+        {!readOnly && (
+          <div
+            className={cn(
+              "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out z-30",
+              "group-hover:flex group-focus-within:flex",
+              menuOpen && "flex"
+            )}
+          >
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger asChild>
+                <button className="flex h-7 w-7 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <span className="flex items-center gap-2">
+                      <Maximize2 className="h-4 w-4" />
+                      Convert block
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-52">
+                    {blockTypeOptions
+                      .filter((option) => option.type !== block.type)
+                      .map((option) => (
+                        <DropdownMenuItem
+                          key={option.type}
+                          onClick={() => {
+                            onConvert?.(block.id, option.type);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                
+                {!block.is_template && !block.original_block_id && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setMakeTemplateDialogOpen(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Copy className="h-4 w-4" /> Make Reusable
+                  </DropdownMenuItem>
+                )}
+                
+                <DropdownMenuSeparator />
+                
                 <DropdownMenuItem
                   onClick={() => {
-                    setMakeTemplateDialogOpen(true);
+                    setCommentsOpen(true);
                     setMenuOpen(false);
                   }}
                 >
-                  <Copy className="h-4 w-4" /> Make Reusable
+                  <MessageSquare className="h-4 w-4" /> 
+                  <span>{hasComments ? "Comments" : "Add comment"}</span>
+                  {hasComments && (
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
+                  )}
                 </DropdownMenuItem>
-              )}
-              
-              <DropdownMenuSeparator />
-              
-              <DropdownMenuItem
-                onClick={() => {
-                  setCommentsOpen(true);
-                  setMenuOpen(false);
-                }}
-              >
-                <MessageSquare className="h-4 w-4" /> 
-                <span>{hasComments ? "Comments" : "Add comment"}</span>
-                {hasComments && (
-                  <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
-                )}
-              </DropdownMenuItem>
-              
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => onDelete?.(block.id)}
-                className="text-red-500 focus:bg-red-50 focus:text-red-600"
-              >
-                <Trash2 className="h-4 w-4" /> Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => onDelete?.(block.id)}
+                  className="text-red-500 focus:bg-red-50 focus:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
 
         <div className={cn("flex items-start gap-0", borderless && "space-y-3")}>
           <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3")}>
@@ -260,7 +269,7 @@ export default function BlockWrapper({
           </div>
 
           {/* Block Comments - positioned on the side (only show when open) */}
-          {!borderless && commentsOpen && (
+          {!borderless && commentsOpen && !readOnly && (
             <BlockComments 
               block={block} 
               onUpdate={onUpdate}
@@ -271,13 +280,15 @@ export default function BlockWrapper({
         </div>
       </div>
       
-      <MakeTemplateDialog
-        isOpen={makeTemplateDialogOpen}
-        onClose={() => setMakeTemplateDialogOpen(false)}
-        blockId={block.id}
-        blockType={block.type}
-        onSuccess={() => onUpdate?.()}
-      />
+      {!readOnly && (
+        <MakeTemplateDialog
+          isOpen={makeTemplateDialogOpen}
+          onClose={() => setMakeTemplateDialogOpen(false)}
+          blockId={block.id}
+          blockType={block.type}
+          onSuccess={() => onUpdate?.()}
+        />
+      )}
     </div>
   );
 }

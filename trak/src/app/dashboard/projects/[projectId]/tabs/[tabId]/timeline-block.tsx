@@ -67,7 +67,8 @@ interface TimelineContent {
 interface TimelineBlockProps {
   block: Block;
   onUpdate?: (updatedBlock?: Block) => void;
-  workspaceId: string;
+  workspaceId?: string;
+  readOnly?: boolean;
 }
 
 interface WorkspaceMember {
@@ -214,21 +215,33 @@ function columnToDate(column: number, rangeStart: Date, zoomLevel: ZoomLevel): D
 }
 
 // Droppable Column Component
-function DroppableColumn({ id, columnIndex, columnWidth }: { id: string; columnIndex: number; columnWidth: number }) {
+function DroppableColumn({
+  id,
+  columnIndex,
+  columnWidth,
+  readOnly,
+}: {
+  id: string;
+  columnIndex: number;
+  columnWidth: number;
+  readOnly?: boolean;
+}) {
+  if (readOnly) {
+    return null;
+  }
+
+  const baseProps = {
+    className: "absolute",
+    style: {
+      gridColumn: columnIndex + 1,
+      gridRow: `1 / -1`,
+      width: `${columnWidth}px`,
+      height: "100%",
+    },
+  } as const;
+
   const { setNodeRef } = useDroppable({ id });
-  return (
-    <div
-      key={id}
-      ref={setNodeRef}
-      className="absolute"
-      style={{
-        gridColumn: columnIndex + 1,
-        gridRow: `1 / -1`,
-        width: `${columnWidth}px`,
-        height: "100%",
-      }}
-    />
-  );
+  return <div ref={setNodeRef} {...baseProps} />;
 }
 
 // Draggable Event Component
@@ -244,6 +257,7 @@ function DraggableEvent({
   onClick,
   barStyle,
   columnWidth,
+  readOnly,
 }: {
   event: TimelineEvent;
   rowIndex: number;
@@ -256,7 +270,72 @@ function DraggableEvent({
   onClick: (e: React.MouseEvent) => void;
   barStyle: React.CSSProperties;
   columnWidth: number;
+  readOnly?: boolean;
 }) {
+  if (readOnly) {
+    const progress = event.progress ?? 0;
+    const hasBaseline = event.baselineStart && event.baselineEnd;
+    return (
+      <div
+        className="relative z-10 pointer-events-auto"
+        style={barStyle}
+        data-event-id={event.id}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        suppressHydrationWarning
+      >
+        {hasBaseline && (
+          <div
+            className="absolute top-0 h-1 bg-blue-200 dark:bg-blue-900/30"
+            style={{
+              left: 0,
+              width: "100%",
+              transform: "translateY(-100%)",
+            }}
+          />
+        )}
+
+        {event.isMilestone ? (
+          <div
+            className={cn(
+              "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0 h-0",
+              "border-l-[8px] border-r-[8px] border-b-[12px]",
+              "border-l-transparent border-r-transparent",
+              event.color || "border-b-[var(--foreground)]"
+            )}
+            style={{
+              filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.1))",
+            }}
+          />
+        ) : (
+          <>
+            <div
+              className={cn(
+                "event-bar my-2 flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
+                event.color || "bg-[var(--foreground)]"
+              )}
+            >
+              {progress > 0 && (
+                <div
+                  className="absolute left-0 top-0 h-full bg-white/30 rounded-[6px]"
+                  style={{ width: `${progress}%` }}
+                />
+              )}
+              <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
+              <span className="flex-1 truncate relative z-10">{event.title}</span>
+              {event.status && (
+                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.status}`} />
+              )}
+              {progress > 0 && (
+                <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   const { attributes, listeners, setNodeRef, transform, isDragging: isDraggingStart } = useDraggable({
     id: `event-${event.id}`,
     disabled: isDependencyMode,
@@ -373,10 +452,10 @@ function DraggableEvent({
   );
 }
 
-export default function TimelineBlock({ block, onUpdate, workspaceId }: TimelineBlockProps) {
+export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly = false }: TimelineBlockProps) {
   const content = (block.content || {}) as TimelineContent;
 
-  const range = useMemo(() => {
+const range = useMemo(() => {
     const startDate = content.startDate ? new Date(content.startDate) : addDays(new Date(), -7);
     const endDate = content.endDate ? new Date(content.endDate) : addDays(new Date(), 30);
     return {
@@ -408,8 +487,14 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
 
   // Load workspace members
   useEffect(() => {
+    if (readOnly) {
+      setMembers([]);
+      return;
+    }
+
     if (!workspaceId) {
       console.warn('⚠️ No workspaceId provided to TimelineBlock');
+      setMembers([]);
       return;
     }
 
@@ -424,7 +509,14 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
     };
 
     loadMembers();
-  }, [workspaceId]);
+  }, [workspaceId, readOnly]);
+
+  useEffect(() => {
+    if (readOnly) {
+      setIsDependencyMode(false);
+      setDependencyFrom(null);
+    }
+  }, [readOnly]);
 
   // Mount flag for portal (avoids SSR/TS issues)
   React.useEffect(() => setMounted(true), []);
@@ -1113,7 +1205,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
                   )}
                 </div>
               </div>
-              <div className="mt-3 flex items-center gap-2">
+            {!readOnly && (
+            <div className="mt-3 flex items-center gap-2">
                 <button
                   className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
@@ -1149,13 +1242,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
                   Delete
                 </button>
               </div>
+            )}
             </div>
           );
         })()
       : null;
 
-  return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+  const timelineContent = (
       <div className="space-y-3 w-full">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -1227,21 +1320,23 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
             </DropdownMenu>
             
             {/* Dependency mode toggle */}
-            <button
-              onClick={() => setIsDependencyMode(!isDependencyMode)}
-              className={cn(
-                "p-1.5 rounded-[4px] border transition-colors",
-                isDependencyMode
-                  ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-              )}
-              title="Link events"
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => setIsDependencyMode(!isDependencyMode)}
+                className={cn(
+                  "p-1.5 rounded-[4px] border transition-colors",
+                  isDependencyMode
+                    ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                )}
+                title="Link events"
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+              </button>
+            )}
             
             {/* Auto-schedule */}
-            {dependencies.length > 0 && (
+            {!readOnly && dependencies.length > 0 && (
               <button
                 onClick={handleAutoSchedule}
                 className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
@@ -1252,17 +1347,21 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
             )}
             
             {/* Save baseline */}
-            <button
-              onClick={saveBaseline}
-              className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-              title="Save baseline"
-            >
-              <Target className="h-3.5 w-3.5" />
-            </button>
+            {!readOnly && (
+              <button
+                onClick={saveBaseline}
+                className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+                title="Save baseline"
+              >
+                <Target className="h-3.5 w-3.5" />
+              </button>
+            )}
             
-            <Button size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
-              <Plus className="h-3.5 w-3.5" /> Add event
-            </Button>
+            {!readOnly && (
+              <Button size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Add event
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1305,14 +1404,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
             }}
           >
             {/* Droppable columns for drag-and-drop */}
-            {grid.map((c, idx) => (
-              <DroppableColumn
-                key={`drop_${c.key}`}
-                id={`column-${idx}`}
-                columnIndex={idx}
-                columnWidth={columnWidth}
-              />
-            ))}
+            {!readOnly &&
+              grid.map((c, idx) => (
+                <DroppableColumn
+                  key={`drop_${c.key}`}
+                  id={`column-${idx}`}
+                  columnIndex={idx}
+                  columnWidth={columnWidth}
+                />
+              ))}
 
             {/* Base grid background */}
             {Object.entries(groupedEvents).flatMap(([groupKey, groupEvents], groupIndex) =>
@@ -1470,6 +1570,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
                     isDragging={isDragging}
                     isDependencyMode={isDependencyMode}
                     onDependencyClick={() => {
+                      if (readOnly) return;
                       if (dependencyFrom === null) {
                         setDependencyFrom(it.id);
                       } else if (dependencyFrom !== it.id) {
@@ -1497,6 +1598,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
                       scheduleHide();
                     }}
       onClick={(e) => {
+        if (readOnly) return;
         e.stopPropagation();
         if (isDependencyMode) {
           if (dependencyFrom === null) {
@@ -1515,6 +1617,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
       }}
                     barStyle={barStyle(it.start, it.end, eventRowIndex)}
                     columnWidth={columnWidth}
+                    readOnly={readOnly}
                   />
                 );
               })
@@ -1536,39 +1639,43 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
         </div>
       </div>
       
-      <DragOverlay>
-        {draggingEventId ? (
-          (() => {
-            const draggingEvent = events.find(e => e.id === draggingEventId);
-            if (!draggingEvent) return null;
-            return (
-              <div className={cn(
-                "flex h-8 items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-lg",
-                draggingEvent.color || "bg-[var(--foreground)]"
-              )}>
-                <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
-                <span className="flex-1 truncate">{draggingEvent.title}</span>
-              </div>
-            );
-          })()
-        ) : null}
-      </DragOverlay>
+      {!readOnly && (
+        <DragOverlay>
+          {draggingEventId ? (
+            (() => {
+              const draggingEvent = events.find(e => e.id === draggingEventId);
+              if (!draggingEvent) return null;
+              return (
+                <div className={cn(
+                  "flex h-8 items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-lg",
+                  draggingEvent.color || "bg-[var(--foreground)]"
+                )}>
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
+                  <span className="flex-1 truncate">{draggingEvent.title}</span>
+                </div>
+              );
+            })()
+          ) : null}
+        </DragOverlay>
+      )}
 
       {/* Hover Tooltip */}
       {mounted && tooltipEl && createPortal(tooltipEl, document.body)}
 
       {/* Add Event Dialog */}
-      <AddEventDialog
-        isOpen={isAddDialogOpen}
-        onClose={() => setIsAddDialogOpen(false)}
-        onSave={saveNewEvent}
-        defaultStart={range.start}
-        defaultEnd={addDays(range.start, 3)}
-        members={members}
-      />
+      {!readOnly && (
+        <AddEventDialog
+          isOpen={isAddDialogOpen}
+          onClose={() => setIsAddDialogOpen(false)}
+          onSave={saveNewEvent}
+          defaultStart={range.start}
+          defaultEnd={addDays(range.start, 3)}
+          members={members}
+        />
+      )}
 
       {/* Edit Event Dialog */}
-      {isEditDialogOpen && selectedEvent && (
+      {!readOnly && isEditDialogOpen && selectedEvent && (
         <EditEventDialog
           event={selectedEvent}
           isOpen={isEditDialogOpen}
@@ -1595,6 +1702,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId }: Timeline
         />
       )}
       </div>
+    );
+
+  if (readOnly) {
+    return timelineContent;
+  }
+
+  return (
+    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {timelineContent}
     </DndContext>
   );
 }
@@ -2264,5 +2380,15 @@ function EventDrawer({
         </div>
       </div>
     </div>
+  );
+
+  if (readOnly) {
+    return timelineContent;
+  }
+
+  return (
+    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {timelineContent}
+    </DndContext>
   );
 }

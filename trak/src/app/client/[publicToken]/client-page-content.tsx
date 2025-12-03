@@ -4,6 +4,12 @@ import { ReactNode } from "react";
 import { Block } from "@/app/actions/block";
 import { cn } from "@/lib/utils";
 import ClientDocViewer from "./client-doc-viewer";
+import dynamic from "next/dynamic";
+
+const TimelineBlock = dynamic(
+  () => import("@/app/dashboard/projects/[projectId]/tabs/[tabId]/timeline-block"),
+  { ssr: false }
+);
 
 type ColumnType = "text" | "number" | "date" | "checkbox" | "select";
 
@@ -197,6 +203,17 @@ interface ClientPageContentProps {
   publicToken: string;
 }
 
+const formatShortDate = (date?: string) => {
+  if (!date) return null;
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: parsed.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
+  });
+};
+
 export default function ClientPageContent({ blocks, publicToken }: ClientPageContentProps) {
   if (blocks.length === 0) {
     return (
@@ -332,6 +349,8 @@ function ReadOnlyBlock({ block, publicToken }: { block: Block; publicToken: stri
         );
       case "table":
         return <ReadOnlyTable block={block} />;
+      case "timeline":
+        return <TimelineBlock block={block} readOnly />;
 
       default:
         return (
