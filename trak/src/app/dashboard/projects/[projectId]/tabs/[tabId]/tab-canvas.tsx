@@ -792,7 +792,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       {!hasBlocks ? (
         <div
           onClick={handleEmptyCanvasClick}
-          className="cursor-text rounded-2xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
+          className="cursor-text border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
           role="button"
           tabIndex={0}
           onKeyDown={(e) => {
@@ -806,10 +806,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         </div>
       ) : (
         <div 
-          className={cn(
-            "rounded-2xl border border-[var(--border)]/50 p-6 shadow-sm transition-all duration-300 relative backdrop-blur-sm",
-            currentTheme.containerBg ? "" : "bg-[var(--surface)]/40"
-          )}
+          className="transition-all duration-300 relative"
           style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
         >
           {!isMounted ? (

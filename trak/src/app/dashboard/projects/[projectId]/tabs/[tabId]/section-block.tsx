@@ -147,7 +147,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
 
   return (
     <div className="w-full">
-      <div className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+      <div className="w-full border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
         <div className="border-b border-[var(--border)] px-4 py-3">
           {editingTitle ? (
             <input
@@ -165,7 +165,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                 }
               }}
               autoFocus
-              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] focus:outline-none"
+              className="w-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] focus:outline-none"
               placeholder="Section title"
             />
           ) : (
@@ -189,7 +189,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                 }
               }}
               rows={2}
-              className="mt-2 w-full resize-none rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] focus:outline-none"
+              className="mt-2 w-full resize-none border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] focus:outline-none"
               placeholder="Add description…"
             />
           ) : (
@@ -217,7 +217,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
               Loading…
             </div>
           ) : childBlocks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface-hover)]/60 px-5 py-8 text-center">
+            <div className="flex flex-col items-center justify-center gap-3 border border-dashed border-[var(--border)] bg-[var(--surface-hover)]/60 px-5 py-8 text-center">
               <p className="text-sm text-[var(--muted-foreground)]">This section is empty.</p>
               <AddBlockButton
                 tabId={tabId}

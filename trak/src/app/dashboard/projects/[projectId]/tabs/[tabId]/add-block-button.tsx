@@ -265,7 +265,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         variant === "large"
           ? "px-3 py-1.75 text-sm font-medium"
           : "px-3 py-1.5 text-sm",
-        "flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+        "flex items-center gap-2 border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
       )}
     >
       <Plus className={variant === "large" ? "h-3.5 w-3.5" : "h-3 w-3"} />
@@ -289,10 +289,10 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         >
           <DropdownMenuItem
             onClick={() => setBlockReferenceSelectorOpen(true)}
-            className="flex cursor-pointer items-center gap-2.5 rounded-[4px] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           >
             {/* Velvet Purple for references/links */}
-            <div className="flex h-7 w-7 items-center justify-center rounded-[2px] bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)]">
+            <div className="flex h-7 w-7 items-center justify-center bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)]">
               <Copy className="w-4 h-4" />
             </div>
             <div className="flex-1">
@@ -307,9 +307,9 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
             <DropdownMenuItem
               key={blockType.type}
               onClick={() => handleCreateBlock(blockType.type)}
-              className="flex cursor-pointer items-center gap-2.5 rounded-[4px] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             >
-              <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-[var(--surface-muted)] text-[var(--foreground)]">
+              <div className="flex h-7 w-7 items-center justify-center bg-[var(--surface-muted)] text-[var(--foreground)]">
                 {blockType.icon}
               </div>
               <div className="flex-1">

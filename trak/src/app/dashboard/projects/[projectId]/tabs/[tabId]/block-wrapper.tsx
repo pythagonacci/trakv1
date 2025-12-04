@@ -132,14 +132,14 @@ export default function BlockWrapper({
       {!readOnly && (
         <div
           className={cn(
-            "absolute -left-7 top-2 hidden rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
+            "absolute -left-7 top-2 hidden border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
             "group-hover:flex group-focus-within:flex"
           )}
         >
           <button
             {...listeners}
             {...attributes}
-            className="flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] cursor-move"
+            className="flex h-6 w-6 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] cursor-move"
             aria-label="Drag block"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -153,8 +153,8 @@ export default function BlockWrapper({
         className={cn(
           "relative flex min-w-0 flex-col w-full transition-all duration-150 ease-out",
           borderless
-            ? "rounded-none border-none bg-transparent px-0 py-0 shadow-none"
-            : "rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
+            ? "border-none bg-transparent px-0 py-0 shadow-none"
+            : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
         )}
         onMouseDown={(e) => {
           // Stop drag from starting if clicking on contenteditable or interactive elements
@@ -174,7 +174,7 @@ export default function BlockWrapper({
       >
         {!borderless && (
           <div className="absolute -top-3 right-3 flex items-center gap-2">
-            <div className="hidden items-center gap-1 rounded-[999px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">
+            <div className="hidden items-center gap-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">
               {block.type}
             </div>
             {!readOnly && (
@@ -185,7 +185,7 @@ export default function BlockWrapper({
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                  "inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
                   hasComments || commentsOpen
                     ? "border-blue-200 bg-blue-50 text-blue-700"
                     : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -208,7 +208,7 @@ export default function BlockWrapper({
             }}
             onMouseDown={(e) => e.stopPropagation()}
             className={cn(
-              "absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+              "absolute right-2 top-2 inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
               hasComments || commentsOpen
                 ? "border-blue-200 bg-blue-50 text-blue-700"
                 : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -222,7 +222,7 @@ export default function BlockWrapper({
         )}
         
         {block.is_template && (
-          <div className="absolute -top-3 left-3 flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
+          <div className="absolute -top-3 left-3 flex items-center gap-1 border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
             <Copy className="h-2.5 w-2.5" />
             {block.template_name || "REUSABLE"}
           </div>
@@ -238,7 +238,7 @@ export default function BlockWrapper({
           >
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
-                <button className="flex h-7 w-7 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                <button className="flex h-7 w-7 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>

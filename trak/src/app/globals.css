@@ -58,12 +58,12 @@
     --nav-icon: #52637A; /* River Indigo for sidebar icons */
     --nav-icon-active: #4A7A78; /* Dome Teal for active state */
 
-    /* Border Radius - "Cut stone" look, very small */
-    --radius-xs: 2px;
-    --radius-sm: 2px;
-    --radius-md: 2px;
-    --radius-lg: 4px;
-    --radius-xl: 4px;
+    /* Border Radius - Sharp, no rounded corners */
+    --radius-xs: 0px;
+    --radius-sm: 0px;
+    --radius-md: 0px;
+    --radius-lg: 0px;
+    --radius-xl: 0px;
     
     /* Shadows - Minimal, replaced with borders */
     --shadow-card: none;
