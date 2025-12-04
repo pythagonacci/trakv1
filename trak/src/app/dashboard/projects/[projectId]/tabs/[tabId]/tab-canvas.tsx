@@ -806,7 +806,10 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         </div>
       ) : (
         <div 
-          className="transition-all duration-300 relative"
+          className={cn(
+            "transition-all duration-300 relative",
+            !currentTheme.containerBg && "bg-[var(--surface)]/40"
+          )}
           style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
         >
           {!isMounted ? (
