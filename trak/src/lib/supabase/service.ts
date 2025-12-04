@@ -1,8 +1,8 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-let cachedClientPromise: Promise<ReturnType<typeof createClient>> | null = null;
+let cachedClientPromise: Promise<SupabaseClient<any, "public", any>> | null = null;
 
 async function initServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,7 +20,7 @@ async function initServiceClient() {
   });
 }
 
-export async function createServiceClient(): Promise<ReturnType<typeof createClient>> {
+export async function createServiceClient(): Promise<SupabaseClient<any, "public", any>> {
   if (!cachedClientPromise) {
     cachedClientPromise = initServiceClient();
   }

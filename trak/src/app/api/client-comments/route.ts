@@ -107,8 +107,8 @@ async function persistComments(
   comments: BlockComment[]
 ) {
   const updatedContent = { ...content, _blockComments: comments };
-  const { error } = await supabase
-    .from("blocks")
+  const { error } = await (supabase
+    .from("blocks") as any)
     .update({ content: updatedContent })
     .eq("id", blockId);
 

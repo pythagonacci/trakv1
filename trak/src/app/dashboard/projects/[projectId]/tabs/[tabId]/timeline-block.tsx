@@ -2381,14 +2381,4 @@ function EventDrawer({
       </div>
     </div>
   );
-
-  if (readOnly) {
-    return timelineContent;
-  }
-
-  return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      {timelineContent}
-    </DndContext>
-  );
 }
