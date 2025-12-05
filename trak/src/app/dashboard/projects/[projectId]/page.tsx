@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import ProjectHeader from "./project-header";
-import TabBar from "./tab-bar";
 import EmptyTabsState from "./empty-tabs-state";
 
 export default async function ProjectPage({
@@ -51,26 +50,6 @@ export default async function ProjectPage({
   // 4. Fetch tabs for this project (hierarchical structure)
   const tabsResult = await getProjectTabs(projectId);
   const hierarchicalTabs = tabsResult.data || [];
-
-  // Flatten tabs for ProjectHeader
-  type FlatTabInfo = {
-    id: string;
-    name?: string | null;
-    is_client_visible?: boolean | null;
-    children?: FlatTabInfo[];
-  };
-
-  function flattenTabs(tabs: FlatTabInfo[]): FlatTabInfo[] {
-    const list: FlatTabInfo[] = [];
-    const go = (tab: FlatTabInfo) => {
-      list.push(tab);
-      tab.children?.forEach(go);
-    };
-    tabs.forEach(go);
-    return list;
-  }
-
-  const flatTabs = flattenTabs(hierarchicalTabs);
 
   // 5. If tabs exist, redirect to the first tab
   if (hierarchicalTabs.length > 0) {

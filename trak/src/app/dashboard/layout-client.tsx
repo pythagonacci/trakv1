@@ -412,6 +412,14 @@ function Header() {
     return null;
   }
 
+  const isDocsPage = pathname?.includes("/docs");
+  const isProjectWorkspaceView =
+    pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
+
+  if (isDocsPage || isProjectWorkspaceView) {
+    return null;
+  }
+
   const getPageTitle = () => {
     if (pathname?.includes("/projects")) return "Projects";
     if (pathname?.includes("/internal")) return "Internal";
@@ -420,11 +428,6 @@ function Header() {
     if (pathname?.includes("/payments")) return "Payments";
     return "Dashboard";
   };
-
-  // Don't show header on docs pages
-  if (pathname?.includes("/docs")) {
-    return null;
-  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--background)]">

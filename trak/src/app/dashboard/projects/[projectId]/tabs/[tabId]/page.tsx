@@ -47,7 +47,7 @@ export default async function TabPage({
   ] = await Promise.all([
     supabase
       .from("projects")
-      .select(`id, name, status, client_page_enabled, client_comments_enabled, public_token, client:clients(id, name, company)`)
+      .select(`id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, public_token, client:clients(id, name, company)`)
       .eq("id", projectId)
       .eq("workspace_id", workspaceId)
       .single(),
