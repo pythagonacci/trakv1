@@ -415,8 +415,14 @@ function Header() {
   const isDocsPage = pathname?.includes("/docs");
   const isProjectWorkspaceView =
     pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
+  const isProjectsPage = pathname === "/dashboard/projects";
+  const isHomePage = pathname === "/dashboard";
+  const isClientsPage = pathname?.startsWith("/dashboard/clients");
+  const isInternalPage = pathname?.startsWith("/dashboard/internal");
+  const isTasksPage = pathname?.startsWith("/dashboard/tasks");
+  const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
 
-  if (isDocsPage || isProjectWorkspaceView) {
+  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isTasksPage || isCalendarPage) {
     return null;
   }
 
