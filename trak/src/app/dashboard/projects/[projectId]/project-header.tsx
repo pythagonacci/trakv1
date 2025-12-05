@@ -153,15 +153,13 @@ export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
             </DropdownMenu>
           )}
 
-          {/* Client Page Toggle - only show for client projects */}
-          {project.client && (
-            <ClientPageToggle
-              projectId={project.id}
-              clientPageEnabled={project.client_page_enabled || false}
-              publicToken={project.public_token || null}
-              clientCommentsEnabled={project.client_comments_enabled || false}
-            />
-          )}
+          {/* Public Link Toggle */}
+          <ClientPageToggle
+            projectId={project.id}
+            clientPageEnabled={project.client_page_enabled || false}
+            publicToken={project.public_token || null}
+            clientCommentsEnabled={project.client_comments_enabled || false}
+          />
           
           <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm">
             <Edit className="h-3.5 w-3.5" />

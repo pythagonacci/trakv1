@@ -504,7 +504,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
         }}
       >
         {/* Thin top toolbar */}
-        <div className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] border-b border-[var(--border)] rounded-t-[4px] z-10">
+        <div className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] rounded-t-[4px] z-10">
           <button
             onMouseDown={(e) => {
               e.preventDefault();

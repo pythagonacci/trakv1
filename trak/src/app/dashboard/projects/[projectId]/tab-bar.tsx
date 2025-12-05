@@ -285,8 +285,8 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                 <Plus className="h-4 w-4" /> Add sub-tab
               </DropdownMenuItem>
               
-              {/* Client Page Settings */}
-              {isClientProject && clientPageEnabled && (
+              {/* Public Page Settings */}
+              {clientPageEnabled && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
@@ -297,11 +297,11 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                   >
                     {tab.is_client_visible ? (
                       <>
-                        <EyeOff className="h-4 w-4" /> Hide from client
+                        <EyeOff className="h-4 w-4" /> Make Private
                       </>
                     ) : (
                       <>
-                        <Eye className="h-4 w-4" /> Show to client
+                        <Eye className="h-4 w-4" /> Make Public
                       </>
                     )}
                   </DropdownMenuItem>
@@ -309,7 +309,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                     <DropdownMenuItem onClick={() => handleUpdateClientTitle(tab.id)}>
                       <Edit className="h-4 w-4" /> 
                       <span className="truncate">
-                        {tab.client_title ? "Edit client title" : "Set client title"}
+                        {tab.client_title ? "Edit public title" : "Set public title"}
                       </span>
                     </DropdownMenuItem>
                   )}

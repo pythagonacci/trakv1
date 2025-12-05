@@ -174,9 +174,6 @@ export default function BlockWrapper({
       >
         {!borderless && (
           <div className="absolute -top-3 right-3 flex items-center gap-2">
-            <div className="hidden items-center gap-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-opacity duration-150 ease-out group-hover:flex">
-              {block.type}
-            </div>
             {!readOnly && (
               <button
                 onClick={(e) => {
@@ -185,7 +182,7 @@ export default function BlockWrapper({
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className={cn(
-                  "inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                  "inline-flex items-center justify-center border p-1.5 transition-colors",
                   hasComments || commentsOpen
                     ? "border-blue-200 bg-blue-50 text-blue-700"
                     : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -193,8 +190,7 @@ export default function BlockWrapper({
                 title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
                 aria-pressed={commentsOpen}
               >
-                <MessageSquare className="h-3 w-3" />
-                {hasComments ? comments.length : "Comment"}
+                <MessageSquare className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
@@ -208,7 +204,7 @@ export default function BlockWrapper({
             }}
             onMouseDown={(e) => e.stopPropagation()}
             className={cn(
-              "absolute right-2 top-2 inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+              "absolute right-2 top-2 inline-flex items-center justify-center border p-1.5 transition-colors",
               hasComments || commentsOpen
                 ? "border-blue-200 bg-blue-50 text-blue-700"
                 : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -216,8 +212,7 @@ export default function BlockWrapper({
             title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
             aria-pressed={commentsOpen}
           >
-            <MessageSquare className="h-3 w-3" />
-            {hasComments ? comments.length : "Comment"}
+            <MessageSquare className="h-3.5 w-3.5" />
           </button>
         )}
         

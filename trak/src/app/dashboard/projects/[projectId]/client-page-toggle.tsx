@@ -91,7 +91,7 @@ export default function ClientPageToggle({
 
   const handleCommentsToggle = async (nextValue: boolean) => {
     if (!token) {
-      alert("Generate a client link before enabling comments.");
+      alert("Generate a public link before enabling comments.");
       return;
     }
 
@@ -133,19 +133,19 @@ export default function ClientPageToggle({
         )}
       >
         <Link2 className="h-4 w-4" />
-        <span>{isEnabled ? "Client Page" : "Enable Client Page"}</span>
+        <span>{isEnabled ? "Public Link" : "Enable Public Link"}</span>
       </button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Client Page Link</DialogTitle>
+            <DialogTitle>Public Link</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
             <p className="text-sm text-[var(--muted-foreground)]">
-              Share this link with your client to give them access to this project.
-              They can view it without logging in.
+              Share this link to give access to this project.
+              Anyone with the link can view it without logging in.
             </p>
 
             {/* Shareable Link */}
@@ -181,7 +181,7 @@ export default function ClientPageToggle({
               rel="noopener noreferrer"
               className="block text-sm text-blue-600 hover:underline"
             >
-              Open client page in new tab →
+              Open public page in new tab →
             </a>
 
             {/* Client comment permissions */}
@@ -190,10 +190,10 @@ export default function ClientPageToggle({
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)]">
                     <MessageCircle className="h-4 w-4 text-[var(--tertiary-foreground)]" />
-                    Allow client comments
+                    Allow public comments
                   </div>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    Let clients leave block-level comments after signing their name. Comments sync back to the dashboard.
+                    Let visitors leave block-level comments after signing their name. Comments sync back to the dashboard.
                   </p>
                 </div>
                 <Switch
@@ -204,7 +204,7 @@ export default function ClientPageToggle({
               </div>
               {!token && (
                 <p className="text-[11px] text-[var(--warning)]">
-                  Enable the client page to generate a link before turning on comments.
+                  Enable the public link to generate a URL before turning on comments.
                 </p>
               )}
             </div>
@@ -215,10 +215,10 @@ export default function ClientPageToggle({
                 Next steps:
               </p>
               <ol className="list-decimal list-inside text-sm text-[var(--muted-foreground)] space-y-1">
-                <li>Mark tabs as "Visible to client" from the tab menu</li>
-                <li>Share this link with your client</li>
+                <li>Mark tabs as "Public" from the tab menu</li>
+                <li>Share this link with anyone who needs access</li>
                 <li>They can view updates in real-time</li>
-                <li>If enabled, clients can leave comments with their name</li>
+                <li>If enabled, visitors can leave comments with their name</li>
               </ol>
             </div>
 
@@ -240,7 +240,7 @@ export default function ClientPageToggle({
                 disabled={isLoading}
                 className="text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
               >
-                {isLoading ? "Disabling..." : "Disable Client Page"}
+                {isLoading ? "Disabling..." : "Disable Public Link"}
               </button>
             </div>
           </div>
