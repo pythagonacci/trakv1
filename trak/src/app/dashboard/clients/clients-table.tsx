@@ -1,6 +1,7 @@
 "use client";
 
 import { Building2, Briefcase } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface Client {
   id: string;
@@ -18,6 +19,12 @@ interface ClientsTableProps {
 }
 
 export default function ClientsTable({ clients, workspaceId }: ClientsTableProps) {
+  const router = useRouter();
+
+  const handleRowClick = (clientId: string) => {
+    router.push(`/dashboard/clients/${clientId}`);
+  };
+
   if (clients.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border)] rounded-[4px] bg-[var(--surface)]">
@@ -60,7 +67,8 @@ export default function ClientsTable({ clients, workspaceId }: ClientsTableProps
             {clients.map((client) => (
               <tr
                 key={client.id}
-                className="hover:bg-[var(--surface-hover)] transition-colors"
+                className="hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
+                onClick={() => handleRowClick(client.id)}
               >
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-3">

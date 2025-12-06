@@ -366,7 +366,9 @@ function ReadOnlyBlock({
         );
 
       case "link":
-        const linkContent = block.content as { title?: string; url?: string; description?: string };
+        const linkContent = block.content as { title?: string; url?: string; description?: string; caption?: string };
+        const isValidUrl = linkContent.url && (linkContent.url.startsWith('http://') || linkContent.url.startsWith('https://'));
+
         return (
           <div className="space-y-2">
             {linkContent.title && (
@@ -374,15 +376,23 @@ function ReadOnlyBlock({
                 {linkContent.title}
               </h3>
             )}
-            {linkContent.url && (
+            {isValidUrl && (
               <a
                 href={linkContent.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-blue-600 hover:underline block"
+                className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
               >
-                {linkContent.url}
+                <span>{linkContent.url}</span>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
               </a>
+            )}
+            {!isValidUrl && linkContent.url && (
+              <span className="text-sm text-[var(--muted-foreground)]">
+                {linkContent.url}
+              </span>
             )}
             {linkContent.description && (
               <p className="text-sm text-[var(--muted-foreground)]">

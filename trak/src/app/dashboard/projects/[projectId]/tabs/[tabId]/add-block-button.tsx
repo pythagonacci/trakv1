@@ -179,7 +179,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     switch (type) {
       case "text": return { text: "" };
       case "task": return { title: "New Task List", tasks: [] };
-      case "link": return { title: "", url: "", description: "" };
+      case "link": return { title: null, url: null, description: null, caption: "" };
       case "divider": return {};
       case "table": return { rows: 3, cols: 3, cells: [["", "", ""], ["", "", ""], ["", "", ""]], columnWidths: [150, 150, 150] };
       case "timeline": {

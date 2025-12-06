@@ -267,3 +267,50 @@ export async function deleteClient(clientId: string) {
   revalidatePath('/dashboard')
   return { data: { success: true, message: 'Client deleted successfully' } }
 }
+
+// 6. GET CLIENT PROJECTS
+export async function getClientProjects(clientId: string) {
+  const authResult = await getServerUser()
+
+  if (!authResult) {
+    return { error: 'Unauthorized' }
+  }
+  const { supabase, user } = authResult
+
+  // First verify the client exists and user has access
+  const { data: client, error: clientError } = await supabase
+    .from('clients')
+    .select('workspace_id')
+    .eq('id', clientId)
+    .single()
+
+  if (clientError || !client) {
+    return { error: 'Client not found' }
+  }
+
+  // Verify user has access to this workspace
+  const { data: membership, error: memberError } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', client.workspace_id)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (memberError || !membership) {
+    return { error: 'Unauthorized' }
+  }
+
+  // Get all projects for this client
+  const { data: projects, error: projectsError } = await supabase
+    .from('projects')
+    .select('id, name, status, due_date_date, due_date_text, created_at, updated_at')
+    .eq('client_id', clientId)
+    .eq('workspace_id', client.workspace_id)
+    .order('created_at', { ascending: false })
+
+  if (projectsError) {
+    return { error: projectsError.message }
+  }
+
+  return { data: projects || [] }
+}
