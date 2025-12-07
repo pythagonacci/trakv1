@@ -11,9 +11,10 @@ interface TabCanvasWrapperProps {
   workspaceId: string;
   blocks: Block[];
   scrollToTaskId?: string | null;
+  initialFileUrls?: Record<string, string>;
 }
 
-export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks, scrollToTaskId }: TabCanvasWrapperProps) {
+export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks, scrollToTaskId, initialFileUrls = {} }: TabCanvasWrapperProps) {
   const [tabTheme, setTabTheme] = useState<string>("default");
 
   // Load theme from localStorage
@@ -61,6 +62,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
       scrollToTaskId={scrollToTaskId}
       onThemeChange={handleThemeChange}
       currentTheme={tabTheme}
+      initialFileUrls={initialFileUrls}
     />
   );
 }

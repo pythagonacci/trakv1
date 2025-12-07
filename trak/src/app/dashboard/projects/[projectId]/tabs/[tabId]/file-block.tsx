@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { type Block } from "@/app/actions/block";
-import { getBlockFiles, getFileUrl, detachFileFromBlock } from "@/app/actions/file";
+import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
+import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,9 +45,11 @@ const formatFileSize = (bytes: number): string => {
 };
 
 export default function FileBlock({ block, workspaceId, projectId, onUpdate }: FileBlockProps) {
+  // Get file URLs from context (prefetched at page level)
+  const fileUrls = useFileUrls();
+  
   const [files, setFiles] = useState<BlockFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -71,23 +74,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
         file: Array.isArray(item.file) ? item.file[0] : item.file
       }));
       setFiles(normalizedFiles);
-      
-      // Load signed URLs for images
-      const imageFiles = normalizedFiles.filter((f) => f.file?.file_type?.startsWith("image/"));
-      
-      const urls: Record<string, string> = {};
-      for (const file of imageFiles) {
-        try {
-          const urlResult = await getFileUrl(file.file.id);
-          
-          if (urlResult.data?.url) {
-            urls[file.file.id] = urlResult.data.url;
-          }
-        } catch (error) {
-          // Silent fail - image won't display
-        }
-      }
-      setFileUrls(urls);
+      // URLs are already loaded from context - no need to fetch them
     }
     setLoading(false);
   };
@@ -101,10 +88,10 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   };
 
   const handleDownloadFile = async (fileId: string, fileName: string) => {
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
+    const url = fileUrls[fileId];
+    if (url) {
       const link = document.createElement("a");
-      link.href = result.data.url;
+      link.href = url;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();

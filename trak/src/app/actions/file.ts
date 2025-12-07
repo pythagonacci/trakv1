@@ -331,6 +331,100 @@ export async function getFileUrl(fileId: string) {
 }
 
 /**
+ * Get download URLs for multiple files in a single batched request
+ * Reduces database queries from 3N to 2 (where N = number of files)
+ */
+export async function getBatchFileUrls(fileIds: string[]) {
+  'use server';
+
+  if (!fileIds || fileIds.length === 0) {
+    return { data: {} };
+  }
+
+  // Remove duplicates
+  const uniqueFileIds = Array.from(new Set(fileIds));
+
+  const supabase = await createClient();
+
+  // 1. Check authentication
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { error: 'Unauthorized', data: {} };
+  }
+
+  // 2. Fetch ALL files in ONE query
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select('id, storage_path, workspace_id')
+    .in('id', uniqueFileIds);
+
+  if (filesError || !files || files.length === 0) {
+    return { data: {} };
+  }
+
+  // 3. Get workspace ID (assume all files in same workspace for this tab)
+  const workspaceId = files[0].workspace_id;
+
+  // 4. ONE membership check for the workspace
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership) {
+    return { error: 'No workspace access', data: {} };
+  }
+
+  // 5. Generate ALL signed URLs in PARALLEL
+  const urlPromises = files.map(async (file) => {
+    try {
+      const { data: urlData, error: urlError } = await supabase.storage
+        .from('files')
+        .createSignedUrl(file.storage_path, 3600); // 1 hour expiry
+
+      if (urlError) {
+        console.error(`Failed to generate signed URL for file ${file.id}:`, urlError);
+        return {
+          fileId: file.id,
+          url: null,
+        };
+      }
+
+      return {
+        fileId: file.id,
+        url: urlData?.signedUrl || null,
+      };
+    } catch (error) {
+      console.error(`Error generating signed URL for file ${file.id}:`, error);
+      return {
+        fileId: file.id,
+        url: null,
+      };
+    }
+  });
+
+  const urlResults = await Promise.all(urlPromises);
+
+  // 6. Return as map: { fileId: signedUrl }
+  const urlMap: Record<string, string> = {};
+  urlResults.forEach(result => {
+    if (result.url) {
+      urlMap[result.fileId] = result.url;
+    }
+  });
+
+  console.log(`📦 Batch fetched ${Object.keys(urlMap).length} file URLs`);
+
+  return { data: urlMap };
+}
+
+/**
  * Detach file from block (doesn't delete the file, just the attachment)
  */
 export async function detachFileFromBlock(attachmentId: string) {

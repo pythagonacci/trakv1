@@ -5,7 +5,7 @@ import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
-import { getFileUrl } from "@/app/actions/file";
+import { useFileUrls } from "./tab-canvas";
 import { Upload, Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, FileText } from "lucide-react";
 
 interface PdfBlockProps {
@@ -21,38 +21,20 @@ const MAX_ZOOM = 200;
 const ZOOM_STEP = 25;
 
 export default function PdfBlock({ block, workspaceId, projectId, onUpdate }: PdfBlockProps) {
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Get file URLs from context (prefetched at page level)
+  const fileUrls = useFileUrls();
+  const fileId = block.content?.fileId as string;
+  const pdfUrl = fileId ? fileUrls[fileId] : null;
+  
   const [uploading, setUploading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
-  const [pdfLoadingError, setPdfLoadingError] = useState(false);
   const [iframeError, setIframeError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
 
-  const loadPdf = async () => {
-    const fileId = block.content?.fileId as string;
-    if (!fileId) return;
-
-    setLoading(true);
-    setPdfLoadingError(false);
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
-      setPdfUrl(result.data.url);
-    } else {
-      setPdfLoadingError(true);
-    }
-    setLoading(false);
-  };
-
-  // Load PDF URL if fileId exists
-  useEffect(() => {
-    if (block.content?.fileId) {
-      loadPdf();
-    }
-  }, [block.content?.fileId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // PDF URL is already loaded from context, no need to fetch
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -146,8 +128,7 @@ export default function PdfBlock({ block, workspaceId, projectId, onUpdate }: Pd
         },
       });
 
-      // Load the new PDF
-      await loadPdf();
+      // Trigger update - page will refresh and prefetch new file URL
       onUpdate?.();
       setUploading(false);
     } catch (error: any) {
@@ -163,10 +144,10 @@ export default function PdfBlock({ block, workspaceId, projectId, onUpdate }: Pd
     const fileId = block.content?.fileId as string;
     if (!fileId) return;
 
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
+    // Use URL from context if available, otherwise it will be null
+    if (pdfUrl) {
       const link = document.createElement("a");
-      link.href = result.data.url;
+      link.href = pdfUrl;
       link.download = `document.pdf`;
       document.body.appendChild(link);
       link.click();
@@ -224,7 +205,7 @@ export default function PdfBlock({ block, workspaceId, projectId, onUpdate }: Pd
   }
 
   // Loading state
-  if (uploading || loading) {
+  if (uploading) {
     return (
       <div className="p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
@@ -331,7 +312,7 @@ export default function PdfBlock({ block, workspaceId, projectId, onUpdate }: Pd
             </div>
           </div>
         )
-      ) : pdfLoadingError ? (
+      ) : !pdfUrl ? (
         <div className="p-8 text-center">
           <p className="text-sm text-red-600 dark:text-red-400 mb-2">
             Failed to load PDF

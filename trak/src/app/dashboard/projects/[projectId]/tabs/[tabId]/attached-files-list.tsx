@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getBlockFiles, getFileUrl, detachFileFromBlock } from "@/app/actions/file";
+import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
+import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,9 +42,11 @@ const formatFileSize = (bytes: number): string => {
 };
 
 export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesListProps) {
+  // Get file URLs from context (prefetched at page level)
+  const fileUrls = useFileUrls();
+  
   const [files, setFiles] = useState<BlockFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState(true);
 
@@ -139,36 +142,16 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
         type: f.file?.file_type
       })));
       
-      const urls: Record<string, string> = {};
-      for (const blockFile of imageFiles) {
-        const file = blockFile.file;
-        if (!file || !file.id) {
-          console.warn(`⚠️ Skipping file with missing data:`, blockFile);
-          continue;
-        }
-        
-        try {
-          console.log(`🔗 Fetching URL for image: ${file.file_name} (${file.id})`);
-          const urlResult = await getFileUrl(file.id);
-          console.log(`🔗 URL result for ${file.id}:`, urlResult);
-          
-          if (urlResult.data?.url) {
-            urls[file.id] = urlResult.data.url;
-            console.log(`✅ URL loaded for ${file.file_name}:`, urlResult.data.url.substring(0, 50) + "...");
-          } else if (urlResult.error) {
-            console.error(`❌ Error getting URL for ${file.file_name}:`, urlResult.error);
-          } else {
-            console.warn(`⚠️ No URL returned for ${file.file_name}, result:`, urlResult);
-          }
-        } catch (error) {
-          console.error(`❌ Exception getting URL for file ${file.id}:`, error);
-        }
-      }
-      setFileUrls(urls);
-      console.log("🖼️ Final image URLs loaded:", Object.keys(urls).length, "out of", imageFiles.length);
+      // URLs are already loaded from context - no need to fetch them
+      const imageFileIds = imageFiles
+        .map(f => f.file?.id)
+        .filter((id): id is string => Boolean(id));
       
-      if (Object.keys(urls).length === 0 && imageFiles.length > 0) {
-        console.error("❌ No URLs were loaded for any images! Check the errors above.");
+      const loadedUrlsCount = imageFileIds.filter(id => fileUrls[id]).length;
+      console.log(`🖼️ Using ${loadedUrlsCount} prefetched URLs for ${imageFiles.length} images`);
+      
+      if (loadedUrlsCount === 0 && imageFiles.length > 0) {
+        console.warn("⚠️ No URLs found in context for images. They may not have been prefetched.");
       }
     } else if (result.error) {
       console.error("❌ Error loading files:", result.error);
@@ -193,10 +176,10 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
   };
 
   const handleDownloadFile = async (fileId: string, fileName: string) => {
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
+    const url = fileUrls[fileId];
+    if (url) {
       const link = document.createElement("a");
-      link.href = result.data.url;
+      link.href = url;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();

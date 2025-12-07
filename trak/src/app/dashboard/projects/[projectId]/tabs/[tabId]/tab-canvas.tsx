@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -25,6 +25,12 @@ import DocSidebar from "./doc-sidebar";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 
+// Create context for file URLs
+const FileUrlContext = createContext<Record<string, string>>({});
+
+// Export hook for blocks to use
+export const useFileUrls = () => useContext(FileUrlContext);
+
 interface TabCanvasProps {
   tabId: string;
   projectId: string;
@@ -33,6 +39,7 @@ interface TabCanvasProps {
   scrollToTaskId?: string | null;
   onThemeChange?: (theme: string) => void;
   currentTheme?: string;
+  initialFileUrls?: Record<string, string>;
 }
 
 interface BlockRow {
@@ -41,7 +48,7 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {} }: TabCanvasProps) {
   const router = useRouter();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
@@ -788,8 +795,9 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   };
 
   return (
-    <div className="space-y-2">
-      {!hasBlocks ? (
+    <FileUrlContext.Provider value={initialFileUrls}>
+      <div className="space-y-2">
+        {!hasBlocks ? (
         <div
           onClick={handleEmptyCanvasClick}
           className="cursor-text border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
@@ -912,6 +920,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
       {/* Doc Sidebar */}
       <DocSidebar docId={openDocId} onClose={() => setOpenDocId(null)} />
-    </div>
+      </div>
+    </FileUrlContext.Provider>
   );
 }

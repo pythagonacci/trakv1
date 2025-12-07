@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { type Block } from "@/app/actions/block";
-import { getBlockFiles, getFileUrl, detachFileFromBlock } from "@/app/actions/file";
+import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
+import { useFileUrls } from "./tab-canvas";
 import { Video, Download, Trash2, AlertTriangle, ExternalLink } from "lucide-react";
 import VideoPlayer from "./video-player";
 import FileUploadZone from "./file-upload-zone";
@@ -119,9 +120,11 @@ const generateVideoThumbnail = (videoUrl: string): Promise<string> => {
 };
 
 export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: VideoBlockProps) {
+  // Get file URLs from context (prefetched at page level)
+  const fileUrls = useFileUrls();
+  
   const [files, setFiles] = useState<BlockFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [showUploadZone, setShowUploadZone] = useState(false);
 
@@ -150,30 +153,33 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
       const videoFiles = normalizedFiles.filter((f) => f.file?.file_type?.startsWith("video/"));
       setFiles(videoFiles);
 
-      // Load signed URLs for videos and generate thumbnails
-      const urls: Record<string, string> = {};
-      const thumbs: Record<string, string> = {};
-
-      for (const file of videoFiles) {
-        try {
-          const urlResult = await getFileUrl(file.file.id);
-          if (urlResult.data?.url) {
-            urls[file.file.id] = urlResult.data.url;
-            // Generate thumbnail
-            try {
-              const thumbnail = await generateVideoThumbnail(urlResult.data.url);
-              thumbs[file.file.id] = thumbnail;
-            } catch (error) {
-              console.error("Failed to generate thumbnail:", error);
-            }
+      // URLs are already loaded from context - just extract them for video files
+      const videoFileIds = videoFiles.map(f => f.file.id).filter(Boolean);
+      
+      if (videoFileIds.length > 0) {
+        // Generate thumbnails for all videos in parallel using URLs from context
+        const thumbPromises = videoFileIds.map(async (fileId) => {
+          const url = fileUrls[fileId];
+          if (!url) return { fileId, thumbnail: null };
+          
+          try {
+            const thumbnail = await generateVideoThumbnail(url);
+            return { fileId, thumbnail };
+          } catch (error) {
+            console.error(`Failed to generate thumbnail for file ${fileId}:`, error);
+            return { fileId, thumbnail: null };
           }
-        } catch (error) {
-          console.error("Failed to load video URL:", error);
-        }
+        });
+        
+        const thumbResults = await Promise.all(thumbPromises);
+        const thumbs: Record<string, string> = {};
+        thumbResults.forEach(result => {
+          if (result.thumbnail) {
+            thumbs[result.fileId] = result.thumbnail;
+          }
+        });
+        setThumbnails(thumbs);
       }
-
-      setVideoUrls(urls);
-      setThumbnails(thumbs);
     }
     setLoading(false);
   };
@@ -187,10 +193,10 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
   };
 
   const handleDownloadFile = async (fileId: string, fileName: string) => {
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
+    const url = fileUrls[fileId];
+    if (url) {
       const link = document.createElement("a");
-      link.href = result.data.url;
+      link.href = url;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
@@ -256,7 +262,7 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
       <div className="space-y-4">
         {files.map((blockFile) => {
           const file = blockFile.file;
-          const videoUrl = videoUrls[file.id];
+          const videoUrl = fileUrls[file.id];
           const thumbnailUrl = thumbnails[file.id];
           const isLarge = file.file_size > MAX_VIDEO_SIZE;
           const isVeryLarge = file.file_size > LARGE_VIDEO_SIZE;

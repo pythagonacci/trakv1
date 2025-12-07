@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2 } from "lucide-react";
-import { getFileUrl, detachFileFromBlock } from "@/app/actions/file";
+import { detachFileFromBlock } from "@/app/actions/file";
+import { useFileUrls } from "./tab-canvas";
 import { cn } from "@/lib/utils";
 
 interface InlineFilePreviewProps {
@@ -41,33 +42,20 @@ export default function InlineFilePreview({
   onUpdate,
   compact = true,
 }: InlineFilePreviewProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // Get file URLs from context (prefetched at page level)
+  const fileUrls = useFileUrls();
+  const imageUrl = fileId ? fileUrls[fileId] : null;
+  
   const [imageError, setImageError] = useState(false);
   const [hovered, setHovered] = useState(false);
 
   const isImage = fileType.startsWith("image/");
   const FileIcon = getFileIcon(fileType);
 
-  // Load image URL if it's an image
-  useEffect(() => {
-    if (isImage) {
-      const loadImageUrl = async () => {
-        const result = await getFileUrl(fileId);
-        if (result.data?.url) {
-          setImageUrl(result.data.url);
-        } else {
-          setImageError(true);
-        }
-      };
-      loadImageUrl();
-    }
-  }, [fileId, isImage]);
-
-  const handleDownload = async () => {
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
+  const handleDownload = () => {
+    if (imageUrl) {
       const link = document.createElement("a");
-      link.href = result.data.url;
+      link.href = imageUrl;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();

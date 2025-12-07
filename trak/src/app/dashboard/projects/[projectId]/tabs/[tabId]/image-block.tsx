@@ -5,7 +5,7 @@ import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
-import { getFileUrl } from "@/app/actions/file";
+import { useFileUrls } from "./tab-canvas";
 import { Upload, Loader2, Maximize2, X, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,8 +19,11 @@ interface ImageBlockProps {
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: ImageBlockProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Get file URLs from context (prefetched at page level)
+  const fileUrls = useFileUrls();
+  const fileId = block.content?.fileId as string;
+  const imageUrl = fileId ? fileUrls[fileId] : null;
+  
   const [uploading, setUploading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [caption, setCaption] = useState((block.content?.caption as string) || "");
@@ -29,25 +32,6 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   const [dragInfo, setDragInfo] = useState<{ startX: number; startWidth: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const captionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const loadImage = async () => {
-    const fileId = block.content?.fileId as string;
-    if (!fileId) return;
-
-    setLoading(true);
-    const result = await getFileUrl(fileId);
-    if (result.data?.url) {
-      setImageUrl(result.data.url);
-    }
-    setLoading(false);
-  };
-
-  // Load image URL if fileId exists
-  useEffect(() => {
-    if (block.content?.fileId) {
-      loadImage();
-    }
-  }, [block.content?.fileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -143,8 +127,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
         },
       });
 
-      // Load the new image
-      await loadImage();
+      // Trigger update - page will refresh and prefetch new file URL
       onUpdate?.();
       setUploading(false);
     } catch (error: any) {
@@ -259,7 +242,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   }
 
   // Loading state
-  if (uploading || loading) {
+  if (uploading) {
     return (
       <div className="p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
