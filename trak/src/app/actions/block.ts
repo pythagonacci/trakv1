@@ -839,3 +839,68 @@ export async function duplicateBlock(blockId: string) {
     return { error: "Failed to duplicate block" };
   }
 }
+
+// ============================================================================
+// PUBLIC CLIENT PAGE - GET TAB BLOCKS (NO AUTH REQUIRED)
+// ============================================================================
+
+/**
+ * Get blocks for a tab on a public client page
+ * Uses service role client to bypass RLS
+ * Validates public token instead of user auth
+ */
+export async function getTabBlocksPublic(tabId: string, publicToken: string) {
+  try {
+    const { createServiceClient } = await import("@/lib/supabase/service");
+    const supabase = await createServiceClient();
+
+    // 1. Verify the public token is valid and client page is enabled
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, client_page_enabled")
+      .eq("public_token", publicToken)
+      .eq("client_page_enabled", true)
+      .single();
+
+    if (projectError || !project) {
+      console.error("Public token validation failed:", projectError);
+      return { error: "Invalid or disabled client page" };
+    }
+
+    // 2. Verify the tab belongs to this project AND is client-visible
+    const { data: tab, error: tabError } = await supabase
+      .from("tabs")
+      .select("id, project_id, is_client_visible")
+      .eq("id", tabId)
+      .eq("project_id", project.id)
+      .eq("is_client_visible", true)
+      .single();
+
+    if (tabError || !tab) {
+      console.error("Tab validation failed:", tabError);
+      return { error: "Tab not found or not visible to clients" };
+    }
+
+    // 3. Fetch blocks (service role bypasses RLS)
+    const { data: blocks, error: blocksError } = await supabase
+      .from("blocks")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
+      .eq("tab_id", tabId)
+      .is("parent_block_id", null)
+      .order("column", { ascending: true })
+      .order("position", { ascending: true })
+      .limit(BLOCKS_PER_TAB_LIMIT);
+
+    if (blocksError) {
+      console.error("Get public blocks error:", blocksError);
+      return { error: "Failed to fetch blocks" };
+    }
+
+    console.log(`✅ Public access: Fetched ${blocks?.length || 0} blocks for tab ${tabId}`);
+
+    return { data: blocks || [] };
+  } catch (error) {
+    console.error("Get tab blocks public exception:", error);
+    return { error: "Failed to fetch blocks" };
+  }
+}

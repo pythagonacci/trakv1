@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, createContext, useContext } from "react";
 import { Block } from "@/app/actions/block";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -12,10 +12,14 @@ import { MessageSquare } from "lucide-react";
 // Import the exact same BlockRenderer as internal pages for perfect duplication
 const BlockRenderer = dynamic(() => import("@/app/dashboard/projects/[projectId]/tabs/[tabId]/block-renderer"));
 
+// Import FileUrlContext from internal pages so BlockRenderer can use it
+import { FileUrlContext } from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/tab-canvas";
+
 interface ClientPageContentProps {
   blocks: Block[];
   publicToken: string;
   allowComments?: boolean;
+  initialFileUrls?: Record<string, string>;
 }
 
 interface BlockRow {
@@ -35,7 +39,7 @@ const formatShortDate = (date?: string) => {
   });
 };
 
-export default function ClientPageContent({ blocks, publicToken, allowComments = false }: ClientPageContentProps) {
+export default function ClientPageContent({ blocks, publicToken, allowComments = false, initialFileUrls = {} }: ClientPageContentProps) {
   const [blockState, setBlockState] = useState(blocks);
   const { identity, setIdentityName } = useClientCommentIdentity(publicToken, allowComments);
 
@@ -83,10 +87,11 @@ export default function ClientPageContent({ blocks, publicToken, allowComments =
   }, [] as BlockRow[]);
 
   return (
-    <div className="space-y-5">
-      {blockRows
-        .sort((a, b) => a.rowIndex - b.rowIndex)
-        .map((row) => (
+    <FileUrlContext.Provider value={initialFileUrls}>
+      <div className="space-y-5">
+        {blockRows
+          .sort((a, b) => a.rowIndex - b.rowIndex)
+          .map((row) => (
           <div
             key={row.rowIndex}
             className={cn(
@@ -155,7 +160,8 @@ export default function ClientPageContent({ blocks, publicToken, allowComments =
               })}
           </div>
         ))}
-    </div>
+      </div>
+    </FileUrlContext.Provider>
   );
 }
 

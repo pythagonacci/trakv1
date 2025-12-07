@@ -8,6 +8,7 @@ const PUBLIC_PATHS = new Set([
   "/signup",
   "/auth/callback",
   "/favicon.ico",
+  "/client",
 ]);
 
 export async function middleware(req: NextRequest) {

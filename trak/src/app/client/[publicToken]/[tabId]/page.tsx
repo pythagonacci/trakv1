@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProjectByPublicToken } from "@/app/actions/client-page";
-import { getTabBlocks } from "@/app/actions/block";
+import { getTabBlocksPublic } from "@/app/actions/block";
+import { getBatchFileUrlsPublic } from "@/app/actions/file";
 import ClientPageHeader from "../client-page-header";
 import ClientPageTabBar from "../client-page-tab-bar";
 import ClientPageContent from "../client-page-content";
@@ -33,9 +34,65 @@ export default async function ClientTabPage({
     notFound();
   }
 
-  // Fetch blocks for this tab
-  const blocksResult = await getTabBlocks(tabId);
+  // Fetch blocks for this tab (public access - no auth required)
+  const blocksResult = await getTabBlocksPublic(tabId, publicToken);
+
+  if (blocksResult.error) {
+    console.error('Failed to fetch blocks:', blocksResult.error);
+    notFound();
+  }
+
   const blocks = blocksResult.data || [];
+
+  // Extract all file IDs from all blocks for prefetching
+  const fileIds: string[] = [];
+
+  blocks.forEach(block => {
+    // Image blocks
+    if (block.type === 'image' && block.content?.fileId) {
+      fileIds.push(block.content.fileId as string);
+    }
+    
+    // PDF blocks
+    if (block.type === 'pdf' && block.content?.fileId) {
+      fileIds.push(block.content.fileId as string);
+    }
+    
+    // Video blocks
+    if (block.type === 'video' && block.content?.fileId) {
+      fileIds.push(block.content.fileId as string);
+    }
+  });
+
+  // For file blocks, fetch file attachments to get file IDs
+  const fileBlockIds = blocks.filter(b => b.type === 'file').map(b => b.id);
+  if (fileBlockIds.length > 0) {
+    const { createServiceClient } = await import("@/lib/supabase/service");
+    const serviceSupabase = await createServiceClient();
+    
+    const { data: fileAttachments } = await serviceSupabase
+      .from('file_attachments')
+      .select('file:files(id)')
+      .in('block_id', fileBlockIds);
+
+    if (fileAttachments) {
+      fileAttachments.forEach((attachment: any) => {
+        const file = Array.isArray(attachment.file) ? attachment.file[0] : attachment.file;
+        if (file?.id) {
+          fileIds.push(file.id);
+        }
+      });
+    }
+  }
+
+  // Batch fetch all file URLs in ONE call (public access)
+  const fileUrlsResult = fileIds.length > 0 
+    ? await getBatchFileUrlsPublic(fileIds, publicToken)
+    : { data: {} };
+
+  const initialFileUrls = fileUrlsResult.data || {};
+
+  console.log(`🎯 Public: Prefetched ${Object.keys(initialFileUrls).length} file URLs for ${blocks.length} blocks`);
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -69,6 +126,7 @@ export default async function ClientTabPage({
             blocks={blocks}
             publicToken={publicToken}
             allowComments={project.client_comments_enabled ?? false}
+            initialFileUrls={initialFileUrls}
           />
         </div>
       </div>

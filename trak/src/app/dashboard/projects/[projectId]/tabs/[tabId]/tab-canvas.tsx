@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 
 // Create context for file URLs
-const FileUrlContext = createContext<Record<string, string>>({});
+export const FileUrlContext = createContext<Record<string, string>>({});
 
 // Export hook for blocks to use
 export const useFileUrls = () => useContext(FileUrlContext);

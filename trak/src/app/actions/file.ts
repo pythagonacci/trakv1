@@ -425,6 +425,83 @@ export async function getBatchFileUrls(fileIds: string[]) {
 }
 
 /**
+ * Batch fetch file URLs for public client pages
+ * Uses service role client to bypass RLS
+ */
+export async function getBatchFileUrlsPublic(fileIds: string[], publicToken: string) {
+  'use server';
+  
+  if (!fileIds || fileIds.length === 0) {
+    return { data: {} };
+  }
+
+  const { createServiceClient } = await import("@/lib/supabase/service");
+  const supabase = await createServiceClient();
+
+  try {
+    // 1. Verify public token
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, workspace_id, client_page_enabled")
+      .eq("public_token", publicToken)
+      .eq("client_page_enabled", true)
+      .single();
+
+    if (projectError || !project) {
+      return { error: 'Invalid public token', data: {} };
+    }
+
+    // 2. Remove duplicates
+    const uniqueFileIds = Array.from(new Set(fileIds));
+
+    // 3. Fetch all files (verify they belong to the project's workspace)
+    const { data: files, error: filesError } = await supabase
+      .from('files')
+      .select('id, storage_path, workspace_id')
+      .in('id', uniqueFileIds)
+      .eq('workspace_id', project.workspace_id);
+
+    if (filesError || !files || files.length === 0) {
+      return { data: {} };
+    }
+
+    // 4. Generate signed URLs in parallel
+    const urlPromises = files.map(async (file) => {
+      try {
+        const { data: urlData } = await supabase.storage
+          .from('files')
+          .createSignedUrl(file.storage_path, 3600);
+
+        return {
+          fileId: file.id,
+          url: urlData?.signedUrl || null
+        };
+      } catch (error) {
+        console.error(`Failed to generate URL for file ${file.id}:`, error);
+        return { fileId: file.id, url: null };
+      }
+    });
+
+    const urlResults = await Promise.all(urlPromises);
+
+    // 5. Return as map
+    const urlMap: Record<string, string> = {};
+    urlResults.forEach(result => {
+      if (result.url) {
+        urlMap[result.fileId] = result.url;
+      }
+    });
+
+    console.log(`📦 Public: Batch fetched ${Object.keys(urlMap).length} file URLs`);
+    
+    return { data: urlMap };
+  } catch (error) {
+    console.error('Get batch file URLs public exception:', error);
+    return { error: 'Failed to fetch file URLs', data: {} };
+  }
+}
+
+/**
  * Detach file from block (doesn't delete the file, just the attachment)
  */
 export async function detachFileFromBlock(attachmentId: string) {
