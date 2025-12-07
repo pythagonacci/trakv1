@@ -1,67 +1,87 @@
 "use client";
 
-import { formatDistanceToNow } from "date-fns";
+import { useState, useEffect } from "react";
 import StatusBadge from "@/app/dashboard/projects/status-badge";
 import { ClientPageProject } from "@/app/actions/client-page";
+import { cn } from "@/lib/utils";
 
 interface ClientPageHeaderProps {
   project: ClientPageProject;
+  tabId?: string;
 }
 
-export default function ClientPageHeader({ project }: ClientPageHeaderProps) {
+export default function ClientPageHeader({ project, tabId }: ClientPageHeaderProps) {
+  const [tabTheme, setTabTheme] = useState<string>("default");
+
+  // Load theme from localStorage (same as internal)
+  useEffect(() => {
+    if (typeof window === "undefined" || !tabId) return;
+    const saved = localStorage.getItem(`trak-tab-theme-${tabId}`);
+    if (saved) {
+      setTabTheme(saved);
+    }
+  }, [tabId]);
+
+  // Listen for theme changes (same as internal)
+  useEffect(() => {
+    if (typeof window === "undefined" || !tabId) return;
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === `trak-tab-theme-${tabId}` && e.newValue) {
+        setTabTheme(e.newValue);
+      }
+    };
+    const handleCustomChange = () => {
+      const saved = localStorage.getItem(`trak-tab-theme-${tabId}`);
+      if (saved) {
+        setTabTheme(saved);
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("tab-theme-updated", handleCustomChange);
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("tab-theme-updated", handleCustomChange);
+    };
+  }, [tabId]);
+
   const formatDueDate = () => {
-    // Use text date if provided, otherwise format date
     if (project.due_date_text) {
-      return project.due_date_text;
+      return { text: project.due_date_text, isOverdue: false };
     }
     if (project.due_date_date) {
       const date = new Date(project.due_date_date);
-      return date.toLocaleDateString("en-US", {
+      const now = new Date();
+      const isOverdue = date < now && date.toDateString() !== now.toDateString();
+      const formatted = date.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: "numeric",
       });
+      return { text: formatted, isOverdue };
     }
-    return null;
+    return { text: "No due date", isOverdue: false };
   };
 
-  const lastUpdated = project.updated_at
-    ? formatDistanceToNow(new Date(project.updated_at), { addSuffix: true })
-    : null;
+  const dueDate = formatDueDate();
 
   return (
-    <div className="space-y-4">
-      {/* Client Info */}
+    <div className="space-y-3">
       {project.client && (
-        <div className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 border border-blue-200">
-          <span>{project.client.name}</span>
-          {project.client.company && (
-            <span className="text-blue-600/70">· {project.client.company}</span>
-          )}
-        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--velvet-purple)]">
+          {project.client.name}
+          {project.client.company && <span className="text-[var(--velvet-purple)]/70">· {project.client.company}</span>}
+        </span>
       )}
-
-      {/* Project Name */}
-      <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)]">
+      <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)] font-[var(--font-serif)]">
         {project.name}
       </h1>
-
-      {/* Status and Metadata */}
-      <div className="flex flex-wrap items-center gap-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <StatusBadge status={project.status} />
-        
-        {formatDueDate() && (
-          <span className="flex items-center gap-1.5 text-[var(--muted-foreground)]">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            Due {formatDueDate()}
-          </span>
-        )}
-
-        {lastUpdated && (
-          <span className="text-[var(--muted-foreground)]">
-            Last updated {lastUpdated}
+        {dueDate.text !== "No due date" && (
+          <span className={cn("flex items-center gap-1 text-[var(--foreground)]/70 font-medium",
+            dueDate.isOverdue && "text-red-500"
+          )}>
+            Due {dueDate.text}
           </span>
         )}
       </div>
