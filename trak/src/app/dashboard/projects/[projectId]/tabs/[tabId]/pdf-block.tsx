@@ -301,6 +301,7 @@ export default function PdfBlock({ block, workspaceId, projectId, onUpdate }: Pd
                 className="w-full border-0"
                 style={{ minHeight: '800px' }}
                 title="PDF Viewer"
+                loading="lazy"
                 onLoad={() => {
                   // Iframe loaded successfully - pagination controls work via URL hash
                   // Browser's native PDF viewer doesn't expose page count

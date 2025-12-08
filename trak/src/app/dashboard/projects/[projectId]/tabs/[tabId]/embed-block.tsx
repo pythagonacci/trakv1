@@ -412,6 +412,7 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
             className="absolute top-0 left-0 w-full h-full border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
+            loading="lazy"
             onLoad={handleIframeLoad}
             style={{ minHeight: embedConfig.type === "calendly" ? "700px" : "400px" }}
           />

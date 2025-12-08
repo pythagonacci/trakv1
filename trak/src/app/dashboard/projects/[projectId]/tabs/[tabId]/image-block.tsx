@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import Image from "next/image";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
@@ -259,12 +260,24 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
           className="relative"
           style={{ width: `${width}px`, maxWidth: "100%" }}
         >
-          <img
-            src={imageUrl || ""}
-            alt={caption || "Image"}
-            onClick={() => setLightboxOpen(true)}
-            className="w-full h-auto rounded-lg cursor-pointer transition-opacity hover:opacity-90"
-          />
+          {imageUrl ? (
+            <div className="relative w-full" style={{ minHeight: '200px' }}>
+              <Image
+                src={imageUrl}
+                alt={caption || "Image"}
+                width={width}
+                height={Math.round(width * 0.75)}
+                onClick={() => setLightboxOpen(true)}
+                className="w-full h-auto rounded-lg cursor-pointer transition-opacity hover:opacity-90"
+                loading="lazy"
+                unoptimized
+              />
+            </div>
+          ) : (
+            <div className="w-full h-48 bg-neutral-100 dark:bg-neutral-800 rounded-lg flex items-center justify-center">
+              <ImageIcon className="w-12 h-12 text-neutral-400" />
+            </div>
+          )}
           
           {/* Resize Handle */}
           <div
@@ -306,11 +319,14 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
           </button>
 
           {/* Full-Size Image */}
-          <img
+          <Image
             src={imageUrl}
             alt={caption || "Image"}
             onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-full object-contain rounded-lg"
+            width={1920}
+            height={1080}
+            unoptimized
           />
         </div>
       )}

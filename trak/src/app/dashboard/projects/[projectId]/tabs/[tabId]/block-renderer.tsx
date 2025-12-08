@@ -2,6 +2,7 @@
 
 import { type Block } from "@/app/actions/block";
 import BlockWrapper from "./block-wrapper";
+import LazyBlockWrapper from "./lazy-block-wrapper";
 import TextBlock from "./text-block";
 import TaskBlock from "./task-block";
 import LinkBlock from "./link-block";
@@ -34,23 +35,25 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
   // If this block is a reference to another block, render the reference component
   if (block.original_block_id) {
     return (
-      <BlockWrapper 
-        block={block} 
-        workspaceId={workspaceId}
-        projectId={projectId}
-        onDelete={onDelete} 
-        onConvert={onConvert} 
-        onUpdate={onUpdate}
-        isDragging={isDragging}
-      >
-        <BlockReferenceRenderer
-          originalBlockId={block.original_block_id}
+      <LazyBlockWrapper blockId={block.id}>
+        <BlockWrapper 
+          block={block} 
           workspaceId={workspaceId}
           projectId={projectId}
-          tabId={tabId}
+          onDelete={onDelete} 
+          onConvert={onConvert} 
           onUpdate={onUpdate}
-        />
-      </BlockWrapper>
+          isDragging={isDragging}
+        >
+          <BlockReferenceRenderer
+            originalBlockId={block.original_block_id}
+            workspaceId={workspaceId}
+            projectId={projectId}
+            tabId={tabId}
+            onUpdate={onUpdate}
+          />
+        </BlockWrapper>
+      </LazyBlockWrapper>
     );
   }
 
@@ -96,16 +99,18 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
   };
 
   return (
-    <BlockWrapper 
-      block={block} 
-      workspaceId={workspaceId}
-      projectId={projectId}
-      onDelete={onDelete} 
-      onConvert={onConvert} 
-      onUpdate={onUpdate}
-      isDragging={isDragging}
-    >
-      {renderBlockContent()}
-    </BlockWrapper>
+    <LazyBlockWrapper blockId={block.id}>
+      <BlockWrapper 
+        block={block} 
+        workspaceId={workspaceId}
+        projectId={projectId}
+        onDelete={onDelete} 
+        onConvert={onConvert} 
+        onUpdate={onUpdate}
+        isDragging={isDragging}
+      >
+        {renderBlockContent()}
+      </BlockWrapper>
+    </LazyBlockWrapper>
   );
 }
