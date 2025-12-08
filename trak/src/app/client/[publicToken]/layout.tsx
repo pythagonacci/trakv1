@@ -1,12 +1,18 @@
 import { ReactNode } from "react";
 import { ThemeProvider } from "@/app/dashboard/theme-context";
+import ClientAccountHeader from "./client-account-header";
 
 export default function ClientPublicLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  return <ThemeProvider>{children}</ThemeProvider>;
+  return (
+    <ThemeProvider>
+      <ClientAccountHeader />
+      {children}
+    </ThemeProvider>
+  );
 }
 
 
