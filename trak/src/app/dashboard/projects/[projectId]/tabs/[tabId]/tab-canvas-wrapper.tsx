@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import TabCanvas from "./tab-canvas";
 import { type Block } from "@/app/actions/block";
 import { TAB_THEMES } from "./tab-themes";
+import { useTabBlocks, useBatchFileUrls } from "@/lib/hooks/use-tab-data";
 
 interface TabCanvasWrapperProps {
   tabId: string;
@@ -14,8 +15,64 @@ interface TabCanvasWrapperProps {
   initialFileUrls?: Record<string, string>;
 }
 
-export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks, scrollToTaskId, initialFileUrls = {} }: TabCanvasWrapperProps) {
+export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, initialFileUrls = {} }: TabCanvasWrapperProps) {
   const [tabTheme, setTabTheme] = useState<string>("default");
+
+  // 🚀 NEW: Use React Query for cached blocks
+  const { data: blocks, isLoading, isFetching, dataUpdatedAt, isPlaceholderData, isStale } = useTabBlocks(tabId, initialBlocks);
+  
+  // Better cache detection: data exists, not fetching, and dataUpdatedAt is older than mount time
+  const mountTimeRef = useRef(Date.now());
+  const isFromCache = blocks && !isFetching && !isLoading && dataUpdatedAt && dataUpdatedAt < mountTimeRef.current;
+  
+  console.log('useTabBlocks result:', { 
+    tabId,
+    blocksCount: blocks?.length || 0,
+    initialBlocksCount: initialBlocks?.length || 0,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+    isStale,
+    dataUpdatedAt: dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : null,
+    mountTime: new Date(mountTimeRef.current).toISOString(),
+    isFromCache,
+    hasData: !!blocks
+  });
+
+  // 🚀 NEW: Use React Query for cached file URLs
+  const fileIds = blocks?.flatMap(block => {
+    const ids: string[] = [];
+    if (block.type === 'image' && block.content?.fileId) {
+      ids.push(block.content.fileId as string);
+    }
+    if (block.type === 'pdf' && block.content?.fileId) {
+      ids.push(block.content.fileId as string);
+    }
+    if (block.type === 'video' && block.content?.fileId) {
+      ids.push(block.content.fileId as string);
+    }
+    return ids;
+  }) || [];
+
+  const { data: fileUrls, isLoading: fileUrlsLoading, isFetching: fileUrlsFetching, dataUpdatedAt: fileUrlsUpdatedAt } = useBatchFileUrls(fileIds, initialFileUrls);
+  
+  // Better cache detection for file URLs
+  const fileUrlsMountTimeRef = useRef(Date.now());
+  const fileUrlsIsFromCache = fileUrls && !fileUrlsFetching && !fileUrlsLoading && fileUrlsUpdatedAt && fileUrlsUpdatedAt < fileUrlsMountTimeRef.current;
+  
+  console.log('useBatchFileUrls result:', {
+    fileIds: fileIds.length,
+    fileUrlsCount: Object.keys(fileUrls || {}).length,
+    initialFileUrlsCount: Object.keys(initialFileUrls).length,
+    isLoading: fileUrlsLoading,
+    isFetching: fileUrlsFetching,
+    dataUpdatedAt: fileUrlsUpdatedAt ? new Date(fileUrlsUpdatedAt).toISOString() : null,
+    mountTime: new Date(fileUrlsMountTimeRef.current).toISOString(),
+    isFromCache: fileUrlsIsFromCache,
+    hasData: !!fileUrls,
+    queryEnabled: fileIds.length > 0, // Shows if query is enabled
+    note: fileIds.length === 0 ? 'Query disabled (no file IDs)' : 'Query active'
+  });
 
   // Load theme from localStorage
   useEffect(() => {
@@ -58,11 +115,11 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
       tabId={tabId}
       projectId={projectId}
       workspaceId={workspaceId}
-      blocks={blocks}
+      blocks={blocks || []}
       scrollToTaskId={scrollToTaskId}
       onThemeChange={handleThemeChange}
       currentTheme={tabTheme}
-      initialFileUrls={initialFileUrls}
+      initialFileUrls={fileUrls || {}}
     />
   );
 }

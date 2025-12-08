@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/app/actions/auth";
 import DashboardLayoutClient from "./layout-client";
 import { WorkspaceProvider } from "./workspace-context";
 import { ThemeProvider } from "./theme-context";
+import { ReactQueryProvider } from "@/lib/react-query/providers";
 
 // Remove force-dynamic from layout - let individual pages decide
 // User data is cached per request with React.cache() so multiple calls are deduped
@@ -38,14 +39,17 @@ export default async function DashboardLayout({
 
   return (
     <ThemeProvider>
-      <WorkspaceProvider
-        initialWorkspaces={workspaces}
-        initialCurrentWorkspace={currentWorkspace}
-      >
-        <DashboardLayoutClient currentUser={user}>
-          {children}
-        </DashboardLayoutClient>
-      </WorkspaceProvider>
+      {/* 🚀 NEW: React Query Provider for data caching */}
+      <ReactQueryProvider>
+        <WorkspaceProvider
+          initialWorkspaces={workspaces}
+          initialCurrentWorkspace={currentWorkspace}
+        >
+          <DashboardLayoutClient currentUser={user}>
+            {children}
+          </DashboardLayoutClient>
+        </WorkspaceProvider>
+      </ReactQueryProvider>
     </ThemeProvider>
   );
 }
