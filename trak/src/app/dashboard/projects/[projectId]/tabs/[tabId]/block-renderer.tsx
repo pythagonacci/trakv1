@@ -1,22 +1,82 @@
 "use client";
 
 import { type Block } from "@/app/actions/block";
+import dynamic from "next/dynamic";
 import BlockWrapper from "./block-wrapper";
 import LazyBlockWrapper from "./lazy-block-wrapper";
+
+// Lightweight components - static import (always used)
 import TextBlock from "./text-block";
-import TaskBlock from "./task-block";
 import LinkBlock from "./link-block";
 import DividerBlock from "./divider-block";
-import TableBlock from "./table-block";
-import TimelineBlock from "./timeline-block";
-import FileBlock from "./file-block";
-import VideoBlock from "./video-block";
-import ImageBlock from "./image-block";
-import EmbedBlock from "./embed-block";
-import PdfBlock from "./pdf-block";
-import SectionBlock from "./section-block";
-import DocReferenceBlock from "./blocks/doc-reference-block";
-import BlockReferenceRenderer from "./block-reference-renderer";
+
+// Loading placeholder for dynamically imported blocks
+function BlockLoadingState() {
+  return (
+    <div className="p-5 flex items-center justify-center">
+      <div className="flex items-center gap-2 text-neutral-400">
+        <div className="w-4 h-4 border-2 border-neutral-300 border-t-neutral-600 rounded-full animate-spin" />
+        <span className="text-sm">Loading...</span>
+      </div>
+    </div>
+  );
+}
+
+// Heavy components - dynamic import (load on demand)
+const TaskBlock = dynamic(() => import("./task-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const TimelineBlock = dynamic(() => import("./timeline-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const TableBlock = dynamic(() => import("./table-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const FileBlock = dynamic(() => import("./file-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const VideoBlock = dynamic(() => import("./video-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const ImageBlock = dynamic(() => import("./image-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const EmbedBlock = dynamic(() => import("./embed-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const PdfBlock = dynamic(() => import("./pdf-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const SectionBlock = dynamic(() => import("./section-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const DocReferenceBlock = dynamic(() => import("./blocks/doc-reference-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
+const BlockReferenceRenderer = dynamic(() => import("./block-reference-renderer"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
 
 interface BlockRendererProps {
   block: Block;
