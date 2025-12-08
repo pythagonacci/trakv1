@@ -78,14 +78,14 @@ CREATE TABLE IF NOT EXISTS client_tab_blocks (
   type TEXT NOT NULL,
   content JSONB DEFAULT '{}'::jsonb,
   position INTEGER NOT NULL DEFAULT 0,
-  column INTEGER NOT NULL DEFAULT 0 CHECK (column >= 0 AND column <= 2),
+  "column" INTEGER NOT NULL DEFAULT 0 CHECK ("column" >= 0 AND "column" <= 2),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Add indexes for performance
 CREATE INDEX IF NOT EXISTS idx_client_tab_blocks_tab_id ON client_tab_blocks(tab_id);
-CREATE INDEX IF NOT EXISTS idx_client_tab_blocks_position ON client_tab_blocks(tab_id, column, position);
+CREATE INDEX IF NOT EXISTS idx_client_tab_blocks_position ON client_tab_blocks(tab_id, "column", position);
 
 -- Enable RLS
 ALTER TABLE client_tab_blocks ENABLE ROW LEVEL SECURITY;
@@ -166,5 +166,5 @@ CREATE TRIGGER client_tab_blocks_updated_at
 COMMENT ON TABLE client_tabs IS 'Custom tabs within client detail pages for organizing client-specific information';
 COMMENT ON TABLE client_tab_blocks IS 'Content blocks within client tabs (similar to project tab blocks)';
 COMMENT ON COLUMN client_tabs.position IS 'Display order of tabs (0-based)';
-COMMENT ON COLUMN client_tab_blocks.column IS 'Column position (0-2 for up to 3 columns)';
+COMMENT ON COLUMN client_tab_blocks."column" IS 'Column position (0-2 for up to 3 columns)';
 COMMENT ON COLUMN client_tab_blocks.position IS 'Vertical position within column';
