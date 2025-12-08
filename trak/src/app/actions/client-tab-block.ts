@@ -341,7 +341,7 @@ export async function getClientTabBlockFileUrls(fileIds: string[], tabId: string
     // Auth check
     const user = await getAuthenticatedUser();
     if (!user) {
-      return { error: "Unauthorized" };
+      return { error: "Unauthorized", data: {} };
     }
 
     // Get tab and verify access
@@ -357,7 +357,7 @@ export async function getClientTabBlockFileUrls(fileIds: string[], tabId: string
       .single();
 
     if (tabError || !tab) {
-      return { error: "Tab not found" };
+      return { error: "Tab not found", data: {} };
     }
 
     const workspaceId = (tab.clients as any).workspace_id;
@@ -365,13 +365,13 @@ export async function getClientTabBlockFileUrls(fileIds: string[], tabId: string
     // Verify workspace membership
     const member = await checkWorkspaceMembership(workspaceId, user.id);
     if (!member) {
-      return { error: "Not a member of this workspace" };
+      return { error: "Not a member of this workspace", data: {} };
     }
 
     // Use the existing getBatchFileUrls function
     return await getBatchFileUrls(fileIds);
   } catch (error) {
     console.error("Get client tab block file URLs exception:", error);
-    return { error: "Failed to fetch file URLs" };
+    return { error: "Failed to fetch file URLs", data: {} };
   }
 }

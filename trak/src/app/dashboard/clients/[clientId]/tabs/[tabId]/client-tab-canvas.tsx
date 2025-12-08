@@ -118,7 +118,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
     // Group blocks into rows
     // Blocks that are side-by-side have the same "row_index" (rounded position)
     // We use position rounded to nearest integer to determine rows
-    const rowsMap = new Map<number, Block[]>();
+    const rowsMap = new Map<number, ClientTabBlock[]>();
 
     sortedBlocks.forEach((block) => {
       // Position is now an integer representing the row index

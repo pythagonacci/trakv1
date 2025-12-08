@@ -1,6 +1,6 @@
 "use client";
 
-import { type ClientTabBlock } from "@/app/actions/client-tab-block";
+import { type ClientTabBlock, type ClientTabBlockType } from "@/app/actions/client-tab-block";
 import dynamic from "next/dynamic";
 import BlockWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/block-wrapper";
 import LazyBlockWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/lazy-block-wrapper";
@@ -110,7 +110,7 @@ export default function ClientTabBlockRenderer({
   const renderBlockContent = () => {
     switch (block.type) {
       case "text":
-        return <TextBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <TextBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "task":
         return <TaskBlock block={blockForComponents} workspaceId={workspaceId} onUpdate={(b) => onUpdate?.(b as any)} scrollToTaskId={scrollToTaskId} />;
       case "link":
@@ -122,18 +122,18 @@ export default function ClientTabBlockRenderer({
       case "timeline":
         return <TimelineBlock block={blockForComponents} workspaceId={workspaceId} onUpdate={(b) => onUpdate?.(b as any)} />;
       case "file":
-        return <FileBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <FileBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "image":
-        return <ImageBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <ImageBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "video":
-        return <VideoBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <VideoBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "embed":
-        return <EmbedBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <EmbedBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "pdf":
-        return <PdfBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <PdfBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "section":
         return tabId ? (
-          <SectionBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} tabId={tabId} onUpdate={(b) => onUpdate?.(b as any)} />
+          <SectionBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} tabId={tabId} onUpdate={() => onUpdate?.()} />
         ) : (
           <div className="p-5 text-sm text-neutral-500">Section requires tabId</div>
         );
