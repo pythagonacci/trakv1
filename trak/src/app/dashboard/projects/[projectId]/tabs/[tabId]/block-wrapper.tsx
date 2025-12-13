@@ -59,6 +59,8 @@ interface BlockWrapperProps {
       | "section"
   ) => void;
   onUpdate?: () => void;
+  onAddBlockAbove?: (blockId: string) => void;
+  onAddBlockBelow?: (blockId: string) => void;
   isDragging?: boolean;
   readOnly?: boolean;
 }
@@ -71,6 +73,8 @@ export default function BlockWrapper({
   onDelete,
   onConvert,
   onUpdate,
+  onAddBlockAbove,
+  onAddBlockBelow,
   isDragging: externalIsDragging,
   readOnly = false,
 }: BlockWrapperProps) {
@@ -238,6 +242,23 @@ export default function BlockWrapper({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    onAddBlockAbove?.(block.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Plus className="h-4 w-4" /> Add block above
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    onAddBlockBelow?.(block.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Plus className="h-4 w-4" /> Add block below
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <span className="flex items-center gap-2">

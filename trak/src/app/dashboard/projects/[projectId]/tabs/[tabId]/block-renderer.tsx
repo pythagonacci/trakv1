@@ -86,23 +86,27 @@ interface BlockRendererProps {
   onUpdate?: (updatedBlock?: Block) => void;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "pdf" | "section" | "doc_reference") => void;
+  onAddBlockAbove?: (blockId: string) => void;
+  onAddBlockBelow?: (blockId: string) => void;
   onOpenDoc?: (docId: string) => void;
   isDragging?: boolean;
   scrollToTaskId?: string | null;
 }
 
-export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onAddBlockAbove, onAddBlockBelow, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
   // If this block is a reference to another block, render the reference component
   if (block.original_block_id) {
     return (
       <LazyBlockWrapper blockId={block.id}>
-        <BlockWrapper 
-          block={block} 
+        <BlockWrapper
+          block={block}
           workspaceId={workspaceId}
           projectId={projectId}
-          onDelete={onDelete} 
-          onConvert={onConvert} 
+          onDelete={onDelete}
+          onConvert={onConvert}
           onUpdate={onUpdate}
+          onAddBlockAbove={onAddBlockAbove}
+          onAddBlockBelow={onAddBlockBelow}
           isDragging={isDragging}
         >
           <BlockReferenceRenderer
@@ -160,13 +164,15 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
 
   return (
     <LazyBlockWrapper blockId={block.id}>
-      <BlockWrapper 
-        block={block} 
+      <BlockWrapper
+        block={block}
         workspaceId={workspaceId}
         projectId={projectId}
-        onDelete={onDelete} 
-        onConvert={onConvert} 
+        onDelete={onDelete}
+        onConvert={onConvert}
         onUpdate={onUpdate}
+        onAddBlockAbove={onAddBlockAbove}
+        onAddBlockBelow={onAddBlockBelow}
         isDragging={isDragging}
       >
         {renderBlockContent()}

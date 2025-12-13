@@ -302,6 +302,104 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     router.refresh();
   };
 
+  const handleAddBlockAbove = (targetBlockId: string) => {
+    // Trigger the add block button with position calculation
+    const targetBlock = blocks.find(b => b.id === targetBlockId);
+    if (!targetBlock) return;
+
+    // Calculate position above the target block
+    const targetPosition = targetBlock.position;
+    const abovePosition = targetPosition; // Insert at the same position (will shift others down)
+
+    // Create optimistic block
+    const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
+    const optimisticBlock = {
+      id: optimisticBlockId,
+      tab_id: tabId,
+      parent_block_id: null,
+      type: "text" as const,
+      content: { text: "" },
+      position: abovePosition,
+      column: targetBlock.column,
+      is_template: false,
+      template_name: null,
+      original_block_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Add optimistic block immediately
+    handleBlockCreated(optimisticBlock);
+
+    // Create the actual block server-side
+    createBlock({
+      tabId,
+      type: "text",
+      position: abovePosition,
+      column: targetBlock.column,
+    }).then((result) => {
+      if (result.error) {
+        console.error("Failed to create block above:", result.error);
+        // Remove optimistic block on error
+        handleBlockError(optimisticBlockId);
+      } else if (result.data) {
+        resolveOptimisticBlock(optimisticBlockId, result.data);
+      }
+    }).catch((error) => {
+      console.error("Exception creating block above:", error);
+      handleBlockError(optimisticBlockId);
+    });
+  };
+
+  const handleAddBlockBelow = (targetBlockId: string) => {
+    // Trigger the add block button with position calculation
+    const targetBlock = blocks.find(b => b.id === targetBlockId);
+    if (!targetBlock) return;
+
+    // Calculate position below the target block
+    const targetPosition = targetBlock.position;
+    const belowPosition = targetPosition + 1; // Insert after the target block
+
+    // Create optimistic block
+    const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
+    const optimisticBlock = {
+      id: optimisticBlockId,
+      tab_id: tabId,
+      parent_block_id: null,
+      type: "text" as const,
+      content: { text: "" },
+      position: belowPosition,
+      column: targetBlock.column,
+      is_template: false,
+      template_name: null,
+      original_block_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Add optimistic block immediately
+    handleBlockCreated(optimisticBlock);
+
+    // Create the actual block server-side
+    createBlock({
+      tabId,
+      type: "text",
+      position: belowPosition,
+      column: targetBlock.column,
+    }).then((result) => {
+      if (result.error) {
+        console.error("Failed to create block below:", result.error);
+        // Remove optimistic block on error
+        handleBlockError(optimisticBlockId);
+      } else if (result.data) {
+        resolveOptimisticBlock(optimisticBlockId, result.data);
+      }
+    }).catch((error) => {
+      console.error("Exception creating block below:", error);
+      handleBlockError(optimisticBlockId);
+    });
+  };
+
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
     console.log("Drag started for block:", event.active.id);
@@ -857,6 +955,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                         scrollToTaskId={scrollToTaskId}
                         onDelete={handleDelete}
                         onConvert={handleConvert}
+                        onAddBlockAbove={handleAddBlockAbove}
+                        onAddBlockBelow={handleAddBlockBelow}
                         onOpenDoc={setOpenDocId}
                         isDragging={false}
                       />
@@ -906,6 +1006,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                             scrollToTaskId={scrollToTaskId}
                             onDelete={handleDelete}
                             onConvert={handleConvert}
+                            onAddBlockAbove={handleAddBlockAbove}
+                            onAddBlockBelow={handleAddBlockBelow}
                             onOpenDoc={setOpenDocId}
                             isDragging={isDragging && draggedBlock?.id === block.id}
                           />
