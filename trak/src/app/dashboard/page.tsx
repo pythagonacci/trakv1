@@ -28,8 +28,8 @@ export default async function DashboardPage() {
     );
   }
 
-  // Fetch dashboard data
-  const [projectsResult, docsResult, tasksResult, standaloneTasksResult, commentBlocksResult] = await Promise.all([
+  // Fetch dashboard data with graceful degradation
+  const [projectsResult, docsResult, tasksResult, standaloneTasksResult, commentBlocksResult] = await Promise.allSettled([
     // Get projects
     supabase
       .from("projects")
@@ -94,11 +94,26 @@ export default async function DashboardPage() {
       .limit(40),
   ]);
 
-  const projects = projectsResult.data || [];
-  const docs = docsResult.data || [];
-  const taskBlocks = tasksResult.data || [];
-  const standaloneTasks = standaloneTasksResult.data || [];
-  const commentBlocks = commentBlocksResult.data || [];
+  // Extract results with error handling for graceful degradation
+  const projects = projectsResult.status === 'fulfilled' && !projectsResult.value.error
+    ? projectsResult.value.data || []
+    : [];
+
+  const docs = docsResult.status === 'fulfilled' && !docsResult.value.error
+    ? docsResult.value.data || []
+    : [];
+
+  const taskBlocks = tasksResult.status === 'fulfilled' && !tasksResult.value.error
+    ? tasksResult.value.data || []
+    : [];
+
+  const standaloneTasks = standaloneTasksResult.status === 'fulfilled'
+    ? standaloneTasksResult.value.data || []
+    : [];
+
+  const commentBlocks = commentBlocksResult.status === 'fulfilled' && !commentBlocksResult.value.error
+    ? commentBlocksResult.value.data || []
+    : [];
 
   // Extract uncompleted tasks from project blocks
   const projectTasks = taskBlocks

@@ -334,7 +334,11 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         blockId: block.id,
         content: prevContent,
       }).then((result) => {
-        if (result.data) {
+        if (result.error) {
+          console.error("Failed to undo table change:", result.error);
+          // Revert history index on error
+          setHistoryIndex(historyIndex + 1);
+        } else if (result.data) {
           onUpdate?.(result.data);
         }
       });
@@ -349,7 +353,11 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         blockId: block.id,
         content: nextContent,
       }).then((result) => {
-        if (result.data) {
+        if (result.error) {
+          console.error("Failed to redo table change:", result.error);
+          // Revert history index on error
+          setHistoryIndex(historyIndex - 1);
+        } else if (result.data) {
           onUpdate?.(result.data);
         }
       });
@@ -397,11 +405,20 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
             blockId: block.id,
             content: newContent,
           });
-          
+
+          if (result.error) {
+            console.error("Failed to paste table cells:", result.error);
+            setCellError({
+              row: startRow,
+              col: startCol,
+              message: "Failed to save pasted content. Please try again."
+            });
+            setTimeout(() => setCellError(null), 5000);
+            return;
+          }
+
           if (result.data) {
             onUpdate?.(result.data);
-          } else {
-            onUpdate?.();
           }
         }
       } catch (err) {
@@ -655,10 +672,32 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   };
 
 
+  // Debounced save state
+  const [pendingSave, setPendingSave] = useState<{
+    row: number;
+    col: number;
+    value: string;
+    timeoutId: NodeJS.Timeout;
+  } | null>(null);
+
+  // Cleanup pending saves on unmount
+  useEffect(() => {
+    return () => {
+      if (globalSaveTimeout) {
+        clearTimeout(globalSaveTimeout);
+      }
+    };
+  }, [globalSaveTimeout]);
+
+  // Global debouncing state - single timeout for all table changes
+  const [globalSaveTimeout, setGlobalSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [pendingChanges, setPendingChanges] = useState<Map<string, { row: number; col: number; value: string }>>(new Map());
+
   const saveCell = useCallback(
     async (row: number, col: number, value: string) => {
       const colConfig = columns[col];
-      
+      const changeKey = `${row}-${col}`;
+
       // Validate
       if (colConfig) {
         const validation = validateCell(value, colConfig);
@@ -673,32 +712,71 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
           setCellError(null);
         }
       }
-      
+
       // Process formula cells
       let finalValue = value;
       if (colConfig?.formula && value.startsWith("=")) {
         finalValue = evaluateFormula(value, row, cells, columns);
       }
-      
+
+      // Optimistic UI update (immediate)
       const newCells = cells.map((r, rIdx) =>
         rIdx === row ? r.map((c, cIdx) => cIdx === col ? finalValue : c) : r
       );
-
       const newContent = { ...content, cells: newCells, columns };
       addToHistory(newContent);
 
-      const result = await updateBlock({
-        blockId: block.id,
-        content: newContent,
-      });
-      
-      if (result.data) {
-        onUpdate?.(result.data);
-      } else {
-        onUpdate?.();
+      // Add to pending changes batch
+      setPendingChanges(prev => new Map(prev.set(changeKey, { row, col, value: finalValue })));
+
+      // Clear existing global timeout
+      if (globalSaveTimeout) {
+        clearTimeout(globalSaveTimeout);
       }
+
+      // Set up debounced batch save (300ms delay)
+      const timeoutId = setTimeout(async () => {
+        try {
+          // Get all pending changes and clear them atomically
+          const changesToSave = new Map(pendingChanges);
+          setPendingChanges(new Map());
+          setGlobalSaveTimeout(null);
+
+          // Apply all pending changes to content
+          let updatedContent = { ...content };
+          for (const [key, change] of changesToSave) {
+            const { row: r, col: c, value: val } = change;
+            const updatedCells = updatedContent.cells?.map((rowCells, rIdx) =>
+              rIdx === r ? rowCells.map((cellVal, cIdx) => cIdx === c ? val : cellVal) : rowCells
+            ) || [];
+            updatedContent = { ...updatedContent, cells: updatedCells };
+          }
+
+          const result = await updateBlock({
+            blockId: block.id,
+            content: updatedContent,
+          });
+
+          if (result.data) {
+            onUpdate?.(result.data);
+          } else {
+            onUpdate?.();
+          }
+        } catch (error) {
+          console.error("Failed to save table cells:", error);
+          // Show error to user
+          setCellError({
+            row,
+            col,
+            message: "Failed to save changes. Please refresh and try again."
+          });
+          setTimeout(() => setCellError(null), 5000);
+        }
+      }, 300); // Reduced from 750ms to 300ms
+
+      setGlobalSaveTimeout(timeoutId);
     },
-    [cells, block.id, content, columns, onUpdate, addToHistory, cellError]
+    [cells, block.id, content, columns, onUpdate, addToHistory, cellError, pendingChanges, globalSaveTimeout]
   );
 
   const handleKeyDown = (
@@ -771,6 +849,11 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         columns,
       },
     });
+
+    if (result.error) {
+      console.error("Failed to add table row:", result.error);
+      // Note: Optimistic update stays, user can try again or refresh
+    }
     if (result.data) {
       onUpdate?.(result.data);
     } else {
@@ -790,6 +873,12 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         columns,
       },
     });
+
+    if (result.error) {
+      console.error("Failed to delete table row:", result.error);
+      // Note: Optimistic update stays, user can try again or refresh
+    }
+
     if (result.data) {
       onUpdate?.(result.data);
     } else {
@@ -817,6 +906,11 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         columns: newColumns,
       },
     });
+
+    if (result.error) {
+      console.error("Failed to add table column:", result.error);
+      // Note: Optimistic update stays, user can try again or refresh
+    }
     setTempColumnWidths(newColumnWidths);
     setColumns(newColumns);
     if (result.data) {
@@ -841,6 +935,11 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
         columns: newColumns,
       },
     });
+
+    if (result.error) {
+      console.error("Failed to delete table column:", result.error);
+      // Note: Optimistic update stays, user can try again or refresh
+    }
     setTempColumnWidths(newColumnWidths);
     setColumns(newColumns);
     // Clear filters/sort for deleted column
@@ -1003,7 +1102,12 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
           columnWidths: tempColumnWidths,
         },
       });
-      if (result.data) {
+
+      if (result.error) {
+        console.error("Failed to save column widths:", result.error);
+        // Revert to original widths on error
+        setTempColumnWidths(columnWidths);
+      } else if (result.data) {
         onUpdate?.(result.data);
       } else {
         onUpdate?.();

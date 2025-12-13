@@ -19,6 +19,7 @@ interface ClientAddBlockButtonProps {
   variant?: "default" | "large";
   onBlockCreated?: (block: ClientTabBlock) => void;
   onBlockResolved?: (tempId: string, savedBlock: ClientTabBlock) => void;
+  onBlockError?: (tempId: string) => void;
   getNextPosition?: () => number;
 }
 
@@ -97,13 +98,14 @@ const blockTypes: Array<{ type: ClientTabBlockType; label: string; icon: React.R
   },
 ];
 
-export default function ClientAddBlockButton({ 
-  tabId, 
-  clientId, 
-  variant = "default", 
-  onBlockCreated, 
+export default function ClientAddBlockButton({
+  tabId,
+  clientId,
+  variant = "default",
+  onBlockCreated,
   onBlockResolved,
-  getNextPosition 
+  onBlockError,
+  getNextPosition
 }: ClientAddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
@@ -142,6 +144,10 @@ export default function ClientAddBlockButton({
       if (result.error) {
         console.error("Failed to create block:", result.error);
         alert(`Error creating block: ${result.error}`);
+        // Remove the failed optimistic block from UI
+        if (onBlockError) {
+          onBlockError(optimisticBlockId);
+        }
         router.refresh();
         setIsCreating(false);
         return;
@@ -153,7 +159,12 @@ export default function ClientAddBlockButton({
       }
     } catch (error) {
       console.error("Create block exception:", error);
-      router.refresh();
+      // Remove optimistic block on error
+      if (onBlockError) {
+        onBlockError(optimisticBlockId);
+      } else {
+        router.refresh();
+      }
     } finally {
       setIsCreating(false);
     }

@@ -13,6 +13,7 @@ interface BlockReferenceSelectorProps {
   onClose: () => void;
   tabId: string;
   onBlockCreated?: (block: any) => void;
+  onBlockError?: (tempId: string) => void;
 }
 
 interface TemplateBlock {
@@ -54,7 +55,7 @@ const blockTypeLabels: Record<string, string> = {
   section: "Section",
 };
 
-export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlockCreated }: BlockReferenceSelectorProps) {
+export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlockCreated, onBlockError }: BlockReferenceSelectorProps) {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
   const [blocks, setBlocks] = useState<TemplateBlock[]>([]);
@@ -134,7 +135,11 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
 
     if (result.error) {
       console.error("Failed to create block reference:", result.error);
-      router.refresh();
+      // Remove the failed optimistic block from UI
+      if (onBlockError) {
+        onBlockError(optimisticBlock.id);
+      }
+      // Note: router.refresh() removed - callback handles cleanup
     }
   };
 
