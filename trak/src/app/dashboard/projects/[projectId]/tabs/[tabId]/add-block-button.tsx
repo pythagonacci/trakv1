@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout, Copy } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout, Copy, AlertCircle } from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,15 @@ interface AddBlockButtonProps {
   parentBlockId?: string | null;
   onBlockCreated?: (block: any) => void;
   onBlockResolved?: (tempId: string, savedBlock: Block) => void;
+  onBlockError?: (tempId: string) => void;
   getNextPosition?: () => number;
+}
+
+interface OptimisticBlockState {
+  id: string;
+  status: 'creating' | 'failed';
+  error?: string;
+  retry?: () => void;
 }
 
 const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode; description: string }> = [
@@ -106,11 +114,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
   },
 ];
 
-export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, onBlockResolved, getNextPosition }: AddBlockButtonProps) {
+export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, onBlockResolved, onBlockError, getNextPosition }: AddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [docSelectorOpen, setDocSelectorOpen] = useState(false);
   const [blockReferenceSelectorOpen, setBlockReferenceSelectorOpen] = useState(false);
+  const [failedBlocks, setFailedBlocks] = useState<Map<string, OptimisticBlockState>>(new Map());
 
   const handleCreateBlock = async (type: BlockType) => {
     // Special handling for doc_reference - open doc selector instead
@@ -158,9 +167,15 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
       if (result.error) {
         console.error("Failed to create block:", result.error);
-        alert(`Error creating block: ${result.error}`);
-        // Remove optimistic block on error
-        router.refresh();
+        // Mark block as failed instead of removing it immediately
+        setFailedBlocks(prev => new Map(prev.set(optimisticBlockId, {
+          id: optimisticBlockId,
+          status: 'failed',
+          error: result.error,
+          retry: () => handleCreateBlock(type)
+        })));
+        // Call error callback to allow parent to handle UI state
+        onBlockError?.(optimisticBlockId);
         return;
       }
 
@@ -169,8 +184,13 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       }
     } catch (error) {
       console.error("Create block exception:", error);
-      // Remove optimistic block on error
-      router.refresh();
+      // Remove optimistic block on error using callback
+      if (onBlockError) {
+        onBlockError(optimisticBlockId);
+      } else {
+        // Fallback to router refresh if callback not available
+        router.refresh();
+      }
     }
   };
 
@@ -244,8 +264,15 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
       if (result.error) {
         console.error("Failed to create doc reference:", result.error);
-        alert(`Error creating doc reference: ${result.error}`);
-        router.refresh();
+        // Mark block as failed instead of removing it immediately
+        setFailedBlocks(prev => new Map(prev.set(optimisticBlockId, {
+          id: optimisticBlockId,
+          status: 'failed',
+          error: result.error,
+          retry: () => handleSelectDoc(docId, docTitle)
+        })));
+        // Call error callback to allow parent to handle UI state
+        onBlockError?.(optimisticBlockId);
         return;
       }
 
@@ -259,18 +286,60 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
   };
 
   const triggerButton = (
-    <button
-      disabled={isCreating}
-      className={cn(
-        variant === "large"
-          ? "px-3 py-1.75 text-sm font-medium"
-          : "px-3 py-1.5 text-sm",
-        "flex items-center gap-2 border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+    <div className="flex items-center gap-2">
+      <button
+        disabled={isCreating}
+        className={cn(
+          variant === "large"
+            ? "px-3 py-1.75 text-sm font-medium"
+            : "px-3 py-1.5 text-sm",
+          "flex items-center gap-2 border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+        )}
+      >
+        <Plus className={variant === "large" ? "h-3.5 w-3.5" : "h-3 w-3"} />
+        <span>{variant === "large" ? "Add block" : "Add"}</span>
+      </button>
+
+      {/* Show failed blocks with retry options */}
+      {failedBlocks.size > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md">
+          <AlertCircle className="h-4 w-4 text-red-500" />
+          <span className="text-sm text-red-700 dark:text-red-300">
+            {failedBlocks.size} block{failedBlocks.size > 1 ? 's' : ''} failed to save
+          </span>
+          <button
+            onClick={() => {
+              // Retry all failed blocks
+              failedBlocks.forEach((failedBlock) => {
+                if (failedBlock.retry) {
+                  failedBlock.retry();
+                  setFailedBlocks(prev => {
+                    const next = new Map(prev);
+                    next.delete(failedBlock.id);
+                    return next;
+                  });
+                }
+              });
+            }}
+            className="px-2 py-1 text-xs bg-red-100 dark:bg-red-900 hover:bg-red-200 dark:hover:bg-red-800 text-red-700 dark:text-red-300 rounded transition-colors"
+          >
+            Retry All
+          </button>
+          <button
+            onClick={() => {
+              // Clear all failed blocks (rollback)
+              failedBlocks.forEach((failedBlock) => {
+                onBlockError?.(failedBlock.id);
+              });
+              setFailedBlocks(new Map());
+            }}
+            className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded transition-colors"
+          >
+            Clear
+          </button>
+        </div>
       )}
-    >
-      <Plus className={variant === "large" ? "h-3.5 w-3.5" : "h-3 w-3"} />
-      <span>{variant === "large" ? "Add block" : "Add"}</span>
-    </button>
+    </div>
   );
 
   return (
@@ -332,6 +401,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         onClose={() => setBlockReferenceSelectorOpen(false)}
         tabId={tabId}
         onBlockCreated={onBlockCreated}
+        onBlockError={onBlockError}
       />
     </>
   );

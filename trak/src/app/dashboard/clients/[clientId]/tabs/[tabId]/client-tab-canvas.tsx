@@ -741,6 +741,18 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
     }, 1000);
   };
 
+  // Handle optimistic block creation errors
+  const handleBlockError = React.useCallback((tempId: string) => {
+    // Remove the failed optimistic block from local state
+    setBlocks((prevBlocks) => prevBlocks.filter((block) => block.id !== tempId));
+    // Also remove from new block IDs to prevent animation
+    setNewBlockIds((prev) => {
+      const next = new Set(prev);
+      next.delete(tempId);
+      return next;
+    });
+  }, []);
+
   // Handle click on empty canvas to create text block
   const handleEmptyCanvasClick = async () => {
     if (hasBlocks || isCreatingBlock) return; // Don't create if blocks already exist or already creating
@@ -785,7 +797,12 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
       }
     } catch (error) {
       console.error("Create block exception:", error);
-      router.refresh();
+      // Remove optimistic block on error
+      if (handleBlockError) {
+        handleBlockError(optimisticBlockId);
+      } else {
+        router.refresh();
+      }
       setIsCreatingBlock(false);
     }
   };
@@ -910,6 +927,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
           clientId={clientId}
           onBlockCreated={handleBlockCreated}
           onBlockResolved={resolveOptimisticBlock}
+          onBlockError={handleBlockError}
           getNextPosition={getNextPosition}
         />
       </div>

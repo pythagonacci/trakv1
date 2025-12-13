@@ -741,6 +741,18 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     }, 1000);
   };
 
+  // Handle optimistic block creation errors
+  const handleBlockError = React.useCallback((tempId: string) => {
+    // Remove the failed optimistic block from local state
+    setBlocks((prevBlocks) => prevBlocks.filter((block) => block.id !== tempId));
+    // Also remove from new block IDs to prevent animation
+    setNewBlockIds((prev) => {
+      const next = new Set(prev);
+      next.delete(tempId);
+      return next;
+    });
+  }, []);
+
   // Handle click on empty canvas to create text block
   const handleEmptyCanvasClick = async () => {
     if (hasBlocks || isCreatingBlock) return; // Don't create if blocks already exist or already creating
@@ -914,6 +926,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           projectId={projectId}
           onBlockCreated={handleBlockCreated}
           onBlockResolved={resolveOptimisticBlock}
+          onBlockError={handleBlockError}
           getNextPosition={getNextPosition}
         />
       </div>

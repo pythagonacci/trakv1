@@ -223,42 +223,76 @@ export async function createBlock(data: {
       }
     }
 
-    // 6. Calculate position if not provided
+    // 6. Calculate position if not provided - use atomic approach to prevent race conditions
     let position = data.position;
     if (position === undefined) {
       if (parentBlockId) {
-        // For nested blocks, get max position among children of the parent
-        const { data: maxBlock, error: maxError } = await supabase
-          .from("blocks")
-          .select("position")
-          .eq("parent_block_id", parentBlockId)
-          .order("position", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        // For nested blocks, use atomic increment to prevent race conditions
+        const { data: maxPosition, error: maxError } = await supabase
+          .rpc('get_next_block_position', {
+            p_tab_id: data.tabId,
+            p_parent_block_id: parentBlockId,
+            p_column: column
+          });
 
-        if (maxError && maxError.code !== "PGRST116") {
-          console.error("Get max position for nested block error:", maxError);
+        if (maxError) {
+          console.error("Get next position for nested block error:", maxError);
+          // Fallback to non-atomic method if RPC fails
+          const { data: maxBlock, error: fallbackError } = await supabase
+            .from("blocks")
+            .select("position")
+            .eq("parent_block_id", parentBlockId)
+            .order("position", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (fallbackError && fallbackError.code !== "PGRST116") {
+            console.error("Fallback get max position error:", fallbackError);
+          }
+
+          position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
+        } else {
+          position = maxPosition || 0;
         }
-
-        position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
       } else {
-        // For top-level blocks, get max position for this tab in the specified column
-        const { data: maxBlock, error: maxError } = await supabase
-          .from("blocks")
-          .select("position")
-          .eq("tab_id", data.tabId)
-          .eq("column", column)
-          .is("parent_block_id", null)
-          .order("position", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        // For top-level blocks, use atomic position calculation
+        const { data: nextPosition, error: positionError } = await supabase
+          .rpc('get_next_block_position', {
+            p_tab_id: data.tabId,
+            p_parent_block_id: null,
+            p_column: column
+          });
 
-        if (maxError && maxError.code !== "PGRST116") {
-          // PGRST116 is "not found", which is fine for empty tables
-          console.error("Get max position error:", maxError);
+        if (positionError) {
+          console.error("Get next position error:", positionError);
+          // Fallback to non-atomic method if RPC fails
+          const { data: existingBlocks, error: fallbackError } = await supabase
+            .from("blocks")
+            .select("position")
+            .eq("tab_id", data.tabId)
+            .eq("column", column)
+            .is("parent_block_id", null)
+            .order("position", { ascending: true });
+
+          if (fallbackError && fallbackError.code !== "PGRST116") {
+            console.error("Fallback get existing positions error:", fallbackError);
+          }
+
+          // Find the first available position (starting from 0)
+          position = 0;
+          if (existingBlocks && existingBlocks.length > 0) {
+            const positions = existingBlocks.map(b => b.position).sort((a, b) => a - b);
+            // Find the first gap or append to end
+            for (let i = 0; i <= positions.length; i++) {
+              if (i === positions.length || positions[i] > i) {
+                position = i;
+                break;
+              }
+            }
+          }
+        } else {
+          position = nextPosition || 0;
         }
-
-        position = maxBlock?.position !== undefined ? maxBlock.position + 1 : 0;
       }
     }
 
@@ -379,6 +413,50 @@ export async function updateBlock(data: {
     } = await supabase.auth.getUser();
     if (authError || !user) {
       return { error: "Unauthorized" };
+    }
+
+    // 1.5. Check if user is still a workspace member (security: handle mid-session role changes)
+    const blockCheck = await supabase
+      .from("blocks")
+      .select("tab_id")
+      .eq("id", data.blockId)
+      .single();
+
+    if (blockCheck.error || !blockCheck.data?.tab_id) {
+      return { error: "Block not found" };
+    }
+
+    // Get workspace_id through tab -> project relationship
+    const tabCheck = await supabase
+      .from("tabs")
+      .select("project_id")
+      .eq("id", blockCheck.data.tab_id)
+      .single();
+
+    if (tabCheck.error || !tabCheck.data?.project_id) {
+      return { error: "Tab not found" };
+    }
+
+    const projectCheck = await supabase
+      .from("projects")
+      .select("workspace_id")
+      .eq("id", tabCheck.data.project_id)
+      .single();
+
+    if (projectCheck.error || !projectCheck.data?.workspace_id) {
+      return { error: "Project not found" };
+    }
+
+    const workspaceId = projectCheck.data.workspace_id;
+    const membershipCheck = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membershipCheck.data) {
+      return { error: "You are no longer a member of this workspace" };
     }
 
     // 2. Get block and verify it exists

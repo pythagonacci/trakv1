@@ -215,11 +215,14 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
     }, 1000);
   };
 
-  // Cleanup caption timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (captionTimeoutRef.current) {
         clearTimeout(captionTimeoutRef.current);
+      }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
     };
   }, []);

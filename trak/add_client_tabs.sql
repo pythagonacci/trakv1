@@ -55,6 +55,7 @@ CREATE POLICY "Users can update client tabs in their workspace"
       JOIN workspace_members wm ON wm.workspace_id = c.workspace_id
       WHERE c.id = client_tabs.client_id
       AND wm.user_id = auth.uid()
+      AND wm.role IN ('owner', 'admin', 'teammate')
     )
   );
 
@@ -127,6 +128,7 @@ CREATE POLICY "Users can update client tab blocks in their workspace"
       JOIN workspace_members wm ON wm.workspace_id = c.workspace_id
       WHERE ct.id = client_tab_blocks.tab_id
       AND wm.user_id = auth.uid()
+      AND wm.role IN ('owner', 'admin', 'teammate')
     )
   );
 
@@ -140,6 +142,7 @@ CREATE POLICY "Users can delete client tab blocks in their workspace"
       JOIN workspace_members wm ON wm.workspace_id = c.workspace_id
       WHERE ct.id = client_tab_blocks.tab_id
       AND wm.user_id = auth.uid()
+      AND wm.role IN ('owner', 'admin', 'teammate')
     )
   );
 

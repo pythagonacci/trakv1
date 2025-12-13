@@ -38,14 +38,14 @@ export default async function TabPage({
     redirect("/login");
   }
 
-  // 🚀 STEP 2: Parallel queries (auth already verified, safe to fetch)
+  // 🚀 STEP 2: Parallel queries with individual error handling
   // getProjectTabs and getTabBlocks have their own auth checks (cached)
   const [
     projectResult,
     tabResult,
     tabsResult,
     blocksResult,
-  ] = await Promise.all([
+  ] = await Promise.allSettled([
     supabase
       .from("projects")
       .select(`id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, public_token, client:clients(id, name, company)`)
@@ -62,25 +62,44 @@ export default async function TabPage({
     getTabBlocks(tabId),
   ]);
 
-  // Validate results
-  if (projectResult.error || !projectResult.data) {
+  // Extract results with error handling
+  const projectData = projectResult.status === 'fulfilled' && !projectResult.value.error
+    ? projectResult.value.data
+    : null;
+
+  const tabData = tabResult.status === 'fulfilled' && !tabResult.value.error
+    ? tabResult.value.data
+    : null;
+
+  const tabsData = tabsResult.status === 'fulfilled'
+    ? tabsResult.value.data || []
+    : [];
+
+  const blocksData = blocksResult.status === 'fulfilled'
+    ? blocksResult.value.data || []
+    : [];
+
+  // Validate critical results - project and tab are required
+  if (!projectData) {
+    console.error("Failed to load project:", projectResult);
     notFound();
   }
 
-  if (tabResult.error || !tabResult.data) {
+  if (!tabData) {
+    console.error("Failed to load tab:", tabResult);
     notFound();
   }
 
   // Handle Supabase foreign key quirk (client might be array)
-  const rawProject = projectResult.data;
+  const rawProject = projectData;
   const project = {
     ...rawProject,
     client: Array.isArray(rawProject.client) ? rawProject.client[0] : rawProject.client,
   };
-  
-  const tab = tabResult.data;
-  const hierarchicalTabs = tabsResult.data || [];
-  const blocks = blocksResult.data || [];
+
+  const tab = tabData;
+  const hierarchicalTabs = tabsData;
+  const blocks = blocksData;
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];

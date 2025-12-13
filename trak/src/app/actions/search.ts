@@ -1,6 +1,66 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { Block } from "./block";
+
+// ProseMirror node types for search
+interface ProseMirrorNode {
+  type?: string;
+  text?: string;
+  content?: ProseMirrorNode[];
+}
+
+// Task interface for task blocks
+interface Task {
+  id?: string;
+  text: string;
+  completed?: boolean;
+  due_date?: string;
+  assigned_to?: string;
+}
+
+// Database result types
+interface ProjectSearchResult {
+  id: string;
+  name: string;
+  client: { name: string }[] | null;
+}
+
+interface DocSearchResult {
+  id: string;
+  title: string;
+  content?: ProseMirrorNode[];
+}
+
+interface TabSearchResult {
+  id: string;
+  name: string;
+  project_id: string;
+}
+
+interface BlockSearchResult {
+  id: string;
+  content: Record<string, unknown>;
+  tab: TabSearchResult;
+}
+
+interface WorkspaceProject {
+  id: string;
+  name: string;
+}
+
+interface TaskBlock {
+  id: string;
+  tab_id: string;
+  content: {
+    tasks?: Array<{
+      id?: string | number;
+      text: string;
+      status?: string;
+      completed?: boolean;
+    }>;
+  };
+}
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 
@@ -53,7 +113,7 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
     const results: SearchResult[] = [];
     
     // Helper function to extract text from ProseMirror (optimized with early exit)
-    const extractProseMirrorText = (node: any, maxLength: number = 5000): string => {
+    const extractProseMirrorText = (node: ProseMirrorNode, maxLength: number = 5000): string => {
       if (!node) return "";
       if (typeof node === "string") return node;
       if (node.type === "text" && node.text) return node.text;
@@ -78,7 +138,7 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
       .limit(limit);
 
     if (!projectsError && projects) {
-      projects.forEach((project: any) => {
+      projects.forEach((project: ProjectSearchResult) => {
         const client = Array.isArray(project.client) ? project.client[0] : project.client;
         results.push({
           id: project.id,
@@ -102,7 +162,7 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
     
     // Process title matches immediately
     if (!titleError && titleMatchingDocs) {
-      titleMatchingDocs.forEach((doc: any) => {
+      titleMatchingDocs.forEach((doc: DocSearchResult) => {
         results.push({
           id: doc.id,
           type: "doc",
@@ -123,8 +183,8 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
 
     if (!docsError && allDocs) {
       // Filter out docs we already added from title search
-      const titleMatchIds = new Set(titleMatchingDocs?.map((d: any) => d.id) || []);
-      const docsToCheck = allDocs.filter((d: any) => !titleMatchIds.has(d.id));
+      const titleMatchIds = new Set(titleMatchingDocs?.map((d: DocSearchResult) => d.id) || []);
+      const docsToCheck = allDocs.filter((d: DocSearchResult) => !titleMatchIds.has(d.id));
       
       // Process in batches and stop early if we have enough results
       for (const doc of docsToCheck) {
@@ -278,8 +338,8 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
     if (projectsError2 || !workspaceProjects) {
       // Continue even if this fails
     } else {
-      const projectIds = workspaceProjects.map((p: any) => p.id);
-      const projectMap = new Map(workspaceProjects.map((p: any) => [p.id, p.name]));
+      const projectIds = workspaceProjects.map((p: WorkspaceProject) => p.id);
+      const projectMap = new Map(workspaceProjects.map((p: WorkspaceProject) => [p.id, p.name]));
 
       // Get tabs for these projects (limit to reduce processing)
       const { data: tabs, error: tabsError } = await supabase
@@ -289,8 +349,8 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
         .limit(300); // Reduced limit
 
       if (!tabsError && tabs) {
-        const tabIds = tabs.map((t: any) => t.id);
-        const tabMap = new Map(tabs.map((t: any) => [t.id, { name: t.name, projectId: t.project_id }]));
+        const tabIds = tabs.map((t: TabSearchResult) => t.id);
+        const tabMap = new Map(tabs.map((t: TabSearchResult) => [t.id, { name: t.name, projectId: t.project_id }]));
 
         // Search task blocks (only if we have tabs)
         if (tabIds.length > 0) {
@@ -302,12 +362,12 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
             .limit(limit);
 
           if (!taskBlocksError && taskBlocks) {
-            taskBlocks.forEach((block: any) => {
-              const tasks = block.content?.tasks || [];
+            taskBlocks.forEach((block: Block) => {
+              const tasks: Task[] = block.content?.tasks || [];
               const tabInfo = tabMap.get(block.tab_id);
               const projectName = tabInfo?.projectId ? projectMap.get(tabInfo.projectId) : null;
 
-              tasks.forEach((task: any) => {
+              tasks.forEach((task: Task) => {
                 if (task.text && task.text.toLowerCase().includes(queryLower)) {
                   results.push({
                     id: `${block.id}-${task.id || Math.random()}`,
@@ -341,7 +401,7 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
             .limit(limit); // Reduced from limit * 2
 
           if (!textBlocksError && textBlocks) {
-            textBlocks.forEach((block: any) => {
+            textBlocks.forEach((block: Block) => {
               const text = block.content?.text || "";
               if (text.toLowerCase().includes(queryLower)) {
                 const tabInfo = tabMap.get(block.tab_id);
@@ -371,7 +431,7 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
         }
 
         // Search tabs by name
-        tabs.forEach((tab: any) => {
+        tabs.forEach((tab: TabSearchResult) => {
           if (tab.name && tab.name.toLowerCase().includes(queryLower)) {
             const projectName = projectMap.get(tab.project_id);
             results.push({
@@ -404,9 +464,9 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
 
     // Limit results
     return { data: results.slice(0, limit), error: null };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Search error:", error);
-    return { data: null, error: error.message || "Search failed" };
+    return { data: null, error: error instanceof Error ? error.message : "Search failed" };
   }
 }
 
