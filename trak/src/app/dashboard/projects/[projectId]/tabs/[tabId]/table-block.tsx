@@ -672,6 +672,10 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   };
 
 
+  // Global debouncing state - single timeout for all table changes
+  const [globalSaveTimeout, setGlobalSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [pendingChanges, setPendingChanges] = useState<Map<string, { row: number; col: number; value: string }>>(new Map());
+
   // Debounced save state
   const [pendingSave, setPendingSave] = useState<{
     row: number;
@@ -688,10 +692,6 @@ export default function TableBlock({ block, onUpdate }: TableBlockProps) {
       }
     };
   }, [globalSaveTimeout]);
-
-  // Global debouncing state - single timeout for all table changes
-  const [globalSaveTimeout, setGlobalSaveTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [pendingChanges, setPendingChanges] = useState<Map<string, { row: number; col: number; value: string }>>(new Map());
 
   const saveCell = useCallback(
     async (row: number, col: number, value: string) => {

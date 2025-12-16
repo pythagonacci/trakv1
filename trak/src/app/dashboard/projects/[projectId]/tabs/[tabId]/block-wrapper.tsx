@@ -17,6 +17,7 @@ import {
   Maximize2,
   Layout,
   Copy,
+  Plus,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -248,7 +249,8 @@ export default function BlockWrapper({
                     setMenuOpen(false);
                   }}
                 >
-                  <Plus className="h-4 w-4" /> Add block above
+                  <Plus className="h-4 w-4" />
+                  Add block above
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -256,7 +258,8 @@ export default function BlockWrapper({
                     setMenuOpen(false);
                   }}
                 >
-                  <Plus className="h-4 w-4" /> Add block below
+                  <Plus className="h-4 w-4" />
+                  Add block below
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
