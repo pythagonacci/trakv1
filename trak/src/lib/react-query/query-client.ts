@@ -40,4 +40,9 @@ export const queryKeys = {
   tabBlocks: (tabId: string) => ['tabBlocks', tabId] as const,
   fileUrls: (fileIds: string[]) => ['fileUrls', fileIds.sort().join(',')] as const,
   workspace: (workspaceId: string) => ['workspace', workspaceId] as const,
+  table: (tableId: string) => ['table', tableId] as const,
+  tableFields: (tableId: string) => ['tableFields', tableId] as const,
+  tableRows: (tableId: string, viewId?: string | null) => ['tableRows', tableId, viewId ?? 'default'] as const,
+  tableView: (viewId: string) => ['tableView', viewId] as const,
+  tableComments: (rowId: string) => ['tableComments', rowId] as const,
 } as const;

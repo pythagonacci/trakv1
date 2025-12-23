@@ -21,6 +21,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { TableView } from "@/components/tables/table-view";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -255,6 +256,13 @@ const renderMultilineText = (value: string) => {
 
 export default function TableBlock({ block, onUpdate }: TableBlockProps) {
   const content = (block.content || {}) as TableContent;
+  const connectedTableId = (content as any)?.tableId;
+  
+  // New Supabase-backed table path: render the dedicated table view.
+  if (connectedTableId) {
+    return <TableView tableId={connectedTableId} />;
+  }
+
   const title = content.title || "";
   const rows = content.rows || 3;
   const cols = content.cols || 3;

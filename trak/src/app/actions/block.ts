@@ -312,18 +312,20 @@ export async function createBlock(data: {
         case "divider":
           content = {};
           break;
-        case "table":
-          content = {
-            rows: 3,
-            cols: 3,
-            cells: [
-              ["", "", ""],
-              ["", "", ""],
-              ["", "", ""],
-            ],
-            columnWidths: [150, 150, 150],
-          };
+        case "table": {
+          // New Supabase-backed table: create a real table and store its id in block content.
+          const { createTable } = await import("./tables/table-actions");
+          const tableResult = await createTable({
+            workspaceId: project.workspace_id,
+            projectId: tab.project_id,
+            title: "Untitled Table",
+          });
+          if ("error" in tableResult) {
+            return { error: tableResult.error };
+          }
+          content = { tableId: tableResult.data.table.id };
           break;
+        }
         case "timeline":
           const now = new Date();
           const startDate = new Date(now);
