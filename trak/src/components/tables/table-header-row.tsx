@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type BasicFieldType = "text" | "number" | "date" | "checkbox" | "select";
+const DEFAULT_COL_WIDTH = 180;
 
 const TYPE_OPTIONS: Array<{ value: BasicFieldType; label: string }> = [
   { value: "text", label: "Text" },
@@ -43,6 +44,8 @@ interface Props {
   className?: string;
   onColumnContextMenu?: (e: React.MouseEvent, fieldId: string) => void;
   onHideField?: (fieldId: string) => void;
+  onResize?: (fieldId: string, width: number, persist: boolean) => void;
+  widths?: Record<string, number>;
 }
 
 export function TableHeaderRow({
@@ -63,16 +66,28 @@ export function TableHeaderRow({
   className,
   onColumnContextMenu,
   onHideField,
+  onResize,
+  widths,
 }: Props) {
   const template = useMemo(
     () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
     [columnTemplate, fields.length]
   );
 
+  const pinnedOffsets = useMemo(() => {
+    let acc = 0;
+    const offsets: Record<string, number> = {};
+    fields.forEach((f) => {
+      offsets[f.id] = acc;
+      acc += widths?.[f.id] ?? f.width ?? DEFAULT_COL_WIDTH;
+    });
+    return offsets;
+  }, [fields, widths]);
+
   return (
     <div className={`relative w-full ${className ?? ""}`}>
       <div
-        className="grid border-b border-[var(--border)] bg-[var(--background)] w-full"
+        className="grid border-b border-l border-[var(--border)] bg-[var(--background)] w-full"
         style={{ gridTemplateColumns: template }}
       >
         {fields.map((field, idx) => {
@@ -81,9 +96,9 @@ export function TableHeaderRow({
             <div
               key={field.id}
               ref={columnRefs?.[field.id]}
-              className={isPinned ? "sticky z-20 bg-[var(--background)]" : ""}
+              className={`${isPinned ? "sticky z-20 bg-[var(--background)]" : ""}`}
               style={isPinned ? { 
-                left: idx > 0 ? `${idx * 180}px` : '0px',
+                left: `${pinnedOffsets[field.id]}px`,
                 boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
               } : {}}
               onContextMenu={(e) => {
@@ -104,9 +119,11 @@ export function TableHeaderRow({
             onReorderField={onReorderField}
             onSetSort={onSetSort}
             onToggleSort={onToggleSort}
-            onPinColumn={onPinColumn}
-            onViewColumnDetails={onViewColumnDetails}
-            onHideField={onHideField}
+                onPinColumn={onPinColumn}
+                onViewColumnDetails={onViewColumnDetails}
+                onHideField={onHideField}
+            onResize={onResize}
+            currentWidth={widths?.[field.id]}
           />
         </div>
       );
@@ -141,6 +158,8 @@ interface FieldHeaderProps {
   onPinColumn?: (fieldId: string) => void;
   onViewColumnDetails?: (fieldId: string) => void;
   onHideField?: (fieldId: string) => void;
+  onResize?: (fieldId: string, width: number, persist: boolean) => void;
+  currentWidth?: number;
 }
 
 function FieldHeader({
@@ -159,6 +178,8 @@ function FieldHeader({
   onPinColumn,
   onViewColumnDetails,
   onHideField,
+  onResize,
+  currentWidth,
 }: FieldHeaderProps) {
   const [draftName, setDraftName] = useState(field.name);
 
@@ -176,7 +197,7 @@ function FieldHeader({
   };
 
   return (
-    <div className="px-3 py-2 flex items-center gap-2 border-r border-[var(--border)] last:border-r-0 bg-[var(--surface-muted)]">
+    <div className="px-3 py-2 flex items-center gap-2 border-r border-[var(--border)] bg-[var(--surface-muted)] relative">
       <div className="flex-1 overflow-hidden">
         <input
           className="w-full bg-transparent text-sm font-semibold text-[var(--foreground)] outline-none truncate border border-transparent focus:border-[var(--border-strong)] rounded-[2px] px-2 py-1"
@@ -292,6 +313,44 @@ function FieldHeader({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {onResize && (
+        <div
+          className="absolute right-0 top-0 h-full w-8 cursor-col-resize select-none bg-transparent group/resize"
+          draggable={false}
+          title="Drag to resize · Double-click to reset"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const startX = e.clientX;
+            const startWidth = currentWidth ?? field.width ?? DEFAULT_COL_WIDTH;
+            const onMove = (ev: PointerEvent) => {
+              const delta = ev.clientX - startX;
+              const next = Math.max(120, startWidth + delta);
+              onResize(field.id, next, false);
+            };
+            const onUp = (ev: PointerEvent) => {
+              const delta = ev.clientX - startX;
+              const next = Math.max(120, startWidth + delta);
+              onResize(field.id, next, true);
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+              window.removeEventListener("pointercancel", onUp);
+            };
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", onUp);
+            window.addEventListener("pointercancel", onUp);
+          }}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onResize(field.id, DEFAULT_COL_WIDTH, true);
+          }}
+        />
+      )}
+      {onResize && (
+        <div className="absolute right-0 top-0 h-full w-[2px] bg-[var(--border-strong)] opacity-0 group-hover/resize:opacity-60 transition-opacity pointer-events-none" />
+      )}
     </div>
   );
 }

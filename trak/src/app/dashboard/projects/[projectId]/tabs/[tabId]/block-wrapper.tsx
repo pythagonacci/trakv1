@@ -128,11 +128,8 @@ export default function BlockWrapper({
       ref={setNodeRef} 
       style={style} 
       className={cn(
-        "group relative w-full",
-        !isTextBlock && !readOnly && "cursor-move"
+        "group relative w-full"
       )}
-      {...(!readOnly ? attributes : {})}
-      {...(!readOnly && !isTextBlock ? listeners : {})}
     >
       {!readOnly && (
         <div
@@ -142,8 +139,8 @@ export default function BlockWrapper({
           )}
         >
           <button
-            {...listeners}
-            {...attributes}
+            {...(!readOnly ? attributes : {})}
+            {...(!readOnly && !isTextBlock ? listeners : {})}
             className="flex h-6 w-6 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] cursor-move"
             aria-label="Drag block"
             onClick={(e) => e.stopPropagation()}
@@ -354,4 +351,3 @@ export default function BlockWrapper({
     </div>
   );
 }
-

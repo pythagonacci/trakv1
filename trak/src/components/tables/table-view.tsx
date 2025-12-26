@@ -4,7 +4,7 @@
 // - Uses new Supabase-backed schema (tables/table_fields/table_rows/table_views) and React Query hooks in src/lib/hooks/use-table-queries.ts.
 // - Only table view is implemented here; other view types (board/list/gallery/calendar) intentionally omitted per scope.
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { Plus, EyeOff, Eye } from "lucide-react";
 import {
   useTable,
@@ -30,6 +30,7 @@ import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
 import type { SortCondition, FilterCondition, FieldType, ViewConfig } from "@/types/table";
+import React from "react";
 
 interface Props {
   tableId: string;
@@ -43,6 +44,7 @@ export function TableView({ tableId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: "cell" | "column"; rowId?: string; fieldId?: string } | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [pendingWidths, setPendingWidths] = useState<Record<string, number>>({});
 
   // Always use a single source of truth for view id to keep query keys aligned
   const { data: rowData, isLoading: rowsLoading } = useTableRows(tableId, activeViewId || undefined);
@@ -76,13 +78,29 @@ export function TableView({ tableId }: Props) {
     return [...pinned, ...unpinned];
   }, [allFields, pinnedFields, hiddenFields]);
   
+  const getWidthForField = useCallback(
+    (fieldId: string) => {
+      if (pendingWidths[fieldId]) return pendingWidths[fieldId];
+      const f = allFields.find((fld) => fld.id === fieldId);
+      return f?.width || 180;
+    },
+    [pendingWidths, allFields]
+  );
+  
   const columnTemplate = useMemo(() => {
     if (!fields.length) return "1fr 40px";
-    // Use 1fr for columns to fill available space, with min width constraint
-    const base = fields.map(() => "minmax(180px, 1fr)").join(" ");
-    // Extra thin column at the end for the add-column affordance
+    // Use explicit widths per field; append thin add-column slot
+    const base = fields.map((f) => `${getWidthForField(f.id)}px`).join(" ");
     return `${base} 40px`;
-  }, [fields]);
+  }, [fields, getWidthForField]);
+
+  const widthMap = useMemo(() => {
+    const acc: Record<string, number> = {};
+    fields.forEach((f) => {
+      acc[f.id] = getWidthForField(f.id);
+    });
+    return acc;
+  }, [fields, getWidthForField]);
   const rows = search ? (searchResult.data ?? []) : (rowData?.rows ?? []);
 
   const [sorts, setSorts] = useState<SortCondition[]>(view?.config?.sorts || []);
@@ -190,6 +208,17 @@ export function TableView({ tableId }: Props) {
     const next = direction ? [{ fieldId, direction }] : [];
     setSorts(next);
     persistViewConfig(next, filters);
+  };
+
+  const handleResizeWidth = (fieldId: string, width: number, persist: boolean) => {
+    setPendingWidths((prev) => ({ ...prev, [fieldId]: width }));
+    if (persist) {
+      const target = allFields.find((f) => f.id === fieldId);
+      if (!target || target.width === width) return;
+      updateField.mutate({ id: fieldId, updates: { width } }, {
+        onError: (err) => setError(err instanceof Error ? err.message : "Failed to resize column"),
+      });
+    }
   };
 
   const handleHideField = (fieldId: string) => {
@@ -389,29 +418,31 @@ export function TableView({ tableId }: Props) {
                 sorts={sorts}
                 pinnedFields={pinnedFields}
                 onSetSort={handleSetSort}
-                onToggleSort={(fieldId) => {
-                  const next = (() => {
-                    const existing = sorts.find((s) => s.fieldId === fieldId);
-                    if (!existing) return [{ fieldId, direction: "asc" as const }];
-                    if (existing.direction === "asc") return [{ fieldId, direction: "desc" as const }];
-                    return [];
-                  })();
-                  setSorts(next);
-                  persistViewConfig(next, filters);
-                }}
-                onRenameField={handleRenameField}
-                onDeleteField={handleDeleteField}
-                onAddField={handleAddField}
-                onChangeType={handleChangeType}
-            onReorderField={handleReorderField}
-            onPinColumn={handlePinColumn}
-            onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
-            columnRefs={Object.fromEntries(
-              fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
-            )}
-            onColumnContextMenu={handleColumnContextMenu}
-            onHideField={handleHideField}
-            className="sticky top-0 z-10"
+            onToggleSort={(fieldId) => {
+              const next = (() => {
+                const existing = sorts.find((s) => s.fieldId === fieldId);
+                if (!existing) return [{ fieldId, direction: "asc" as const }];
+                if (existing.direction === "asc") return [{ fieldId, direction: "desc" as const }];
+                return [];
+              })();
+              setSorts(next);
+              persistViewConfig(next, filters);
+            }}
+            onRenameField={handleRenameField}
+            onDeleteField={handleDeleteField}
+            onAddField={handleAddField}
+            onChangeType={handleChangeType}
+              onReorderField={handleReorderField}
+              onPinColumn={handlePinColumn}
+              onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
+              columnRefs={Object.fromEntries(
+                fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
+              )}
+              onColumnContextMenu={handleColumnContextMenu}
+              onHideField={handleHideField}
+              onResize={handleResizeWidth}
+              widths={widthMap}
+              className="sticky top-0 z-10"
           />
             {sortedRows.map((row) => (
               <TableRow
@@ -425,6 +456,7 @@ export function TableView({ tableId }: Props) {
                 onOpenComments={(rid) => setCommentsRowId(rid)}
                 pinnedFields={pinnedFields}
                 onContextMenu={handleCellContextMenu}
+                widths={widthMap}
                 />
               ))}
 

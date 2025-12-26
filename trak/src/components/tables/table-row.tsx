@@ -14,17 +14,29 @@ interface Props {
   onOpenComments?: (rowId: string) => void;
   pinnedFields?: string[];
   onContextMenu?: (e: React.MouseEvent, rowId: string) => void;
+  widths?: Record<string, number>;
 }
 
-export function TableRow({ fields, columnTemplate, rowId, data, onChange, savingRowIds, onOpenComments, pinnedFields, onContextMenu }: Props) {
+export function TableRow({ fields, columnTemplate, rowId, data, onChange, savingRowIds, onOpenComments, pinnedFields, onContextMenu, widths }: Props) {
   const saving = savingRowIds?.has(rowId);
   const template = useMemo(
     () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
     [columnTemplate, fields.length]
   );
+
+  const pinnedOffsets = useMemo(() => {
+    let acc = 0;
+    const offsets: Record<string, number> = {};
+    fields.forEach((f) => {
+      offsets[f.id] = acc;
+      acc += widths?.[f.id] ?? f.width ?? 180;
+    });
+    return offsets;
+  }, [fields, widths]);
+
   return (
     <div
-      className="grid border-b border-[var(--border)] row-hover-teal transition-colors duration-150 bg-[var(--surface)] w-full"
+      className="grid border-b border-l border-[var(--border)] row-hover-teal transition-colors duration-150 bg-[var(--surface)] w-full"
       style={{ gridTemplateColumns: template }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -38,7 +50,7 @@ export function TableRow({ fields, columnTemplate, rowId, data, onChange, saving
             key={field.id}
             className={`px-3 py-2 border-r border-[var(--border)] last:border-r-0 ${isPinned ? "sticky z-10 bg-[var(--surface)]" : ""}`}
             style={isPinned ? {
-              left: idx > 0 ? `${idx * 180}px` : '0px',
+              left: `${pinnedOffsets[field.id]}px`,
               boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
             } : {}}
           >
