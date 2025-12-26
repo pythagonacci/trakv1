@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useEffect } from "react";
-import { Settings, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Trash2, Pin, Eye } from "lucide-react";
+import { Settings, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Trash2, Pin, Eye, EyeOff } from "lucide-react";
 import type { SortCondition, TableField } from "@/types/table";
 import {
   DropdownMenu,
@@ -42,6 +42,7 @@ interface Props {
   columnRefs?: Record<string, (el: HTMLDivElement | null) => void>;
   className?: string;
   onColumnContextMenu?: (e: React.MouseEvent, fieldId: string) => void;
+  onHideField?: (fieldId: string) => void;
 }
 
 export function TableHeaderRow({
@@ -61,6 +62,7 @@ export function TableHeaderRow({
   columnRefs,
   className,
   onColumnContextMenu,
+  onHideField,
 }: Props) {
   const template = useMemo(
     () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
@@ -99,15 +101,16 @@ export function TableHeaderRow({
                 onRenameField={onRenameField}
                 onDeleteField={onDeleteField}
                 onChangeType={onChangeType}
-                onReorderField={onReorderField}
-                onSetSort={onSetSort}
-                onToggleSort={onToggleSort}
-                onPinColumn={onPinColumn}
-                onViewColumnDetails={onViewColumnDetails}
-              />
-            </div>
-          );
-        })}
+            onReorderField={onReorderField}
+            onSetSort={onSetSort}
+            onToggleSort={onToggleSort}
+            onPinColumn={onPinColumn}
+            onViewColumnDetails={onViewColumnDetails}
+            onHideField={onHideField}
+          />
+        </div>
+      );
+    })}
         <div className="flex items-center justify-center border-l border-[var(--border)] bg-[var(--surface-muted)] min-w-[40px]">
           <button
             onClick={onAddField}
@@ -137,6 +140,7 @@ interface FieldHeaderProps {
   onToggleSort: (fieldId: string) => void;
   onPinColumn?: (fieldId: string) => void;
   onViewColumnDetails?: (fieldId: string) => void;
+  onHideField?: (fieldId: string) => void;
 }
 
 function FieldHeader({
@@ -154,6 +158,7 @@ function FieldHeader({
   onToggleSort,
   onPinColumn,
   onViewColumnDetails,
+  onHideField,
 }: FieldHeaderProps) {
   const [draftName, setDraftName] = useState(field.name);
 
@@ -214,6 +219,14 @@ function FieldHeader({
           >
             <Trash2 className="h-3 w-3" /> Delete column
           </DropdownMenuItem>
+          {onHideField && (
+            <DropdownMenuItem
+              onSelect={() => onHideField(field.id)}
+              className="gap-1.5 px-2 py-1 text-xs"
+            >
+              <EyeOff className="h-3 w-3" /> Hide column
+            </DropdownMenuItem>
+          )}
           {onPinColumn && (
             <DropdownMenuItem
               onSelect={() => onPinColumn(field.id)}

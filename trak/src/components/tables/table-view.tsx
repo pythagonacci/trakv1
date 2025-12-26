@@ -5,7 +5,7 @@
 // - Only table view is implemented here; other view types (board/list/gallery/calendar) intentionally omitted per scope.
 
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Plus } from "lucide-react";
+import { Plus, EyeOff, Eye } from "lucide-react";
 import {
   useTable,
   useTableRows,
@@ -65,14 +65,16 @@ export function TableView({ tableId }: Props) {
   const setDefaultView = useSetDefaultView(tableId);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
+  const hiddenFields = useMemo(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
   const pinnedFields = useMemo(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
   
   // Order fields: pinned first, then others
   const fields = useMemo(() => {
-    const pinned = allFields.filter((f) => pinnedFields.includes(f.id));
-    const unpinned = allFields.filter((f) => !pinnedFields.includes(f.id));
+    const visible = allFields.filter((f) => !hiddenFields.includes(f.id));
+    const pinned = visible.filter((f) => pinnedFields.includes(f.id));
+    const unpinned = visible.filter((f) => !pinnedFields.includes(f.id));
     return [...pinned, ...unpinned];
-  }, [allFields, pinnedFields]);
+  }, [allFields, pinnedFields, hiddenFields]);
   
   const columnTemplate = useMemo(() => {
     if (!fields.length) return "1fr 40px";
@@ -113,41 +115,8 @@ export function TableView({ tableId }: Props) {
     }
   };
 
-  const sortedRows = useMemo(() => {
-    let filtered = rows;
-    if (filters.length) {
-      filtered = rows.filter((row) =>
-        filters.every((f) => {
-          const value = (row.data || {})[f.fieldId];
-          switch (f.operator) {
-            case "is_empty":
-              return value === null || value === undefined || value === "";
-            case "is_not_empty":
-              return value !== null && value !== undefined && value !== "";
-            case "equals":
-              return value === f.value;
-            case "not_equals":
-              return value !== f.value;
-            case "contains":
-            default:
-              return String(value ?? "").toLowerCase().includes(String(f.value ?? "").toLowerCase());
-          }
-        })
-      );
-    }
-
-    if (!sorts.length) return filtered;
-    const [sort] = sorts;
-    const direction = sort.direction === "asc" ? 1 : -1;
-    return [...filtered].sort((a, b) => {
-      const aVal = (a.data || {})[sort.fieldId];
-      const bVal = (b.data || {})[sort.fieldId];
-      if (aVal === bVal) return 0;
-      if (aVal == null) return 1;
-      if (bVal == null) return -1;
-      return aVal > bVal ? direction : -direction;
-    });
-  }, [rows, sorts, filters]);
+  // Rows arrive filtered/sorted from the server based on view config
+  const sortedRows = rows || [];
 
   const handleCellChange = (rowId: string, fieldId: string, value: unknown) => {
     savingRows.add(rowId);
@@ -222,6 +191,23 @@ export function TableView({ tableId }: Props) {
     setSorts(next);
     persistViewConfig(next, filters);
   };
+
+  const handleHideField = (fieldId: string) => {
+    if (!view?.id) return;
+    if (fields.length <= 1) return; // avoid hiding last visible column
+    const nextHidden = Array.from(new Set([...(view.config?.hiddenFields ?? []), fieldId]));
+    const nextConfig: ViewConfig = { ...(view.config || {}), hiddenFields: nextHidden };
+    updateView.mutate({ config: nextConfig });
+  };
+
+  const handleShowField = (fieldId: string) => {
+    if (!view?.id) return;
+    const nextHidden = (view.config?.hiddenFields ?? []).filter((id) => id !== fieldId);
+    const nextConfig: ViewConfig = { ...(view.config || {}), hiddenFields: nextHidden };
+    updateView.mutate({ config: nextConfig });
+  };
+
+  const hiddenFieldList = hiddenFields.map((id) => allFields.find((f) => f.id === id)).filter(Boolean);
 
   const handleCellContextMenu = (e: React.MouseEvent, rowId: string) => {
     e.preventDefault();
@@ -377,6 +363,22 @@ export function TableView({ tableId }: Props) {
         }}
       />
 
+      {hiddenFieldList.length > 0 && (
+        <div className="px-3 py-2 text-xs text-[var(--muted-foreground)] flex items-center gap-2">
+          <EyeOff className="h-4 w-4" />
+          Hidden columns:
+          {hiddenFieldList.map((f) => (
+            <button
+              key={f!.id}
+              onClick={() => handleShowField(f!.id)}
+              className="px-2 py-1 rounded-[2px] border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] transition-colors duration-150"
+            >
+              Show {f!.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="relative w-full">
         <div className="overflow-x-auto w-full" style={{ maxHeight: '480px', overflowY: 'scroll' }}>
           <div style={{ width: 'max-content', minWidth: '100%' }}>
@@ -401,29 +403,30 @@ export function TableView({ tableId }: Props) {
                 onDeleteField={handleDeleteField}
                 onAddField={handleAddField}
                 onChangeType={handleChangeType}
-                onReorderField={handleReorderField}
-                onPinColumn={handlePinColumn}
-                onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
-                columnRefs={Object.fromEntries(
-                  fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
-                )}
-                onColumnContextMenu={handleColumnContextMenu}
-                className="sticky top-0 z-10"
-              />
-              {sortedRows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  fields={fields}
-                  columnTemplate={columnTemplate}
-                  rowId={row.id}
-                  data={row.data || {}}
-                  onChange={handleCellChange}
-                  savingRowIds={savingRows}
-                  onOpenComments={(rid) => setCommentsRowId(rid)}
-                  pinnedFields={pinnedFields}
-                  onContextMenu={handleCellContextMenu}
-                  />
-                ))}
+            onReorderField={handleReorderField}
+            onPinColumn={handlePinColumn}
+            onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
+            columnRefs={Object.fromEntries(
+              fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
+            )}
+            onColumnContextMenu={handleColumnContextMenu}
+            onHideField={handleHideField}
+            className="sticky top-0 z-10"
+          />
+            {sortedRows.map((row) => (
+              <TableRow
+                key={row.id}
+                fields={fields}
+                columnTemplate={columnTemplate}
+                rowId={row.id}
+                data={row.data || {}}
+                onChange={handleCellChange}
+                savingRowIds={savingRows}
+                onOpenComments={(rid) => setCommentsRowId(rid)}
+                pinnedFields={pinnedFields}
+                onContextMenu={handleCellContextMenu}
+                />
+              ))}
 
                 {sortedRows.length === 0 && (
                   <div className="p-6 text-sm text-[var(--muted-foreground)] flex flex-col gap-2 items-center">

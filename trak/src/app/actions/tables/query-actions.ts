@@ -52,7 +52,6 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
 
   const sortedQuery = applyServerSorts(filteredQuery, sorts);
 
-  // Execute the query - add order by and await the result
   const { data: rows, error } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
     .order("order", { ascending: true });
 
@@ -62,7 +61,9 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
 
   // Apply any operators not supported by SQL builder in-memory
   const filtered = unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);
-  const sorted = sorts.length > 0 ? applySorts(filtered, sorts) : filtered;
+
+  // If sorts include unsupported pieces, fall back to in-memory; otherwise trust DB order
+  const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
 
   return { data: { rows: sorted, view } };
 }
@@ -166,8 +167,8 @@ function applyServerFilters(
 function applyServerSorts(query: PostgrestFilterBuilder<any, any, any, any>, sorts: SortCondition[]) {
   if (!sorts || sorts.length === 0) return query;
   let working = query;
-  sorts.forEach((sort) => {
-    const column = `data->>${sort.fieldId}`;
+  sorts.forEach((sort, idx) => {
+    const column = idx === 0 ? "order" : `data->>${sort.fieldId}`;
     working = (working as any).order(column, { ascending: sort.direction === "asc", nullsFirst: false });
   });
   return working;
