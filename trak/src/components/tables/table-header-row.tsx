@@ -15,15 +15,35 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type BasicFieldType = "text" | "number" | "date" | "checkbox" | "select";
+import type { FieldType } from "@/types/table";
+
 const DEFAULT_COL_WIDTH = 180;
 
-const TYPE_OPTIONS: Array<{ value: BasicFieldType; label: string }> = [
-  { value: "text", label: "Text" },
-  { value: "number", label: "Number" },
-  { value: "date", label: "Date" },
-  { value: "checkbox", label: "Checkbox" },
-  { value: "select", label: "Select" },
+const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }> = [
+  // Basic Types
+  { value: "text", label: "Text", category: "Basic" },
+  { value: "long_text", label: "Long Text", category: "Basic" },
+  { value: "number", label: "Number", category: "Basic" },
+  { value: "checkbox", label: "Checkbox", category: "Basic" },
+  { value: "date", label: "Date", category: "Basic" },
+
+  // Selection Types
+  { value: "select", label: "Select", category: "Select" },
+  { value: "multi_select", label: "Multi-select", category: "Select" },
+  { value: "status", label: "Status", category: "Select" },
+  { value: "priority", label: "Priority", category: "Select" },
+
+  // Contact Types
+  { value: "email", label: "Email", category: "Contact" },
+  { value: "phone", label: "Phone", category: "Contact" },
+  { value: "url", label: "URL", category: "Contact" },
+  { value: "person", label: "Person", category: "Contact" },
+
+  // Advanced Types
+  { value: "files", label: "Files", category: "Advanced" },
+  { value: "formula", label: "Formula", category: "Advanced" },
+  { value: "relation", label: "Relation", category: "Advanced" },
+  { value: "rollup", label: "Rollup", category: "Advanced" },
 ];
 
 interface Props {
@@ -36,7 +56,7 @@ interface Props {
   onRenameField: (fieldId: string, name: string) => void;
   onDeleteField: (fieldId: string) => void;
   onAddField: () => void;
-  onChangeType: (fieldId: string, type: BasicFieldType) => void;
+  onChangeType: (fieldId: string, type: FieldType) => void;
   onReorderField: (fieldId: string, direction: "left" | "right") => void;
   onPinColumn?: (fieldId: string) => void;
   onViewColumnDetails?: (fieldId: string) => void;
@@ -151,7 +171,7 @@ interface FieldHeaderProps {
   canDelete: boolean;
   onRenameField: (fieldId: string, name: string) => void;
   onDeleteField: (fieldId: string) => void;
-  onChangeType: (fieldId: string, type: BasicFieldType) => void;
+  onChangeType: (fieldId: string, type: FieldType) => void;
   onReorderField: (fieldId: string, direction: "left" | "right") => void;
   onSetSort: (fieldId: string, direction: "asc" | "desc" | null) => void;
   onToggleSort: (fieldId: string) => void;
@@ -267,8 +287,8 @@ function FieldHeader({
           <DropdownMenuSeparator className="my-1" />
           <DropdownMenuLabel className="px-2 py-1 text-[10px]">Type</DropdownMenuLabel>
           <DropdownMenuRadioGroup
-            value={field.type as BasicFieldType}
-            onValueChange={(value) => onChangeType(field.id, value as BasicFieldType)}
+            value={field.type as FieldType}
+            onValueChange={(value) => onChangeType(field.id, value as FieldType)}
           >
             {TYPE_OPTIONS.map((opt) => (
               <DropdownMenuRadioItem key={opt.value} value={opt.value} className="py-1 pl-7 pr-2 text-xs">

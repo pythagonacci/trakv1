@@ -15,9 +15,33 @@ interface Props {
   pinnedFields?: string[];
   onContextMenu?: (e: React.MouseEvent, rowId: string) => void;
   widths?: Record<string, number>;
+  rowMetadata?: {
+    created_at?: string;
+    updated_at?: string;
+    created_by?: string;
+    updated_by?: string;
+  };
+  workspaceMembers?: Array<{ id: string; name?: string; email?: string }>;
+  files?: Array<{ id: string; file_name: string; file_size: number; file_type: string; url?: string }>;
+  onUploadFiles?: (files: File[]) => Promise<string[]>;
 }
 
-export function TableRow({ fields, columnTemplate, rowId, data, onChange, savingRowIds, onOpenComments, pinnedFields, onContextMenu, widths }: Props) {
+export function TableRow({
+  fields,
+  columnTemplate,
+  rowId,
+  data,
+  onChange,
+  savingRowIds,
+  onOpenComments,
+  pinnedFields,
+  onContextMenu,
+  widths,
+  rowMetadata,
+  workspaceMembers,
+  files,
+  onUploadFiles,
+}: Props) {
   const saving = savingRowIds?.has(rowId);
   const template = useMemo(
     () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
@@ -59,6 +83,10 @@ export function TableRow({ fields, columnTemplate, rowId, data, onChange, saving
               value={data?.[field.id]}
               onChange={(value) => onChange(rowId, field.id, value)}
               saving={saving}
+              rowData={rowMetadata}
+              workspaceMembers={workspaceMembers}
+              files={files}
+              onUploadFiles={onUploadFiles}
             />
           </div>
         );

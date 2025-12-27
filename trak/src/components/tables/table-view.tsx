@@ -30,6 +30,8 @@ import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
 import type { SortCondition, FilterCondition, FieldType, ViewConfig } from "@/types/table";
+import { getWorkspaceMembers } from "@/app/actions/workspace";
+import { useQuery } from "@tanstack/react-query";
 import React from "react";
 
 interface Props {
@@ -45,6 +47,18 @@ export function TableView({ tableId }: Props) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: "cell" | "column"; rowId?: string; fieldId?: string } | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pendingWidths, setPendingWidths] = useState<Record<string, number>>({});
+
+  // Fetch workspace members for person fields
+  const { data: workspaceMembers } = useQuery({
+    queryKey: ['workspaceMembers', tableData?.table.workspace_id],
+    queryFn: async () => {
+      if (!tableData?.table.workspace_id) return [];
+      const result = await getWorkspaceMembers(tableData.table.workspace_id);
+      if ('error' in result) return [];
+      return result.data || [];
+    },
+    enabled: !!tableData?.table.workspace_id,
+  });
 
   // Always use a single source of truth for view id to keep query keys aligned
   const { data: rowData, isLoading: rowsLoading } = useTableRows(tableId, activeViewId || undefined);
@@ -457,6 +471,13 @@ export function TableView({ tableId }: Props) {
                 pinnedFields={pinnedFields}
                 onContextMenu={handleCellContextMenu}
                 widths={widthMap}
+                rowMetadata={{
+                  created_at: row.created_at,
+                  updated_at: row.updated_at,
+                  created_by: row.created_by || undefined,
+                  updated_by: row.updated_by || undefined,
+                }}
+                workspaceMembers={workspaceMembers}
                 />
               ))}
 
