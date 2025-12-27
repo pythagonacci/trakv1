@@ -20,6 +20,8 @@ interface Props {
   onSetDefault: (viewId: string) => void;
   onSwitchView: (viewId: string) => void;
   onUpdateTableTitle?: (title: string) => void;
+  searchInputRef?: React.RefObject<HTMLInputElement>;
+  openSearchTick?: number;
 }
 
 export function TableHeaderCompact({
@@ -38,6 +40,8 @@ export function TableHeaderCompact({
   onSetDefault,
   onSwitchView,
   onUpdateTableTitle,
+  searchInputRef,
+  openSearchTick,
 }: Props) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState("");
@@ -81,6 +85,19 @@ export function TableHeaderCompact({
     onFiltersChange([...filters, next]);
   };
 
+  // Open search bar when requested externally (e.g., Cmd/Ctrl+F hotkey)
+  useEffect(() => {
+    if (openSearchTick === undefined) return;
+    setShowSearch(true);
+    // Slight delay to ensure input is in DOM
+    setTimeout(() => {
+      if (searchInputRef?.current) {
+        searchInputRef.current.focus();
+        searchInputRef.current.select?.();
+      }
+    }, 0);
+  }, [openSearchTick, searchInputRef]);
+
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--background)] relative z-50">
       {/* Left: Title */}
@@ -122,6 +139,7 @@ export function TableHeaderCompact({
               className="w-full pl-9 pr-3 py-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--border-strong)]"
               placeholder="Search table..."
               value={search}
+              ref={searchInputRef}
               onChange={(e) => {
                 const q = e.target.value;
                 setSearch(q);
@@ -382,4 +400,3 @@ export function TableHeaderCompact({
     </div>
   );
 }
-

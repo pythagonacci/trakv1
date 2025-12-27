@@ -14,9 +14,6 @@ import { EmailCell } from "./cells/email-cell";
 import { PhoneCell } from "./cells/phone-cell";
 import { PersonCell } from "./cells/person-cell";
 import { FilesCell } from "./cells/files-cell";
-import { FormulaCell } from "./cells/formula-cell";
-import { RelationCell } from "./cells/relation-cell";
-import { RollupCell } from "./cells/rollup-cell";
 import { StatusCell } from "./cells/status-cell";
 import { PriorityCell } from "./cells/priority-cell";
 
@@ -91,19 +88,6 @@ export function TableCell({
       return <PersonCell {...commonProps} field={field} workspaceMembers={workspaceMembers} />;
     case "files":
       return <FilesCell {...commonProps} field={field} files={files} onUpload={onUploadFiles} />;
-    case "formula":
-      return <FormulaCell field={field} value={value} computedValue={computedValue} />;
-    case "relation":
-      return (
-        <RelationCell
-          {...commonProps}
-          field={field}
-          relatedRecords={relatedRecords}
-          availableRecords={availableRecords}
-        />
-      );
-    case "rollup":
-      return <RollupCell field={field} value={value} computedValue={computedValue} />;
     default:
       return <TextCell {...commonProps} field={field} />;
   }

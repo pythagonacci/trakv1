@@ -24,6 +24,8 @@ interface Props {
   workspaceMembers?: Array<{ id: string; name?: string; email?: string }>;
   files?: Array<{ id: string; file_name: string; file_size: number; file_type: string; url?: string }>;
   onUploadFiles?: (files: File[]) => Promise<string[]>;
+  onCellKeyDown?: (e: React.KeyboardEvent, rowId: string, fieldId: string) => void;
+  cellRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
 }
 
 export function TableRow({
@@ -41,6 +43,8 @@ export function TableRow({
   workspaceMembers,
   files,
   onUploadFiles,
+  onCellKeyDown,
+  cellRefs,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const template = useMemo(
@@ -72,11 +76,19 @@ export function TableRow({
         return (
           <div
             key={field.id}
-            className={`px-3 py-2 border-r border-[var(--border)] last:border-r-0 ${isPinned ? "sticky z-10 bg-[var(--surface)]" : ""}`}
+            className={`px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 ${isPinned ? "sticky z-10 bg-[var(--surface)]" : ""}`}
             style={isPinned ? {
               left: `${pinnedOffsets[field.id]}px`,
               boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
             } : {}}
+            tabIndex={0}
+            role="gridcell"
+            ref={(el) => {
+              if (cellRefs) {
+                cellRefs.current[`${rowId}-${field.id}`] = el;
+              }
+            }}
+            onKeyDown={(e) => onCellKeyDown?.(e, rowId, field.id)}
           >
             <TableCell
               field={field}

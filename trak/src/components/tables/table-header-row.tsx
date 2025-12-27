@@ -38,12 +38,7 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }
   { value: "phone", label: "Phone", category: "Contact" },
   { value: "url", label: "URL", category: "Contact" },
   { value: "person", label: "Person", category: "Contact" },
-
-  // Advanced Types
-  { value: "files", label: "Files", category: "Advanced" },
-  { value: "formula", label: "Formula", category: "Advanced" },
-  { value: "relation", label: "Relation", category: "Advanced" },
-  { value: "rollup", label: "Rollup", category: "Advanced" },
+  { value: "files", label: "Files", category: "Contact" },
 ];
 
 interface Props {

@@ -34,6 +34,15 @@ import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { useQuery } from "@tanstack/react-query";
 import React from "react";
 
+const isFocusableElement = (el: HTMLElement | null) => {
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  const focusableTags = ["input", "textarea", "select", "button"];
+  if (focusableTags.includes(tag)) return true;
+  const contentEditable = (el as HTMLElement).getAttribute("contenteditable");
+  return contentEditable === "true";
+};
+
 interface Props {
   tableId: string;
 }
@@ -47,6 +56,10 @@ export function TableView({ tableId }: Props) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: "cell" | "column"; rowId?: string; fieldId?: string } | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pendingWidths, setPendingWidths] = useState<Record<string, number>>({});
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [openSearchTick, setOpenSearchTick] = useState(0);
+  const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Fetch workspace members for person fields
   const { data: workspaceMembers } = useQuery({
@@ -170,12 +183,12 @@ export function TableView({ tableId }: Props) {
     );
   };
 
-  const handleAddField = () => {
+  const handleAddField = useCallback(() => {
     setError(null);
     createField.mutate({ name: "New Field", type: "text" }, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to add field"),
     });
-  };
+  }, [createField]);
 
   const handleRenameField = (fieldId: string, name: string) => {
     const target = fields.find((f) => f.id === fieldId);
@@ -326,6 +339,68 @@ export function TableView({ tableId }: Props) {
     setContextMenu(null);
   };
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: KeyboardEvent) => {
+      if (isFocusableElement(e.target as HTMLElement)) return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+
+      // Cmd/Ctrl + Enter => add row
+      if (e.key === "Enter") {
+        e.preventDefault();
+        setError(null);
+        createRow.mutate(undefined, {
+          onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
+        });
+        return;
+      }
+
+      // Cmd/Ctrl + Shift + C => add column
+      if (e.shiftKey && (e.key === "c" || e.key === "C")) {
+        e.preventDefault();
+        handleAddField();
+        return;
+      }
+
+      // Cmd/Ctrl + F => focus search
+      if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setOpenSearchTick((t) => t + 1);
+        return;
+      }
+    };
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  }, [createRow, handleAddField]);
+
+  const focusCell = useCallback((rowIndex: number, colIndex: number) => {
+    const row = sortedRows[rowIndex];
+    const col = fields[colIndex];
+    if (!row || !col) return;
+    const ref = cellRefs.current[`${row.id}-${col.id}`];
+    ref?.focus();
+  }, [sortedRows, fields]);
+
+  const handleCellKeyDown = useCallback((e: React.KeyboardEvent, rowId: string, fieldId: string) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    const rowIndex = sortedRows.findIndex((r) => r.id === rowId);
+    const colIndex = fields.findIndex((f) => f.id === fieldId);
+    if (rowIndex === -1 || colIndex === -1) return;
+    e.preventDefault();
+    if (e.key === "ArrowLeft") {
+      focusCell(rowIndex, Math.max(0, colIndex - 1));
+    } else if (e.key === "ArrowRight") {
+      focusCell(rowIndex, Math.min(fields.length - 1, colIndex + 1));
+    } else if (e.key === "ArrowUp") {
+      focusCell(Math.max(0, rowIndex - 1), colIndex);
+    } else if (e.key === "ArrowDown") {
+      focusCell(Math.min(sortedRows.length - 1, rowIndex + 1), colIndex);
+    }
+  }, [fields, sortedRows, focusCell]);
+
   // Sync active view with loaded view
   useEffect(() => {
     if (rowData?.view?.id) {
@@ -376,6 +451,8 @@ export function TableView({ tableId }: Props) {
           setFilters(next);
           persistViewConfig(sorts, next);
         }}
+        searchInputRef={searchInputRef}
+        openSearchTick={openSearchTick}
         onCreateView={() =>
           createView.mutate(
             { name: "New view", type: "table" },
@@ -422,7 +499,7 @@ export function TableView({ tableId }: Props) {
         </div>
       )}
 
-      <div className="relative w-full">
+      <div className="relative w-full" ref={containerRef}>
         <div className="overflow-x-auto w-full" style={{ maxHeight: '480px', overflowY: 'scroll' }}>
           <div style={{ width: 'max-content', minWidth: '100%' }}>
             <div className="max-h-[480px] overflow-x-hidden divide-y divide-[var(--border)] scrollbar-thin" style={{ width: 'max-content', minWidth: '100%', overflowY: 'scroll' }}>
@@ -478,6 +555,8 @@ export function TableView({ tableId }: Props) {
                   updated_by: row.updated_by || undefined,
                 }}
                 workspaceMembers={workspaceMembers}
+                onCellKeyDown={handleCellKeyDown}
+                cellRefs={cellRefs}
                 />
               ))}
 
