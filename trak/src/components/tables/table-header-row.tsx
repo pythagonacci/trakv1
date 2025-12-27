@@ -24,7 +24,6 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }
   { value: "text", label: "Text", category: "Basic" },
   { value: "long_text", label: "Long Text", category: "Basic" },
   { value: "number", label: "Number", category: "Basic" },
-  { value: "checkbox", label: "Checkbox", category: "Basic" },
   { value: "date", label: "Date", category: "Basic" },
 
   // Selection Types
@@ -239,7 +238,7 @@ function FieldHeader({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="h-7 w-7 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
+            className="relative z-20 h-7 w-7 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
             aria-label="Field actions"
           >
             <Settings className="h-3.5 w-3.5" />
@@ -331,7 +330,7 @@ function FieldHeader({
 
       {onResize && (
         <div
-          className="absolute right-0 top-0 h-full w-8 cursor-col-resize select-none bg-transparent group/resize"
+          className="absolute right-0 top-0 h-full w-4 cursor-col-resize select-none bg-transparent group/resize z-10"
           draggable={false}
           title="Drag to resize · Double-click to reset"
           onPointerDown={(e) => {

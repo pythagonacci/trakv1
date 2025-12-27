@@ -1,6 +1,6 @@
 // Table refactor baseline (Sept 2024):
 // - Current table block lives at src/app/dashboard/projects/[projectId]/tabs/[tabId]/table-block.tsx and stores rows/cols/cells in blocks.content via updateBlock/getTabBlocks.
-// - Field types are limited to ColumnType ('text' | 'number' | 'date' | 'checkbox' | 'select'); filters/sorts run client-side only and there are no saved views.
+// - Field types are limited to ColumnType ('text' | 'number' | 'date' | 'select'); filters/sorts run client-side only and there are no saved views.
 // - Data fetching is block-scoped through server actions + React Query in src/lib/hooks/use-tab-data.ts; there are no table-specific endpoints or Supabase tables today.
 // - Table rendering is part of the generic block system inside the tab canvas; no server-backed views/grouping/filtering or dedicated row/comment models yet.
 
@@ -11,7 +11,6 @@ export type FieldType =
   | "select"
   | "multi_select"
   | "date"
-  | "checkbox"
   | "url"
   | "email"
   | "phone"

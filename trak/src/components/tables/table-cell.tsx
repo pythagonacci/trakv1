@@ -6,7 +6,6 @@ import { TextCell } from "./cells/text-cell";
 import { LongTextCell } from "./cells/long-text-cell";
 import { NumberCell } from "./cells/number-cell";
 import { DateCell } from "./cells/date-cell";
-import { CheckboxCell } from "./cells/checkbox-cell";
 import { SelectCell } from "./cells/select-cell";
 import { MultiSelectCell } from "./cells/multi-select-cell";
 import { UrlCell } from "./cells/url-cell";
@@ -68,8 +67,15 @@ export function TableCell({
       return <NumberCell {...commonProps} field={field} />;
     case "date":
       return <DateCell {...commonProps} field={field} />;
-    case "checkbox":
-      return <CheckboxCell {...commonProps} field={field} />;
+    case "checkbox": {
+      const checked = value === true;
+      return (
+        <div className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+          <input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={checked} readOnly />
+          <span className="text-[var(--muted-foreground)] text-xs">Checkbox field type is read-only</span>
+        </div>
+      );
+    }
     case "select":
       return <SelectCell {...commonProps} field={field} />;
     case "multi_select":
