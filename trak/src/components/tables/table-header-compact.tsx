@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Search, Filter, ChevronDown, X, Plus } from "lucide-react";
-import type { TableView, TableField, FilterCondition } from "@/types/table";
+import type { TableView, TableField, FilterCondition, GroupByConfig } from "@/types/table";
 
 interface Props {
   tableId: string;
@@ -22,6 +22,8 @@ interface Props {
   onUpdateTableTitle?: (title: string) => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
   openSearchTick?: number;
+  groupBy?: GroupByConfig;
+  onGroupByChange: (groupBy: GroupByConfig | undefined) => void;
 }
 
 export function TableHeaderCompact({
@@ -42,12 +44,15 @@ export function TableHeaderCompact({
   onUpdateTableTitle,
   searchInputRef,
   openSearchTick,
+  groupBy,
+  onGroupByChange,
 }: Props) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState("");
   const [columnSearch, setColumnSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showViews, setShowViews] = useState(false);
+  const [showGroupBy, setShowGroupBy] = useState(false);
   const [editingView, setEditingView] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(tableTitle || "Untitled Table");
@@ -172,6 +177,86 @@ export function TableHeaderCompact({
 
       {/* Right: Icons */}
       <div className="flex items-center gap-2">
+        {/* Group by */}
+        <div className="relative">
+          <button
+            onClick={() => setShowGroupBy(!showGroupBy)}
+            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150 text-xs"
+            title="Group by"
+          >
+            Group {groupBy?.fieldId ? "•" : ""}
+          </button>
+          {showGroupBy && (
+            <div className="absolute right-0 top-full mt-1 w-56 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[200] py-1">
+              <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">Group by</div>
+              <button
+                onClick={() => {
+                  onGroupByChange(undefined);
+                  setShowGroupBy(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${!groupBy ? "bg-[var(--surface-muted)]" : ""}`}
+              >
+                None
+              </button>
+              <div className="mt-1 border-t border-[var(--border)]" />
+              {fields
+                .filter((f) => ["select", "multi_select", "status", "priority", "person"].includes(f.type))
+                .map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => {
+                      onGroupByChange({ fieldId: f.id, showEmptyGroups: groupBy?.showEmptyGroups ?? true, sortOrder: groupBy?.sortOrder ?? "asc" });
+                      setShowGroupBy(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${groupBy?.fieldId === f.id ? "bg-[var(--surface-muted)]" : ""}`}
+                  >
+                    {f.name}
+                  </button>
+                ))}
+              {groupBy?.fieldId && (
+                <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-2 px-3">
+                  <label className="flex items-center gap-2 text-xs text-[var(--foreground)]">
+                    <input
+                      type="checkbox"
+                      checked={groupBy.showEmptyGroups ?? true}
+                      onChange={(e) =>
+                        onGroupByChange({
+                          ...groupBy,
+                          showEmptyGroups: e.target.checked,
+                        })
+                      }
+                    />
+                    Show empty groups
+                  </label>
+                  <div className="flex items-center gap-2 text-xs text-[var(--foreground)]">
+                    <span className="text-[var(--muted-foreground)]">Group order</span>
+                    <button
+                      className={`px-2 py-1 rounded-[2px] border text-[11px] ${
+                        (groupBy.sortOrder ?? "asc") === "asc"
+                          ? "border-[var(--border-strong)] text-[var(--foreground)]"
+                          : "border-[var(--border)] text-[var(--muted-foreground)]"
+                      }`}
+                      onClick={() => onGroupByChange({ ...groupBy, sortOrder: "asc" })}
+                    >
+                      A→Z
+                    </button>
+                    <button
+                      className={`px-2 py-1 rounded-[2px] border text-[11px] ${
+                        groupBy.sortOrder === "desc"
+                          ? "border-[var(--border-strong)] text-[var(--foreground)]"
+                          : "border-[var(--border)] text-[var(--muted-foreground)]"
+                      }`}
+                      onClick={() => onGroupByChange({ ...groupBy, sortOrder: "desc" })}
+                    >
+                      Z→A
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Search icon */}
         <button
           onClick={() => setShowSearch(!showSearch)}

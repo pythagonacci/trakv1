@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import AttachedFilesList from "./attached-files-list";
 import { cn } from "@/lib/utils";
+import DOMPurify from "isomorphic-dompurify";
 
 interface TextBlockProps {
   block: Block;
@@ -103,7 +104,14 @@ const formatText = (text: string): string => {
     return `<p class="mb-1.5 text-sm leading-relaxed text-[var(--foreground)]">${formatted}</p>`;
   });
 
-  return formattedLines.join("");
+  const html = formattedLines.join("");
+
+  // SECURITY: Sanitize HTML to prevent XSS attacks
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['strong', 'em', 'code', 'u', 'h1', 'h2', 'h3', 'p', 'div', 'span', 'br'],
+    ALLOWED_ATTR: ['class'],
+    KEEP_CONTENT: true,
+  });
 };
 
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {

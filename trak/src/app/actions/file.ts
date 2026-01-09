@@ -2,6 +2,80 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { logger } from '@/lib/logger';
+
+/**
+ * SECURITY: Allowed file types and extensions
+ * Prevents upload of potentially dangerous files (executables, scripts, etc.)
+ */
+const ALLOWED_FILE_TYPES = {
+  // Images
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/gif': ['.gif'],
+  'image/webp': ['.webp'],
+  'image/svg+xml': ['.svg'],
+  // Documents
+  'application/pdf': ['.pdf'],
+  'text/plain': ['.txt'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+  'application/msword': ['.doc'],
+  'application/vnd.ms-excel': ['.xls'],
+  'application/vnd.ms-powerpoint': ['.ppt'],
+  // Videos
+  'video/mp4': ['.mp4'],
+  'video/webm': ['.webm'],
+  'video/ogg': ['.ogg'],
+  'video/quicktime': ['.mov'],
+  // Audio
+  'audio/mpeg': ['.mp3'],
+  'audio/wav': ['.wav'],
+  'audio/ogg': ['.ogg'],
+  // Archives
+  'application/zip': ['.zip'],
+  'application/x-rar-compressed': ['.rar'],
+  // CSV
+  'text/csv': ['.csv'],
+};
+
+/**
+ * SECURITY: Blocked file extensions (executable, script, potentially dangerous files)
+ */
+const BLOCKED_EXTENSIONS = [
+  '.exe', '.bat', '.cmd', '.com', '.scr', '.pif', '.vbs', '.js', '.jse',
+  '.msi', '.msp', '.hta', '.cpl', '.jar', '.sh', '.bash', '.ps1', '.psm1',
+  '.dll', '.sys', '.drv', '.app', '.deb', '.rpm', '.dmg', '.pkg'
+];
+
+/**
+ * Validate file type and extension
+ * Returns error message if file is not allowed, null if valid
+ */
+function validateFileType(file: File): string | null {
+  const fileName = file.name.toLowerCase();
+  const fileType = file.type.toLowerCase();
+  const extension = '.' + (fileName.split('.').pop() || '');
+
+  // SECURITY: Block dangerous extensions
+  if (BLOCKED_EXTENSIONS.includes(extension)) {
+    return `File type not allowed: ${extension}. Executable and script files are blocked for security.`;
+  }
+
+  // Check if file type is in allowed list
+  const allowedExtensions = ALLOWED_FILE_TYPES[fileType as keyof typeof ALLOWED_FILE_TYPES];
+
+  if (!allowedExtensions) {
+    // If MIME type is not in allowed list, check if extension matches any allowed extension
+    const allAllowedExtensions = Object.values(ALLOWED_FILE_TYPES).flat();
+    if (!allAllowedExtensions.includes(extension)) {
+      return `File type not supported: ${extension}. Please upload images, documents, videos, or archives only.`;
+    }
+  }
+
+  return null; // File is valid
+}
 
 /**
  * Upload file to Supabase Storage and create database record
@@ -43,14 +117,20 @@ export async function uploadFile(
     return { error: 'No file provided' };
   }
 
-  // 4. Validate file size (50MB limit)
+  // 4. SECURITY: Validate file type
+  const validationError = validateFileType(file);
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  // 5. Validate file size (50MB limit)
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
   if (file.size > MAX_FILE_SIZE) {
     return { error: 'File size exceeds 50MB limit' };
   }
 
   try {
-    // 5. Generate unique file ID and construct storage path
+    // 6. Generate unique file ID and construct storage path
     const fileId = crypto.randomUUID();
     const fileExtension = file.name.split('.').pop();
     const storagePath = `${workspaceId}/${projectId}/${fileId}.${fileExtension}`;
@@ -89,12 +169,12 @@ export async function uploadFile(
       return { error: `Database error: ${dbError.message}` };
     }
 
-    // 8. If blockId provided, attach file to block immediately
+    // 7. If blockId provided, attach file to block immediately
     if (blockId) {
       const attachResult = await attachFileToBlock(fileId, blockId, 'inline');
       if (attachResult.error) {
         // File uploaded but attachment failed - that's okay, return file
-        console.error('File attachment failed:', attachResult.error);
+        logger.error('File attachment failed:', attachResult.error);
       }
     }
 
@@ -257,7 +337,7 @@ export async function deleteFile(fileId: string) {
       .remove([file.storage_path]);
 
     if (storageError) {
-      console.error('Storage deletion failed:', storageError);
+      logger.error('Storage deletion failed:', storageError);
       // Continue anyway - file might already be deleted
     }
 
@@ -318,10 +398,10 @@ export async function getFileUrl(fileId: string) {
     return { error: 'Not authorized' };
   }
 
-  // 4. Get signed URL (valid for 1 hour)
+  // 4. SECURITY: Get signed URL (valid for 5 minutes)
   const { data: urlData, error: urlError } = await supabase.storage
     .from('files')
-    .createSignedUrl(file.storage_path, 3600);
+    .createSignedUrl(file.storage_path, 300);
 
   if (urlError) {
     return { error: urlError.message };
@@ -386,10 +466,10 @@ export async function getBatchFileUrls(fileIds: string[]) {
     try {
       const { data: urlData, error: urlError } = await supabase.storage
         .from('files')
-        .createSignedUrl(file.storage_path, 3600); // 1 hour expiry
+        .createSignedUrl(file.storage_path, 300); // SECURITY: 5 minute expiry
 
       if (urlError) {
-        console.error(`Failed to generate signed URL for file ${file.id}:`, urlError);
+        logger.error(`Failed to generate signed URL for file ${file.id}:`, urlError);
         return {
           fileId: file.id,
           url: null,
@@ -401,7 +481,7 @@ export async function getBatchFileUrls(fileIds: string[]) {
         url: urlData?.signedUrl || null,
       };
     } catch (error) {
-      console.error(`Error generating signed URL for file ${file.id}:`, error);
+      logger.error(`Error generating signed URL for file ${file.id}:`, error);
       return {
         fileId: file.id,
         url: null,
@@ -419,7 +499,7 @@ export async function getBatchFileUrls(fileIds: string[]) {
     }
   });
 
-  console.log(`📦 Batch fetched ${Object.keys(urlMap).length} file URLs`);
+  logger.log(`📦 Batch fetched ${Object.keys(urlMap).length} file URLs`);
 
   return { data: urlMap };
 }
@@ -470,14 +550,14 @@ export async function getBatchFileUrlsPublic(fileIds: string[], publicToken: str
       try {
         const { data: urlData } = await supabase.storage
           .from('files')
-          .createSignedUrl(file.storage_path, 3600);
+          .createSignedUrl(file.storage_path, 300); // SECURITY: 5 minute expiry
 
         return {
           fileId: file.id,
           url: urlData?.signedUrl || null
         };
       } catch (error) {
-        console.error(`Failed to generate URL for file ${file.id}:`, error);
+        logger.error(`Failed to generate URL for file ${file.id}:`, error);
         return { fileId: file.id, url: null };
       }
     });
@@ -492,11 +572,11 @@ export async function getBatchFileUrlsPublic(fileIds: string[], publicToken: str
       }
     });
 
-    console.log(`📦 Public: Batch fetched ${Object.keys(urlMap).length} file URLs`);
-    
+    logger.log(`📦 Public: Batch fetched ${Object.keys(urlMap).length} file URLs`);
+
     return { data: urlMap };
   } catch (error) {
-    console.error('Get batch file URLs public exception:', error);
+    logger.error('Get batch file URLs public exception:', error);
     return { error: 'Failed to fetch file URLs', data: {} };
   }
 }
@@ -617,7 +697,7 @@ export async function createFileRecord(data: {
       'avi': 'video/x-msvideo',
     };
     fileType = extensionMap[extension] || `application/octet-stream`;
-    console.log(`🔧 Normalized file type for ${data.fileName}: ${data.fileType} -> ${fileType}`);
+    logger.log(`🔧 Normalized file type for ${data.fileName}: ${data.fileType} -> ${fileType}`);
   }
 
   // 3. Create file record
@@ -652,7 +732,7 @@ export async function createFileRecord(data: {
 
     if (attachError) {
       // File created but attachment failed - still return success
-      console.error('Attachment failed:', attachError);
+      logger.error('Attachment failed:', attachError);
     }
   }
 
@@ -699,14 +779,20 @@ export async function uploadStandaloneFile(
     return { error: 'No file provided' };
   }
 
-  // 4. Validate file size (50MB limit)
+  // 4. SECURITY: Validate file type
+  const validationError = validateFileType(file);
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  // 5. Validate file size (50MB limit)
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
   if (file.size > MAX_FILE_SIZE) {
     return { error: 'File size exceeds 50MB limit' };
   }
 
   try {
-    // 5. Generate unique file ID and construct storage path
+    // 6. Generate unique file ID and construct storage path
     const fileId = crypto.randomUUID();
     const fileExtension = file.name.split('.').pop();
     const storagePath = `${workspaceId}/${projectId}/${fileId}.${fileExtension}`;

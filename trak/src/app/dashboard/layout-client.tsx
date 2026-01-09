@@ -31,6 +31,7 @@ import {
 } from "./header-visibility-context";
 import GlobalSearch from "./global-search";
 import { useTheme } from "./theme-context";
+import { useUser } from "@/hooks/use-user";
 
 interface User {
   id: string;
@@ -46,10 +47,8 @@ interface Workspace {
 
 export default function DashboardLayoutClient({
   children,
-  currentUser,
 }: {
   children: React.ReactNode;
-  currentUser: User | null;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -60,7 +59,7 @@ export default function DashboardLayoutClient({
   return (
     <DashboardHeaderProvider>
       <div className="flex h-screen bg-[var(--surface)] text-[var(--foreground)]">
-        <Sidebar currentUser={currentUser} collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
+        <Sidebar collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header />
@@ -72,15 +71,14 @@ export default function DashboardLayoutClient({
 }
 
 function Sidebar({
-  currentUser,
   collapsed,
   setCollapsed,
 }: {
-  currentUser: User | null;
   collapsed: boolean;
   setCollapsed: () => void;
 }) {
   const pathname = usePathname();
+  const { data: currentUser } = useUser();
   const { currentWorkspace, workspaces, switchWorkspace, isSwitching } = useWorkspace();
   const { theme, setTheme } = useTheme();
   const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);

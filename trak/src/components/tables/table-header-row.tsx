@@ -60,6 +60,7 @@ interface Props {
   onHideField?: (fieldId: string) => void;
   onResize?: (fieldId: string, width: number, persist: boolean) => void;
   widths?: Record<string, number>;
+  onUpdateFieldConfig?: (fieldId: string, config: any) => void;
 }
 
 export function TableHeaderRow({
@@ -82,6 +83,7 @@ export function TableHeaderRow({
   onHideField,
   onResize,
   widths,
+  onUpdateFieldConfig,
 }: Props) {
   const template = useMemo(
     () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
@@ -174,6 +176,30 @@ interface FieldHeaderProps {
   onHideField?: (fieldId: string) => void;
   onResize?: (fieldId: string, width: number, persist: boolean) => void;
   currentWidth?: number;
+  onUpdateFieldConfig?: (fieldId: string, config: any) => void;
+}
+
+function isOptionField(type: FieldType) {
+  return type === "select" || type === "multi_select" || type === "status";
+}
+
+function isConfigurableField(type: FieldType) {
+  return isOptionField(type) || type === "priority";
+}
+
+function commitOptions(
+  field: TableField,
+  options: any[],
+  onUpdateFieldConfig?: (fieldId: string, config: any) => void
+) {
+  if (!onUpdateFieldConfig) return;
+  if (isOptionField(field.type)) {
+    const config = { ...(field.config || {}), options };
+    onUpdateFieldConfig(field.id, config);
+  } else if (field.type === "priority") {
+    const config = { ...(field.config || {}), levels: options };
+    onUpdateFieldConfig(field.id, config);
+  }
 }
 
 function FieldHeader({
@@ -194,12 +220,26 @@ function FieldHeader({
   onHideField,
   onResize,
   currentWidth,
+  onUpdateFieldConfig,
 }: FieldHeaderProps) {
   const [draftName, setDraftName] = useState(field.name);
+  const [draftOptions, setDraftOptions] = useState<any[]>([]);
 
   useEffect(() => {
     setDraftName(field.name);
   }, [field.name]);
+
+  useEffect(() => {
+    if (isOptionField(field.type)) {
+      const opts = (field.config as any)?.options ?? [];
+      setDraftOptions(opts);
+    } else if (field.type === "priority") {
+      const levels = (field.config as any)?.levels ?? [];
+      setDraftOptions(levels);
+    } else {
+      setDraftOptions([]);
+    }
+  }, [field.type, field.config]);
 
   const commitName = () => {
     const trimmed = draftName.trim();
@@ -325,6 +365,67 @@ function FieldHeader({
           >
             Toggle sort cycle
           </DropdownMenuItem>
+
+          {/* Configurator for option-based fields */}
+          {isConfigurableField(field.type) && (
+            <>
+              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuLabel className="px-2 py-1 text-[10px]">Options</DropdownMenuLabel>
+              <div className="px-2 py-1 space-y-2 max-h-64 overflow-y-auto">
+                {draftOptions.map((opt, idx) => (
+                  <div key={opt.id || idx} className="flex items-center gap-2">
+                    <input
+                      className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[2px] px-2 py-1 text-xs text-[var(--foreground)] outline-none"
+                      value={opt.label ?? ""}
+                      onChange={(e) => {
+                        const next = [...draftOptions];
+                        next[idx] = { ...opt, label: e.target.value };
+                        setDraftOptions(next);
+                        commitOptions(field, next, onUpdateFieldConfig);
+                      }}
+                      placeholder="Label"
+                    />
+                    <input
+                      type="color"
+                      className="h-7 w-9 bg-[var(--surface)] border border-[var(--border)] rounded-[2px]"
+                      value={opt.color || "#cccccc"}
+                      onChange={(e) => {
+                        const next = [...draftOptions];
+                        next[idx] = { ...opt, color: e.target.value };
+                        setDraftOptions(next);
+                        commitOptions(field, next, onUpdateFieldConfig);
+                      }}
+                    />
+                    <button
+                      className="text-[var(--error)] hover:text-red-400"
+                      onClick={() => {
+                        const next = draftOptions.filter((_, i) => i !== idx);
+                        setDraftOptions(next);
+                        commitOptions(field, next, onUpdateFieldConfig);
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  className="w-full rounded-[2px] border border-dashed border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
+                  onClick={() => {
+                    const newOpt = {
+                      id: crypto.randomUUID ? crypto.randomUUID() : `opt-${Date.now()}`,
+                      label: "New option",
+                      color: "#4A7A78",
+                    };
+                    const next = [...draftOptions, newOpt];
+                    setDraftOptions(next);
+                    commitOptions(field, next, onUpdateFieldConfig);
+                  }}
+                >
+                  Add option
+                </button>
+              </div>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

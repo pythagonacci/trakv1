@@ -550,6 +550,8 @@ export async function getAllProjects(
         const previewBlocksByTab = new Map<string, TabPreviewBlock[]>()
 
         if (tabIds.length > 0) {
+          // Note: Fetches full content JSONB - could be optimized by only selecting specific keys
+          // but summarizeBlockPreview() needs the full content object structure
           const { data: blocks, error: blocksError } = await supabase
             .from('blocks')
             .select('id, tab_id, type, content, column, position, parent_block_id')

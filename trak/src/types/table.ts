@@ -150,6 +150,17 @@ export interface SortCondition {
   direction: "asc" | "desc";
 }
 
+export interface GroupByConfig {
+  /** Field used to group rows */
+  fieldId: string;
+  /** Collapsed group ids (option ids, member ids, or __ungrouped__) */
+  collapsed?: string[];
+  /** Whether to render empty groups (default: true) */
+  showEmptyGroups?: boolean;
+  /** Optional alphabetical sort for groups (default: asc) */
+  sortOrder?: "asc" | "desc";
+}
+
 export interface ViewConfig {
   /** Applied filter set */
   filters?: FilterCondition[];
@@ -159,11 +170,8 @@ export interface ViewConfig {
   hiddenFields?: string[];
   /** Pinned field IDs for this view (shown first, sticky when scrolling) */
   pinnedFields?: string[];
-  /** Grouping metadata */
-  groupBy?: {
-    fieldId: string;
-    collapsed?: string[];
-  };
+  /** Grouping metadata (table view only) */
+  groupBy?: GroupByConfig;
   /** Board view configuration */
   boardConfig?: {
     groupByFieldId: string;

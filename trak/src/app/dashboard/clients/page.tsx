@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { getAllClients } from "@/app/actions/client";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { createClient } from "@/lib/supabase/server";
 import ClientsTable from "./clients-table";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -24,26 +24,30 @@ export default async function ClientsPage() {
     redirect("/dashboard");
   }
 
-  // Fetch all clients for this workspace
-  const clientsResult = await getAllClients(workspaceId);
-  const clients = clientsResult.data || [];
-
-  // Get project counts for each client
-  const { data: projectCounts } = await supabase
-    .from("projects")
-    .select("client_id")
+  // Fetch all clients with project counts in a single optimized query
+  const { data: clientsWithCounts, error: clientsError } = await supabase
+    .from("clients")
+    .select(`
+      id,
+      name,
+      company,
+      created_at,
+      projects:projects(count)
+    `)
     .eq("workspace_id", workspaceId)
-    .not("client_id", "is", null);
+    .order("name", { ascending: true });
 
-  // Count projects per client
-  const countsMap = (projectCounts || []).reduce((acc, p) => {
-    acc[p.client_id] = (acc[p.client_id] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  if (clientsError) {
+    logger.error("Error fetching clients:", clientsError);
+  }
 
-  const clientsWithCounts = clients.map((client) => ({
-    ...client,
-    projectCount: countsMap[client.id] || 0,
+  // Transform the data to include projectCount
+  const clients = (clientsWithCounts || []).map((client: any) => ({
+    id: client.id,
+    name: client.name,
+    company: client.company,
+    created_at: client.created_at,
+    projectCount: client.projects?.[0]?.count || 0,
   }));
 
   return (
@@ -58,7 +62,7 @@ export default async function ClientsPage() {
         </div>
 
         {/* Clients Table */}
-        <ClientsTable clients={clientsWithCounts} workspaceId={workspaceId} />
+        <ClientsTable clients={clients} workspaceId={workspaceId} />
       </div>
     </div>
   );

@@ -29,10 +29,12 @@ import { TableHeaderCompact } from "./table-header-compact";
 import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
-import type { SortCondition, FilterCondition, FieldType, ViewConfig } from "@/types/table";
+import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, TableField } from "@/types/table";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { useQuery } from "@tanstack/react-query";
 import React from "react";
+import { groupRows, canGroupByField, GroupedData } from "@/lib/table-grouping";
+import { GroupHeader } from "./group-header";
 
 const isFocusableElement = (el: HTMLElement | null) => {
   if (!el) return false;
@@ -60,6 +62,7 @@ export function TableView({ tableId }: Props) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [openSearchTick, setOpenSearchTick] = useState(0);
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
 
   // Fetch workspace members for person fields
   const { data: workspaceMembers } = useQuery({
@@ -71,6 +74,8 @@ export function TableView({ tableId }: Props) {
       return result.data || [];
     },
     enabled: !!tableData?.table.workspace_id,
+    staleTime: 5 * 60 * 1000, // 5 minutes - workspace members don't change often
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });
 
   // Always use a single source of truth for view id to keep query keys aligned
@@ -145,6 +150,15 @@ export function TableView({ tableId }: Props) {
     updateView.mutate({ config: nextConfig });
   };
 
+  const persistGroupByConfig = (groupBy: GroupByConfig | undefined) => {
+    if (!view?.id) return;
+    const nextConfig: ViewConfig = {
+      ...(view.config || {}),
+      groupBy,
+    };
+    updateView.mutate({ config: nextConfig });
+  };
+
   const handlePinColumn = (fieldId: string) => {
     const isPinned = pinnedFields.includes(fieldId);
     const nextPinned = isPinned
@@ -162,6 +176,25 @@ export function TableView({ tableId }: Props) {
 
   // Rows arrive filtered/sorted from the server based on view config
   const sortedRows = rows || [];
+  const groupByConfig = view?.config?.groupBy;
+  const groupByField = groupByConfig
+    ? fields.find((f) => f.id === groupByConfig.fieldId)
+    : undefined;
+
+  const groupedData = useMemo(() => {
+    if (!groupByField || !groupByConfig) {
+      return { grouped: false as const, rows: sortedRows };
+    }
+    if (!canGroupByField(groupByField.type)) {
+      return { grouped: false as const, rows: sortedRows };
+    }
+    const groups = groupRows(sortedRows, groupByField, collapsedGroups, {
+      members: workspaceMembers,
+      showEmptyGroups: groupByConfig.showEmptyGroups ?? true,
+      sortOrder: groupByConfig.sortOrder,
+    });
+    return { grouped: true as const, groups };
+  }, [sortedRows, groupByField, groupByConfig, collapsedGroups, workspaceMembers]);
 
   const handleCellChange = (rowId: string, fieldId: string, value: unknown) => {
     savingRows.add(rowId);
@@ -190,32 +223,73 @@ export function TableView({ tableId }: Props) {
     });
   }, [createField]);
 
-  const handleRenameField = (fieldId: string, name: string) => {
+  const handleRenameField = useCallback((fieldId: string, name: string) => {
     const target = fields.find((f) => f.id === fieldId);
     if (!target || target.name === name) return;
     setError(null);
     updateField.mutate({ id: fieldId, updates: { name } }, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to rename field"),
     });
-  };
+  }, [fields, updateField]);
 
-  const handleDeleteField = (fieldId: string) => {
+  const handleDeleteField = useCallback((fieldId: string) => {
     // prevent deleting last field
     if (fields.length <= 1) return;
     setError(null);
     deleteField.mutate(fieldId, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to delete field"),
     });
+  }, [fields.length, deleteField]);
+
+  const getDefaultConfig = (type: FieldType) => {
+    switch (type) {
+      case "status":
+        return {
+          options: [
+            { id: "status_1", label: "Not Started", color: "#6b7280" },
+            { id: "status_2", label: "In Progress", color: "#3b82f6" },
+            { id: "status_3", label: "Completed", color: "#10b981" },
+            { id: "status_4", label: "Blocked", color: "#ef4444" },
+          ],
+        };
+      case "priority":
+        return {
+          levels: [
+            { id: "pri_1", label: "Critical", color: "#ef4444", order: 4 },
+            { id: "pri_2", label: "High", color: "#f59e0b", order: 3 },
+            { id: "pri_3", label: "Medium", color: "#3b82f6", order: 2 },
+            { id: "pri_4", label: "Low", color: "#6b7280", order: 1 },
+          ],
+        };
+      default:
+        return {};
+    }
   };
 
-  const handleChangeType = (fieldId: string, type: string) => {
+  const handleChangeType = useCallback((fieldId: string, type: string) => {
     const target = fields.find((f) => f.id === fieldId);
     if (!target || target.type === type) return;
     setError(null);
-    updateField.mutate({ id: fieldId, updates: { type: type as FieldType } }, {
+
+    const config = getDefaultConfig(type as FieldType);
+    const updates: Partial<TableField> = { type: type as FieldType };
+
+    // Only set config if this type needs default config
+    if (Object.keys(config).length > 0) {
+      updates.config = config;
+    }
+
+    updateField.mutate({ id: fieldId, updates }, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to change field type"),
     });
-  };
+  }, [fields, updateField]);
+
+  const handleUpdateFieldConfig = useCallback((fieldId: string, config: any) => {
+    setError(null);
+    updateField.mutate({ id: fieldId, updates: { config } }, {
+      onError: (err) => setError(err instanceof Error ? err.message : "Failed to update field config"),
+    });
+  }, [updateField]);
 
   const handleReorderField = (fieldId: string, direction: "left" | "right") => {
     const idx = fields.findIndex((f) => f.id === fieldId);
@@ -237,7 +311,21 @@ export function TableView({ tableId }: Props) {
     persistViewConfig(next, filters);
   };
 
-  const handleResizeWidth = (fieldId: string, width: number, persist: boolean) => {
+const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
+    setCollapsedGroups([]);
+    persistGroupByConfig(groupBy);
+  };
+
+  const handleToggleGroup = (groupId: string) => {
+    if (!groupByConfig) return;
+    setCollapsedGroups((prev) => {
+      const next = prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId];
+      persistGroupByConfig({ ...groupByConfig, collapsed: next });
+      return next;
+    });
+  };
+
+  const handleResizeWidth = useCallback((fieldId: string, width: number, persist: boolean) => {
     setPendingWidths((prev) => ({ ...prev, [fieldId]: width }));
     if (persist) {
       const target = allFields.find((f) => f.id === fieldId);
@@ -246,7 +334,7 @@ export function TableView({ tableId }: Props) {
         onError: (err) => setError(err instanceof Error ? err.message : "Failed to resize column"),
       });
     }
-  };
+  }, [allFields, updateField]);
 
   const handleHideField = (fieldId: string) => {
     if (!view?.id) return;
@@ -263,7 +351,10 @@ export function TableView({ tableId }: Props) {
     updateView.mutate({ config: nextConfig });
   };
 
-  const hiddenFieldList = hiddenFields.map((id) => allFields.find((f) => f.id === id)).filter(Boolean);
+  const hiddenFieldList = useMemo(
+    () => hiddenFields.map((id) => allFields.find((f) => f.id === id)).filter(Boolean),
+    [hiddenFields, allFields]
+  );
 
   const handleCellContextMenu = (e: React.MouseEvent, rowId: string) => {
     e.preventDefault();
@@ -337,6 +428,12 @@ export function TableView({ tableId }: Props) {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to add column"),
     });
     setContextMenu(null);
+  };
+
+  const handleDropRowInGroup = (rowId: string, targetGroupId: string) => {
+    if (!groupByField) return;
+    const value = targetGroupId === "__ungrouped__" ? null : targetGroupId;
+    updateCell.mutate({ rowId, fieldId: groupByField.id, value });
   };
 
   // Keyboard shortcuts
@@ -414,6 +511,14 @@ export function TableView({ tableId }: Props) {
   }, [view?.config?.sorts, view?.config?.filters]);
 
   useEffect(() => {
+    if (view?.config?.groupBy?.collapsed) {
+      setCollapsedGroups(view.config.groupBy.collapsed);
+    } else {
+      setCollapsedGroups([]);
+    }
+  }, [view?.config?.groupBy?.collapsed]);
+
+  useEffect(() => {
     if (views && views.length > 0) {
       const current = views.find((v) => v.id === activeViewId);
       if (!current) {
@@ -453,6 +558,8 @@ export function TableView({ tableId }: Props) {
         }}
         searchInputRef={searchInputRef}
         openSearchTick={openSearchTick}
+        groupBy={groupByConfig}
+        onGroupByChange={handleGroupByChange}
         onCreateView={() =>
           createView.mutate(
             { name: "New view", type: "table" },
@@ -523,42 +630,91 @@ export function TableView({ tableId }: Props) {
             onDeleteField={handleDeleteField}
             onAddField={handleAddField}
             onChangeType={handleChangeType}
-              onReorderField={handleReorderField}
-              onPinColumn={handlePinColumn}
-              onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
-              columnRefs={Object.fromEntries(
-                fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
-              )}
-              onColumnContextMenu={handleColumnContextMenu}
-              onHideField={handleHideField}
+            onReorderField={handleReorderField}
+            onPinColumn={handlePinColumn}
+            onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
+            onUpdateFieldConfig={handleUpdateFieldConfig}
+            columnRefs={Object.fromEntries(
+              fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
+            )}
+            onColumnContextMenu={handleColumnContextMenu}
+            onHideField={handleHideField}
               onResize={handleResizeWidth}
               widths={widthMap}
               className="sticky top-0 z-10"
           />
-            {sortedRows.map((row) => (
-              <TableRow
-                key={row.id}
-                fields={fields}
-                columnTemplate={columnTemplate}
-                rowId={row.id}
-                data={row.data || {}}
-                onChange={handleCellChange}
-                savingRowIds={savingRows}
-                onOpenComments={(rid) => setCommentsRowId(rid)}
-                pinnedFields={pinnedFields}
-                onContextMenu={handleCellContextMenu}
-                widths={widthMap}
-                rowMetadata={{
-                  created_at: row.created_at,
-                  updated_at: row.updated_at,
-                  created_by: row.created_by || undefined,
-                  updated_by: row.updated_by || undefined,
-                }}
-                workspaceMembers={workspaceMembers}
-                onCellKeyDown={handleCellKeyDown}
-                cellRefs={cellRefs}
+            {groupedData.grouped ? (
+              groupedData.groups.map((group) => (
+                <React.Fragment key={group.groupId}>
+                  <GroupHeader
+                    groupId={group.groupId}
+                    groupLabel={group.groupLabel}
+                    groupColor={group.groupColor}
+                    count={group.count}
+                    isCollapsed={group.isCollapsed}
+                    onToggle={() => handleToggleGroup(group.groupId)}
+                    onDropRow={(rowId) => handleDropRowInGroup(rowId, group.groupId)}
+                  />
+                  {!group.isCollapsed &&
+                    group.rows.map((row) => (
+                      <TableRow
+                        key={row.id}
+                        fields={fields}
+                        columnTemplate={columnTemplate}
+                        rowId={row.id}
+                        data={row.data || {}}
+                        onChange={handleCellChange}
+                        savingRowIds={savingRows}
+                        onOpenComments={(rid) => setCommentsRowId(rid)}
+                        pinnedFields={pinnedFields}
+                        onContextMenu={handleCellContextMenu}
+                        widths={widthMap}
+                        rowMetadata={{
+                          created_at: row.created_at,
+                          updated_at: row.updated_at,
+                          created_by: row.created_by || undefined,
+                          updated_by: row.updated_by || undefined,
+                        }}
+                        workspaceMembers={workspaceMembers}
+                        onCellKeyDown={handleCellKeyDown}
+                        cellRefs={cellRefs}
+                        draggable
+                        onDragStart={(id, e) => {
+                          e.dataTransfer.setData("rowId", id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onUpdateFieldConfig={handleUpdateFieldConfig}
+                      />
+                    ))}
+                </React.Fragment>
+              ))
+            ) : (
+              sortedRows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  fields={fields}
+                  columnTemplate={columnTemplate}
+                  rowId={row.id}
+                  data={row.data || {}}
+                  onChange={handleCellChange}
+                  savingRowIds={savingRows}
+                  onOpenComments={(rid) => setCommentsRowId(rid)}
+                  pinnedFields={pinnedFields}
+                  onContextMenu={handleCellContextMenu}
+                  widths={widthMap}
+                  rowMetadata={{
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                    created_by: row.created_by || undefined,
+                    updated_by: row.updated_by || undefined,
+                  }}
+                  workspaceMembers={workspaceMembers}
+                  onCellKeyDown={handleCellKeyDown}
+                  cellRefs={cellRefs}
+                  onUpdateFieldConfig={handleUpdateFieldConfig}
                 />
-              ))}
+              ))
+            )}
 
                 {sortedRows.length === 0 && (
                   <div className="p-6 text-sm text-[var(--muted-foreground)] flex flex-col gap-2 items-center">

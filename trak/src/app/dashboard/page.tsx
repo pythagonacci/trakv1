@@ -47,48 +47,50 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(5),
 
-    // Get tasks from blocks
+    // Get tasks from blocks - optimized with better filtering
     supabase
       .from("blocks")
       .select(`
         id,
         content,
-        tab:tabs!blocks_tab_id_fkey(
+        tab_id,
+        tabs!inner(
           id,
           name,
-          project:projects!tabs_project_id_fkey(
+          project_id,
+          projects!inner(
             id,
-            name,
-            workspace_id
+            name
           )
         )
       `)
       .eq("type", "task")
-      .eq("tab.project.workspace_id", workspaceId)
+      .eq("tabs.projects.workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
       .limit(20),
     
     // Get standalone tasks
     getStandaloneTasks(workspaceId),
 
-    // Blocks with potential client comments
+    // Blocks with potential client comments - optimized with inner joins
     supabase
       .from("blocks")
       .select(`
         id,
         content,
         updated_at,
-        tab:tabs!blocks_tab_id_fkey(
+        tab_id,
+        tabs!inner(
           id,
           name,
-          project:projects!tabs_project_id_fkey(
+          project_id,
+          projects!inner(
             id,
-            name,
-            workspace_id
+            name
           )
         )
       `)
-      .eq("tab.project.workspace_id", workspaceId)
+      .eq("tabs.projects.workspace_id", workspaceId)
       .not("content->>_blockComments", "is", null)
       .order("updated_at", { ascending: false })
       .limit(40),
@@ -129,10 +131,10 @@ export default async function DashboardPage() {
         .map((task: any) => ({
           id: `${block.id}-${task.id}`,
           text: task.text,
-          projectName: block.tab?.project?.name || "Unknown",
-          tabName: block.tab?.name || "Unknown",
-          projectId: block.tab?.project?.id,
-          tabId: block.tab?.id,
+          projectName: block.tabs?.projects?.name || "Unknown",
+          tabName: block.tabs?.name || "Unknown",
+          projectId: block.tabs?.projects?.id,
+          tabId: block.tabs?.id,
           priority: task.priority,
           dueDate: task.dueDate,
           dueTime: task.dueTime,
@@ -170,10 +172,10 @@ export default async function DashboardPage() {
           id: comment.id ?? `${block.id}-${comment.timestamp}`,
           text: comment.text,
           author: comment.author_name || comment.author_email?.split("@")[0] || "Client",
-          projectName: block.tab?.project?.name || "Unknown project",
-          tabName: block.tab?.name || "Untitled tab",
-          projectId: block.tab?.project?.id || null,
-          tabId: block.tab?.id || null,
+          projectName: block.tabs?.projects?.name || "Unknown project",
+          tabName: block.tabs?.name || "Untitled tab",
+          projectId: block.tabs?.projects?.id || null,
+          tabId: block.tabs?.id || null,
           blockId: block.id,
           timestamp: comment.timestamp,
         }));

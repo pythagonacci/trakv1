@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { revalidatePath } from "next/cache";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 type CommentSource = "internal" | "external";
 
@@ -149,6 +151,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // SECURITY: Rate limiting - 10 comments per visitorId per 5 minutes
+    const clientIp = getClientIp(request);
+    const rateLimitKey = `comment:create:${visitorId}:${clientIp}`;
+    const rateLimit = checkRateLimit(rateLimitKey, {
+      maxRequests: 10,
+      windowMs: 5 * 60 * 1000, // 5 minutes
+      message: "Too many comments. Please wait a few minutes before commenting again.",
+    });
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: rateLimit.message },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': '10',
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': new Date(rateLimit.resetAt).toISOString(),
+          }
+        }
+      );
+    }
+
     if (!authorName || typeof authorName !== "string" || !authorName.trim()) {
       return NextResponse.json(
         { error: ERROR_MESSAGES.missingName },
@@ -208,7 +233,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ comments: updated });
   } catch (error) {
-    console.error("Client comment POST error:", error);
+    logger.error("Client comment POST error:", error);
     return NextResponse.json(
       { error: "Failed to add comment." },
       { status: 500 }
@@ -230,6 +255,29 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json(
         { error: ERROR_MESSAGES.invalid },
         { status: 400 }
+      );
+    }
+
+    // SECURITY: Rate limiting - 20 updates per visitorId per 5 minutes
+    const clientIp = getClientIp(request);
+    const rateLimitKey = `comment:update:${visitorId}:${clientIp}`;
+    const rateLimit = checkRateLimit(rateLimitKey, {
+      maxRequests: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many comment updates. Please wait a few minutes.",
+    });
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: rateLimit.message },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': '20',
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': new Date(rateLimit.resetAt).toISOString(),
+          }
+        }
       );
     }
 
@@ -301,7 +349,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ comments: updated });
   } catch (error) {
-    console.error("Client comment PATCH error:", error);
+    logger.error("Client comment PATCH error:", error);
     return NextResponse.json(
       { error: "Failed to update comment." },
       { status: 500 }
@@ -323,6 +371,29 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: ERROR_MESSAGES.invalid },
         { status: 400 }
+      );
+    }
+
+    // SECURITY: Rate limiting - 10 deletions per visitorId per 5 minutes
+    const clientIp = getClientIp(request);
+    const rateLimitKey = `comment:delete:${visitorId}:${clientIp}`;
+    const rateLimit = checkRateLimit(rateLimitKey, {
+      maxRequests: 10,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many comment deletions. Please wait a few minutes.",
+    });
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: rateLimit.message },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': '10',
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': new Date(rateLimit.resetAt).toISOString(),
+          }
+        }
       );
     }
 
@@ -384,7 +455,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ comments: updated });
   } catch (error) {
-    console.error("Client comment DELETE error:", error);
+    logger.error("Client comment DELETE error:", error);
     return NextResponse.json(
       { error: "Failed to delete comment." },
       { status: 500 }

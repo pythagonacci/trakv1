@@ -1,8 +1,10 @@
 "use client";
 
-import React, { createContext, useContext, useState, useTransition } from "react";
-import { updateCurrentWorkspace } from "@/app/actions/workspace";
+import React, { createContext, useContext, useState, useTransition, useEffect } from "react";
+import { updateCurrentWorkspace, getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { useRouter } from "next/navigation";
+import { useWorkspaces } from "@/hooks/use-workspaces";
+import { logger } from "@/lib/logger";
 
 interface Workspace {
   id: string;
@@ -15,40 +17,45 @@ interface WorkspaceContextType {
   workspaces: Workspace[];
   switchWorkspace: (workspace: Workspace) => Promise<void>;
   isSwitching: boolean;
+  isLoading: boolean;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export function WorkspaceProvider({
   children,
-  initialWorkspaces,
-  initialCurrentWorkspace,
 }: {
   children: React.ReactNode;
-  initialWorkspaces: Workspace[];
-  initialCurrentWorkspace: Workspace | null;
 }) {
-  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(
-    initialCurrentWorkspace
-  );
-  const [workspaces] = useState<Workspace[]>(initialWorkspaces);
+  const { data: workspaces = [], isLoading } = useWorkspaces();
+  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+
+  // Set current workspace from cookie when workspaces load
+  useEffect(() => {
+    if (workspaces.length > 0 && !currentWorkspace) {
+      getCurrentWorkspaceId().then((workspaceId) => {
+        const workspace = workspaces.find((w) => w.id === workspaceId) || workspaces[0];
+        setCurrentWorkspace(workspace);
+      });
+    }
+  }, [workspaces, currentWorkspace]);
 
   const switchWorkspace = async (workspace: Workspace) => {
     // Update client state immediately for optimistic UI
     setCurrentWorkspace(workspace);
-    
+
     // Update cookie on server
     const result = await updateCurrentWorkspace(workspace.id);
-    
+
     if (result.error) {
       // Revert on error
       setCurrentWorkspace(currentWorkspace);
-      console.error("Failed to switch workspace:", result.error);
+      logger.error("Failed to switch workspace:", result.error);
       return;
     }
-    
+
     // Refresh server data
     startTransition(() => {
       router.refresh();
@@ -62,6 +69,7 @@ export function WorkspaceProvider({
         workspaces,
         switchWorkspace,
         isSwitching: isPending,
+        isLoading,
       }}
     >
       {children}

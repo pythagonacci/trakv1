@@ -30,6 +30,24 @@ export async function getAllDocs(workspaceId: string, filters?: DocFilters) {
   const supabase = await createClient();
 
   try {
+    // SECURITY: Verify user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { data: null, error: "Unauthorized" };
+    }
+
+    // SECURITY: Verify user is a member of this workspace
+    const { data: membership, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberError || !membership) {
+      return { data: null, error: "You don't have access to this workspace" };
+    }
+
     let query = supabase
       .from("docs")
       .select("*")
@@ -72,7 +90,14 @@ export async function getSingleDoc(docId: string) {
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase
+    // SECURITY: Verify user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { data: null, error: "Unauthorized" };
+    }
+
+    // First, get the doc to find its workspace
+    const { data: doc, error } = await supabase
       .from("docs")
       .select("*")
       .eq("id", docId)
@@ -83,7 +108,23 @@ export async function getSingleDoc(docId: string) {
       return { data: null, error: error.message };
     }
 
-    return { data, error: null };
+    if (!doc) {
+      return { data: null, error: "Document not found" };
+    }
+
+    // SECURITY: Verify user is a member of the doc's workspace
+    const { data: membership, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", doc.workspace_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberError || !membership) {
+      return { data: null, error: "You don't have access to this document" };
+    }
+
+    return { data: doc, error: null };
   } catch (error: any) {
     console.error("Error in getSingleDoc:", error);
     return { data: null, error: error.message };
@@ -103,6 +144,18 @@ export async function createDoc(workspaceId: string, title?: string) {
 
     if (!user) {
       return { data: null, error: "Not authenticated" };
+    }
+
+    // SECURITY: Verify user is a member of this workspace before creating
+    const { data: membership, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberError || !membership) {
+      return { data: null, error: "You don't have access to this workspace" };
     }
 
     const { data, error } = await supabase
@@ -155,6 +208,29 @@ export async function updateDoc(
       return { data: null, error: "Not authenticated" };
     }
 
+    // SECURITY: First get the doc to find its workspace
+    const { data: doc } = await supabase
+      .from("docs")
+      .select("workspace_id")
+      .eq("id", docId)
+      .single();
+
+    if (!doc) {
+      return { data: null, error: "Document not found" };
+    }
+
+    // SECURITY: Verify user is a member of the doc's workspace
+    const { data: membership, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", doc.workspace_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberError || !membership) {
+      return { data: null, error: "You don't have access to this document" };
+    }
+
     const { data, error } = await supabase
       .from("docs")
       .update({
@@ -186,6 +262,38 @@ export async function deleteDoc(docId: string) {
   const supabase = await createClient();
 
   try {
+    // SECURITY: Verify user is authenticated
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: "Not authenticated" };
+    }
+
+    // SECURITY: First get the doc to find its workspace
+    const { data: doc } = await supabase
+      .from("docs")
+      .select("workspace_id")
+      .eq("id", docId)
+      .single();
+
+    if (!doc) {
+      return { error: "Document not found" };
+    }
+
+    // SECURITY: Verify user is a member of the doc's workspace
+    const { data: membership, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", doc.workspace_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberError || !membership) {
+      return { error: "You don't have access to this document" };
+    }
+
     const { error } = await supabase.from("docs").delete().eq("id", docId);
 
     if (error) {

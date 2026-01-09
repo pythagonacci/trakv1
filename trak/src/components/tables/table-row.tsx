@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { type TableField } from "@/types/table";
 import { TableCell } from "./table-cell";
 
@@ -26,9 +26,12 @@ interface Props {
   onUploadFiles?: (files: File[]) => Promise<string[]>;
   onCellKeyDown?: (e: React.KeyboardEvent, rowId: string, fieldId: string) => void;
   cellRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  draggable?: boolean;
+  onDragStart?: (rowId: string, e: React.DragEvent) => void;
+  onUpdateFieldConfig?: (fieldId: string, config: any) => void;
 }
 
-export function TableRow({
+export const TableRow = memo(function TableRow({
   fields,
   columnTemplate,
   rowId,
@@ -45,6 +48,9 @@ export function TableRow({
   onUploadFiles,
   onCellKeyDown,
   cellRefs,
+  draggable,
+  onDragStart,
+  onUpdateFieldConfig,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const template = useMemo(
@@ -70,6 +76,8 @@ export function TableRow({
         e.preventDefault();
         onContextMenu?.(e, rowId);
       }}
+      draggable={draggable}
+      onDragStart={(e) => onDragStart?.(rowId, e)}
     >
       {fields.map((field, idx) => {
         const isPinned = pinnedFields?.includes(field.id);
@@ -99,6 +107,7 @@ export function TableRow({
               workspaceMembers={workspaceMembers}
               files={files}
               onUploadFiles={onUploadFiles}
+              onUpdateFieldConfig={(config) => onUpdateFieldConfig?.(field.id, config)}
             />
           </div>
         );
@@ -106,4 +115,4 @@ export function TableRow({
       <div className="px-2 py-2 border-l border-[var(--border)]" />
     </div>
   );
-}
+});

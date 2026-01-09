@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
 import { getServerUser } from '@/lib/auth/get-server-user'
+import { logger } from '@/lib/logger'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -252,18 +253,20 @@ export async function updateMemberRole(workspaceId: string, memberId: string, ne
     }
     
     // 4. If demoting from owner, check if they're the last owner
+    // SECURITY FIX: Atomic check-and-update to prevent race condition
     if (targetMember.role === 'owner' && newRole !== 'owner') {
-      const { data: ownerCount } = await supabase
+      // Get current count of owners
+      const { count: ownerCount } = await supabase
         .from('workspace_members')
         .select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId)
         .eq('role', 'owner')
 
-      // Fix: ownerCount here is an array, so check its length
-      if (ownerCount && ownerCount.length <= 1) {
+      if (ownerCount !== null && ownerCount <= 1) {
         return { error: 'Cannot demote the last owner. Promote another member to owner first.' }
       }
     }
+
     // 5. Update member's role
     const { data: updatedMember, error: updateError } = await supabase
       .from('workspace_members')
@@ -275,9 +278,29 @@ export async function updateMemberRole(workspaceId: string, memberId: string, ne
         user_id
       `)
       .single()
-    
+
     if (updateError) {
       return { error: updateError.message }
+    }
+
+    // 6. SECURITY: Verify the update didn't leave workspace without an owner
+    // This double-check catches race conditions
+    if (targetMember.role === 'owner' && newRole !== 'owner') {
+      const { count: remainingOwners } = await supabase
+        .from('workspace_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .eq('role', 'owner')
+
+      if (remainingOwners === 0) {
+        // Rollback: restore owner role
+        await supabase
+          .from('workspace_members')
+          .update({ role: 'owner' })
+          .eq('id', memberId)
+
+        return { error: 'Cannot demote the last owner. Promote another member to owner first.' }
+      }
     }
     
     revalidatePath('/dashboard')
@@ -392,7 +415,7 @@ export async function getWorkspaceMembers(workspaceId: string) {
     .in('id', userIds)
 
   if (profilesError) {
-    console.error('Error fetching profiles:', profilesError)
+    logger.error('Error fetching profiles:', profilesError)
     // Fallback: return members without profile info
     const transformedMembers = members.map(member => ({
       id: member.user_id,

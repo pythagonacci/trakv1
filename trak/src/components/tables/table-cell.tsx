@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import { type TableField } from "@/types/table";
 import { TextCell } from "./cells/text-cell";
 import { LongTextCell } from "./cells/long-text-cell";
@@ -31,9 +31,10 @@ interface TableCellProps {
   availableRecords?: Array<{ id: string; title: string }>;
   computedValue?: unknown;
   onUploadFiles?: (files: File[]) => Promise<string[]>;
+  onUpdateFieldConfig?: (config: any) => void;
 }
 
-export function TableCell({
+export const TableCell = memo(function TableCell({
   field,
   value,
   onChange,
@@ -45,6 +46,7 @@ export function TableCell({
   availableRecords,
   computedValue,
   onUploadFiles,
+  onUpdateFieldConfig,
 }: TableCellProps) {
   const [editing, setEditing] = useState(false);
 
@@ -77,11 +79,11 @@ export function TableCell({
       );
     }
     case "select":
-      return <SelectCell {...commonProps} field={field} />;
+      return <SelectCell {...commonProps} field={field} onUpdateConfig={onUpdateFieldConfig} />;
     case "multi_select":
-      return <MultiSelectCell {...commonProps} field={field} />;
+      return <MultiSelectCell {...commonProps} field={field} onUpdateConfig={onUpdateFieldConfig} />;
     case "status":
-      return <StatusCell {...commonProps} field={field} />;
+      return <StatusCell {...commonProps} field={field} onUpdateConfig={onUpdateFieldConfig} />;
     case "priority":
       return <PriorityCell {...commonProps} field={field} />;
     case "url":
@@ -97,4 +99,4 @@ export function TableCell({
     default:
       return <TextCell {...commonProps} field={field} />;
   }
-}
+});

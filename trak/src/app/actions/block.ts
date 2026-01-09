@@ -104,15 +104,33 @@ export async function getChildBlocks(parentBlockId: string) {
       return { error: "Unauthorized" };
     }
 
-    // 2. Get parent block and verify it exists
+    // 2. Get parent block with tab and project info to verify workspace access
     const { data: parentBlock, error: parentError } = await supabase
       .from("blocks")
-      .select("id, tab_id")
+      .select("id, tab_id, tabs!inner(id, project_id, projects!inner(workspace_id))")
       .eq("id", parentBlockId)
       .single();
 
     if (parentError || !parentBlock) {
       return { error: "Parent block not found" };
+    }
+
+    // SECURITY: Extract workspace ID and verify membership
+    const workspaceId = (parentBlock.tabs as any)?.projects?.workspace_id;
+
+    if (!workspaceId) {
+      return { error: "Invalid block structure" };
+    }
+
+    const { data: membership, error: memberError } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberError || !membership) {
+      return { error: "You don't have access to this workspace" };
     }
 
     // 3. Get all child blocks for this parent block

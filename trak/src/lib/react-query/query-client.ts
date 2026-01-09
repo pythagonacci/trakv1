@@ -36,6 +36,8 @@ export function makeQueryClient() {
 
 // Cache keys for consistent querying
 export const queryKeys = {
+  currentUser: () => ['currentUser'] as const,
+  userWorkspaces: () => ['userWorkspaces'] as const,
   projectTabs: (projectId: string) => ['projectTabs', projectId] as const,
   tabBlocks: (tabId: string) => ['tabBlocks', tabId] as const,
   fileUrls: (fileIds: string[]) => ['fileUrls', fileIds.sort().join(',')] as const,

@@ -354,7 +354,8 @@ export function useSearchTableRows(tableId: string, search: string) {
 
 export function useFilteredRows(tableId: string, filters: FilterCondition[]) {
   return useQuery({
-    queryKey: ['tableFiltered', tableId, JSON.stringify(filters)],
+    // React Query handles deep equality checks automatically - no need for JSON.stringify
+    queryKey: ['tableFiltered', tableId, filters] as const,
     queryFn: async () => {
       const result = await getFilteredRows(tableId, filters);
       if ("error" in result) throw new Error(result.error);
