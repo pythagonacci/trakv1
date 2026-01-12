@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { AlertCircle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { type TableField, type PriorityFieldConfig, type PriorityLevelConfig } from "@/types/table";
 
@@ -26,7 +27,9 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
   const levels = config.levels || [];
   const [draft, setDraft] = useState<string | undefined>(typeof value === "string" ? value : undefined);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
 
   useEffect(() => {
     setDraft(typeof value === "string" ? value : undefined);
@@ -45,7 +48,13 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
     if (!dropdownOpen) return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(target)
+      ) {
         setDropdownOpen(false);
         onCancel();
       }
@@ -55,41 +64,85 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen, onCancel]);
 
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const updatePosition = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const maxHeight = 240;
+      const width = Math.max(240, rect.width);
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      const openUpward = spaceBelow < maxHeight && spaceAbove > spaceBelow;
+      const height = Math.min(maxHeight, openUpward ? spaceAbove : spaceBelow);
+      const top = openUpward ? rect.top - height : rect.bottom;
+      const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+      setDropdownStyle({
+        position: "fixed",
+        top,
+        left,
+        width,
+        maxHeight: Math.max(120, height),
+        zIndex: 60,
+      });
+    };
+
+    updatePosition();
+    const handleScroll = () => requestAnimationFrame(updatePosition);
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [dropdownOpen, levels.length]);
+
   const selectedLevel = levels.find((level) => level.id === value);
   const sortedLevels = [...levels].sort((a, b) => (b.order || 0) - (a.order || 0));
 
   if (editing && dropdownOpen) {
     return (
-      <div className="relative w-full" ref={dropdownRef}>
-        <div className="absolute top-0 left-0 right-0 bg-[var(--surface)] border border-[var(--border-strong)] rounded-[2px] shadow-lg z-10 max-h-60 overflow-y-auto">
-          <div
-            className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm text-[var(--muted-foreground)]"
-            onClick={() => {
-              setDraft(undefined);
-              onCommit(null);
-              setDropdownOpen(false);
-            }}
-          >
-            Clear
-          </div>
-          {sortedLevels.map((level: PriorityLevelConfig) => (
+      <>
+        <div className="w-full min-h-[18px]" ref={anchorRef} />
+        {dropdownStyle &&
+          createPortal(
             <div
-              key={level.id}
-              className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm flex items-center gap-2"
-              onClick={() => {
-                setDraft(level.id);
-                onCommit(level.id);
-                setDropdownOpen(false);
-              }}
+              ref={dropdownRef}
+              style={dropdownStyle}
+              className="bg-[var(--surface)] border border-[var(--border-strong)] rounded-[2px] shadow-lg overflow-y-auto"
             >
-              <div style={{ color: level.color || 'var(--muted-foreground)' }}>
-                {getPriorityIcon(level.order || 0)}
+              <div
+                className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm text-[var(--muted-foreground)]"
+                onClick={() => {
+                  setDraft(undefined);
+                  onCommit(null);
+                  setDropdownOpen(false);
+                }}
+              >
+                Clear
               </div>
-              <span className="text-[var(--foreground)]">{level.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+              {sortedLevels.map((level: PriorityLevelConfig) => (
+                <div
+                  key={level.id}
+                  className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm flex items-center gap-2"
+                  onClick={() => {
+                    setDraft(level.id);
+                    onCommit(level.id);
+                    setDropdownOpen(false);
+                  }}
+                >
+                  <div style={{ color: level.color || "var(--muted-foreground)" }}>
+                    {getPriorityIcon(level.order || 0)}
+                  </div>
+                  <span className="text-[var(--foreground)]">{level.label}</span>
+                </div>
+              ))}
+            </div>,
+            document.body
+          )}
+      </>
     );
   }
 

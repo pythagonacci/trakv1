@@ -25,6 +25,7 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }
   { value: "long_text", label: "Long Text", category: "Basic" },
   { value: "number", label: "Number", category: "Basic" },
   { value: "date", label: "Date", category: "Basic" },
+  { value: "checkbox", label: "Checkbox", category: "Basic" },
 
   // Selection Types
   { value: "select", label: "Select", category: "Select" },
@@ -38,6 +39,11 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }
   { value: "url", label: "URL", category: "Contact" },
   { value: "person", label: "Person", category: "Contact" },
   { value: "files", label: "Files", category: "Contact" },
+
+  // Relations & Computed
+  { value: "relation", label: "Relation", category: "Advanced" },
+  { value: "rollup", label: "Rollup", category: "Advanced" },
+  { value: "formula", label: "Formula", category: "Advanced" },
 ];
 
 interface Props {
@@ -45,15 +51,21 @@ interface Props {
   columnTemplate?: string;
   sorts: SortCondition[];
   pinnedFields?: string[];
+  selectedCount?: number;
+  totalCount?: number;
+  selectionWidth?: number;
+  onToggleAllRows?: () => void;
   onToggleSort: (fieldId: string) => void;
   onSetSort: (fieldId: string, direction: "asc" | "desc" | null) => void;
   onRenameField: (fieldId: string, name: string) => void;
   onDeleteField: (fieldId: string) => void;
   onAddField: () => void;
+  onInsertField?: (fieldId: string, direction: "left" | "right") => void;
   onChangeType: (fieldId: string, type: FieldType) => void;
   onReorderField: (fieldId: string, direction: "left" | "right") => void;
   onPinColumn?: (fieldId: string) => void;
   onViewColumnDetails?: (fieldId: string) => void;
+  onConfigureField?: (fieldId: string) => void;
   columnRefs?: Record<string, (el: HTMLDivElement | null) => void>;
   className?: string;
   onColumnContextMenu?: (e: React.MouseEvent, fieldId: string) => void;
@@ -68,15 +80,21 @@ export function TableHeaderRow({
   columnTemplate,
   sorts,
   pinnedFields = [],
+  selectedCount = 0,
+  totalCount = 0,
+  selectionWidth = 0,
+  onToggleAllRows,
   onToggleSort,
   onSetSort,
   onRenameField,
   onDeleteField,
   onAddField,
+  onInsertField,
   onChangeType,
   onReorderField,
   onPinColumn,
   onViewColumnDetails,
+  onConfigureField,
   columnRefs,
   className,
   onColumnContextMenu,
@@ -85,20 +103,26 @@ export function TableHeaderRow({
   widths,
   onUpdateFieldConfig,
 }: Props) {
-  const template = useMemo(
-    () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
-    [columnTemplate, fields.length]
-  );
+  const template = useMemo(() => {
+    if (columnTemplate) return columnTemplate;
+    // Default template: selection column + fields + add column
+    const fieldsTemplate = Array(fields.length).fill("minmax(180px,1fr)").join(" ");
+    const selectionCol = selectionWidth || 36;
+    return `${selectionCol}px ${fieldsTemplate} 40px`;
+  }, [columnTemplate, fields.length, selectionWidth]);
 
   const pinnedOffsets = useMemo(() => {
-    let acc = 0;
+    let acc = selectionWidth;
     const offsets: Record<string, number> = {};
     fields.forEach((f) => {
       offsets[f.id] = acc;
       acc += widths?.[f.id] ?? f.width ?? DEFAULT_COL_WIDTH;
     });
     return offsets;
-  }, [fields, widths]);
+  }, [fields, widths, selectionWidth]);
+
+  const allSelected = totalCount > 0 && selectedCount === totalCount;
+  const someSelected = selectedCount > 0 && selectedCount < totalCount;
 
   return (
     <div className={`relative w-full ${className ?? ""}`}>
@@ -106,6 +130,17 @@ export function TableHeaderRow({
         className="grid border-b border-l border-[var(--border)] bg-[var(--background)] w-full"
         style={{ gridTemplateColumns: template }}
       >
+        <div className="flex items-center justify-center border-r border-[var(--border)] bg-[var(--surface-muted)] sticky left-0 z-30">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = someSelected;
+            }}
+            onChange={() => onToggleAllRows?.()}
+            className="h-4 w-4 accent-[var(--primary)]"
+          />
+        </div>
         {fields.map((field, idx) => {
           const isPinned = pinnedFields.includes(field.id);
           return (
@@ -132,11 +167,13 @@ export function TableHeaderRow({
                 onRenameField={onRenameField}
                 onDeleteField={onDeleteField}
                 onChangeType={onChangeType}
-            onReorderField={onReorderField}
-            onSetSort={onSetSort}
-            onToggleSort={onToggleSort}
+                onInsertField={onInsertField}
+                onReorderField={onReorderField}
+                onSetSort={onSetSort}
+                onToggleSort={onToggleSort}
                 onPinColumn={onPinColumn}
                 onViewColumnDetails={onViewColumnDetails}
+                onConfigureField={onConfigureField}
                 onHideField={onHideField}
             onResize={onResize}
             currentWidth={widths?.[field.id]}
@@ -168,11 +205,13 @@ interface FieldHeaderProps {
   onRenameField: (fieldId: string, name: string) => void;
   onDeleteField: (fieldId: string) => void;
   onChangeType: (fieldId: string, type: FieldType) => void;
+  onInsertField?: (fieldId: string, direction: "left" | "right") => void;
   onReorderField: (fieldId: string, direction: "left" | "right") => void;
   onSetSort: (fieldId: string, direction: "asc" | "desc" | null) => void;
   onToggleSort: (fieldId: string) => void;
   onPinColumn?: (fieldId: string) => void;
   onViewColumnDetails?: (fieldId: string) => void;
+  onConfigureField?: (fieldId: string) => void;
   onHideField?: (fieldId: string) => void;
   onResize?: (fieldId: string, width: number, persist: boolean) => void;
   currentWidth?: number;
@@ -212,11 +251,13 @@ function FieldHeader({
   onRenameField,
   onDeleteField,
   onChangeType,
+  onInsertField,
   onReorderField,
   onSetSort,
   onToggleSort,
   onPinColumn,
   onViewColumnDetails,
+  onConfigureField,
   onHideField,
   onResize,
   currentWidth,
@@ -287,6 +328,14 @@ function FieldHeader({
         <DropdownMenuContent align="end" className="p-1 min-w-[140px]">
           <DropdownMenuLabel className="px-2 py-1 text-[10px]">Field actions</DropdownMenuLabel>
           <DropdownMenuSeparator className="my-1" />
+          {onConfigureField && ["relation", "rollup", "formula"].includes(field.type) && (
+            <DropdownMenuItem
+              onSelect={() => onConfigureField(field.id)}
+              className="gap-1.5 px-2 py-1 text-xs"
+            >
+              Configure field
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={() => onDeleteField(field.id)}
             disabled={!canDelete}
@@ -332,6 +381,23 @@ function FieldHeader({
           </DropdownMenuRadioGroup>
 
           <DropdownMenuSeparator className="my-1" />
+          {onInsertField && (
+            <>
+              <DropdownMenuItem
+                onSelect={() => onInsertField(field.id, "left")}
+                className="gap-1.5 px-2 py-1 text-xs"
+              >
+                <ArrowLeft className="h-3 w-3" /> Add column left
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => onInsertField(field.id, "right")}
+                className="gap-1.5 px-2 py-1 text-xs"
+              >
+                <ArrowRight className="h-3 w-3" /> Add column right
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="my-1" />
+            </>
+          )}
           <DropdownMenuItem
             onSelect={() => onReorderField(field.id, "left")}
             disabled={isFirst}

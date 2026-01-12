@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 import { useTable } from "@/lib/hooks/use-table-queries";
-import type { TableRow } from "@/types/table";
+import type { TableField, TableRow } from "@/types/table";
 import { TableCell } from "./table-cell";
 
 interface Props {
@@ -15,6 +15,10 @@ interface Props {
 export function ColumnDetailPanel({ tableId, fieldId, rows, onClose }: Props) {
   const { data: tableData } = useTable(tableId);
   const field = tableData?.fields.find((f) => f.id === fieldId);
+  const fieldMap = (tableData?.fields || []).reduce<Record<string, TableField>>((acc, item) => {
+    acc[item.id] = item;
+    return acc;
+  }, {});
 
   if (!field) return null;
 
@@ -54,7 +58,10 @@ export function ColumnDetailPanel({ tableId, fieldId, rows, onClose }: Props) {
                     field={field}
                     value={item.value}
                     onChange={() => {}} // Read-only in detail panel for now
+                    tableId={tableId}
+                    rowId={item.rowId}
                     saving={false}
+                    fieldMap={fieldMap}
                   />
                 </div>
               </div>
@@ -69,4 +76,3 @@ export function ColumnDetailPanel({ tableId, fieldId, rows, onClose }: Props) {
     </div>
   );
 }
-

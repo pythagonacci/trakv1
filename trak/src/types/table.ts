@@ -11,6 +11,7 @@ export type FieldType =
   | "select"
   | "multi_select"
   | "date"
+  | "checkbox"
   | "url"
   | "email"
   | "phone"
@@ -64,25 +65,79 @@ export interface FormulaFieldConfig {
   /** Expression string using supported functions */
   formula: string;
   /** Expected result type to drive rendering */
-  resultType: FieldType;
+  resultType?: FieldType;
+  /** Formula return type for computed rendering */
+  return_type?: "number" | "text" | "boolean" | "date";
+  /** Field IDs used by the formula for invalidation */
+  dependencies?: string[];
 }
 
 export interface RelationFieldConfig {
-  /** Target table identifier */
-  linkedTableId: string;
-  /** Allow multiple related records */
-  allowMultiple: boolean;
-  /** Whether relation is symmetric */
-  symmetricRelation: boolean;
+  /** Target table identifier (preferred) */
+  relation_table_id?: string;
+  /** Relationship cardinality */
+  relation_type?: "one_to_many" | "many_to_many";
+  /** Whether relation is bidirectional */
+  bidirectional?: boolean;
+  /** Reverse field id when bidirectional */
+  reverse_field_id?: string;
+  /** Reverse field allows multiple links */
+  reverse_allow_multiple?: boolean;
+  /** Field id to use for display in related table */
+  display_field_id?: string;
+  /** Allow multiple related records (preferred) */
+  allow_multiple?: boolean;
+  /** Max number of linked rows */
+  limit?: number;
+  /** Legacy: target table identifier */
+  linkedTableId?: string;
+  /** Legacy: allow multiple related records */
+  allowMultiple?: boolean;
+  /** Legacy: symmetric relation flag */
+  symmetricRelation?: boolean;
+  /** Legacy: reverse allow multiple */
+  reverseAllowMultiple?: boolean;
+  /** Legacy: display field */
+  displayFieldId?: string;
 }
 
 export interface RollupFieldConfig {
   /** Relation field on this table that points outward */
-  relationFieldId: string;
+  relation_field_id?: string;
   /** Field on the related table to aggregate */
-  relatedFieldId: string;
+  target_field_id?: string;
   /** Aggregation strategy */
-  aggregation: "count" | "sum" | "average" | "min" | "max";
+  aggregation:
+    | "count"
+    | "count_values"
+    | "count_unique"
+    | "count_empty"
+    | "percent_empty"
+    | "percent_not_empty"
+    | "sum"
+    | "average"
+    | "median"
+    | "min"
+    | "max"
+    | "range"
+    | "earliest_date"
+    | "latest_date"
+    | "date_range"
+    | "checked"
+    | "unchecked"
+    | "percent_checked"
+    | "show_unique"
+    | "show_original";
+  /** Optional filter for related rows */
+  filter?: {
+    field_id: string;
+    operator: FilterCondition["operator"];
+    value: unknown;
+  };
+  /** Legacy: relation field id */
+  relationFieldId?: string;
+  /** Legacy: related field id */
+  relatedFieldId?: string;
 }
 
 export interface StatusFieldConfig {
@@ -188,7 +243,26 @@ export interface ViewConfig {
     coverFieldId?: string;
     cardSize: "small" | "medium" | "large";
   };
+  /** Column calculation metadata */
+  field_calculations?: Record<string, CalculationType>;
 }
+
+export type CalculationType =
+  | "sum"
+  | "average"
+  | "median"
+  | "min"
+  | "max"
+  | "range"
+  | "count_all"
+  | "count_values"
+  | "count_empty"
+  | "count_unique"
+  | "percent_empty"
+  | "percent_filled"
+  | "checked"
+  | "unchecked"
+  | "percent_checked";
 
 export interface Table {
   /** Primary identifier (UUID) */

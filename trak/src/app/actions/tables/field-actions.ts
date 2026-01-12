@@ -5,6 +5,9 @@
 // - Triggers in add_tables_schema.sql set ordering and enforce RLS; we still gate by workspace membership before writes.
 
 import { requireTableAccess } from "./context";
+import { recomputeFormulaField } from "./formula-actions";
+import { recomputeRollupField } from "./rollup-actions";
+import { extractDependencies } from "@/lib/formula-parser";
 import type { FieldType, TableField } from "@/types/table";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -41,22 +44,48 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   if (error || !data) {
     return { error: "Failed to create field" };
   }
+
+  if (input.type === "formula") {
+    await recomputeFormulaField(data.id);
+  }
+  if (input.type === "rollup") {
+    await recomputeRollupField(data.id);
+  }
+
   return { data };
 }
 
 export async function updateField(fieldId: string, updates: Partial<Pick<TableField, "name" | "type" | "config" | "is_primary" | "width">>): Promise<ActionResult<TableField>> {
-  const { supabase, table, error } = await getFieldContext(fieldId);
+  const { supabase, table, field, error } = await getFieldContext(fieldId);
   if (error) return { error };
+
+  let nextConfig = updates.config;
+  if (nextConfig !== undefined && (updates.type === "formula" || field.type === "formula")) {
+    const formula = (nextConfig as any)?.formula ?? (field.config as any)?.formula;
+    if (formula) {
+      const { data: fields } = await supabase
+        .from("table_fields")
+        .select("*")
+        .eq("table_id", table.id);
+      const dependencies = extractDependencies(formula, (fields || []) as TableField[]);
+      nextConfig = { ...(nextConfig as Record<string, unknown>), dependencies };
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    name: updates.name,
+    type: updates.type,
+    is_primary: updates.is_primary,
+    width: updates.width,
+  };
+
+  if (updates.config !== undefined) {
+    updatePayload.config = nextConfig;
+  }
 
   const { data, error: updateError } = await supabase
     .from("table_fields")
-    .update({
-      name: updates.name,
-      type: updates.type,
-      config: updates.config,
-      is_primary: updates.is_primary,
-      width: updates.width,
-    })
+    .update(updatePayload)
     .eq("id", fieldId)
     .eq("table_id", table.id)
     .select("*")
@@ -65,6 +94,14 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
   if (updateError || !data) {
     return { error: "Failed to update field" };
   }
+
+  if (updates.type === "formula" || data.type === "formula") {
+    await recomputeFormulaField(fieldId);
+  }
+  if (updates.type === "rollup" || data.type === "rollup") {
+    await recomputeRollupField(fieldId);
+  }
+
   return { data };
 }
 
@@ -101,14 +138,20 @@ export async function reorderFields(tableId: string, orders: Array<{ fieldId: st
   // Step 1: Set all to temporary negative values to free up order slots (batch update)
   const tempUpdates = orders.map((o) => ({
     id: o.fieldId,
-    table_id: tableId,
     order: -(tempOffset + o.order),
   }));
 
-  const { error: step1Error } = await supabase
-    .from("table_fields")
-    .upsert(tempUpdates, { onConflict: "id" });
+  const step1Results = await Promise.all(
+    tempUpdates.map((update) =>
+      supabase
+        .from("table_fields")
+        .update({ order: update.order })
+        .eq("id", update.id)
+        .eq("table_id", tableId)
+    )
+  );
 
+  const step1Error = step1Results.find((res) => res.error)?.error;
   if (step1Error) {
     console.error("reorderFields: Step 1 error:", step1Error);
     return { error: `Failed to reorder fields: ${step1Error.message}` };
@@ -117,14 +160,20 @@ export async function reorderFields(tableId: string, orders: Array<{ fieldId: st
   // Step 2: Set to correct values (batch update)
   const finalUpdates = orders.map((o) => ({
     id: o.fieldId,
-    table_id: tableId,
     order: o.order,
   }));
 
-  const { error: step2Error } = await supabase
-    .from("table_fields")
-    .upsert(finalUpdates, { onConflict: "id" });
+  const step2Results = await Promise.all(
+    finalUpdates.map((update) =>
+      supabase
+        .from("table_fields")
+        .update({ order: update.order })
+        .eq("id", update.id)
+        .eq("table_id", tableId)
+    )
+  );
 
+  const step2Error = step2Results.find((res) => res.error)?.error;
   if (step2Error) {
     console.error("reorderFields: Step 2 error:", step2Error);
     return { error: `Failed to reorder fields: ${step2Error.message}` };
@@ -159,6 +208,14 @@ export async function updateFieldConfig(fieldId: string, config: Record<string, 
   if (updateError || !data) {
     return { error: "Failed to update field config" };
   }
+
+  if (data.type === "formula") {
+    await recomputeFormulaField(fieldId);
+  }
+  if (data.type === "rollup") {
+    await recomputeRollupField(fieldId);
+  }
+
   return { data };
 }
 
@@ -173,7 +230,7 @@ async function getFieldContext(fieldId: string) {
   const { supabaseClient, userId } = supabase;
   const { data: field, error: fieldError } = await supabaseClient
     .from("table_fields")
-    .select("id, table_id")
+    .select("id, table_id, type, config")
     .eq("id", fieldId)
     .maybeSingle();
 
@@ -184,7 +241,7 @@ async function getFieldContext(fieldId: string) {
   const access = await requireTableAccess(field.table_id);
   if ("error" in access) return access;
 
-  return { supabase: access.supabase, table: access.table, userId };
+  return { supabase: access.supabase, table: access.table, userId, field };
 }
 
 async function requireFieldSupabase() {

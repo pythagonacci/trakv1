@@ -202,6 +202,63 @@ CREATE POLICY "Table rows deletable by workspace members"
     )
   );
 
+CREATE TABLE IF NOT EXISTS table_relations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  from_table_id UUID NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
+  from_field_id UUID NOT NULL REFERENCES table_fields(id) ON DELETE CASCADE,
+  from_row_id UUID NOT NULL REFERENCES table_rows(id) ON DELETE CASCADE,
+  to_table_id UUID NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
+  to_row_id UUID NOT NULL REFERENCES table_rows(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT table_relations_unique_link UNIQUE (from_row_id, from_field_id, to_row_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_table_relations_from ON table_relations(from_row_id, from_field_id);
+CREATE INDEX IF NOT EXISTS idx_table_relations_to ON table_relations(to_row_id);
+CREATE INDEX IF NOT EXISTS idx_table_relations_from_table ON table_relations(from_table_id);
+CREATE INDEX IF NOT EXISTS idx_table_relations_to_table ON table_relations(to_table_id);
+
+ALTER TABLE table_relations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Table relations visible to workspace members"
+  ON table_relations
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM tables t
+      WHERE t.id = table_relations.from_table_id
+        AND t.workspace_id IN (
+          SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid()
+        )
+    )
+  );
+
+CREATE POLICY "Table relations insertable by workspace members"
+  ON table_relations
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM tables t
+      WHERE t.id = table_relations.from_table_id
+        AND t.workspace_id IN (
+          SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid()
+        )
+    )
+  );
+
+CREATE POLICY "Table relations deletable by workspace members"
+  ON table_relations
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM tables t
+      WHERE t.id = table_relations.from_table_id
+        AND t.workspace_id IN (
+          SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid()
+        )
+    )
+  );
+
 CREATE TABLE IF NOT EXISTS table_views (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   table_id UUID NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
@@ -409,6 +466,11 @@ BEGIN
   -- Ensure all keys reference existing fields on the table
   FOR key IN SELECT jsonb_object_keys(COALESCE(NEW.data, '{}'::jsonb))
   LOOP
+    -- Skip computed metadata keys used by rollups/formulas (not field IDs)
+    IF key LIKE '%\\_computed_at' ESCAPE '\\' THEN
+      CONTINUE;
+    END IF;
+
     SELECT id, type, config INTO field_record
     FROM table_fields
     WHERE id = key::uuid
@@ -489,4 +551,3 @@ CREATE TRIGGER table_rows_set_order
 CREATE TRIGGER table_rows_validate_data
   BEFORE INSERT OR UPDATE ON table_rows
   FOR EACH ROW EXECUTE FUNCTION validate_table_row_data();
-

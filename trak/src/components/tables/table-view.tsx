@@ -5,7 +5,7 @@
 // - Only table view is implemented here; other view types (board/list/gallery/calendar) intentionally omitted per scope.
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { Plus, EyeOff, Eye } from "lucide-react";
+import { Plus, EyeOff } from "lucide-react";
 import {
   useTable,
   useTableRows,
@@ -22,6 +22,9 @@ import {
   useCreateView,
   useDeleteView,
   useSetDefaultView,
+  useBulkDeleteRows,
+  useBulkDuplicateRows,
+  useBulkUpdateRows,
 } from "@/lib/hooks/use-table-queries";
 import { TableHeaderRow } from "./table-header-row";
 import { TableRow } from "./table-row";
@@ -29,11 +32,19 @@ import { TableHeaderCompact } from "./table-header-compact";
 import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
+import { TableFooterRow } from "./table-footer-row";
+import { BulkActionsToolbar } from "./bulk-actions-toolbar";
+import { BulkDeleteDialog } from "./bulk-delete-dialog";
+import { RelationConfigModal } from "./relation-config-modal";
+import { RollupConfigModal } from "./rollup-config-modal";
+import { FormulaConfigModal } from "./formula-config-modal";
 import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, TableField } from "@/types/table";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
-import { useQuery } from "@tanstack/react-query";
+import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/react-query/query-client";
 import React from "react";
-import { groupRows, canGroupByField, GroupedData } from "@/lib/table-grouping";
+import { groupRows, canGroupByField } from "@/lib/table-grouping";
 import { GroupHeader } from "./group-header";
 
 const isFocusableElement = (el: HTMLElement | null) => {
@@ -50,6 +61,7 @@ interface Props {
 }
 
 export function TableView({ tableId }: Props) {
+  const queryClient = useQueryClient();
   const { data: tableData, isLoading: metaLoading } = useTable(tableId);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [commentsRowId, setCommentsRowId] = useState<string | null>(null);
@@ -63,6 +75,14 @@ export function TableView({ tableId }: Props) {
   const [openSearchTick, setOpenSearchTick] = useState(0);
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
+  const [relationConfigField, setRelationConfigField] = useState<TableField | null>(null);
+  const [rollupConfigField, setRollupConfigField] = useState<TableField | null>(null);
+  const [formulaConfigField, setFormulaConfigField] = useState<TableField | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [relationCount, setRelationCount] = useState<number | null>(null);
+  const [countingRelations, setCountingRelations] = useState(false);
 
   // Fetch workspace members for person fields
   const { data: workspaceMembers } = useQuery({
@@ -97,6 +117,9 @@ export function TableView({ tableId }: Props) {
   const createView = useCreateView(tableId);
   const deleteView = useDeleteView(tableId);
   const setDefaultView = useSetDefaultView(tableId);
+  const bulkDeleteRows = useBulkDeleteRows(tableId);
+  const bulkDuplicateRows = useBulkDuplicateRows(tableId);
+  const bulkUpdateRows = useBulkUpdateRows(tableId);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
   const hiddenFields = useMemo(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
@@ -118,13 +141,15 @@ export function TableView({ tableId }: Props) {
     },
     [pendingWidths, allFields]
   );
+
+  const selectionWidth = 36;
   
   const columnTemplate = useMemo(() => {
-    if (!fields.length) return "1fr 40px";
+    if (!fields.length) return `${selectionWidth}px 1fr 40px`;
     // Use explicit widths per field; append thin add-column slot
     const base = fields.map((f) => `${getWidthForField(f.id)}px`).join(" ");
-    return `${base} 40px`;
-  }, [fields, getWidthForField]);
+    return `${selectionWidth}px ${base} 40px`;
+  }, [fields, getWidthForField, selectionWidth]);
 
   const widthMap = useMemo(() => {
     const acc: Record<string, number> = {};
@@ -146,6 +171,22 @@ export function TableView({ tableId }: Props) {
       sorts: nextSorts,
       filters: nextFilters,
       ...(nextPinnedFields !== undefined && { pinnedFields: nextPinnedFields }),
+    };
+    updateView.mutate({ config: nextConfig });
+  };
+
+  const handleUpdateCalculation = (fieldId: string, calculation: string | null) => {
+    if (!view?.id) return;
+    const current = view.config?.field_calculations || {};
+    const next = { ...current };
+    if (!calculation) {
+      delete next[fieldId];
+    } else {
+      next[fieldId] = calculation as any;
+    }
+    const nextConfig: ViewConfig = {
+      ...(view.config || {}),
+      field_calculations: next,
     };
     updateView.mutate({ config: nextConfig });
   };
@@ -196,13 +237,135 @@ export function TableView({ tableId }: Props) {
     return { grouped: true as const, groups };
   }, [sortedRows, groupByField, groupByConfig, collapsedGroups, workspaceMembers]);
 
+  const visibleRows = useMemo(() => {
+    if (!groupedData.grouped) return groupedData.rows;
+    return groupedData.groups.flatMap((group) => (group.isCollapsed ? [] : group.rows));
+  }, [groupedData]);
+
+  // Memoize row IDs to prevent infinite loops
+  const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
+  
+  useEffect(() => {
+    const rowIdSet = new Set(sortedRowIds);
+    setSelectedRows((prev) => {
+      const filtered = new Set(Array.from(prev).filter((id) => rowIdSet.has(id)));
+      // Only update if selection actually changed
+      if (filtered.size === prev.size && Array.from(filtered).every(id => prev.has(id))) {
+        return prev; // No change, return same reference
+      }
+      return filtered;
+    });
+  }, [sortedRowIds]);
+
   const handleCellChange = (rowId: string, fieldId: string, value: unknown) => {
+    const targetField = allFields.find((field) => field.id === fieldId);
     savingRows.add(rowId);
     updateCell.mutate(
       { rowId, fieldId, value },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           savingRows.delete(rowId);
+          if (targetField?.type === "relation") {
+            const config = targetField.config as any;
+            const relationIds = Array.isArray(value) ? value : [];
+            
+            // Invalidate current row's related rows query
+            queryClient.invalidateQueries({ queryKey: ["relatedRows", rowId, fieldId] });
+            
+            // Invalidate main table rows query
+            queryClient.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, effectiveViewId) });
+            
+            // If bidirectional, invalidate the opposite field's queries for all affected related rows
+            if (config?.reverse_field_id && config?.bidirectional) {
+              const oppositeFieldId = config.reverse_field_id;
+              const relatedTableId = config.relation_table_id || config.linkedTableId;
+              
+              // Get previous value to find all affected rows (both added and removed)
+              const previousRow = rows.find(r => r.id === rowId);
+              const previousIds = Array.isArray(previousRow?.data?.[fieldId]) 
+                ? (previousRow.data[fieldId] as string[])
+                : [];
+              
+              // Get all affected row IDs (both old and new)
+              const allAffectedIds = Array.from(new Set([...previousIds, ...relationIds]));
+              
+              // config.reverse_field_id always points to the opposite field:
+              // - If we're on reverse field (Projects in Tasks), it points to forward field (Tasks in Projects)
+              // - If we're on forward field (Tasks in Projects), it points to reverse field (Projects in Tasks)
+              // So we always invalidate the opposite field's queries on related rows
+              allAffectedIds.forEach((affectedRowId) => {
+                queryClient.invalidateQueries({ 
+                  queryKey: ["relatedRows", affectedRowId, oppositeFieldId] 
+                });
+              });
+              
+              // Also update the cached row data for the related table
+              // This ensures the UI updates immediately without waiting for a refetch
+              if (relatedTableId) {
+                // Update cached row data for affected rows in the related table
+                allAffectedIds.forEach((affectedRowId) => {
+                  // Get all cached tableRows queries for the related table
+                  const cachedQueries = queryClient.getQueriesData({ 
+                    queryKey: ["tableRows", relatedTableId],
+                    exact: false 
+                  });
+                  
+                  cachedQueries.forEach(([queryKey, cachedData]) => {
+                    if (cachedData && typeof cachedData === 'object' && 'rows' in cachedData) {
+                      const data = cachedData as { rows: TableRow[] };
+                      const updatedRows = data.rows.map((r) => {
+                        if (r.id === affectedRowId) {
+                          // Update the opposite field's data with the new relation IDs
+                          const currentValue = Array.isArray(r.data?.[oppositeFieldId]) 
+                            ? (r.data[oppositeFieldId] as string[])
+                            : [];
+                          
+                          // Calculate the new value based on what was added/removed
+                          // affectedRowId is the related row (e.g., Project A)
+                          // rowId is the current row (e.g., Task 3)
+                          const wasInPrevious = previousIds.includes(affectedRowId);
+                          const isInNew = relationIds.includes(affectedRowId);
+                          
+                          let newValue: string[];
+                          if (isInNew && !wasInPrevious) {
+                            // Added: add current rowId to the related row's opposite field
+                            newValue = Array.from(new Set([...currentValue, rowId]));
+                          } else if (!isInNew && wasInPrevious) {
+                            // Removed: remove current rowId from the related row's opposite field
+                            newValue = currentValue.filter(id => id !== rowId);
+                          } else {
+                            // No change for this row
+                            newValue = currentValue;
+                          }
+                          
+                          return {
+                            ...r,
+                            data: {
+                              ...r.data,
+                              [oppositeFieldId]: newValue,
+                            },
+                          };
+                        }
+                        return r;
+                      });
+                      
+                      queryClient.setQueryData(queryKey, {
+                        ...data,
+                        rows: updatedRows,
+                      });
+                    }
+                  });
+                });
+                
+                // Also invalidate to ensure consistency
+                queryClient.invalidateQueries({ 
+                  queryKey: ["tableRows", relatedTableId],
+                  exact: false,
+                  refetchType: 'active'
+                });
+              }
+            }
+          }
         },
         onError: (err) => {
           console.error("Cell update error:", err);
@@ -214,6 +377,120 @@ export function TableView({ tableId }: Props) {
         },
       }
     );
+  };
+
+  const handleSelectRow = useCallback(
+    (rowId: string, event: React.MouseEvent<HTMLInputElement>) => {
+      const isChecked = event.currentTarget.checked;
+      setSelectedRows((prev) => {
+        const next = new Set(prev);
+        if (event.shiftKey && lastSelectedRowId) {
+          const ids = visibleRows.map((row) => row.id);
+          const start = ids.indexOf(lastSelectedRowId);
+          const end = ids.indexOf(rowId);
+          if (start !== -1 && end !== -1) {
+            const [from, to] = start < end ? [start, end] : [end, start];
+            for (let i = from; i <= to; i++) {
+              if (isChecked) {
+                next.add(ids[i]);
+              } else {
+                next.delete(ids[i]);
+              }
+            }
+          }
+        } else if (isChecked) {
+          next.add(rowId);
+        } else {
+          next.delete(rowId);
+        }
+        return next;
+      });
+      setLastSelectedRowId(rowId);
+    },
+    [lastSelectedRowId, visibleRows]
+  );
+
+  const handleToggleAllRows = useCallback(() => {
+    setSelectedRows((prev) => {
+      if (prev.size === sortedRows.length) return new Set();
+      return new Set(sortedRows.map((row) => row.id));
+    });
+  }, [sortedRows]);
+
+  const handleBulkDelete = async () => {
+    if (selectedRows.size === 0) return;
+    setDeleteDialogOpen(true);
+    setCountingRelations(true);
+    setRelationCount(null);
+    try {
+      const result = await countRelationLinksForRows({
+        tableId,
+        rowIds: Array.from(selectedRows),
+      });
+      if ("data" in result) {
+        setRelationCount(result.data.count);
+      }
+    } finally {
+      setCountingRelations(false);
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedRows.size === 0) return;
+    try {
+      await bulkDeleteRows.mutateAsync(Array.from(selectedRows));
+      setSelectedRows(new Set());
+      setDeleteDialogOpen(false);
+    } catch (err) {
+      console.error("Bulk delete failed:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete rows");
+    }
+  };
+
+  const handleBulkDuplicate = () => {
+    if (selectedRows.size === 0) return;
+    bulkDuplicateRows.mutate(Array.from(selectedRows), {
+      onSuccess: () => setSelectedRows(new Set()),
+    });
+  };
+
+  const handleBulkUpdateField = async (fieldId: string, value: unknown) => {
+    if (selectedRows.size === 0) return;
+    try {
+      await bulkUpdateRows.mutateAsync({ rowIds: Array.from(selectedRows), updates: { [fieldId]: value } });
+      setSelectedRows(new Set());
+    } catch (err) {
+      console.error("Bulk update failed:", err);
+      setError(err instanceof Error ? err.message : "Failed to update rows");
+    }
+  };
+
+  const handleBulkExport = () => {
+    if (selectedRows.size === 0) return;
+    const rowsToExport = sortedRows.filter((row) => selectedRows.has(row.id));
+    const headers = fields.map((field) => field.name);
+    const csvRows = [headers.join(",")];
+
+    const escapeCsv = (val: unknown) => {
+      const str = String(val ?? "");
+      if (str.includes(",") || str.includes("\"") || str.includes("\n")) {
+        return `"${str.replace(/\"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    rowsToExport.forEach((row) => {
+      const values = fields.map((field) => escapeCsv(row.data?.[field.id]));
+      csvRows.push(values.join(","));
+    });
+
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `table-export-${tableId}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleAddField = useCallback(() => {
@@ -271,6 +548,19 @@ export function TableView({ tableId }: Props) {
     if (!target || target.type === type) return;
     setError(null);
 
+    if (type === "relation") {
+      setRelationConfigField(target);
+      return;
+    }
+    if (type === "rollup") {
+      setRollupConfigField(target);
+      return;
+    }
+    if (type === "formula") {
+      setFormulaConfigField(target);
+      return;
+    }
+
     const config = getDefaultConfig(type as FieldType);
     const updates: Partial<TableField> = { type: type as FieldType };
 
@@ -291,6 +581,40 @@ export function TableView({ tableId }: Props) {
     });
   }, [updateField]);
 
+  const handleConfigureField = useCallback((fieldId: string) => {
+    const target = allFields.find((f) => f.id === fieldId);
+    if (!target) return;
+    if (target.type === "relation") {
+      setRelationConfigField(target);
+    } else if (target.type === "rollup") {
+      setRollupConfigField(target);
+    } else if (target.type === "formula") {
+      setFormulaConfigField(target);
+    }
+  }, [allFields]);
+
+  const handleSaveRollupConfig = (config: Record<string, unknown>) => {
+    if (!rollupConfigField) return;
+    updateField.mutate(
+      { id: rollupConfigField.id, updates: { type: "rollup", config } },
+      {
+        onSuccess: () => setRollupConfigField(null),
+        onError: (err) => setError(err instanceof Error ? err.message : "Failed to update rollup field"),
+      }
+    );
+  };
+
+  const handleSaveFormulaConfig = (config: { formula: string; return_type: string }) => {
+    if (!formulaConfigField) return;
+    updateField.mutate(
+      { id: formulaConfigField.id, updates: { type: "formula", config } },
+      {
+        onSuccess: () => setFormulaConfigField(null),
+        onError: (err) => setError(err instanceof Error ? err.message : "Failed to update formula field"),
+      }
+    );
+  };
+
   const handleReorderField = (fieldId: string, direction: "left" | "right") => {
     const idx = fields.findIndex((f) => f.id === fieldId);
     if (idx === -1) return;
@@ -303,6 +627,35 @@ export function TableView({ tableId }: Props) {
     reorderFields.mutate(payload, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to reorder fields"),
     });
+  };
+
+  const handleInsertField = async (fieldId: string, direction: "left" | "right") => {
+    const ordered = [...allFields].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const idx = ordered.findIndex((f) => f.id === fieldId);
+    if (idx === -1) return;
+    const insertIndex = direction === "left" ? idx : idx + 1;
+    setError(null);
+    try {
+      const result = await createField.mutateAsync({
+        name: "New Field",
+        type: "text",
+      });
+      if ("error" in result) {
+        throw new Error(result.error);
+      }
+      const newField = result.data;
+      await queryClient.cancelQueries({ queryKey: queryKeys.table(tableId) });
+      const nextOrder = [...ordered];
+      nextOrder.splice(insertIndex, 0, newField);
+      const payload = nextOrder.map((f, i) => ({ fieldId: f.id, order: i + 1 }));
+      const reorderResult = await reorderFields.mutateAsync(payload);
+      if ("error" in reorderResult) {
+        throw new Error(reorderResult.error);
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add field");
+    }
   };
 
   const handleSetSort = (fieldId: string, direction: "asc" | "desc" | null) => {
@@ -606,6 +959,25 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         </div>
       )}
 
+      <BulkActionsToolbar
+        selectedCount={selectedRows.size}
+        fields={fields}
+        onDelete={handleBulkDelete}
+        onDuplicate={handleBulkDuplicate}
+        onExport={handleBulkExport}
+        onUpdateField={handleBulkUpdateField}
+        onClearSelection={() => setSelectedRows(new Set())}
+      />
+      <BulkDeleteDialog
+        open={deleteDialogOpen}
+        rowCount={selectedRows.size}
+        relationCount={relationCount}
+        countingRelations={countingRelations}
+        deleting={bulkDeleteRows.isPending}
+        onCancel={() => setDeleteDialogOpen(false)}
+        onConfirm={confirmBulkDelete}
+      />
+
       <div className="relative w-full" ref={containerRef}>
         <div className="overflow-x-auto w-full" style={{ maxHeight: '480px', overflowY: 'scroll' }}>
           <div style={{ width: 'max-content', minWidth: '100%' }}>
@@ -615,6 +987,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                 columnTemplate={columnTemplate}
                 sorts={sorts}
                 pinnedFields={pinnedFields}
+                selectedCount={selectedRows.size}
+                totalCount={sortedRows.length}
+                selectionWidth={selectionWidth}
+                onToggleAllRows={handleToggleAllRows}
                 onSetSort={handleSetSort}
             onToggleSort={(fieldId) => {
               const next = (() => {
@@ -631,8 +1007,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             onAddField={handleAddField}
             onChangeType={handleChangeType}
             onReorderField={handleReorderField}
+            onInsertField={handleInsertField}
             onPinColumn={handlePinColumn}
             onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
+            onConfigureField={handleConfigureField}
             onUpdateFieldConfig={handleUpdateFieldConfig}
             columnRefs={Object.fromEntries(
               fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
@@ -661,6 +1039,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                         key={row.id}
                         fields={fields}
                         columnTemplate={columnTemplate}
+                        tableId={tableId}
                         rowId={row.id}
                         data={row.data || {}}
                         onChange={handleCellChange}
@@ -669,6 +1048,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                         pinnedFields={pinnedFields}
                         onContextMenu={handleCellContextMenu}
                         widths={widthMap}
+                        selectionWidth={selectionWidth}
+                        showSelection
+                        isSelected={selectedRows.has(row.id)}
+                        onSelectRow={handleSelectRow}
                         rowMetadata={{
                           created_at: row.created_at,
                           updated_at: row.updated_at,
@@ -694,6 +1077,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                   key={row.id}
                   fields={fields}
                   columnTemplate={columnTemplate}
+                  tableId={tableId}
                   rowId={row.id}
                   data={row.data || {}}
                   onChange={handleCellChange}
@@ -702,6 +1086,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                   pinnedFields={pinnedFields}
                   onContextMenu={handleCellContextMenu}
                   widths={widthMap}
+                  selectionWidth={selectionWidth}
+                  showSelection
+                  isSelected={selectedRows.has(row.id)}
+                  onSelectRow={handleSelectRow}
                   rowMetadata={{
                     created_at: row.created_at,
                     updated_at: row.updated_at,
@@ -714,6 +1102,19 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                   onUpdateFieldConfig={handleUpdateFieldConfig}
                 />
               ))
+            )}
+
+            {fields.length > 0 && (
+              <TableFooterRow
+                fields={fields}
+                rows={sortedRows}
+                calculations={view?.config?.field_calculations || {}}
+                columnTemplate={columnTemplate}
+                pinnedFields={pinnedFields}
+                widths={widthMap}
+                selectionWidth={selectionWidth}
+                onUpdateCalculation={handleUpdateCalculation}
+              />
             )}
 
                 {sortedRows.length === 0 && (
@@ -733,23 +1134,25 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                   </div>
                 )}
               </div>
+
             </div>
           </div>
-        {/* Standalone Add row button positioned above horizontal scrollbar */}
-        <div className="absolute bottom-0 left-0 right-0 h-0 pointer-events-none">
-          <button
-            onClick={() => {
-              setError(null);
-              createRow.mutate(undefined, {
-                onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-              });
-            }}
-            className="absolute bottom-[18px] left-2 pointer-events-auto inline-flex items-center gap-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150"
-          >
-            <Plus className="h-3 w-3" />
-            Add row
-          </button>
-        </div>
+
+          {/* Add row button - always visible at bottom */}
+          <div className="sticky bottom-0 left-0 right-0 bg-[var(--surface)] border-t border-[var(--border)] px-2 py-2 z-10 flex items-center justify-start">
+            <button
+              onClick={() => {
+                setError(null);
+                createRow.mutate(undefined, {
+                  onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
+                });
+              }}
+              className="inline-flex items-center gap-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150"
+            >
+              <Plus className="h-3 w-3" />
+              Add row
+            </button>
+          </div>
       </div>
       {commentsRowId && (
         <div className="fixed inset-y-0 right-0 z-40">
@@ -776,6 +1179,27 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           onAddColumnRight={contextMenu.type === "column" ? handleAddColumnRight : undefined}
         />
       )}
+      <RelationConfigModal
+        open={Boolean(relationConfigField)}
+        field={relationConfigField}
+        tableId={tableId}
+        workspaceId={tableData?.table.workspace_id}
+        onClose={() => setRelationConfigField(null)}
+      />
+      <RollupConfigModal
+        open={Boolean(rollupConfigField)}
+        field={rollupConfigField}
+        tableFields={allFields}
+        onClose={() => setRollupConfigField(null)}
+        onSave={handleSaveRollupConfig}
+      />
+      <FormulaConfigModal
+        open={Boolean(formulaConfigField)}
+        field={formulaConfigField}
+        tableFields={allFields}
+        onClose={() => setFormulaConfigField(null)}
+        onSave={handleSaveFormulaConfig}
+      />
     </div>
   );
 }

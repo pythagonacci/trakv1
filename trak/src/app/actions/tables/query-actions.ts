@@ -110,6 +110,32 @@ export async function getFilteredRows(tableId: string, filters: FilterCondition[
   return { data: result };
 }
 
+export async function getTableRows(
+  tableId: string,
+  options?: { limit?: number; offset?: number }
+): Promise<ActionResult<{ rows: TableRow[]; total: number; hasMore: boolean }>> {
+  const access = await requireTableAccess(tableId);
+  if ("error" in access) return access;
+  const { supabase } = access;
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+
+  const { data: rows, count, error } = await supabase
+    .from("table_rows")
+    .select("*", { count: "exact" })
+    .eq("table_id", tableId)
+    .order("order", { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (error || !rows) {
+    return { error: "Failed to load rows" };
+  }
+
+  const total = count ?? rows.length;
+  const hasMore = offset + rows.length < total;
+  return { data: { rows: rows as TableRow[], total, hasMore } };
+}
+
 // ---------------------------------------------------------------------------
 // Server-side builders with in-memory fallback
 // ---------------------------------------------------------------------------

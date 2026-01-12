@@ -7,6 +7,7 @@ import { TableCell } from "./table-cell";
 interface Props {
   fields: TableField[];
   columnTemplate?: string;
+  tableId: string;
   rowId: string;
   data: Record<string, unknown>;
   onChange: (rowId: string, fieldId: string, value: unknown) => void;
@@ -15,6 +16,10 @@ interface Props {
   pinnedFields?: string[];
   onContextMenu?: (e: React.MouseEvent, rowId: string) => void;
   widths?: Record<string, number>;
+  selectionWidth?: number;
+  showSelection?: boolean;
+  isSelected?: boolean;
+  onSelectRow?: (rowId: string, event: React.MouseEvent<HTMLInputElement>) => void;
   rowMetadata?: {
     created_at?: string;
     updated_at?: string;
@@ -34,6 +39,7 @@ interface Props {
 export const TableRow = memo(function TableRow({
   fields,
   columnTemplate,
+  tableId,
   rowId,
   data,
   onChange,
@@ -42,6 +48,10 @@ export const TableRow = memo(function TableRow({
   pinnedFields,
   onContextMenu,
   widths,
+  selectionWidth = 0,
+  showSelection,
+  isSelected,
+  onSelectRow,
   rowMetadata,
   workspaceMembers,
   files,
@@ -53,20 +63,29 @@ export const TableRow = memo(function TableRow({
   onUpdateFieldConfig,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
-  const template = useMemo(
-    () => columnTemplate || Array(fields.length).fill("minmax(180px,1fr)").join(" "),
-    [columnTemplate, fields.length]
-  );
+  const fieldMap = useMemo(() => {
+    const map: Record<string, TableField> = {};
+    fields.forEach((field) => {
+      map[field.id] = field;
+    });
+    return map;
+  }, [fields]);
+  const template = useMemo(() => {
+    if (columnTemplate) return columnTemplate;
+    // Default template: selection column + fields + add column
+    const fieldsTemplate = Array(fields.length).fill("minmax(180px,1fr)").join(" ");
+    return showSelection ? `${selectionWidth || 36}px ${fieldsTemplate} 40px` : `${fieldsTemplate} 40px`;
+  }, [columnTemplate, fields.length, showSelection, selectionWidth]);
 
   const pinnedOffsets = useMemo(() => {
-    let acc = 0;
+    let acc = showSelection ? selectionWidth : 0;
     const offsets: Record<string, number> = {};
     fields.forEach((f) => {
       offsets[f.id] = acc;
       acc += widths?.[f.id] ?? f.width ?? 180;
     });
     return offsets;
-  }, [fields, widths]);
+  }, [fields, widths, selectionWidth, showSelection]);
 
   return (
     <div
@@ -79,6 +98,19 @@ export const TableRow = memo(function TableRow({
       draggable={draggable}
       onDragStart={(e) => onDragStart?.(rowId, e)}
     >
+      {showSelection && (
+        <div className="flex items-center justify-center border-r border-[var(--border-strong)] bg-[var(--surface)] sticky left-0 z-20">
+          <input
+            type="checkbox"
+            checked={Boolean(isSelected)}
+            onChange={(e) => {
+              e.stopPropagation();
+              onSelectRow?.(rowId, e as unknown as React.MouseEvent<HTMLInputElement>);
+            }}
+            className="h-4 w-4 accent-[var(--primary)]"
+          />
+        </div>
+      )}
       {fields.map((field, idx) => {
         const isPinned = pinnedFields?.includes(field.id);
         return (
@@ -102,10 +134,13 @@ export const TableRow = memo(function TableRow({
               field={field}
               value={data?.[field.id]}
               onChange={(value) => onChange(rowId, field.id, value)}
+              tableId={tableId}
+              rowId={rowId}
               saving={saving}
               rowData={rowMetadata}
               workspaceMembers={workspaceMembers}
               files={files}
+              fieldMap={fieldMap}
               onUploadFiles={onUploadFiles}
               onUpdateFieldConfig={(config) => onUpdateFieldConfig?.(field.id, config)}
             />

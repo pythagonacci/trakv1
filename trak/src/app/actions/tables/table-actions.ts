@@ -214,3 +214,21 @@ export async function duplicateTable(tableId: string, options?: { includeRows?: 
 
   return { data: { table: newTable, fields: newFields } };
 }
+
+export async function listWorkspaceTables(workspaceId: string): Promise<ActionResult<Table[]>> {
+  const access = await requireWorkspaceAccessForTables(workspaceId);
+  if ("error" in access) return access;
+  const { supabase } = access;
+
+  const { data, error } = await supabase
+    .from("tables")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: true });
+
+  if (error || !data) {
+    return { error: "Failed to load tables" };
+  }
+
+  return { data };
+}

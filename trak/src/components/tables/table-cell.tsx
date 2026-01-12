@@ -11,10 +11,14 @@ import { MultiSelectCell } from "./cells/multi-select-cell";
 import { UrlCell } from "./cells/url-cell";
 import { EmailCell } from "./cells/email-cell";
 import { PhoneCell } from "./cells/phone-cell";
+import { CheckboxCell } from "./cells/checkbox-cell";
 import { PersonCell } from "./cells/person-cell";
 import { FilesCell } from "./cells/files-cell";
 import { StatusCell } from "./cells/status-cell";
 import { PriorityCell } from "./cells/priority-cell";
+import { RelationCell } from "./cells/relation-cell";
+import { RollupCell } from "./cells/rollup-cell";
+import { FormulaCell } from "./cells/formula-cell";
 
 type OnChange = (value: unknown) => void;
 
@@ -22,6 +26,8 @@ interface TableCellProps {
   field: TableField;
   value: unknown;
   onChange: OnChange;
+  rowId: string;
+  tableId: string;
   saving?: boolean;
   rowData?: Record<string, unknown>;
   // Optional props for complex field types
@@ -30,6 +36,7 @@ interface TableCellProps {
   relatedRecords?: Array<{ id: string; title: string }>;
   availableRecords?: Array<{ id: string; title: string }>;
   computedValue?: unknown;
+  fieldMap?: Record<string, TableField>;
   onUploadFiles?: (files: File[]) => Promise<string[]>;
   onUpdateFieldConfig?: (config: any) => void;
 }
@@ -38,6 +45,8 @@ export const TableCell = memo(function TableCell({
   field,
   value,
   onChange,
+  rowId,
+  tableId,
   saving,
   rowData,
   workspaceMembers,
@@ -45,6 +54,7 @@ export const TableCell = memo(function TableCell({
   relatedRecords,
   availableRecords,
   computedValue,
+  fieldMap,
   onUploadFiles,
   onUpdateFieldConfig,
 }: TableCellProps) {
@@ -69,15 +79,8 @@ export const TableCell = memo(function TableCell({
       return <NumberCell {...commonProps} field={field} />;
     case "date":
       return <DateCell {...commonProps} field={field} />;
-    case "checkbox": {
-      const checked = value === true;
-      return (
-        <div className="flex items-center gap-2 text-sm text-[var(--foreground)]">
-          <input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={checked} readOnly />
-          <span className="text-[var(--muted-foreground)] text-xs">Checkbox field type is read-only</span>
-        </div>
-      );
-    }
+    case "checkbox":
+      return <CheckboxCell {...commonProps} field={field} />;
     case "select":
       return <SelectCell {...commonProps} field={field} onUpdateConfig={onUpdateFieldConfig} />;
     case "multi_select":
@@ -96,6 +99,12 @@ export const TableCell = memo(function TableCell({
       return <PersonCell {...commonProps} field={field} workspaceMembers={workspaceMembers} />;
     case "files":
       return <FilesCell {...commonProps} field={field} files={files} onUpload={onUploadFiles} />;
+    case "relation":
+      return <RelationCell {...commonProps} field={field} rowId={rowId} />;
+    case "rollup":
+      return <RollupCell field={field} value={value} rowId={rowId} tableId={tableId} fieldMap={fieldMap} />;
+    case "formula":
+      return <FormulaCell field={field} value={value} rowId={rowId} tableId={tableId} />;
     default:
       return <TextCell {...commonProps} field={field} />;
   }

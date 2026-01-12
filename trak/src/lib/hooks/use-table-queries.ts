@@ -6,12 +6,14 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { createTable, getTable, updateTable, deleteTable, duplicateTable } from "@/app/actions/tables/table-actions";
+import { createTable, getTable, updateTable, deleteTable, duplicateTable, listWorkspaceTables } from "@/app/actions/tables/table-actions";
 import { createField, updateField, deleteField, reorderFields, updateFieldConfig } from "@/app/actions/tables/field-actions";
 import { createRow, updateRow, updateCell, deleteRow, deleteRows, reorderRows, duplicateRow } from "@/app/actions/tables/row-actions";
 import { createView, getView, updateView, deleteView, setDefaultView, listViews } from "@/app/actions/tables/view-actions";
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
-import { getTableData, searchTableRows, getFilteredRows } from "@/app/actions/tables/query-actions";
+import { getTableData, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
+import { getRelatedRows, configureRelationField } from "@/app/actions/tables/relation-actions";
+import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows } from "@/app/actions/tables/bulk-actions";
 import type { Table, TableField, TableRow, TableView, TableComment, FilterCondition } from "@/types/table";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +30,7 @@ export function useTable(tableId: string, initialData?: { table: Table; fields: 
     },
     initialData,
     staleTime: 30_000,
+    enabled: Boolean(tableId),
   });
 }
 
@@ -38,8 +41,22 @@ export function useCreateTable() {
     onSuccess: (result) => {
       if ("data" in result) {
         qc.invalidateQueries({ queryKey: queryKeys.workspace(result.data.table.workspace_id) });
+        qc.invalidateQueries({ queryKey: ["workspaceTables", result.data.table.workspace_id] });
       }
     },
+  });
+}
+
+export function useWorkspaceTables(workspaceId?: string) {
+  return useQuery({
+    queryKey: ["workspaceTables", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return [];
+      const result = await listWorkspaceTables(workspaceId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(workspaceId),
   });
 }
 
@@ -49,6 +66,7 @@ export function useUpdateTable(tableId: string) {
     mutationFn: (updates: Partial<Table>) => updateTable(tableId, updates),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: ["workspaceTables"] });
     },
   });
 }
@@ -96,6 +114,7 @@ export function useUpdateField(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }
@@ -173,6 +192,17 @@ export function useUpdateFieldConfig(tableId: string, fieldId: string) {
     mutationFn: (config: Record<string, unknown>) => updateFieldConfig(fieldId, config),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
+    },
+  });
+}
+
+export function useConfigureRelationField(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configureRelationField,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
     },
   });
 }
@@ -283,6 +313,8 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
         queryKey: queryKeys.tableRows(tableId, viewId),
         refetchType: 'active'
       });
+      // Rollups/formulas can affect related tables; refresh any visible table rows.
+      qc.invalidateQueries({ queryKey: ['tableRows'] });
     },
   });
 }
@@ -339,6 +371,19 @@ export function useTableRows(tableId: string, viewId?: string | null) {
   });
 }
 
+export function useAllTableRows(tableId?: string) {
+  return useQuery({
+    queryKey: ["tableRowsAll", tableId],
+    queryFn: async () => {
+      if (!tableId) return [];
+      const result = await getTableRows(tableId, { limit: 1000, offset: 0 });
+      if ("error" in result) throw new Error(result.error);
+      return result.data.rows;
+    },
+    enabled: Boolean(tableId),
+  });
+}
+
 export function useSearchTableRows(tableId: string, search: string) {
   return useQuery({
     queryKey: ['tableSearch', tableId, search],
@@ -349,6 +394,19 @@ export function useSearchTableRows(tableId: string, search: string) {
       return result.data;
     },
     enabled: Boolean(search),
+  });
+}
+
+export function useRelatedRows(rowId?: string, fieldId?: string) {
+  return useQuery({
+    queryKey: ["relatedRows", rowId, fieldId],
+    queryFn: async () => {
+      if (!rowId || !fieldId) return { rows: [], displayFieldId: null };
+      const result = await getRelatedRows(rowId, fieldId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(rowId && fieldId),
   });
 }
 
@@ -434,6 +492,41 @@ export function useSetDefaultView(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
       qc.invalidateQueries({ queryKey: ['tableViews', tableId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bulk operations
+// ---------------------------------------------------------------------------
+
+export function useBulkUpdateRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { rowIds: string[]; updates: Record<string, unknown> }) =>
+      bulkUpdateRows({ tableId, rowIds: input.rowIds, updates: input.updates }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function useBulkDeleteRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rowIds: string[]) => bulkDeleteRows({ tableId, rowIds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function useBulkDuplicateRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rowIds: string[]) => bulkDuplicateRows({ tableId, rowIds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
     },
   });
 }
