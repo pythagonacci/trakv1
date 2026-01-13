@@ -208,7 +208,15 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         startDate.setDate(startDate.getDate() - 7);
         const endDate = new Date(now);
         endDate.setDate(endDate.getDate() + 30);
-        return { startDate: startDate.toISOString(), endDate: endDate.toISOString(), events: [] };
+        return {
+          viewConfig: {
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            zoomLevel: "day",
+            filters: {},
+            groupBy: "none",
+          },
+        };
       }
       case "file": return { files: [] };
       case "video": return { files: [] };

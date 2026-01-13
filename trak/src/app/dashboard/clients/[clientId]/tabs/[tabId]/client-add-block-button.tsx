@@ -194,9 +194,13 @@ export default function ClientAddBlockButton({
         const endDate = new Date(now);
         endDate.setDate(endDate.getDate() + 30);
         return {
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
-          events: [],
+          viewConfig: {
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            zoomLevel: "day",
+            filters: {},
+            groupBy: "none",
+          },
         };
       case "file":
         return { files: [] };
