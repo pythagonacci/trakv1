@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, GitBranch, Target, Calendar } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, GitBranch, Target, Calendar, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -1032,6 +1032,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
 
   const selectedEvent = events.find((event) => event.id === selectedEventId);
   const { data: selectedReferences = [] } = useTimelineReferences(selectedEventId ?? undefined);
+  const { data: hoveredReferences = [] } = useTimelineReferences(hoveredEventId ?? undefined);
 
   // ---- Build tooltip element (or null) once per render; pass into createPortal below ----
   const tooltipEl =
@@ -1072,6 +1073,26 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
                   {event.notes && (
                     <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                       {event.notes}
+                    </div>
+                  )}
+                  {hoveredReferences.length > 0 && (
+                    <div className="mt-1.5 flex items-start gap-1.5">
+                      <Paperclip className="h-3 w-3 shrink-0 mt-0.5 text-[var(--muted-foreground)]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
+                          {hoveredReferences.length} attachment{hoveredReferences.length !== 1 ? 's' : ''}
+                        </div>
+                        {hoveredReferences.slice(0, 3).map((ref) => (
+                          <div key={ref.id} className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+                            • {ref.title}
+                          </div>
+                        ))}
+                        {hoveredReferences.length > 3 && (
+                          <div className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
+                            +{hoveredReferences.length - 3} more
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
