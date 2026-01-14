@@ -47,6 +47,15 @@ import React from "react";
 import { groupRows, canGroupByField } from "@/lib/table-grouping";
 import { GroupHeader } from "./group-header";
 
+function TableViewLoadingState() {
+  return (
+    <div className="space-y-2">
+      <div className="h-8 w-48 rounded-sm border border-[var(--border)] bg-[var(--surface)]/60" />
+      <div className="h-40 w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)]/40" />
+    </div>
+  );
+}
+
 const isFocusableElement = (el: HTMLElement | null) => {
   if (!el) return false;
   const tag = el.tagName.toLowerCase();
@@ -882,11 +891,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
   }, [views, activeViewId]);
 
   if (metaLoading || rowsLoading) {
-    return (
-      <div className="rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted-foreground)]">
-        Loading table…
-      </div>
-    );
+    return <TableViewLoadingState />;
   }
 
   return (

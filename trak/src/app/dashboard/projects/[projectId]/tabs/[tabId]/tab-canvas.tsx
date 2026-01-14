@@ -771,19 +771,41 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   };
 
   const resolveOptimisticBlock = React.useCallback((tempId: string, savedBlock: Block) => {
+    // Validate saved block has type
+    if (!savedBlock.type) {
+      console.error("resolveOptimisticBlock: Saved block missing type property:", savedBlock);
+      return;
+    }
+
     setBlocks((prevBlocks) => {
+      // First, check if the saved block already exists (prevent duplicates from router.refresh)
+      const alreadyExists = prevBlocks.some(b => b.id === savedBlock.id);
+      if (alreadyExists) {
+        // If it already exists, just remove the optimistic block
+        return prevBlocks.filter(block => block.id !== tempId);
+      }
+
+      // Replace the optimistic block with the saved block
       let replaced = false;
       const updated = prevBlocks.map((block) => {
         if (block.id === tempId) {
           replaced = true;
           return {
             ...savedBlock,
+            type: savedBlock.type, // Explicitly preserve type
             position: block.position ?? savedBlock.position ?? getNextPosition(),
             column: block.column ?? savedBlock.column ?? 0,
           };
         }
         return block;
       });
+      
+      // If we didn't find the temp block to replace, the saved block might be new
+      // (shouldn't happen, but handle it gracefully)
+      if (!replaced && !alreadyExists) {
+        return [...prevBlocks, { ...savedBlock, type: savedBlock.type }];
+      }
+      
       return replaced ? updated : prevBlocks;
     });
 
@@ -798,6 +820,12 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   // Handle optimistic block creation
   const handleBlockCreated = (newBlock: Block) => {
+    // Validate block has required properties
+    if (!newBlock.type) {
+      console.error("handleBlockCreated: Block missing type property:", newBlock);
+      return;
+    }
+
     // Immediately add the new block to local state (optimistic update)
     // Prevent duplicates by checking if block already exists
     setBlocks((prevBlocks) => {
@@ -813,6 +841,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         ...prevBlocks,
         {
           ...newBlock,
+          type: newBlock.type, // Explicitly preserve type
           position: nextPos,
           column: newBlock.column ?? 0,
         },
@@ -832,11 +861,10 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       });
     }, 400);
     
-    // Optionally refresh in the background to ensure sync
-    // We do this silently without waiting for it
-    setTimeout(() => {
-      router.refresh();
-    }, 1000);
+    // Note: We removed router.refresh() here because:
+    // 1. We handle optimistic updates immediately
+    // 2. resolveOptimisticBlock replaces the temp block with the real one
+    // 3. router.refresh() was causing duplicate blocks to appear
   };
 
   // Handle optimistic block creation errors
@@ -920,7 +948,23 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
             }
           }}
         >
-          <EmptyCanvasState tabId={tabId} projectId={projectId} />
+          <EmptyCanvasState
+            actions={(
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <AddBlockButton
+                  tabId={tabId}
+                  projectId={projectId}
+                  onBlockCreated={handleBlockCreated}
+                  onBlockResolved={resolveOptimisticBlock}
+                  onBlockError={handleBlockError}
+                  getNextPosition={getNextPosition}
+                />
+              </div>
+            )}
+          />
         </div>
       ) : (
         <div 
@@ -945,7 +989,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                   )}
                 >
                   {row.blocks.map((block) => (
-                    <div key={block.id} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
+                    <div key={`${block.id}-${block.type}`} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
                       <BlockRenderer
                         block={block}
                         workspaceId={workspaceId}
@@ -991,7 +1035,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                     >
                       {row.blocks.map((block) => (
                         <div
-                          key={block.id}
+                          key={`${block.id}-${block.type}`}
                           className={cn(
                             "min-w-0",
                             newBlockIds.has(block.id) && "animate-block-swoosh-in",

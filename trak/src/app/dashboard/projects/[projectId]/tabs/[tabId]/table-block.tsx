@@ -1,7 +1,24 @@
 "use client";
 
 import { type Block } from "@/app/actions/block";
-import { TableView } from "@/components/tables/table-view";
+import dynamic from "next/dynamic";
+
+function TableLoadingState() {
+  return (
+    <div className="space-y-2">
+      <div className="h-8 w-48 rounded-sm border border-[var(--border)] bg-[var(--surface)]/60" />
+      <div className="h-40 w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)]/40" />
+    </div>
+  );
+}
+
+const TableView = dynamic(
+  () => import("@/components/tables/table-view").then((mod) => mod.TableView),
+  {
+    loading: () => <TableLoadingState />,
+    ssr: true,
+  }
+);
 
 interface TableBlockProps {
   block: Block;
@@ -17,11 +34,5 @@ export default function TableBlock({ block }: TableBlockProps) {
     return <TableView tableId={connectedTableId} />;
   }
 
-  // Legacy table blocks without a connected tableId are no longer supported.
-  // They should be migrated to use the new table system.
-  return (
-    <div className="rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted-foreground)]">
-      This table block needs to be migrated to the new table system. Please recreate it as a new table.
-    </div>
-  );
+  return <TableLoadingState />;
 }        

@@ -1,20 +1,16 @@
-"use client";
-
-import AddBlockButton from "./add-block-button";
+import type { ReactNode } from "react";
 
 interface EmptyCanvasStateProps {
-  tabId: string;
-  projectId: string;
+  actions?: ReactNode;
 }
 
-export default function EmptyCanvasState({ tabId, projectId }: EmptyCanvasStateProps) {
+export default function EmptyCanvasState({ actions }: EmptyCanvasStateProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-8">
-      <AddBlockButton tabId={tabId} projectId={projectId} variant="default" />
+      {actions}
       <p className="text-xs text-[var(--muted-foreground)]">
         Click to start typing
       </p>
     </div>
   );
 }
-

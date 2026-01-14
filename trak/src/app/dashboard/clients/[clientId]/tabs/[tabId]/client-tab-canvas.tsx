@@ -823,7 +823,23 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
             }
           }}
         >
-          <EmptyCanvasState tabId={tabId} projectId={clientId} />
+          <EmptyCanvasState
+            actions={(
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ClientAddBlockButton
+                  tabId={tabId}
+                  clientId={clientId}
+                  onBlockCreated={handleBlockCreated}
+                  onBlockResolved={resolveOptimisticBlock}
+                  onBlockError={handleBlockError}
+                  getNextPosition={getNextPosition}
+                />
+              </div>
+            )}
+          />
         </div>
       ) : (
         <div 

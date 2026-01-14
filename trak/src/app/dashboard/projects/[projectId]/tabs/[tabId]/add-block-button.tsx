@@ -201,7 +201,11 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "task": return { title: "New Task List", tasks: [] };
       case "link": return { title: null, url: null, description: null, caption: "" };
       case "divider": return {};
-      case "table": return { rows: 3, cols: 3, cells: [["", "", ""], ["", "", ""], ["", "", ""]], columnWidths: [150, 150, 150] };
+      case "table": 
+        // Note: The actual tableId will be set by the server when createBlock is called
+        // For optimistic rendering, we use an empty object - the server will create the table
+        // and return the block with tableId in content
+        return {};
       case "timeline": {
         const now = new Date();
         const startDate = new Date(now);

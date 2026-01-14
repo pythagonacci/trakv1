@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { createTab, getProjectTabs, type TabWithChildren } from "@/app/actions/tab";
 
@@ -19,6 +20,7 @@ export default function CreateTabDialog({
   initialParentTabId,
   onSuccess,
 }: CreateTabDialogProps) {
+  const [mounted, setMounted] = useState(false);
   const [tabName, setTabName] = useState("");
   const [isSubTab, setIsSubTab] = useState(initialParentTabId !== undefined);
   const [selectedParentId, setSelectedParentId] = useState<string | null>(
@@ -28,6 +30,11 @@ export default function CreateTabDialog({
   const [isLoadingParents, setIsLoadingParents] = useState(false);
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Ensure we're mounted before using portal (SSR safety)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Load parent tabs when dialog opens and sub-tab mode is enabled
   useEffect(() => {
@@ -161,10 +168,10 @@ export default function CreateTabDialog({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 bg-[#2D3236]/40 flex items-center justify-center z-50 p-4">
+  const dialogContent = (
+    <div className="fixed inset-0 bg-[#2D3236]/40 flex items-center justify-center z-[9999] p-4">
       <div className="bg-[var(--surface)] rounded-[2px] border border-[var(--border)] shadow-[0_4px_24px_rgba(0,0,0,0.05)] max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
@@ -285,5 +292,7 @@ export default function CreateTabDialog({
       </div>
     </div>
   );
+
+  return createPortal(dialogContent, document.body);
 }
 

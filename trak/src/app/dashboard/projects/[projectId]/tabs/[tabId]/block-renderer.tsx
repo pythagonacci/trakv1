@@ -94,6 +94,16 @@ interface BlockRendererProps {
 }
 
 export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onAddBlockAbove, onAddBlockBelow, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
+  // Ensure block type exists - critical validation
+  if (!block.type) {
+    console.error("BlockRenderer: Block missing type property:", block);
+    return (
+      <div className="p-5 text-sm text-red-500 border border-red-500 rounded">
+        Error: Block missing type property. Block ID: {block.id}
+      </div>
+    );
+  }
+
   // If this block is a reference to another block, render the reference component
   if (block.original_block_id) {
     return (
@@ -156,7 +166,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">
-            Unknown block type: {block.type}
+            Unknown block type: {block.type || "undefined"}
           </div>
         );
     }
@@ -175,7 +185,10 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
         onAddBlockBelow={onAddBlockBelow}
         isDragging={isDragging}
       >
-        {renderBlockContent()}
+        {/* Use key to force re-render when type changes - ensures correct component renders */}
+        <div key={`${block.id}-${block.type}`}>
+          {renderBlockContent()}
+        </div>
       </BlockWrapper>
     </LazyBlockWrapper>
   );
