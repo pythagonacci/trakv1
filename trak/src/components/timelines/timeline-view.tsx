@@ -3,14 +3,13 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, GitBranch, Target, Calendar, Paperclip } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
 import {
   useTimelineItems,
-  useTimelineDependencies,
   useTimelineReferences,
   useCreateTimelineEvent,
   useCreateTimelineReference,
@@ -18,15 +17,10 @@ import {
   useDeleteTimelineEvent,
   useDeleteTimelineReference,
   useDuplicateTimelineEvent,
-  useCreateTimelineDependency,
-  useDeleteTimelineDependency,
   useSetTimelineEventBaseline,
-  useAutoScheduleTimeline,
 } from "@/lib/hooks/use-timeline-queries";
 import type {
-  DependencyType,
   TimelineBlockContent,
-  TimelineDependency,
   TimelineEventStatus,
   TimelineItem,
 } from "@/types/timeline";
@@ -257,8 +251,6 @@ function DraggableEvent({
   rowIndex,
   isCritical,
   isDragging,
-  isDependencyMode,
-  onDependencyClick,
   onMouseEnter,
   onMouseLeave,
   onClick,
@@ -270,8 +262,6 @@ function DraggableEvent({
   rowIndex: number;
   isCritical: boolean;
   isDragging: boolean;
-  isDependencyMode: boolean;
-  onDependencyClick: () => void;
   onMouseEnter: (e: React.MouseEvent) => void;
   onMouseLeave: (e: React.MouseEvent) => void;
   onClick: (e: React.MouseEvent) => void;
@@ -284,7 +274,7 @@ function DraggableEvent({
     const hasBaseline = event.baselineStart && event.baselineEnd;
     return (
       <div
-        className="relative z-10 pointer-events-auto"
+        className="absolute z-10 pointer-events-auto"
         style={barStyle}
         data-event-id={event.id}
         onMouseEnter={onMouseEnter}
@@ -318,7 +308,7 @@ function DraggableEvent({
           <>
             <div
               className={cn(
-                "event-bar my-2 flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
+                "event-bar flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
                 event.color || "bg-[var(--foreground)]"
               )}
             >
@@ -345,17 +335,17 @@ function DraggableEvent({
 
   const { attributes, listeners, setNodeRef, transform, isDragging: isDraggingStart } = useDraggable({
     id: `event-${event.id}`,
-    disabled: isDependencyMode,
+    disabled: false,
   });
   
   const { attributes: resizeStartAttrs, listeners: resizeStartListeners, setNodeRef: resizeStartRef } = useDraggable({
     id: `resize-start-${event.id}`,
-    disabled: isDependencyMode || event.isMilestone,
+    disabled: event.isMilestone,
   });
   
   const { attributes: resizeEndAttrs, listeners: resizeEndListeners, setNodeRef: resizeEndRef } = useDraggable({
     id: `resize-end-${event.id}`,
-    disabled: isDependencyMode || event.isMilestone,
+    disabled: event.isMilestone,
   });
 
   const style = transform
@@ -364,7 +354,10 @@ function DraggableEvent({
         transform: CSS.Translate.toString(transform),
         opacity: isDragging ? 0.5 : 1,
       }
-    : { ...barStyle, opacity: isDragging ? 0.5 : 1 };
+    : { 
+        ...barStyle, 
+        opacity: isDragging ? 0.5 : 1 
+      };
 
   const progress = event.progress ?? 0;
   const hasBaseline = event.baselineStart && event.baselineEnd;
@@ -372,7 +365,7 @@ function DraggableEvent({
   return (
     <div
       ref={setNodeRef}
-      className="relative z-10 pointer-events-auto"
+      className="absolute z-10 pointer-events-auto"
       style={style}
       data-event-id={event.id}
       onMouseEnter={onMouseEnter}
@@ -398,8 +391,7 @@ function DraggableEvent({
             "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0 h-0",
             "border-l-[8px] border-r-[8px] border-b-[12px]",
             "border-l-transparent border-r-transparent",
-            isCritical ? "border-b-red-500" : event.color || "border-b-[var(--foreground)]",
-            isDependencyMode && "ring-2 ring-blue-500"
+            isCritical ? "border-b-red-500" : event.color || "border-b-[var(--foreground)]"
           )}
           style={{
             filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.1))",
@@ -410,9 +402,8 @@ function DraggableEvent({
           {/* Event bar */}
           <div
             className={cn(
-              "event-bar my-2 flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm transition-transform cursor-move",
+              "event-bar flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm transition-transform cursor-move",
               isCritical && "ring-2 ring-red-500 ring-offset-1",
-              isDependencyMode && "ring-2 ring-blue-500",
               event.color || "bg-[var(--foreground)]"
             )}
             {...attributes}
@@ -493,21 +484,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
   const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee">(viewConfig.groupBy || "none");
   const [draggingEventId, setDraggingEventId] = useState<string | null>(null);
   const [dragResizeEdge, setDragResizeEdge] = useState<"start" | "end" | null>(null);
-  const [isDependencyMode, setIsDependencyMode] = useState(false);
-  const [dependencyFrom, setDependencyFrom] = useState<string | null>(null);
 
   const { data: timelineItems = [] } = useTimelineItems(block.id);
-  const { data: timelineDependencies = [] } = useTimelineDependencies(block.id);
   const createEvent = useCreateTimelineEvent(block.id);
   const createReference = useCreateTimelineReference(block.id);
   const updateEventMutation = useUpdateTimelineEvent(block.id);
   const deleteEventMutation = useDeleteTimelineEvent(block.id);
   const deleteReferenceMutation = useDeleteTimelineReference(block.id);
   const duplicateEventMutation = useDuplicateTimelineEvent(block.id);
-  const createDependency = useCreateTimelineDependency(block.id);
-  const deleteDependency = useDeleteTimelineDependency(block.id);
   const setBaselineMutation = useSetTimelineEventBaseline(block.id);
-  const autoScheduleMutation = useAutoScheduleTimeline(block.id);
 
   // Load workspace members
   useEffect(() => {
@@ -535,12 +520,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
     loadMembers();
   }, [workspaceId, readOnly]);
 
-  useEffect(() => {
-    if (readOnly) {
-      setIsDependencyMode(false);
-      setDependencyFrom(null);
-    }
-  }, [readOnly]);
 
   // Mount flag for portal (avoids SSR/TS issues)
   React.useEffect(() => setMounted(true), []);
@@ -583,7 +562,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
       baselineEnd: item.baseline_end ?? undefined,
     }));
   }, [timelineItems, memberMap]);
-  const dependencies = timelineDependencies;
 
   // Filter events
   const filteredEvents = useMemo(() => {
@@ -627,105 +605,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
     return { "": filteredEvents };
   }, [filteredEvents, groupBy]);
 
-  // Calculate critical path
-  const criticalPathEvents = useMemo(() => {
-    if (dependencies.length === 0) return new Set<string>();
-    
-    // Build dependency graph
-    const graph: Record<string, string[]> = {};
-    const inDegree: Record<string, number> = {};
-    
-    filteredEvents.forEach((event) => {
-      graph[event.id] = [];
-      inDegree[event.id] = 0;
-    });
-    
-    dependencies.forEach((dep) => {
-      if (graph[dep.from_id] && graph[dep.to_id] !== undefined) {
-        graph[dep.from_id].push(dep.to_id);
-        inDegree[dep.to_id] = (inDegree[dep.to_id] || 0) + 1;
-      }
-    });
-    
-    // Calculate earliest start times (topological sort)
-    const earliestStart: Record<string, number> = {};
-    const queue: string[] = [];
-    
-    filteredEvents.forEach((event) => {
-      if (inDegree[event.id] === 0) {
-        queue.push(event.id);
-        earliestStart[event.id] = new Date(event.start).getTime();
-      }
-    });
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const currentEvent = filteredEvents.find(e => e.id === current);
-      if (!currentEvent) continue;
-      
-      const currentEnd = new Date(currentEvent.end).getTime();
-      
-      graph[current].forEach(nextId => {
-        inDegree[nextId]--;
-        if (!earliestStart[nextId] || earliestStart[nextId] < currentEnd) {
-          earliestStart[nextId] = currentEnd;
-        }
-        if (inDegree[nextId] === 0) {
-          queue.push(nextId);
-        }
-      });
-    }
-    
-    // Find longest path
-    const latestFinish: Record<string, number> = {};
-    const reverseGraph: Record<string, string[]> = {};
-    
-    filteredEvents.forEach((event) => {
-      reverseGraph[event.id] = [];
-    });
-    
-    dependencies.forEach((dep) => {
-      if (reverseGraph[dep.to_id]) {
-        reverseGraph[dep.to_id].push(dep.from_id);
-      }
-    });
-    
-    // Calculate latest finish times (reverse topological sort)
-    const endNodes = filteredEvents.filter((event) => !graph[event.id] || graph[event.id].length === 0);
-    const maxEndTime = Math.max(...endNodes.map(e => new Date(e.end).getTime()));
-    
-    endNodes.forEach(e => {
-      latestFinish[e.id] = maxEndTime;
-    });
-    
-    const reverseQueue = [...endNodes.map(e => e.id)];
-    while (reverseQueue.length > 0) {
-      const current = reverseQueue.shift()!;
-      const currentEvent = filteredEvents.find(e => e.id === current);
-      if (!currentEvent) continue;
-      
-      const currentStart = new Date(currentEvent.start).getTime();
-      
-      reverseGraph[current]?.forEach(prevId => {
-        if (!latestFinish[prevId] || latestFinish[prevId] > currentStart) {
-          latestFinish[prevId] = currentStart;
-        }
-        reverseQueue.push(prevId);
-      });
-    }
-    
-    // Events on critical path have earliestStart === latestStart and earliestFinish === latestFinish
-    const critical = new Set<string>();
-    filteredEvents.forEach((event) => {
-      const start = new Date(event.start).getTime();
-      const end = new Date(event.end).getTime();
-      if (earliestStart[event.id] === start && latestFinish[event.id] === end) {
-        critical.add(event.id);
-      }
-    });
-    
-    return critical;
-  }, [filteredEvents, dependencies]);
 
   // Sort events by start date
   const sortedEvents = useMemo(() => {
@@ -742,9 +621,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
     const startCol = toCol(s);
     const endCol = toCol(e);
     const span = Math.max(1, endCol - startCol + 1);
+    const rowHeight = 44; // Grid row height
+    const topOffset = rowIndex * rowHeight + (rowHeight / 2) - 16; // Center vertically (event bar is 32px/2 = 16px offset)
     return {
-      gridColumn: `${startCol + 1} / span ${span}`,
-      gridRow: rowIndex + 1,
+      position: 'absolute',
+      left: `${startCol * columnWidth}px`,
+      width: `${span * columnWidth}px`,
+      top: `${topOffset}px`,
     };
   }
 
@@ -836,30 +719,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
     }
   };
 
-  // Add dependency
-  const addDependency = async (fromId: string, toId: string, type: DependencyType = "finish-to-start") => {
-    const result = await createDependency.mutateAsync({
-      timelineBlockId: block.id,
-      fromId,
-      toId,
-      dependencyType: type,
-    });
-    if ("error" in result) {
-      console.error("Failed to add dependency:", result.error);
-    }
-  };
-
-  // Remove dependency
-  const removeDependency = async (fromId: string, toId: string) => {
-    const existing = dependencies.find(
-      (dep) => dep.from_id === fromId && dep.to_id === toId
-    );
-    if (!existing) return;
-    const result = await deleteDependency.mutateAsync(existing.id);
-    if ("error" in result) {
-      console.error("Failed to remove dependency:", result.error);
-    }
-  };
 
   // Update filters
   const handleFilterChange = async (newFilters: typeof filters) => {
@@ -1022,13 +881,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
     });
   };
 
-  // Auto-schedule handler
-  const handleAutoSchedule = async () => {
-    const result = await autoScheduleMutation.mutateAsync();
-    if ("error" in result) {
-      console.error("Failed to auto-schedule:", result.error);
-    }
-  };
 
   const selectedEvent = events.find((event) => event.id === selectedEventId);
   const { data: selectedReferences = [] } = useTimelineReferences(selectedEventId ?? undefined);
@@ -1211,33 +1063,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
               </DropdownMenuContent>
             </DropdownMenu>
             
-            {/* Dependency mode toggle */}
-            {!readOnly && (
-              <button
-                onClick={() => setIsDependencyMode(!isDependencyMode)}
-                className={cn(
-                  "p-1.5 rounded-[4px] border transition-colors",
-                  isDependencyMode
-                    ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                )}
-                title="Link events"
-              >
-                <GitBranch className="h-3.5 w-3.5" />
-              </button>
-            )}
-            
-            {/* Auto-schedule */}
-            {!readOnly && dependencies.length > 0 && (
-              <button
-                onClick={handleAutoSchedule}
-                className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-                title="Auto-schedule based on dependencies"
-              >
-                <Calendar className="h-3.5 w-3.5" />
-              </button>
-            )}
-            
             {/* Save baseline */}
             {!readOnly && (
               <button
@@ -1291,6 +1116,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
           <div
             className="relative grid select-none"
             style={{
+              position: 'relative',
               gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)`,
               gridTemplateRows: `repeat(${Math.max(1, Object.values(groupedEvents).reduce((sum, group) => sum + group.length, 0))}, minmax(44px, auto))`,
             }}
@@ -1316,33 +1142,25 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
                 return (
                   <React.Fragment key={`grid_row_${event.id}`}>
                     {grid.map((c, idx) => {
-                      const cellDate = c.date;
-                      const eventStart = clampDate(new Date(event.start));
-                      const eventEnd = clampDate(new Date(event.end));
-                      const isCovered = cellDate >= eventStart && cellDate <= eventEnd;
-
-                      if (!isCovered) {
-                        return (
-                          <div
-                            key={`grid_${event.id}_${c.key}`}
-                            className={cn(
-                              idx === grid.length - 1 && "border-r",
-                              "pointer-events-none border-[var(--border)]"
-                            )}
-                            style={{
-                              gridColumn: idx + 1,
-                              gridRow: eventRowIndex + 1,
-                              borderLeft: idx === 0 ? undefined : "1px solid var(--border)",
-                              borderBottom: "1px solid var(--border)",
-                            }}
-                          />
-                        );
-                      }
-                      return null;
-                    })}
-                  </React.Fragment>
-                );
-              })
+                  return (
+                    <div
+                      key={`grid_${event.id}_${c.key}`}
+                      className={cn(
+                        idx === grid.length - 1 && "border-r",
+                        "pointer-events-none border-[var(--border)]"
+                      )}
+                      style={{
+                        gridColumn: idx + 1,
+                        gridRow: eventRowIndex + 1,
+                        borderLeft: idx === 0 ? undefined : "1px solid var(--border)",
+                        borderBottom: "1px solid var(--border)",
+                      }}
+                    />
+                  );
+                })}
+              </React.Fragment>
+            );
+          })
             )}
 
             {/* If no events, show empty grid */}
@@ -1360,88 +1178,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
                 />
               ))}
 
-            {/* Dependency arrows */}
-            {dependencies.map((dep) => {
-              const fromEvent = filteredEvents.find((event) => event.id === dep.from_id);
-              const toEvent = filteredEvents.find((event) => event.id === dep.to_id);
-              if (!fromEvent || !toEvent) return null;
-              
-              // Find row indices in grouped events
-              let fromRow = -1;
-              let toRow = -1;
-              let currentRow = 0;
-              
-              for (const [groupKey, groupEvents] of Object.entries(groupedEvents)) {
-                const fromIndex = groupEvents.findIndex(e => e.id === fromEvent.id);
-                const toIndex = groupEvents.findIndex(e => e.id === toEvent.id);
-                
-                if (fromIndex !== -1 && fromRow === -1) {
-                  fromRow = currentRow + fromIndex;
-                }
-                if (toIndex !== -1 && toRow === -1) {
-                  toRow = currentRow + toIndex;
-                }
-                
-                currentRow += groupEvents.length;
-              }
-              
-              if (fromRow === -1 || toRow === -1) return null;
-              
-              const fromStart = toCol(new Date(fromEvent.start));
-              const fromEnd = toCol(new Date(fromEvent.end));
-              const toStart = toCol(new Date(toEvent.start));
-              const toEnd = toCol(new Date(toEvent.end));
-              
-              // Calculate arrow positions based on dependency type
-              let fromX = 0;
-              let toX = 0;
-              if (dep.dependency_type === "finish-to-start") {
-                fromX = fromEnd;
-                toX = toStart;
-              } else if (dep.dependency_type === "start-to-start") {
-                fromX = fromStart;
-                toX = toStart;
-              } else if (dep.dependency_type === "finish-to-finish") {
-                fromX = fromEnd;
-                toX = toEnd;
-              } else {
-                fromX = fromStart;
-                toX = toEnd;
-              }
-              
-              const fromXPos = fromX * columnWidth + columnWidth;
-              const toXPos = toX * columnWidth;
-              const fromYPos = (fromRow + 1) * 44 - 22;
-              const toYPos = (toRow + 1) * 44 - 22;
-              
-              const isCritical = criticalPathEvents.has(fromEvent.id) && criticalPathEvents.has(toEvent.id);
-              
-              return (
-                <svg
-                  key={`dep_${dep.from_id}_${dep.to_id}`}
-                  className="absolute pointer-events-none z-20"
-                  style={{ width: "100%", height: "100%", top: 0, left: 0 }}
-                >
-                  <path
-                    d={`M ${fromXPos} ${fromYPos} L ${toXPos} ${toYPos}`}
-                    stroke={isCritical ? "#ef4444" : "#94a3b8"}
-                    strokeWidth={isCritical ? 2 : 1}
-                    strokeDasharray={isCritical ? "0" : "4,4"}
-                    fill="none"
-                    markerEnd="url(#arrowhead)"
-                  />
-                </svg>
-              );
-            })}
-            
-            {/* Arrow marker definition */}
-            <svg className="absolute" style={{ width: 0, height: 0 }}>
-              <defs>
-                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-                  <polygon points="0 0, 10 3, 0 6" fill="#94a3b8" />
-                </marker>
-              </defs>
-            </svg>
 
             {/* Events overlay */}
             {Object.entries(groupedEvents).flatMap(([groupKey, groupEvents], groupIndex) =>
@@ -1450,7 +1186,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
                   .slice(0, groupIndex)
                   .reduce((sum, [, events]) => sum + events.length, 0) + eventIndexInGroup;
                 
-                const isCritical = criticalPathEvents.has(it.id);
                 const isDragging = draggingEventId === it.id;
                 
                 return (
@@ -1458,19 +1193,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
                     key={it.id}
                     event={it}
                     rowIndex={eventRowIndex}
-                    isCritical={isCritical}
+                    isCritical={false}
                     isDragging={isDragging}
-                    isDependencyMode={isDependencyMode}
-                    onDependencyClick={() => {
-                      if (readOnly) return;
-                      if (dependencyFrom === null) {
-                        setDependencyFrom(it.id);
-                      } else if (dependencyFrom !== it.id) {
-                        addDependency(dependencyFrom, it.id);
-                        setDependencyFrom(null);
-                        setIsDependencyMode(false);
-                      }
-                    }}
                     onMouseEnter={(e) => {
                       e.stopPropagation();
                       clearHideTimer();
@@ -1489,24 +1213,12 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
                       }
                       scheduleHide();
                     }}
-      onClick={(e) => {
-        if (readOnly) return;
-        e.stopPropagation();
-        if (isDependencyMode) {
-          if (dependencyFrom === null) {
-            setDependencyFrom(it.id);
-          } else if (dependencyFrom !== it.id) {
-            addDependency(dependencyFrom, it.id);
-            setDependencyFrom(null);
-            setIsDependencyMode(false);
-          } else {
-            setDependencyFrom(null);
-          }
-        } else {
-          setSelectedEventId(it.id);
-          setIsEditDialogOpen(true);
-        }
-      }}
+                    onClick={(e) => {
+                      if (readOnly) return;
+                      e.stopPropagation();
+                      setSelectedEventId(it.id);
+                      setIsEditDialogOpen(true);
+                    }}
                     barStyle={barStyle(it.start, it.end, eventRowIndex)}
                     columnWidth={columnWidth}
                     readOnly={readOnly}
