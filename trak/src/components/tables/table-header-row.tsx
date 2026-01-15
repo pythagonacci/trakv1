@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useEffect } from "react";
 import { Settings, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Trash2, Pin, Eye, EyeOff } from "lucide-react";
-import type { SortCondition, TableField } from "@/types/table";
+import type { SortCondition, TableField, CalculationType, TableRow as TableRowType } from "@/types/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +18,87 @@ import {
 import type { FieldType } from "@/types/table";
 
 const DEFAULT_COL_WIDTH = 180;
+
+function availableCalculations(type: string): CalculationType[] {
+  switch (type) {
+    case "number":
+      return ["sum", "average", "median", "min", "max", "range"];
+    case "checkbox":
+      return ["checked", "unchecked", "percent_checked"];
+    case "text":
+    case "long_text":
+    case "url":
+    case "email":
+      return ["count_values", "count_empty", "count_unique"];
+    case "select":
+    case "multi_select":
+    case "status":
+    case "priority":
+      return ["count_values", "count_unique"];
+    default:
+      return ["count_all", "count_values"];
+  }
+}
+
+function calculateValue(values: unknown[], type: CalculationType) {
+  const cleanValues = values.filter((v) => v !== null && v !== undefined && v !== "");
+  const numericValues = cleanValues
+    .map((v) => (typeof v === "number" ? v : Number(v)))
+    .filter((v) => !Number.isNaN(v));
+
+  switch (type) {
+    case "sum":
+      return numericValues.reduce((sum, v) => sum + v, 0);
+    case "average":
+      return numericValues.length ? numericValues.reduce((sum, v) => sum + v, 0) / numericValues.length : 0;
+    case "median": {
+      if (!numericValues.length) return 0;
+      const sorted = [...numericValues].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    }
+    case "min":
+      return numericValues.length ? Math.min(...numericValues) : null;
+    case "max":
+      return numericValues.length ? Math.max(...numericValues) : null;
+    case "range":
+      return numericValues.length ? Math.max(...numericValues) - Math.min(...numericValues) : null;
+    case "count_all":
+      return values.length;
+    case "count_values":
+      return cleanValues.length;
+    case "count_empty":
+      return values.length - cleanValues.length;
+    case "count_unique":
+      return new Set(cleanValues.map((v) => JSON.stringify(v))).size;
+    case "percent_empty": {
+      const empty = values.length - cleanValues.length;
+      return values.length ? Math.round((empty / values.length) * 100) : 0;
+    }
+    case "percent_filled": {
+      return values.length ? Math.round((cleanValues.length / values.length) * 100) : 0;
+    }
+    case "checked": {
+      return values.filter((v) => v === true).length;
+    }
+    case "unchecked": {
+      return values.filter((v) => v === false || v === null || v === undefined).length;
+    }
+    case "percent_checked": {
+      const checked = values.filter((v) => v === true).length;
+      return values.length ? Math.round((checked / values.length) * 100) : 0;
+    }
+    default:
+      return null;
+  }
+}
+
+function formatCalcValue(value: unknown, fieldType: string, calcType?: CalculationType) {
+  if (value === null || value === undefined) return "-";
+  if (calcType && calcType.includes("percent")) return `${value}%`;
+  if (fieldType === "number" && typeof value === "number") return value.toLocaleString();
+  return String(value);
+}
 
 const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }> = [
   // Basic Types
@@ -73,11 +154,17 @@ interface Props {
   onResize?: (fieldId: string, width: number, persist: boolean) => void;
   widths?: Record<string, number>;
   onUpdateFieldConfig?: (fieldId: string, config: any) => void;
+  calculations?: Record<string, CalculationType | undefined>;
+  rows?: TableRowType[];
+  onUpdateCalculation?: (fieldId: string, calc: CalculationType | null) => void;
 }
 
 export function TableHeaderRow({
   fields,
   columnTemplate,
+  calculations = {},
+  rows = [],
+  onUpdateCalculation,
   sorts,
   pinnedFields = [],
   selectedCount = 0,
@@ -177,6 +264,9 @@ export function TableHeaderRow({
                 onHideField={onHideField}
             onResize={onResize}
             currentWidth={widths?.[field.id]}
+            calculations={calculations}
+            rows={rows}
+            onUpdateCalculation={onUpdateCalculation}
           />
         </div>
       );
@@ -216,6 +306,9 @@ interface FieldHeaderProps {
   onResize?: (fieldId: string, width: number, persist: boolean) => void;
   currentWidth?: number;
   onUpdateFieldConfig?: (fieldId: string, config: any) => void;
+  calculations?: Record<string, CalculationType | undefined>;
+  rows?: TableRowType[];
+  onUpdateCalculation?: (fieldId: string, calc: CalculationType | null) => void;
 }
 
 function isOptionField(type: FieldType) {
@@ -261,6 +354,9 @@ function FieldHeader({
   onHideField,
   onResize,
   currentWidth,
+  calculations = {},
+  rows = [],
+  onUpdateCalculation,
   onUpdateFieldConfig,
 }: FieldHeaderProps) {
   const [draftName, setDraftName] = useState(field.name);
@@ -306,7 +402,9 @@ function FieldHeader({
           }}
         />
         <div className="mt-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] flex items-center gap-1">
-          <span className="rounded-[2px] px-1.5 py-[2px] bg-[var(--surface)] border border-[var(--border)] text-[10px]">{field.type}</span>
+          {field.type !== "text" && (
+            <span className="rounded-[2px] px-1.5 py-[2px] bg-[var(--surface)] border border-[var(--border)] text-[10px]">{field.type}</span>
+          )}
           {sort && (
             <span className="text-[var(--dome-teal)] flex items-center gap-1">
               {sort.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
@@ -366,6 +464,39 @@ function FieldHeader({
             >
               <Eye className="h-3 w-3" /> View column details
             </DropdownMenuItem>
+          )}
+          {onUpdateCalculation && (
+            <>
+              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuLabel className="px-2 py-1 text-[10px]">Calculate</DropdownMenuLabel>
+              {(() => {
+                const calc = calculations[field.id];
+                const columnValues = rows.map((row) => row.data?.[field.id]);
+                const calculatedValue = calc ? calculateValue(columnValues, calc) : null;
+                const options = availableCalculations(field.type);
+                return (
+                  <>
+                    <DropdownMenuItem onSelect={() => onUpdateCalculation(field.id, null)} className="gap-1.5 px-2 py-1 text-xs">
+                      <X className="h-3 w-3" /> None
+                    </DropdownMenuItem>
+                    {options.map((opt) => (
+                      <DropdownMenuItem 
+                        key={opt} 
+                        onSelect={() => onUpdateCalculation(field.id, opt)} 
+                        className="gap-1.5 px-2 py-1 text-xs"
+                      >
+                        {opt.replace(/_/g, " ")}
+                        {calc === opt && calculatedValue !== null && (
+                          <span className="ml-auto text-[10px] text-[var(--muted-foreground)] font-mono">
+                            {formatCalcValue(calculatedValue, field.type, opt)}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                );
+              })()}
+            </>
           )}
           <DropdownMenuSeparator className="my-1" />
           <DropdownMenuLabel className="px-2 py-1 text-[10px]">Type</DropdownMenuLabel>

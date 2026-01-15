@@ -42,20 +42,52 @@ export async function createTable(input: CreateTableInput): Promise<ActionResult
     return { error: "Failed to create table" };
   }
 
-  const { data: field, error: fieldError } = await supabase
-    .from("table_fields")
-    .insert({
-      table_id: table.id,
-      name: "Name",
-      type: "text",
-      is_primary: true,
-      order: 1,
-    })
-    .select("*")
-    .single();
+  // Create 3 default fields
+  const defaultFields = [
+    { name: "Name", type: "text", is_primary: true, order: 1 },
+    { name: "Column 2", type: "text", is_primary: false, order: 2 },
+    { name: "Column 3", type: "text", is_primary: false, order: 3 },
+  ];
 
-  if (fieldError || !field) {
-    return { error: "Table created but failed to create primary field" };
+  const fieldsPayload = defaultFields.map((field) => ({
+    table_id: table.id,
+    name: field.name,
+    type: field.type,
+    is_primary: field.is_primary,
+    order: field.order,
+  }));
+
+  const { data: fields, error: fieldsError } = await supabase
+    .from("table_fields")
+    .insert(fieldsPayload)
+    .select("*");
+
+  if (fieldsError || !fields || fields.length === 0) {
+    return { error: "Table created but failed to create fields" };
+  }
+
+  const primaryField = fields.find((f) => f.is_primary) || fields[0];
+
+  // Create 3 default rows
+  const rowsPayload = [
+    { data: {}, order: 1 },
+    { data: {}, order: 2 },
+    { data: {}, order: 3 },
+  ].map((row) => ({
+    table_id: table.id,
+    data: row.data,
+    order: row.order,
+    created_by: userId,
+    updated_by: userId,
+  }));
+
+  const { error: rowsError } = await supabase
+    .from("table_rows")
+    .insert(rowsPayload);
+
+  if (rowsError) {
+    // Don't fail table creation if rows fail, just log it
+    console.error("Failed to create default rows:", rowsError);
   }
 
   // Seed a default view
@@ -68,7 +100,7 @@ export async function createTable(input: CreateTableInput): Promise<ActionResult
     config: {},
   });
 
-  return { data: { table, primaryField: field } };
+  return { data: { table, primaryField } };
 }
 
 export async function getTable(tableId: string): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {

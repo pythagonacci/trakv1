@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { createTab, getProjectTabs, type TabWithChildren } from "@/app/actions/tab";
 
@@ -20,6 +21,7 @@ export default function CreateTabDialog({
   initialParentTabId,
   onSuccess,
 }: CreateTabDialogProps) {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [tabName, setTabName] = useState("");
   const [isSubTab, setIsSubTab] = useState(initialParentTabId !== undefined);
@@ -152,7 +154,12 @@ export default function CreateTabDialog({
         return;
       }
 
-      // Success: close dialog and call success callback
+      // Success: navigate to the newly created tab
+      if (result.data?.id) {
+        router.push(`/dashboard/projects/${projectId}/tabs/${result.data.id}`);
+      }
+      
+      // Close dialog and call success callback
       onSuccess?.();
       onClose();
     } catch (error: any) {

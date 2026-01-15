@@ -60,6 +60,7 @@ export function TableHeaderCompact({
   const viewsDropdownRef = useRef<HTMLDivElement>(null);
   const filtersButtonRef = useRef<HTMLButtonElement>(null);
   const filtersDropdownRef = useRef<HTMLDivElement>(null);
+  const prevOpenSearchTickRef = useRef<number | undefined>(openSearchTick);
 
   const activeView = views.find((v) => v.id === activeViewId);
 
@@ -93,14 +94,18 @@ export function TableHeaderCompact({
   // Open search bar when requested externally (e.g., Cmd/Ctrl+F hotkey)
   useEffect(() => {
     if (openSearchTick === undefined) return;
-    setShowSearch(true);
-    // Slight delay to ensure input is in DOM
-    setTimeout(() => {
-      if (searchInputRef?.current) {
-        searchInputRef.current.focus();
-        searchInputRef.current.select?.();
-      }
-    }, 0);
+    // Only open search if tick actually increased (not on initial mount)
+    if (prevOpenSearchTickRef.current !== undefined && openSearchTick > prevOpenSearchTickRef.current) {
+      setShowSearch(true);
+      // Slight delay to ensure input is in DOM
+      setTimeout(() => {
+        if (searchInputRef?.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select?.();
+        }
+      }, 0);
+    }
+    prevOpenSearchTickRef.current = openSearchTick;
   }, [openSearchTick, searchInputRef]);
 
   return (
@@ -172,6 +177,18 @@ export function TableHeaderCompact({
               }}
             />
           </div>
+          <button
+            onClick={() => {
+              setShowSearch(false);
+              setSearch("");
+              setColumnSearch("");
+              onSearch?.("");
+            }}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150"
+            title="Close search"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 

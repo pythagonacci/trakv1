@@ -175,47 +175,235 @@ export default function BlockWrapper({
         }}
       >
         {!borderless && (
-          <div className="absolute -top-3 right-3 flex items-center gap-2">
+          <div className="absolute -top-3 right-3 flex items-center gap-2 z-[60]">
             {!readOnly && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCommentsOpen((prev) => !prev);
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                className={cn(
-                  "inline-flex items-center justify-center border p-1.5 transition-colors",
-                  hasComments || commentsOpen
-                    ? "border-blue-200 bg-blue-50 text-blue-700"
-                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCommentsOpen((prev) => !prev);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className={cn(
+                    "inline-flex items-center justify-center border p-1.5 transition-colors",
+                    hasComments || commentsOpen
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                  )}
+                  title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
+                  aria-pressed={commentsOpen}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </button>
+                {block.type === "table" && (
+                  <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <button 
+                        className="inline-flex items-center justify-center border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          onAddBlockAbove?.(block.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add block above
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          onAddBlockBelow?.(block.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add block below
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <span className="flex items-center gap-2">
+                            <Maximize2 className="h-4 w-4" />
+                            Convert block
+                          </span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {blockTypeOptions
+                            .filter((option) => option.type !== block.type)
+                            .map((option) => (
+                              <DropdownMenuItem
+                                key={option.type}
+                                onClick={() => {
+                                  onConvert?.(block.id, option.type);
+                                  setMenuOpen(false);
+                                }}
+                              >
+                                {option.icon}
+                                <span>{option.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      
+                      {!block.is_template && !block.original_block_id && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setMakeTemplateDialogOpen(true);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <Copy className="h-4 w-4" /> Make Reusable
+                        </DropdownMenuItem>
+                      )}
+                      
+                      <DropdownMenuSeparator />
+                      
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setCommentsOpen(true);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <MessageSquare className="h-4 w-4" /> 
+                        <span>{hasComments ? "Comments" : "Add comment"}</span>
+                        {hasComments && (
+                          <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
+                        )}
+                      </DropdownMenuItem>
+                      
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => onDelete?.(block.id)}
+                        className="text-red-500 focus:bg-red-50 focus:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
-                title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
-                aria-pressed={commentsOpen}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-              </button>
+              </>
             )}
           </div>
         )}
 
         {borderless && !readOnly && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setCommentsOpen((prev) => !prev);
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            className={cn(
-              "absolute right-2 top-2 inline-flex items-center justify-center border p-1.5 transition-colors",
-              hasComments || commentsOpen
-                ? "border-blue-200 bg-blue-50 text-blue-700"
-                : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+          <div className="absolute right-2 top-2 z-[60] flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCommentsOpen((prev) => !prev);
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={cn(
+                "inline-flex items-center justify-center border p-1.5 transition-colors",
+                hasComments || commentsOpen
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+              )}
+              title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
+              aria-pressed={commentsOpen}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </button>
+            {block.type === "table" && (
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button 
+                    className="inline-flex items-center justify-center border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      onAddBlockAbove?.(block.id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add block above
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      onAddBlockBelow?.(block.id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add block below
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="flex items-center gap-2">
+                        <Maximize2 className="h-4 w-4" />
+                        Convert block
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {blockTypeOptions
+                        .filter((option) => option.type !== block.type)
+                        .map((option) => (
+                          <DropdownMenuItem
+                            key={option.type}
+                            onClick={() => {
+                              onConvert?.(block.id, option.type);
+                              setMenuOpen(false);
+                            }}
+                          >
+                            {option.icon}
+                            <span>{option.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  
+                  {!block.is_template && !block.original_block_id && (
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setMakeTemplateDialogOpen(true);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <Copy className="h-4 w-4" /> Make Reusable
+                    </DropdownMenuItem>
+                  )}
+                  
+                  <DropdownMenuSeparator />
+                  
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setCommentsOpen(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <MessageSquare className="h-4 w-4" /> 
+                    <span>{hasComments ? "Comments" : "Add comment"}</span>
+                    {hasComments && (
+                      <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
+                    )}
+                  </DropdownMenuItem>
+                  
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDelete?.(block.id)}
+                    className="text-red-500 focus:bg-red-50 focus:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-            title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
-            aria-pressed={commentsOpen}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-          </button>
+          </div>
         )}
         
         {block.is_template && (
@@ -225,10 +413,10 @@ export default function BlockWrapper({
           </div>
         )}
 
-        {!readOnly && (
+        {!readOnly && block.type !== "table" && (
           <div
             className={cn(
-              "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out z-30",
+              "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out z-[60]",
               "group-hover:flex group-focus-within:flex",
               menuOpen && "flex"
             )}

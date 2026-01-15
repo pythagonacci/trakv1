@@ -32,13 +32,12 @@ import { TableHeaderCompact } from "./table-header-compact";
 import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
-import { TableFooterRow } from "./table-footer-row";
 import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 import { BulkDeleteDialog } from "./bulk-delete-dialog";
 import { RelationConfigModal } from "./relation-config-modal";
 import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
-import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, TableField } from "@/types/table";
+import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, TableField, TableRow as TableRowType } from "@/types/table";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -155,10 +154,10 @@ export function TableView({ tableId }: Props) {
   
   const columnTemplate = useMemo(() => {
     if (!fields.length) return `${selectionWidth}px 1fr 40px`;
-    // Use explicit widths per field; append thin add-column slot
-    const base = fields.map((f) => `${getWidthForField(f.id)}px`).join(" ");
+    // Use flex widths so columns fill the entire table width
+    const base = fields.map(() => `1fr`).join(" ");
     return `${selectionWidth}px ${base} 40px`;
-  }, [fields, getWidthForField, selectionWidth]);
+  }, [fields, selectionWidth]);
 
   const widthMap = useMemo(() => {
     const acc: Record<string, number> = {};
@@ -321,7 +320,7 @@ export function TableView({ tableId }: Props) {
                   
                   cachedQueries.forEach(([queryKey, cachedData]) => {
                     if (cachedData && typeof cachedData === 'object' && 'rows' in cachedData) {
-                      const data = cachedData as { rows: TableRow[] };
+                      const data = cachedData as { rows: TableRowType[] };
                       const updatedRows = data.rows.map((r) => {
                         if (r.id === affectedRowId) {
                           // Update the opposite field's data with the new relation IDs
@@ -1024,6 +1023,9 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             onHideField={handleHideField}
               onResize={handleResizeWidth}
               widths={widthMap}
+              calculations={view?.config?.field_calculations || {}}
+              rows={sortedRows}
+              onUpdateCalculation={handleUpdateCalculation}
               className="sticky top-0 z-10"
           />
             {groupedData.grouped ? (
@@ -1109,18 +1111,6 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
               ))
             )}
 
-            {fields.length > 0 && (
-              <TableFooterRow
-                fields={fields}
-                rows={sortedRows}
-                calculations={view?.config?.field_calculations || {}}
-                columnTemplate={columnTemplate}
-                pinnedFields={pinnedFields}
-                widths={widthMap}
-                selectionWidth={selectionWidth}
-                onUpdateCalculation={handleUpdateCalculation}
-              />
-            )}
 
                 {sortedRows.length === 0 && (
                   <div className="p-6 text-sm text-[var(--muted-foreground)] flex flex-col gap-2 items-center">

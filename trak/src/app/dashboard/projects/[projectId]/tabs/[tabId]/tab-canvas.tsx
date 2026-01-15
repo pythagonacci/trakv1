@@ -357,8 +357,31 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     if (!targetBlock) return;
 
     // Calculate position below the target block
-    const targetPosition = targetBlock.position;
-    const belowPosition = targetPosition + 1; // Insert after the target block
+    // Blocks are grouped into rows using Math.floor(position)
+    // To add below, we need to ensure the new block is in a completely new row
+    // Find the maximum POSITION (not just row index) across ALL blocks
+    // This ensures the new block has a position that's definitely higher than all others
+    const maxPosition = blocks.length > 0
+      ? Math.max(...blocks.map(b => b.position))
+      : -1;
+    
+    // The new block should have a position that's definitely after all existing positions
+    // We add 1 to the maximum position to ensure it's in a new row
+    // This guarantees it won't be grouped with any existing blocks
+    // Use Math.floor to ensure it's a clean integer row index
+    const belowPosition = Math.floor(maxPosition) + 1;
+    const belowColumn = 0;
+    
+    console.log('Adding block below:', {
+      targetBlockId,
+      targetPosition: targetBlock.position,
+      targetRowIndex,
+      maxRowIndex,
+      nextRowIndex,
+      belowPosition,
+      belowColumn,
+      totalBlocks: blocks.length
+    });
 
     // Create optimistic block
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
@@ -369,7 +392,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       type: "text" as const,
       content: { text: "" },
       position: belowPosition,
-      column: targetBlock.column,
+      column: belowColumn,
       is_template: false,
       template_name: null,
       original_block_id: null,
@@ -385,7 +408,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       tabId,
       type: "text",
       position: belowPosition,
-      column: targetBlock.column,
+      column: belowColumn,
     }).then((result) => {
       if (result.error) {
         console.error("Failed to create block below:", result.error);
@@ -834,18 +857,24 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         console.warn("Block already exists, skipping duplicate:", newBlock.id);
         return prevBlocks;
       }
-      const nextPos = newBlock.position ?? (prevBlocks.length === 0
-        ? 0
-        : Math.max(...prevBlocks.map((b) => Math.floor(b.position))) + 1);
-      return [
-        ...prevBlocks,
-        {
-          ...newBlock,
-          type: newBlock.type, // Explicitly preserve type
-          position: nextPos,
-          column: newBlock.column ?? 0,
-        },
-      ];
+      // Preserve the position if explicitly set (for "add below" functionality)
+      // Otherwise calculate a default position
+      const nextPos = newBlock.position !== undefined && newBlock.position !== null
+        ? newBlock.position
+        : (prevBlocks.length === 0
+          ? 0
+          : Math.max(...prevBlocks.map((b) => Math.floor(b.position))) + 1);
+      
+      const newBlockWithPosition = {
+        ...newBlock,
+        type: newBlock.type, // Explicitly preserve type
+        position: nextPos,
+        column: newBlock.column ?? 0,
+      };
+      
+      // Insert block in sorted order by position to maintain correct ordering
+      const sorted = [...prevBlocks, newBlockWithPosition].sort((a, b) => a.position - b.position);
+      return sorted;
     });
     setIsCreatingBlock(false);
     
@@ -1008,6 +1037,17 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                   ))}
                 </div>
               ))}
+              {/* Add block button appears right after the last block row */}
+              <div className="flex gap-3 pt-2">
+                <AddBlockButton
+                  tabId={tabId}
+                  projectId={projectId}
+                  onBlockCreated={handleBlockCreated}
+                  onBlockResolved={resolveOptimisticBlock}
+                  onBlockError={handleBlockError}
+                  getNextPosition={getNextPosition}
+                />
+              </div>
             </div>
           ) : (
             <DndContext
@@ -1060,22 +1100,22 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                     </div>
                   </SortableContext>
                 ))}
+                {/* Add block button appears right after the last block row */}
+                <div className="flex gap-3 pt-2">
+                  <AddBlockButton
+                    tabId={tabId}
+                    projectId={projectId}
+                    onBlockCreated={handleBlockCreated}
+                    onBlockResolved={resolveOptimisticBlock}
+                    onBlockError={handleBlockError}
+                    getNextPosition={getNextPosition}
+                  />
+                </div>
               </div>
             </DndContext>
           )}
         </div>
       )}
-
-      <div className="flex gap-3 pt-4">
-        <AddBlockButton
-          tabId={tabId}
-          projectId={projectId}
-          onBlockCreated={handleBlockCreated}
-          onBlockResolved={resolveOptimisticBlock}
-          onBlockError={handleBlockError}
-          getNextPosition={getNextPosition}
-        />
-      </div>
 
       {/* Doc Sidebar */}
       <DocSidebar docId={openDocId} onClose={() => setOpenDocId(null)} />
