@@ -154,14 +154,16 @@ export default function CreateTabDialog({
         return;
       }
 
-      // Success: navigate to the newly created tab
+      // Close dialog first
+      onClose();
+      
+      // Navigate to the newly created tab - revalidation ensures fresh data is fetched
       if (result.data?.id) {
         router.push(`/dashboard/projects/${projectId}/tabs/${result.data.id}`);
       }
       
-      // Close dialog and call success callback
+      // Call success callback after navigation (for any cleanup/updates)
       onSuccess?.();
-      onClose();
     } catch (error: any) {
       setFormError(error.message || "Failed to create tab");
       setIsSubmitting(false);

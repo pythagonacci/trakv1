@@ -157,13 +157,17 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
     setIsCreateDialogOpen(true);
   };
 
-  const handleDialogSuccess = () => router.refresh();
+  const handleDialogSuccess = () => {
+    // No need to refresh here - navigation will fetch fresh data due to revalidation in createTab action
+  };
 
   const handleDeleteSuccess = () => {
-    router.refresh();
+    // If we deleted the currently active tab, navigate to project page
+    // Revalidation in deleteTab action ensures fresh data is fetched
     if (deleteConfirmTab && activeTabId === deleteConfirmTab.id) {
       router.push(`/dashboard/projects/${projectId}`);
     }
+    // No need to refresh - revalidation handles cache invalidation
   };
 
   // Find if active tab is a child and get its parent

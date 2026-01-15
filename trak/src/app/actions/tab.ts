@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } from "@/lib/auth-utils";
+import { revalidatePath } from "next/cache";
 
 // Limits to prevent unbounded queries
 const TABS_PER_PROJECT_LIMIT = 1000;
@@ -114,6 +115,10 @@ export async function createTab(data: {
       console.error("Create tab error:", createError);
       return { error: "Failed to create tab" };
     }
+
+    // Revalidate paths to ensure UI updates immediately
+    revalidatePath(`/dashboard/projects/${data.projectId}`);
+    revalidatePath(`/dashboard/projects/${data.projectId}/tabs/${newTab.id}`);
 
     return { data: newTab };
   } catch (error) {
@@ -516,7 +521,12 @@ export async function deleteTab(tabId: string) {
       await Promise.all(updates);
     }
 
-    return { data: { success: true, deletedCount: allTabIds.length } };
+    // Revalidate paths to ensure UI updates immediately
+    revalidatePath(`/dashboard/projects/${tab.project_id}`);
+    // Revalidate all tab pages for this project (since we don't know which ones exist)
+    // The project page revalidation will ensure the tab bar updates
+
+    return { data: { success: true, deletedCount: allTabIds.length, projectId: tab.project_id } };
   } catch (error) {
     console.error("Delete tab exception:", error);
     return { error: "Failed to delete tab" };
