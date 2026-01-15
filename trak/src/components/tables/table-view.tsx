@@ -1026,7 +1026,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
               calculations={view?.config?.field_calculations || {}}
               rows={sortedRows}
               onUpdateCalculation={handleUpdateCalculation}
-              className="sticky top-0 z-10"
+              className="sticky top-0 z-[5]"
           />
             {groupedData.grouped ? (
               groupedData.groups.map((group) => (

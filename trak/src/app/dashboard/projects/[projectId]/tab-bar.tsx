@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -42,10 +42,12 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
   const [createDialogParentId, setCreateDialogParentId] = useState<string | undefined>(undefined);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmTab, setDeleteConfirmTab] = useState<Tab | null>(null);
+  const [deleteTriggerRef, setDeleteTriggerRef] = useState<React.RefObject<HTMLElement> | null>(null);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const menuTriggerRefs = useRef<Record<string, React.RefObject<HTMLButtonElement>>>({});
   const [isHoveringRevealZone, setIsHoveringRevealZone] = useState(false);
   const [isHoveringFloating, setIsHoveringFloating] = useState(false);
   const [isAtTop, setIsAtTop] = useState(true);
@@ -187,6 +189,12 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
     const isExpanded = expandedTabId === tab.id;
     const isParentOfActive = activeTabInfo?.parent.id === tab.id;
 
+    // Create ref for menu trigger if it doesn't exist
+    if (!menuTriggerRefs.current[tab.id]) {
+      menuTriggerRefs.current[tab.id] = React.createRef<HTMLButtonElement>();
+    }
+    const menuTriggerRef = menuTriggerRefs.current[tab.id];
+
     return (
       <div key={tab.id}>
         <div className={cn("group relative flex items-center", depth > 0 && "pl-0")}>
@@ -263,6 +271,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
             >
               <DropdownMenuTrigger asChild>
                 <button
+                  ref={menuTriggerRef}
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -320,7 +329,11 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => setDeleteConfirmTab(tab)}
+                    onClick={() => {
+                      setDeleteTriggerRef(menuTriggerRef);
+                      setDeleteConfirmTab(tab);
+                      setOpenMenuId(null); // Close the dropdown menu
+                    }}
                     className="text-red-500 focus:bg-red-50 focus:text-red-600"
                   >
                     <Trash2 className="h-4 w-4" /> Delete
@@ -469,9 +482,13 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
 
       <DeleteTabDialog
         isOpen={deleteConfirmTab !== null}
-        onClose={() => setDeleteConfirmTab(null)}
+        onClose={() => {
+          setDeleteConfirmTab(null);
+          setDeleteTriggerRef(null);
+        }}
         tab={deleteConfirmTab}
         onSuccess={handleDeleteSuccess}
+        triggerRef={deleteTriggerRef}
       />
     </>
   );
