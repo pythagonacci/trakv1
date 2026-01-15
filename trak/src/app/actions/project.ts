@@ -80,6 +80,7 @@ type ProjectQueryOptions = {
 
 type PreviewContext = {
   pdfFileNames?: Map<string, string>;
+  taskItemsByBlock?: Map<string, Array<{ id: string; title: string; status: string }>>;
 };
 
 function truncatePreviewText(input?: string | null, maxLength: number = 80) {
@@ -130,9 +131,10 @@ function summarizeBlockPreview(
       };
     }
     case "task": {
-      const tasks = Array.isArray(content.tasks) ? content.tasks : [];
+      const taskItems = context.taskItemsByBlock?.get((block as any).id) || [];
+      const tasks = taskItems.length > 0 ? taskItems : (Array.isArray(content.tasks) ? content.tasks : []);
       const completed = tasks.filter(
-        (task) => task.completed || task.done || task.status === "done"
+        (task: any) => task.completed || task.done || task.status === "done"
       ).length;
       const title = getTitle(content.title);
       const detailLines: string[] = [];
@@ -142,7 +144,7 @@ function summarizeBlockPreview(
         detailLines.push("No tasks yet");
       }
       detailLines.push(
-        ...tasks.slice(0, 3).map((task) => {
+        ...tasks.slice(0, 3).map((task: any) => {
           const label = task.title || task.text || "Untitled task";
           const icon = task.completed || task.done || task.status === "done" ? "✓" : "•";
           return `${icon} ${label}`;
@@ -595,8 +597,31 @@ export async function getAllProjects(
               }
             }
 
+            const taskBlockIds = blocks
+              .filter((block) => block.type === 'task')
+              .map((block) => block.id)
+            const taskItemsByBlock = new Map<string, Array<{ id: string; title: string; status: string }>>()
+
+            if (taskBlockIds.length > 0) {
+              const { data: taskItems, error: taskError } = await supabase
+                .from('task_items')
+                .select('id, title, status, task_block_id, display_order')
+                .in('task_block_id', taskBlockIds)
+                .order('display_order', { ascending: true })
+
+              if (taskError) {
+                console.error('Failed to fetch task previews:', taskError)
+              } else {
+                taskItems?.forEach((task) => {
+                  const list = taskItemsByBlock.get(task.task_block_id) || []
+                  list.push({ id: task.id, title: task.title, status: task.status })
+                  taskItemsByBlock.set(task.task_block_id, list)
+                })
+              }
+            }
+
             blocks.forEach((block) => {
-              const preview = summarizeBlockPreview(block as any, { pdfFileNames })
+              const preview = summarizeBlockPreview(block as any, { pdfFileNames, taskItemsByBlock })
               const previewEntry: TabPreviewBlock = {
                 id: block.id,
                 type: block.type as BlockType,

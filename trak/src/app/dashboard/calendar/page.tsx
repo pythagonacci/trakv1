@@ -40,13 +40,17 @@ export default async function CalendarPage() {
     );
   }
 
-  // Fetch tasks with due dates from task blocks
-  const { data: taskBlocks } = await supabase
-    .from("blocks")
+  // Fetch tasks with due dates from task items
+  const { data: taskItems } = await supabase
+    .from("task_items")
     .select(`
       id,
-      content,
-      tab:tabs!blocks_tab_id_fkey(
+      title,
+      due_date,
+      due_time,
+      priority,
+      task_block_id,
+      tab:tabs!task_items_tab_id_fkey(
         id,
         name,
         project:projects!tabs_project_id_fkey(
@@ -56,8 +60,8 @@ export default async function CalendarPage() {
         )
       )
     `)
-    .eq("type", "task")
-    .eq("tab.project.workspace_id", workspaceId)
+    .eq("workspace_id", workspaceId)
+    .not("due_date", "is", null)
     .order("updated_at", { ascending: false });
 
   // Fetch projects with due dates
@@ -69,25 +73,22 @@ export default async function CalendarPage() {
 
   // Extract events from tasks
   const taskEvents: CalendarEvent[] = [];
-  taskBlocks?.forEach((block: any) => {
-    const tasks = block.content?.tasks || [];
-    tasks.forEach((task: any) => {
-      if (task.dueDate) {
-        taskEvents.push({
-          id: `task-${block.id}-${task.id}`,
-          title: task.text || "Untitled Task",
-          date: task.dueDate,
-          time: task.dueTime,
-          type: "task",
-          projectId: block.tab?.project?.id,
-          tabId: block.tab?.id,
-          taskId: String(task.id),
-          priority: task.priority,
-          projectName: block.tab?.project?.name || "Unknown",
-          tabName: block.tab?.name || "Unknown",
-        });
-      }
-    });
+  taskItems?.forEach((task: any) => {
+    if (task.due_date) {
+      taskEvents.push({
+        id: `task-${task.task_block_id}-${task.id}`,
+        title: task.title || "Untitled Task",
+        date: task.due_date,
+        time: task.due_time || undefined,
+        type: "task",
+        projectId: task.tab?.project?.id,
+        tabId: task.tab?.id,
+        taskId: String(task.id),
+        priority: task.priority,
+        projectName: task.tab?.project?.name || "Unknown",
+        tabName: task.tab?.name || "Unknown",
+      });
+    }
   });
 
   // Extract events from projects
@@ -108,4 +109,3 @@ export default async function CalendarPage() {
 
   return <CalendarView initialEvents={allEvents} workspaceId={workspaceId} />;
 }
-

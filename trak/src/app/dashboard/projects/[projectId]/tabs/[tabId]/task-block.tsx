@@ -10,6 +10,20 @@ import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import {
+  useTaskItems,
+  useCreateTaskItem,
+  useUpdateTaskItem,
+  useDeleteTaskItem,
+  useTaskSubtasks,
+  useTaskComments,
+  useTaskTags,
+  useTaskAssignees,
+  useTaskReferences,
+  useCreateTaskReference,
+  useDeleteTaskReference,
+} from "@/lib/hooks/use-task-queries";
+import ReferencePicker from "@/components/timelines/reference-picker";
 import { useTheme } from "@/app/dashboard/theme-context";
 import {
   DropdownMenu,
@@ -28,18 +42,18 @@ interface Task {
   status: "todo" | "in-progress" | "done";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   assignees?: string[];
-  dueDate?: string;
-  dueTime?: string;
-  startDate?: string;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  startDate?: string | null;
   tags?: string[];
-  description?: string;
+  description?: string | null;
   subtasks?: { id: string | number; text: string; completed: boolean }[];
   attachments?: { id: string | number; name: string; url: string; type: string }[];
   comments?: { id: string | number; author: string; text: string; timestamp: string }[];
   recurring?: {
     enabled: boolean;
-    frequency: "daily" | "weekly" | "monthly";
-    interval: number;
+    frequency?: "daily" | "weekly" | "monthly" | null;
+    interval?: number | null;
   };
   hideIcons?: boolean;
 }
@@ -67,7 +81,7 @@ function TaskDescription({
   const handleBlur = async () => {
     const finalValue = textareaRef.current?.value ?? "";
     if (finalValue !== (task.description ?? "")) {
-      await updateTask(task.id, { description: finalValue || undefined });
+      await updateTask(task.id, { description: finalValue ? finalValue : null });
     }
   };
 
@@ -121,7 +135,7 @@ function TaskDescription({
           onClick={async (e) => {
             e.stopPropagation();
             e.preventDefault();
-            await updateTask(task.id, { description: undefined });
+            await updateTask(task.id, { description: null });
             if (textareaRef.current) {
               textareaRef.current.value = "";
             }
@@ -147,14 +161,17 @@ interface TaskBlockProps {
   block: Block;
   onUpdate?: (updatedBlock?: Block) => void;
   workspaceId: string;
+  projectId?: string;
   scrollToTaskId?: string | null;
 }
 
-export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId }: TaskBlockProps) {
+export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scrollToTaskId }: TaskBlockProps) {
   const { theme } = useTheme();
   const content = (block.content || {}) as { title?: string; tasks?: Task[]; hideIcons?: boolean };
   const title = content.title || "Task list";
-  const tasks = content.tasks || [];
+  const isTempBlock = block.id.startsWith("temp-");
+  const { data: serverTasks = [] } = useTaskItems(block.id, { enabled: !isTempBlock });
+  const tasks = isTempBlock ? (content.tasks || []) : (serverTasks as Task[]);
   const initialGlobalHideIcons = content.hideIcons || false;
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -163,14 +180,25 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   const [editingTaskId, setEditingTaskId] = useState<string | number | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean }>>({});
+  const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean; references?: boolean }>>({});
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
   const [newTagInput, setNewTagInput] = useState("");
+  const [referenceTaskId, setReferenceTaskId] = useState<string | null>(null);
+  const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const dateInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
   const timeInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
+
+  const createTaskMutation = useCreateTaskItem(block.id);
+  const updateTaskMutation = useUpdateTaskItem(block.id);
+  const deleteTaskMutation = useDeleteTaskItem(block.id);
+  const subtaskMutations = useTaskSubtasks(block.id);
+  const commentMutations = useTaskComments(block.id);
+  const tagMutation = useTaskTags(block.id);
+  const assigneeMutation = useTaskAssignees(block.id);
+  const createReferenceMutation = useCreateTaskReference(referenceTaskId || undefined);
   
   // Helper function to format date with smart labels
-  const formatDueDate = (dueDate: string | undefined, dueTime: string | undefined): string => {
+  const formatDueDate = (dueDate: string | null | undefined, dueTime: string | null | undefined): string => {
     if (!dueDate) return "";
     
     const today = new Date();
@@ -292,7 +320,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     });
 
     // Skip database update if block has temporary ID (not yet saved)
-    if (block.id.startsWith("temp-")) {
+    if (isTempBlock) {
       onUpdate?.({
         ...block,
         content: { ...content, tasks: newTasks },
@@ -300,23 +328,19 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       });
       return;
     }
-
-    const result = await updateBlock({
-      blockId: block.id,
-      content: { ...content, tasks: newTasks },
+    const updated = newTasks.find((task) => task.id === taskId);
+    if (!updated) return;
+    await updateTaskMutation.mutateAsync({
+      taskId: String(taskId),
+      updates: { status: updated.status },
     });
-    if (result.data) {
-      onUpdate?.(result.data);
-    } else {
-      onUpdate?.();
-    }
   };
 
   const setTaskStatus = async (taskId: string | number, status: Task["status"]) => {
     const newTasks = tasks.map((task) => (task.id === taskId ? { ...task, status } : task));
     
     // Skip database update if block has temporary ID (not yet saved)
-    if (block.id.startsWith("temp-")) {
+    if (isTempBlock) {
       onUpdate?.({
         ...block,
         content: { ...content, tasks: newTasks },
@@ -324,16 +348,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       });
       return;
     }
-
-    const result = await updateBlock({
-      blockId: block.id,
-      content: { ...content, tasks: newTasks },
-    });
-    if (result.data) {
-      onUpdate?.(result.data);
-    } else {
-      onUpdate?.();
-    }
+    await updateTaskMutation.mutateAsync({ taskId: String(taskId), updates: { status } });
   };
 
   const addTask = async () => {
@@ -346,23 +361,26 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     const updatedContent = { ...content, tasks: newTasks };
 
     // Optimistically update UI
-    onUpdate?.({
-      ...block,
-      content: updatedContent,
-      updated_at: new Date().toISOString(),
-    });
+    if (isTempBlock) {
+      onUpdate?.({
+        ...block,
+        content: updatedContent,
+        updated_at: new Date().toISOString(),
+      });
+    }
 
     // Skip database update if block has temporary ID (not yet saved)
-    if (block.id.startsWith("temp-")) {
+    if (isTempBlock) {
       return;
     }
 
-    const result = await updateBlock({ blockId: block.id, content: updatedContent });
-    if (result.data) {
-      onUpdate?.(result.data);
-    } else if (result.error) {
+    const result = await createTaskMutation.mutateAsync({
+      taskBlockId: block.id,
+      title: "New task",
+      status: "todo",
+    });
+    if ("error" in result) {
       console.error("Failed to add task:", result.error);
-      // Keep optimistic state so the task doesn't vanish; rely on next refresh to realign if needed
     }
   };
 
@@ -371,23 +389,22 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     const updatedContent = { ...content, tasks: newTasks };
 
     // Optimistic update
-    onUpdate?.({
-      ...block,
-      content: updatedContent,
-      updated_at: new Date().toISOString(),
-    });
+    if (isTempBlock) {
+      onUpdate?.({
+        ...block,
+        content: updatedContent,
+        updated_at: new Date().toISOString(),
+      });
+    }
 
     // Skip database update if block has temporary ID (not yet saved)
-    if (block.id.startsWith("temp-")) {
+    if (isTempBlock) {
       return;
     }
 
-    const result = await updateBlock({ blockId: block.id, content: updatedContent });
-    if (result.data) {
-      onUpdate?.(result.data);
-    } else if (result.error) {
+    const result = await deleteTaskMutation.mutateAsync(String(taskId));
+    if ("error" in result) {
       console.error("Failed to delete task:", result.error);
-      // Keep optimistic state; next refresh will realign if needed
     }
   };
 
@@ -396,25 +413,40 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     const updatedContent = { ...content, tasks: newTasks };
 
     // Optimistic update
-    onUpdate?.({
-      ...block,
-      content: updatedContent,
-      updated_at: new Date().toISOString(),
-    });
+    if (isTempBlock) {
+      onUpdate?.({
+        ...block,
+        content: updatedContent,
+        updated_at: new Date().toISOString(),
+      });
+    }
 
     // Skip database update if block has temporary ID (not yet saved)
-    if (block.id.startsWith("temp-")) {
+    if (isTempBlock) {
       return;
     }
 
-    const result = await updateBlock({ blockId: block.id, content: updatedContent });
-    
-    // Pass updated block to parent for local state update (no router.refresh for inline edits)
-    if (result.data) {
-      onUpdate?.(result.data);
-    } else if (result.error) {
+    const payload: Record<string, any> = {};
+    if (updates.text !== undefined) payload.title = updates.text;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.priority !== undefined) payload.priority = updates.priority;
+    if (updates.description !== undefined) payload.description = updates.description;
+    if (updates.dueDate !== undefined) payload.dueDate = updates.dueDate;
+    if (updates.dueTime !== undefined) payload.dueTime = updates.dueTime;
+    if (updates.startDate !== undefined) payload.startDate = updates.startDate;
+    if (updates.hideIcons !== undefined) payload.hideIcons = updates.hideIcons;
+    if (updates.recurring !== undefined) {
+      payload.recurringEnabled = updates.recurring.enabled;
+      payload.recurringFrequency = updates.recurring.frequency ?? null;
+      payload.recurringInterval = updates.recurring.interval ?? null;
+    }
+
+    const result = await updateTaskMutation.mutateAsync({
+      taskId: String(taskId),
+      updates: payload,
+    });
+    if ("error" in result) {
       console.error("Failed to update task:", result.error);
-      // Keep optimistic state to avoid flicker; next refresh will realign if needed
     }
   };
 
@@ -469,12 +501,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
   const toggleSubtask = async (taskId: string | number, subtaskId: string | number) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.subtasks) return;
-    
-    const newSubtasks = task.subtasks.map(st => 
-      st.id === subtaskId ? { ...st, completed: !st.completed } : st
-    );
-    
-    await updateTask(taskId, { subtasks: newSubtasks });
+
+    if (isTempBlock) {
+      const newSubtasks = task.subtasks.map(st =>
+        st.id === subtaskId ? { ...st, completed: !st.completed } : st
+      );
+      await updateTask(taskId, { subtasks: newSubtasks });
+      return;
+    }
+
+    const subtask = task.subtasks.find((st) => st.id === subtaskId);
+    if (!subtask) return;
+    await subtaskMutations.update.mutateAsync({
+      subtaskId: String(subtaskId),
+      updates: { completed: !subtask.completed },
+    });
   };
 
   const addSubtask = async (taskId: string | number) => {
@@ -485,26 +526,43 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       completed: false,
     };
     const newSubtasks = [...(task?.subtasks || []), newSubtask];
-    await updateTask(taskId, { subtasks: newSubtasks });
+    if (isTempBlock) {
+      await updateTask(taskId, { subtasks: newSubtasks });
+      return;
+    }
+    await subtaskMutations.create.mutateAsync({
+      taskId: String(taskId),
+      title: "New subtask",
+      completed: false,
+      displayOrder: (task?.subtasks?.length || 0),
+    });
   };
 
   const updateSubtask = async (taskId: string | number, subtaskId: string | number, text: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.subtasks) return;
-    
-    const newSubtasks = task.subtasks.map(st => 
-      st.id === subtaskId ? { ...st, text } : st
-    );
-    
-    await updateTask(taskId, { subtasks: newSubtasks });
+    if (isTempBlock) {
+      const newSubtasks = task.subtasks.map(st =>
+        st.id === subtaskId ? { ...st, text } : st
+      );
+      await updateTask(taskId, { subtasks: newSubtasks });
+      return;
+    }
+    await subtaskMutations.update.mutateAsync({
+      subtaskId: String(subtaskId),
+      updates: { title: text },
+    });
   };
 
   const deleteSubtask = async (taskId: string | number, subtaskId: string | number) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.subtasks) return;
-    
-    const newSubtasks = task.subtasks.filter(st => st.id !== subtaskId);
-    await updateTask(taskId, { subtasks: newSubtasks });
+    if (isTempBlock) {
+      const newSubtasks = task.subtasks.filter(st => st.id !== subtaskId);
+      await updateTask(taskId, { subtasks: newSubtasks });
+      return;
+    }
+    await subtaskMutations.remove.mutateAsync(String(subtaskId));
   };
 
   const addComment = async (taskId: string | number) => {
@@ -512,14 +570,27 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     if (!commentText) return;
     
     const task = tasks.find(t => t.id === taskId);
-    const comment = {
-      id: Date.now(),
-      author: "Current User", // TODO: Get from auth context
+    if (isTempBlock) {
+      const comment = {
+        id: Date.now(),
+        author: "Current User", // TODO: Get from auth context
+        text: commentText,
+        timestamp: new Date().toISOString(),
+      };
+      const newComments = [...(task?.comments || []), comment];
+      await updateTask(taskId, { comments: newComments });
+      setNewComment(prev => ({ ...prev, [taskId]: "" }));
+      return;
+    }
+
+    const result = await commentMutations.create.mutateAsync({
+      taskId: String(taskId),
       text: commentText,
-      timestamp: new Date().toISOString(),
-    };
-    const newComments = [...(task?.comments || []), comment];
-    await updateTask(taskId, { comments: newComments });
+    });
+    if ("error" in result) {
+      console.error("Failed to add comment:", result.error);
+      return;
+    }
     setNewComment(prev => ({ ...prev, [taskId]: "" }));
   };
 
@@ -529,7 +600,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     const newTags = currentTags.includes(tagName)
       ? currentTags.filter(t => t !== tagName)
       : [...currentTags, tagName];
-    await updateTask(taskId, { tags: newTags });
+    if (isTempBlock) {
+      await updateTask(taskId, { tags: newTags });
+      return;
+    }
+    await tagMutation.mutateAsync({ taskId: String(taskId), tags: newTags });
   };
 
   const toggleAssignee = async (taskId: string | number, memberName: string) => {
@@ -538,7 +613,15 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     const newAssignees = currentAssignees.includes(memberName)
       ? currentAssignees.filter(a => a !== memberName)
       : [...currentAssignees, memberName];
-    await updateTask(taskId, { assignees: newAssignees });
+    if (isTempBlock) {
+      await updateTask(taskId, { assignees: newAssignees });
+      return;
+    }
+    const assigneePayload = newAssignees.map((name) => {
+      const member = members.find((m) => m.name === name);
+      return { id: member?.id || null, name };
+    });
+    await assigneeMutation.mutateAsync({ taskId: String(taskId), assignees: assigneePayload });
   };
 
   const addCustomTag = async (taskId: string | number, tagName: string) => {
@@ -552,7 +635,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     if (currentTags.includes(trimmedTag)) return;
     
     const newTags = [...currentTags, trimmedTag];
-    await updateTask(taskId, { tags: newTags });
+    if (isTempBlock) {
+      await updateTask(taskId, { tags: newTags });
+      setNewTagInput("");
+      return;
+    }
+    await tagMutation.mutateAsync({ taskId: String(taskId), tags: newTags });
     setNewTagInput("");
   };
 
@@ -587,6 +675,19 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
     const task = tasks.find(t => t.id === taskId);
     const newHideIcons = !task?.hideIcons;
     await updateTask(taskId, { hideIcons: newHideIcons });
+  };
+
+  const openReferencesPanel = (taskId: string | number) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [taskId]: { ...prev[taskId], comments: true, references: true },
+    }));
+  };
+
+  const openReferencePicker = (taskId: string | number) => {
+    openReferencesPanel(taskId);
+    setReferenceTaskId(String(taskId));
+    setIsReferenceDialogOpen(true);
   };
 
   // Helper to check if icons should be shown for a task
@@ -714,8 +815,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
       <div className="space-y-1.5">
         {tasks.map((task: Task) => {
           const taskSections = expandedSections[task.id] || {};
-          const hasAnyExpanded = taskSections.comments;
-          const hasExtendedInfo = (task.comments && task.comments.length > 0);
+          const hasAnyExpanded = taskSections.comments || taskSections.references;
+          const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
           
           return (
             <div
@@ -998,11 +1099,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                           type="date"
                           value={task.dueDate || ""}
                           onChange={(e) => {
-                            const newDate = e.target.value || undefined;
+                            const newDate = e.target.value || null;
                             // Clear time if date is cleared
                             updateTask(task.id, { 
                               dueDate: newDate,
-                              dueTime: newDate ? task.dueTime : undefined
+                              dueTime: newDate ? task.dueTime : null
                             });
                           }}
                           className="absolute inset-0 opacity-0 cursor-pointer"
@@ -1046,11 +1147,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                       type="date"
                       value={task.dueDate || ""}
                       onChange={(e) => {
-                        const newDate = e.target.value || undefined;
+                        const newDate = e.target.value || null;
                         // Clear time if date is cleared
                         updateTask(task.id, { 
                           dueDate: newDate,
-                          dueTime: newDate ? task.dueTime : undefined
+                          dueTime: newDate ? task.dueTime : null
                         });
                       }}
                       className="hidden"
@@ -1061,7 +1162,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                       }}
                       type="time"
                       value={task.dueTime || ""}
-                      onChange={(e) => updateTask(task.id, { dueTime: e.target.value || undefined })}
+                      onChange={(e) => updateTask(task.id, { dueTime: e.target.value || null })}
                       className="hidden"
                     />
                   </>
@@ -1282,6 +1383,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
                       <CheckSquare className="mr-2 h-4 w-4" />
                       Add Subtask
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
+                      <Paperclip className="mr-2 h-4 w-4" />
+                      Attachments
+                    </DropdownMenuItem>
                     
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
@@ -1295,6 +1400,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
               {/* Expanded Section */}
               {hasAnyExpanded && (
                 <div className="border-t border-[var(--border)] px-2.5 py-2 space-y-2 bg-[var(--surface-muted)]">
+                  <TaskReferences
+                    taskId={String(task.id)}
+                    onAdd={() => openReferencePicker(task.id)}
+                    disabled={!projectId || isTempBlock}
+                  />
                   {/* Comments */}
                   {taskSections.comments && (
                   <div>
@@ -1354,6 +1464,108 @@ export default function TaskBlock({ block, onUpdate, workspaceId, scrollToTaskId
           <Plus className="h-3 w-3" /> Add task
         </button>
       </div>
+      {projectId && !isTempBlock && (
+        <ReferencePicker
+          isOpen={isReferenceDialogOpen}
+          projectId={projectId}
+          workspaceId={workspaceId}
+          onClose={() => setIsReferenceDialogOpen(false)}
+          onSelect={async (item) => {
+            if (!referenceTaskId) return false;
+            const result = await createReferenceMutation.mutateAsync({
+              taskId: referenceTaskId,
+              referenceType: item.referenceType,
+              referenceId: item.id,
+              tableId: null,
+            });
+            if ("error" in result) {
+              console.error("Failed to create reference:", result.error);
+              return false;
+            }
+            return true;
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TaskReferences({
+  taskId,
+  onAdd,
+  disabled,
+}: {
+  taskId: string;
+  onAdd: () => void;
+  disabled?: boolean;
+}) {
+  const { data: references = [] } = useTaskReferences(taskId);
+  const deleteReferenceMutation = useDeleteTaskReference(taskId);
+
+  if (references.length === 0 && !disabled) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs font-medium text-[var(--muted-foreground)]">
+          <span>Attachments</span>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="text-[var(--foreground)] hover:opacity-80"
+          >
+            Add
+          </button>
+        </div>
+        <div className="rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-2 text-xs text-[var(--muted-foreground)]">
+          No attachments yet.
+        </div>
+      </div>
+    );
+  }
+
+  if (disabled) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs font-medium text-[var(--muted-foreground)]">
+        <span>Attachments</span>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="text-[var(--foreground)] hover:opacity-80"
+        >
+          Add
+        </button>
+      </div>
+      {references.length === 0 ? (
+        <div className="rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-2 text-xs text-[var(--muted-foreground)]">
+          No attachments yet.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {references.map((ref) => (
+            <div
+              key={ref.id}
+              className="flex items-center justify-between rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs"
+            >
+              <div>
+                <div className="font-medium text-[var(--foreground)]">{ref.title}</div>
+                <div className="text-[10px] uppercase text-[var(--muted-foreground)]">
+                  {ref.type_label || ref.reference_type}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => deleteReferenceMutation.mutateAsync(ref.id)}
+                className="text-[var(--tertiary-foreground)] hover:text-red-500"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

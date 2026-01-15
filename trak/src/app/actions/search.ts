@@ -10,14 +10,6 @@ interface ProseMirrorNode {
   content?: ProseMirrorNode[];
 }
 
-// Task interface for task blocks
-interface Task {
-  id?: string;
-  text: string;
-  completed?: boolean;
-  due_date?: string;
-  assigned_to?: string;
-}
 
 // Database result types
 interface ProjectSearchResult {
@@ -49,18 +41,6 @@ interface WorkspaceProject {
   name: string;
 }
 
-interface TaskBlock {
-  id: string;
-  tab_id: string;
-  content: {
-    tasks?: Array<{
-      id?: string | number;
-      text: string;
-      status?: string;
-      completed?: boolean;
-    }>;
-  };
-}
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 
@@ -352,40 +332,37 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
         const tabIds = tabs.map((t: TabSearchResult) => t.id);
         const tabMap = new Map(tabs.map((t: TabSearchResult) => [t.id, { name: t.name, projectId: t.project_id }]));
 
-        // Search task blocks (only if we have tabs)
+        // Search task items (only if we have tabs)
         if (tabIds.length > 0) {
-          const { data: taskBlocks, error: taskBlocksError } = await supabase
-            .from("blocks")
-            .select("id, tab_id, content")
-            .eq("type", "task")
+          const { data: taskItems, error: taskItemsError } = await supabase
+            .from("task_items")
+            .select("id, title, task_block_id, tab_id, project_id")
+            .eq("workspace_id", workspaceId)
             .in("tab_id", tabIds)
+            .ilike("title", searchTerm)
             .limit(limit);
 
-          if (!taskBlocksError && taskBlocks) {
-            taskBlocks.forEach((block: Block) => {
-              const tasks: Task[] = block.content?.tasks || [];
-              const tabInfo = tabMap.get(block.tab_id);
-              const projectName = tabInfo?.projectId ? projectMap.get(tabInfo.projectId) : null;
+          if (!taskItemsError && taskItems) {
+            taskItems.forEach((task: any) => {
+              const tabInfo = task.tab_id ? tabMap.get(task.tab_id) : undefined;
+              const projectId = task.project_id || tabInfo?.projectId;
+              const projectName = projectId ? projectMap.get(projectId) : null;
 
-              tasks.forEach((task: Task) => {
-                if (task.text && task.text.toLowerCase().includes(queryLower)) {
-                  results.push({
-                    id: `${block.id}-${task.id || Math.random()}`,
-                    type: "task",
-                    title: task.text,
-                    subtitle: projectName && tabInfo
-                      ? `${projectName} → ${tabInfo.name}`
-                      : undefined,
-                    url: `/dashboard/projects/${tabInfo?.projectId || ""}/tabs/${block.tab_id || ""}`,
-                    preview: task.text.substring(0, 100),
-                    metadata: {
-                      blockId: block.id,
-                      taskId: task.id,
-                      projectId: tabInfo?.projectId,
-                      tabId: block.tab_id,
-                    },
-                  });
-                }
+              results.push({
+                id: task.id,
+                type: "task",
+                title: task.title,
+                subtitle: projectName && tabInfo
+                  ? `${projectName} → ${tabInfo.name}`
+                  : undefined,
+                url: `/dashboard/projects/${projectId || ""}/tabs/${task.tab_id || ""}?task=${task.task_block_id}-${task.id}`,
+                preview: task.title.substring(0, 100),
+                metadata: {
+                  blockId: task.task_block_id,
+                  taskId: task.id,
+                  projectId: projectId,
+                  tabId: task.tab_id,
+                },
               });
             });
           }
@@ -469,4 +446,3 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
     return { data: null, error: error instanceof Error ? error.message : "Search failed" };
   }
 }
-

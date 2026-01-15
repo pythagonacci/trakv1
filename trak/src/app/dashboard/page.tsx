@@ -47,25 +47,29 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(5),
 
-    // Get tasks from blocks - optimized with better filtering
+    // Get tasks from task items - optimized with better filtering
     supabase
-      .from("blocks")
+      .from("task_items")
       .select(`
         id,
-        content,
+        title,
+        status,
+        priority,
+        due_date,
+        due_time,
+        task_block_id,
         tab_id,
-        tabs!inner(
+        tab:tabs(
           id,
           name,
           project_id,
-          projects!inner(
+          project:projects(
             id,
             name
           )
         )
       `)
-      .eq("type", "task")
-      .eq("tabs.projects.workspace_id", workspaceId)
+      .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
       .limit(20),
     
@@ -105,7 +109,7 @@ export default async function DashboardPage() {
     ? docsResult.value.data || []
     : [];
 
-  const taskBlocks = tasksResult.status === 'fulfilled' && !tasksResult.value.error
+  const taskItems = tasksResult.status === 'fulfilled' && !tasksResult.value.error
     ? tasksResult.value.data || []
     : [];
 
@@ -118,30 +122,24 @@ export default async function DashboardPage() {
     : [];
 
   // Extract uncompleted tasks from project blocks
-  const projectTasks = taskBlocks
-    .map((block: any) => {
-      const tasks = Array.isArray(block.content?.tasks) ? block.content.tasks : [];
-      return tasks
-        .filter((task: any) => {
-          const status = typeof task.status === "string" ? task.status.toLowerCase() : "";
-          const isDoneStatus = status === "done" || status === "complete" || status === "completed";
-          const isDoneFlag = task.completed || task.done;
-          return !(isDoneStatus || isDoneFlag);
-        })
-        .map((task: any) => ({
-          id: `${block.id}-${task.id}`,
-          text: task.text,
-          projectName: block.tabs?.projects?.name || "Unknown",
-          tabName: block.tabs?.name || "Unknown",
-          projectId: block.tabs?.projects?.id,
-          tabId: block.tabs?.id,
-          priority: task.priority,
-          dueDate: task.dueDate,
-          dueTime: task.dueTime,
-          status: task.status ?? (task.completed || task.done ? "done" : "todo"),
-        }));
+  const projectTasks = taskItems
+    .filter((task: any) => {
+      const status = typeof task.status === "string" ? task.status.toLowerCase() : "";
+      const isDoneStatus = status === "done" || status === "complete" || status === "completed";
+      return !isDoneStatus;
     })
-    .flat();
+    .map((task: any) => ({
+      id: `${task.task_block_id}-${task.id}`,
+      text: task.title,
+      projectName: task.tab?.project?.name || "Unknown",
+      tabName: task.tab?.name || "Unknown",
+      projectId: task.tab?.project?.id,
+      tabId: task.tab?.id,
+      priority: task.priority,
+      dueDate: task.due_date,
+      dueTime: task.due_time,
+      status: task.status ?? "todo",
+    }));
 
   // Transform standalone tasks to match format
   const standaloneTasksFormatted = standaloneTasks

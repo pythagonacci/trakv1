@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createTab } from "@/app/actions/tab";
 import { createBlock } from "@/app/actions/block";
+import { createTaskItem } from "@/app/actions/tasks/item-actions";
 
 export async function POST() {
   try {
@@ -95,22 +96,32 @@ We're launching a new line of premium buckeye brownies for the holiday season. T
         position: 0,
       });
 
-      await createBlock({
+      const overviewTasksBlock = await createBlock({
         tabId: overviewTab.id,
         type: "task",
         content: {
           title: "Key Milestones",
-          tasks: [
-            { id: "1", text: "Finalize recipe with head chef", completed: true },
-            { id: "2", text: "Secure production facility", completed: true },
-            { id: "3", text: "Design packaging", completed: false },
-            { id: "4", text: "Photography shoot", completed: false },
-            { id: "5", text: "Website launch", completed: false },
-            { id: "6", text: "First production run", completed: false },
-          ],
+          hideIcons: false,
         },
         position: 1,
       });
+      if (overviewTasksBlock.data?.id) {
+        const tasks = [
+          { text: "Finalize recipe with head chef", status: "done" },
+          { text: "Secure production facility", status: "done" },
+          { text: "Design packaging", status: "todo" },
+          { text: "Photography shoot", status: "todo" },
+          { text: "Website launch", status: "todo" },
+          { text: "First production run", status: "todo" },
+        ];
+        for (const task of tasks) {
+          await createTaskItem({
+            taskBlockId: overviewTasksBlock.data.id,
+            title: task.text,
+            status: task.status as any,
+          });
+        }
+      }
 
       await createBlock({
         tabId: overviewTab.id,
@@ -190,21 +201,31 @@ We're launching a new line of premium buckeye brownies for the holiday season. T
         position: 0,
       });
 
-      await createBlock({
+      const productionTasksBlock = await createBlock({
         tabId: productionTab.id,
         type: "task",
         content: {
           title: "Production Tasks",
-          tasks: [
-            { id: "1", text: "Order ingredients in bulk", completed: true },
-            { id: "2", text: "Schedule production staff", completed: false },
-            { id: "3", text: "Set up quality control checkpoints", completed: false },
-            { id: "4", text: "Coordinate with packaging team", completed: false },
-            { id: "5", text: "Run test batches", completed: false },
-          ],
+          hideIcons: false,
         },
         position: 1,
       });
+      if (productionTasksBlock.data?.id) {
+        const tasks = [
+          { text: "Order ingredients in bulk", status: "done" },
+          { text: "Schedule production staff", status: "todo" },
+          { text: "Set up quality control checkpoints", status: "todo" },
+          { text: "Coordinate with packaging team", status: "todo" },
+          { text: "Run test batches", status: "todo" },
+        ];
+        for (const task of tasks) {
+          await createTaskItem({
+            taskBlockId: productionTasksBlock.data.id,
+            title: task.text,
+            status: task.status as any,
+          });
+        }
+      }
     }
 
     // Add blocks to Marketing Assets
@@ -418,4 +439,3 @@ We're launching a new line of premium buckeye brownies for the holiday season. T
     );
   }
 }
-

@@ -245,7 +245,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
     if (newType === "text") {
       newContent = { text: "" };
     } else if (newType === "task") {
-      newContent = { title: "New Task List", tasks: [] };
+      newContent = { title: "New Task List", hideIcons: false };
     } else if (newType === "link") {
       newContent = { title: "", url: "", description: "" };
     } else if (newType === "divider") {

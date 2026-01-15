@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { createBlock } from "@/app/actions/block";
+import { createTaskItem } from "@/app/actions/tasks/item-actions";
 
 interface AddEventDialogProps {
   open: boolean;
@@ -123,22 +124,13 @@ export default function AddEventDialog({
     setLoading(true);
 
     try {
-      // Create a task block with a task that has the due date/time
-      const task = {
-        id: Date.now(),
-        text: title.trim(),
-        status: "todo" as const,
-        dueDate: date,
-        dueTime: time || undefined,
-        priority: priority !== "none" ? priority : undefined,
-      };
-
+      // Create a task block and attach a task item with the due date/time
       const result = await createBlock({
         tabId: tabId,
         type: "task",
         content: {
           title: "Tasks",
-          tasks: [task],
+          hideIcons: false,
         },
         position: 0,
         column: 0,
@@ -148,6 +140,22 @@ export default function AddEventDialog({
         setError(result.error);
         setLoading(false);
         return;
+      }
+
+      if (result.data?.id) {
+        const taskResult = await createTaskItem({
+          taskBlockId: result.data.id,
+          title: title.trim(),
+          status: "todo",
+          dueDate: date,
+          dueTime: time || undefined,
+          priority: priority !== "none" ? priority : undefined,
+        });
+        if ("error" in taskResult) {
+          setError(taskResult.error);
+          setLoading(false);
+          return;
+        }
       }
 
       // Success - close dialog and refresh
@@ -336,4 +344,3 @@ export default function AddEventDialog({
     </Dialog>
   );
 }
-

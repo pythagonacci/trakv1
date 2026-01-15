@@ -322,7 +322,7 @@ export async function createBlock(data: {
           content = { text: "" };
           break;
         case "task":
-          content = { title: "New Task List", tasks: [] };
+          content = { title: "New Task List", hideIcons: false };
           break;
         case "link":
           content = { title: "", url: "", description: "" };
