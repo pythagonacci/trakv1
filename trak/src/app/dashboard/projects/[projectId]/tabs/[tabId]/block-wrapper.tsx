@@ -60,8 +60,8 @@ interface BlockWrapperProps {
       | "section"
   ) => void;
   onUpdate?: () => void;
-  onAddBlockAbove?: (blockId: string) => void;
-  onAddBlockBelow?: (blockId: string) => void;
+  onAddBlockAbove?: (blockId: string, type?: Block["type"]) => void;
+  onAddBlockBelow?: (blockId: string, type?: Block["type"]) => void;
   isDragging?: boolean;
   readOnly?: boolean;
 }
@@ -206,25 +206,51 @@ export default function BlockWrapper({
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          onAddBlockAbove?.(block.id);
-                          setMenuOpen(false);
-                        }}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add block above
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          onAddBlockBelow?.(block.id);
-                          setMenuOpen(false);
-                        }}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add block below
-                      </DropdownMenuItem>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <span className="flex items-center gap-2">
+                            <Plus className="h-4 w-4" />
+                            Add block above
+                          </span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {blockTypeOptions.map((option) => (
+                            <DropdownMenuItem
+                              key={`add-above-${option.type}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, option.type);
+                                setMenuOpen(false);
+                              }}
+                            >
+                              {option.icon}
+                              <span>{option.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <span className="flex items-center gap-2">
+                            <Plus className="h-4 w-4" />
+                            Add block below
+                          </span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {blockTypeOptions.map((option) => (
+                            <DropdownMenuItem
+                              key={`add-below-${option.type}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, option.type);
+                                setMenuOpen(false);
+                              }}
+                            >
+                              {option.icon}
+                              <span>{option.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       <DropdownMenuSeparator />
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
@@ -322,25 +348,51 @@ export default function BlockWrapper({
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      onAddBlockAbove?.(block.id);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add block above
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      onAddBlockBelow?.(block.id);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add block below
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="flex items-center gap-2">
+                        <Plus className="h-4 w-4" />
+                        Add block above
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {blockTypeOptions.map((option) => (
+                        <DropdownMenuItem
+                          key={`add-above-${option.type}`}
+                          onClick={() => {
+                            onAddBlockAbove?.(block.id, option.type);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="flex items-center gap-2">
+                        <Plus className="h-4 w-4" />
+                        Add block below
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {blockTypeOptions.map((option) => (
+                        <DropdownMenuItem
+                          key={`add-below-${option.type}`}
+                          onClick={() => {
+                            onAddBlockBelow?.(block.id, option.type);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuSeparator />
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
@@ -427,25 +479,51 @@ export default function BlockWrapper({
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={() => {
-                    onAddBlockAbove?.(block.id);
-                    setMenuOpen(false);
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add block above
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    onAddBlockBelow?.(block.id);
-                    setMenuOpen(false);
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add block below
-                </DropdownMenuItem>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="flex items-center gap-2">
+                        <Plus className="h-4 w-4" />
+                        Add block above
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {blockTypeOptions.map((option) => (
+                        <DropdownMenuItem
+                          key={`add-above-${option.type}`}
+                          onClick={() => {
+                            onAddBlockAbove?.(block.id, option.type);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="flex items-center gap-2">
+                        <Plus className="h-4 w-4" />
+                        Add block below
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {blockTypeOptions.map((option) => (
+                        <DropdownMenuItem
+                          key={`add-below-${option.type}`}
+                          onClick={() => {
+                            onAddBlockBelow?.(block.id, option.type);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>

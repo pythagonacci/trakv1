@@ -17,7 +17,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { type Block, deleteBlock, updateBlock, createBlock } from "@/app/actions/block";
+import { type Block, type BlockType, deleteBlock, updateBlock, createBlock } from "@/app/actions/block";
 import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
@@ -302,25 +302,126 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     router.refresh();
   };
 
-  const handleAddBlockAbove = (targetBlockId: string) => {
-    // Trigger the add block button with position calculation
-    const targetBlock = blocks.find(b => b.id === targetBlockId);
+  const getDefaultContent = (type: BlockType) => {
+    switch (type) {
+      case "text":
+        return { text: "" };
+      case "task":
+        return { title: "New Task List", tasks: [] };
+      case "link":
+        return { title: null, url: null, description: null, caption: "" };
+      case "divider":
+        return {};
+      case "table":
+        return {};
+      case "timeline": {
+        const now = new Date();
+        const startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - 7);
+        const endDate = new Date(now);
+        endDate.setDate(endDate.getDate() + 30);
+        return {
+          viewConfig: {
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            zoomLevel: "day",
+            filters: {},
+            groupBy: "none",
+          },
+        };
+      }
+      case "file":
+      case "video":
+        return { files: [] };
+      case "image":
+        return { fileId: null, caption: "", width: 400 };
+      case "embed":
+        return { url: "", displayMode: "inline" };
+      case "pdf":
+        return { fileId: null };
+      case "section":
+        return { height: 400 };
+      case "doc_reference":
+        return { doc_id: "", doc_title: "" };
+      default:
+        return {};
+    }
+  };
+
+  const isTempId = (id: string) => id.startsWith("temp-");
+
+  const shiftRowsForInsertion = async (insertionRow: number) => {
+    const updatedBlocks = blocks.map((block) => {
+      const blockRow = Math.floor(block.position);
+      if (blockRow >= insertionRow) {
+        return { ...block, position: blockRow + 1 };
+      }
+      return block;
+    });
+
+    setBlocks(updatedBlocks);
+
+    try {
+      const changedBlocks = updatedBlocks.filter((block) => {
+        const original = blocks.find((b) => b.id === block.id);
+        if (!original) return false;
+        return Math.floor(original.position) !== Math.floor(block.position);
+      });
+
+      const persistentBlocks = changedBlocks.filter(
+        (block) => block.id && !isTempId(block.id),
+      );
+
+      if (persistentBlocks.length > 0) {
+        const results = await Promise.all(
+          persistentBlocks.map((block) =>
+            updateBlock({
+              blockId: block.id.trim(),
+              position: Math.floor(block.position),
+              column:
+                block.column !== undefined &&
+                block.column >= 0 &&
+                block.column <= 2
+                  ? block.column
+                  : 0,
+            }),
+          ),
+        );
+        const failed = results.filter((result) => result?.error);
+        if (failed.length > 0) {
+          console.error(
+            "Some block row shifts failed:",
+            failed.map((f) => f.error).join(", "),
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error shifting block rows for insertion:", error);
+    }
+  };
+
+  const handleAddBlockAtRow = async (
+    targetBlockId: string,
+    direction: "above" | "below",
+    type: BlockType = "text",
+  ) => {
+    const targetBlock = blocks.find((b) => b.id === targetBlockId);
     if (!targetBlock) return;
 
-    // Calculate position above the target block
-    const targetPosition = targetBlock.position;
-    const abovePosition = targetPosition; // Insert at the same position (will shift others down)
+    const targetRowIndex = Math.floor(targetBlock.position);
+    const insertionRow = direction === "above" ? targetRowIndex : targetRowIndex + 1;
 
-    // Create optimistic block
+    await shiftRowsForInsertion(insertionRow);
+
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock = {
       id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: null,
-      type: "text" as const,
-      content: { text: "" },
-      position: abovePosition,
-      column: targetBlock.column,
+      type,
+      content: getDefaultContent(type),
+      position: insertionRow,
+      column: 0,
       is_template: false,
       template_name: null,
       original_block_id: null,
@@ -328,100 +429,33 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       updated_at: new Date().toISOString(),
     };
 
-    // Add optimistic block immediately
     handleBlockCreated(optimisticBlock);
 
-    // Create the actual block server-side
     createBlock({
       tabId,
-      type: "text",
-      position: abovePosition,
-      column: targetBlock.column,
-    }).then((result) => {
-      if (result.error) {
-        console.error("Failed to create block above:", result.error);
-        // Remove optimistic block on error
+      type,
+      position: insertionRow,
+      column: 0,
+    })
+      .then((result) => {
+        if (result.error) {
+          console.error(`Failed to create block ${direction}:`, result.error);
+          handleBlockError(optimisticBlockId);
+        } else if (result.data) {
+          resolveOptimisticBlock(optimisticBlockId, result.data);
+        }
+      })
+      .catch((error) => {
+        console.error(`Exception creating block ${direction}:`, error);
         handleBlockError(optimisticBlockId);
-      } else if (result.data) {
-        resolveOptimisticBlock(optimisticBlockId, result.data);
-      }
-    }).catch((error) => {
-      console.error("Exception creating block above:", error);
-      handleBlockError(optimisticBlockId);
-    });
+      });
   };
 
-  const handleAddBlockBelow = (targetBlockId: string) => {
-    // Trigger the add block button with position calculation
-    const targetBlock = blocks.find(b => b.id === targetBlockId);
-    if (!targetBlock) return;
+  const handleAddBlockAbove = (targetBlockId: string, type?: BlockType) =>
+    handleAddBlockAtRow(targetBlockId, "above", type);
 
-    // Calculate position below the target block
-    // Blocks are grouped into rows using Math.floor(position)
-    // To add below, we need to ensure the new block is in a completely new row
-    // Find the maximum POSITION (not just row index) across ALL blocks
-    // This ensures the new block has a position that's definitely higher than all others
-    const maxPosition = blocks.length > 0
-      ? Math.max(...blocks.map(b => b.position))
-      : -1;
-    
-    // The new block should have a position that's definitely after all existing positions
-    // We add 1 to the maximum position to ensure it's in a new row
-    // This guarantees it won't be grouped with any existing blocks
-    // Use Math.floor to ensure it's a clean integer row index
-    const belowPosition = Math.floor(maxPosition) + 1;
-    const belowColumn = 0;
-    
-    console.log('Adding block below:', {
-      targetBlockId,
-      targetPosition: targetBlock.position,
-      targetRowIndex,
-      maxRowIndex,
-      nextRowIndex,
-      belowPosition,
-      belowColumn,
-      totalBlocks: blocks.length
-    });
-
-    // Create optimistic block
-    const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
-    const optimisticBlock = {
-      id: optimisticBlockId,
-      tab_id: tabId,
-      parent_block_id: null,
-      type: "text" as const,
-      content: { text: "" },
-      position: belowPosition,
-      column: belowColumn,
-      is_template: false,
-      template_name: null,
-      original_block_id: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    // Add optimistic block immediately
-    handleBlockCreated(optimisticBlock);
-
-    // Create the actual block server-side
-    createBlock({
-      tabId,
-      type: "text",
-      position: belowPosition,
-      column: belowColumn,
-    }).then((result) => {
-      if (result.error) {
-        console.error("Failed to create block below:", result.error);
-        // Remove optimistic block on error
-        handleBlockError(optimisticBlockId);
-      } else if (result.data) {
-        resolveOptimisticBlock(optimisticBlockId, result.data);
-      }
-    }).catch((error) => {
-      console.error("Exception creating block below:", error);
-      handleBlockError(optimisticBlockId);
-    });
-  };
+  const handleAddBlockBelow = (targetBlockId: string, type?: BlockType) =>
+    handleAddBlockAtRow(targetBlockId, "below", type);
 
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
