@@ -120,7 +120,7 @@ export default function ClientTabBlockRenderer({
       case "table":
         return <TableBlock block={blockForComponents} onUpdate={(b) => onUpdate?.(b as any)} />;
       case "timeline":
-        return <TimelineBlock block={blockForComponents} workspaceId={workspaceId} onUpdate={(b) => onUpdate?.(b as any)} />;
+        return <TimelineBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} />;
       case "file":
         return <FileBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "image":

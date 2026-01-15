@@ -144,7 +144,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
       case "table":
         return <TableBlock block={block} onUpdate={onUpdate} />;
       case "timeline":
-        return <TimelineBlock block={block} workspaceId={workspaceId} onUpdate={onUpdate} />;
+        return <TimelineBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "file":
         return <FileBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "image":

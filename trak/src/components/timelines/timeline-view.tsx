@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import ReferencePicker from "@/components/timelines/reference-picker";
 import {
   useTimelineItems,
   useTimelineReferences,
@@ -69,6 +70,7 @@ interface TimelineBlockProps {
   block: Block;
   onUpdate?: (updatedBlock?: Block) => void;
   workspaceId?: string;
+  projectId?: string;
   readOnly?: boolean;
 }
 
@@ -449,7 +451,7 @@ function DraggableEvent({
   );
 }
 
-export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly = false }: TimelineBlockProps) {
+export default function TimelineBlock({ block, onUpdate, workspaceId, projectId, readOnly = false }: TimelineBlockProps) {
   const content = (block.content || {}) as Partial<TimelineContent> & Record<string, any>;
   const viewConfig = content.viewConfig || {
     startDate: content.startDate || addDays(new Date(), -7).toISOString(),
@@ -1277,18 +1279,20 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
           members={members}
         />
       )}
-      {!readOnly && (
-        <ReferenceSelectorDialog
+      {!readOnly && projectId && workspaceId && (
+        <ReferencePicker
           isOpen={isReferenceDialogOpen}
+          projectId={projectId}
+          workspaceId={workspaceId}
           onClose={() => setIsReferenceDialogOpen(false)}
-          onCreate={async (payload) => {
+          onSelect={async (item) => {
             if (!selectedEventId) return false;
             const result = await createReference.mutateAsync({
               timelineBlockId: block.id,
               eventId: selectedEventId,
-              referenceType: payload.referenceType,
-              referenceId: payload.referenceId,
-              tableId: payload.tableId ?? null,
+              referenceType: item.referenceType,
+              referenceId: item.id,
+              tableId: null,
             });
             if ("error" in result) {
               console.error("Failed to create reference:", result.error);
@@ -1345,120 +1349,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, readOnly =
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       {timelineContent}
     </DndContext>
-  );
-}
-
-// Reference Selector Dialog Component
-function ReferenceSelectorDialog({
-  isOpen,
-  onClose,
-  onCreate,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onCreate: (payload: {
-    referenceType: "doc" | "table_row" | "task" | "block";
-    referenceId: string;
-    tableId?: string | null;
-  }) => Promise<boolean>;
-}) {
-  const [referenceType, setReferenceType] = useState<"doc" | "table_row" | "task" | "block">("doc");
-  const [referenceId, setReferenceId] = useState("");
-  const [tableId, setTableId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const reset = () => {
-    setReferenceType("doc");
-    setReferenceId("");
-    setTableId("");
-    setError(null);
-  };
-
-  const handleSave = async () => {
-    if (!referenceId.trim()) {
-      setError("Reference ID is required.");
-      return;
-    }
-    if (referenceType === "table_row" && !tableId.trim()) {
-      setError("Table ID is required for table row references.");
-      return;
-    }
-
-    const ok = await onCreate({
-      referenceType,
-      referenceId: referenceId.trim(),
-      tableId: referenceType === "table_row" ? tableId.trim() : null,
-    });
-
-    if (ok) {
-      reset();
-      onClose();
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={() => { reset(); onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add reference</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Reference type</label>
-            <select
-              value={referenceType}
-              onChange={(e) => setReferenceType(e.target.value as "doc" | "table_row" | "task" | "block")}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="doc">Doc</option>
-              <option value="table_row">Table row</option>
-              <option value="task">Task</option>
-              <option value="block">Block</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Reference ID</label>
-            <input
-              type="text"
-              value={referenceId}
-              onChange={(e) => setReferenceId(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="UUID of the referenced entity"
-            />
-          </div>
-
-          {referenceType === "table_row" && (
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Table ID</label>
-              <input
-                type="text"
-                value={tableId}
-                onChange={(e) => setTableId(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="UUID of the table"
-              />
-            </div>
-          )}
-
-          <p className="text-xs text-neutral-500">
-            This attaches the item to the event. It does not create a separate timeline bar.
-          </p>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => { reset(); onClose(); }}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave}>
-            Add reference
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1728,7 +1618,7 @@ function EditEventDialog({
   onUpdate: (patch: Partial<TimelineEvent>) => void;
   onDelete: () => void;
   onDuplicate: () => void;
-  references: Array<{ id: string; reference_type: string; reference_id: string; title: string }>;
+  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string }>;
   onAddReference: () => void;
   onDeleteReference: (id: string) => void;
   members: WorkspaceMember[];
@@ -1958,9 +1848,8 @@ function EditEventDialog({
                         {ref.title}
                       </div>
                       <div className="text-[11px] uppercase tracking-wide text-neutral-400">
-                        {ref.reference_type}
+                        {ref.type_label || ref.reference_type}
                       </div>
-                      <div className="truncate text-neutral-500">{ref.reference_id}</div>
                     </div>
                     <Button
                       variant="outline"

@@ -104,7 +104,7 @@ export default function BlockReferenceRenderer({
       case "table":
         return <TableBlock block={originalBlock} onUpdate={onUpdate} />;
       case "timeline":
-        return <TimelineBlock block={originalBlock} workspaceId={workspaceId} onUpdate={onUpdate} />;
+        return <TimelineBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "file":
         return <FileBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "image":
@@ -155,4 +155,3 @@ export default function BlockReferenceRenderer({
     </div>
   );
 }
-

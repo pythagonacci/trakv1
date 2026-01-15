@@ -31,11 +31,21 @@ export async function createTimelineReference(input: {
   });
   if ("error" in event) return event;
 
-  const resolved = await resolveReferenceAccess({
+  const resolvedReferenceId = await resolveReferenceIdByName({
     supabase,
     workspaceId: block.workspace_id,
     referenceType: input.referenceType,
     referenceId: input.referenceId,
+    tableId: input.tableId ?? null,
+  });
+
+  if ("error" in resolvedReferenceId) return resolvedReferenceId;
+
+  const resolved = await resolveReferenceAccess({
+    supabase,
+    workspaceId: block.workspace_id,
+    referenceType: input.referenceType,
+    referenceId: resolvedReferenceId.referenceId,
     tableId: input.tableId ?? null,
   });
 
@@ -47,7 +57,7 @@ export async function createTimelineReference(input: {
       workspace_id: block.workspace_id,
       event_id: event.data.id,
       reference_type: input.referenceType,
-      reference_id: input.referenceId,
+      reference_id: resolvedReferenceId.referenceId,
       table_id: resolved.tableId,
       created_by: userId,
     })
@@ -108,16 +118,16 @@ export async function listTimelineReferences(eventId: string): Promise<ActionRes
   return { data: data as TimelineReference[] };
 }
 
-export async function listTimelineReferenceSummaries(eventId: string): Promise<ActionResult<Array<TimelineReference & { title: string }>>> {
+export async function listTimelineReferenceSummaries(eventId: string): Promise<ActionResult<Array<TimelineReference & { title: string; type_label?: string }>>> {
   const base = await listTimelineReferences(eventId);
   if ("error" in base) return base;
 
   const supabase = await createClient();
-  const resolved: Array<TimelineReference & { title: string }> = [];
+  const resolved: Array<TimelineReference & { title: string; type_label?: string }> = [];
 
   for (const ref of base.data) {
-    const title = await resolveReferenceTitle(supabase, ref);
-    resolved.push({ ...ref, title });
+    const summary = await resolveReferenceSummary(supabase, ref);
+    resolved.push({ ...ref, title: summary.title, type_label: summary.typeLabel });
   }
 
   return { data: resolved };
@@ -228,6 +238,83 @@ async function resolveReferenceAccess(input: {
   return { error: "Unsupported reference type" };
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+async function resolveReferenceIdByName(input: {
+  supabase: any;
+  workspaceId: string;
+  referenceType: ReferenceType;
+  referenceId: string;
+  tableId: string | null;
+}): Promise<{ error: string } | { referenceId: string }> {
+  const referenceId = input.referenceId.trim();
+  if (isUuid(referenceId)) return { referenceId };
+
+  if (input.referenceType === "doc") {
+    const { data } = await input.supabase
+      .from("docs")
+      .select("id, title")
+      .eq("workspace_id", input.workspaceId)
+      .ilike("title", referenceId)
+      .limit(5);
+
+    if (!data || data.length === 0) return { error: "No document found with that title." };
+    if (data.length > 1) return { error: "Multiple documents matched that title. Please use the ID instead." };
+    return { referenceId: data[0].id };
+  }
+
+  if (input.referenceType === "task") {
+    const { data } = await input.supabase
+      .from("standalone_tasks")
+      .select("id, text")
+      .eq("workspace_id", input.workspaceId)
+      .ilike("text", referenceId)
+      .limit(5);
+
+    if (!data || data.length === 0) return { error: "No task found with that name." };
+    if (data.length > 1) return { error: "Multiple tasks matched that name. Please use the ID instead." };
+    return { referenceId: data[0].id };
+  }
+
+  if (input.referenceType === "table_row") {
+    if (!input.tableId) return { error: "Table ID is required to resolve a row by name." };
+
+    const { data: fields } = await input.supabase
+      .from("table_fields")
+      .select("id, type, is_primary")
+      .eq("table_id", input.tableId)
+      .order("order", { ascending: true });
+
+    const primary = fields?.find((f: any) => f.is_primary);
+    const textField = fields?.find((f: any) => f.type === "text");
+    const fallbackField = fields?.[0];
+    const fieldId = primary?.id || textField?.id || fallbackField?.id;
+    if (!fieldId) return { error: "Table has no searchable fields." };
+
+    const { data: rows } = await input.supabase
+      .from("table_rows")
+      .select("id, data")
+      .eq("table_id", input.tableId)
+      .limit(200);
+
+    if (!rows || rows.length === 0) return { error: "No rows found in that table." };
+
+    const matches = rows.filter((row: any) => {
+      const value = (row.data || {})[fieldId];
+      if (value === null || value === undefined) return false;
+      return String(value).trim().toLowerCase() === referenceId.toLowerCase();
+    });
+
+    if (matches.length === 0) return { error: "No table row found with that name." };
+    if (matches.length > 1) return { error: "Multiple rows matched that name. Please use the row ID instead." };
+    return { referenceId: matches[0].id };
+  }
+
+  return { error: "Block references require an ID for now." };
+}
+
 async function getReferenceContext(referenceId: string): Promise<{ error: string } | { supabase: any; reference: TimelineReference }> {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
@@ -278,20 +365,44 @@ async function getReferenceContextByEvent(eventId: string): Promise<{ error: str
   return { supabase, event: event as { id: string; workspace_id: string } };
 }
 
-async function resolveReferenceTitle(supabase: any, ref: TimelineReference): Promise<string> {
+async function resolveReferenceSummary(
+  supabase: any,
+  ref: TimelineReference
+): Promise<{ title: string; typeLabel?: string }> {
   if (ref.reference_type === "doc") {
     const { data } = await supabase.from("docs").select("title").eq("id", ref.reference_id).maybeSingle();
-    return data?.title || "Doc";
+    return { title: data?.title || "Doc" };
   }
 
   if (ref.reference_type === "task") {
     const { data } = await supabase.from("standalone_tasks").select("text").eq("id", ref.reference_id).maybeSingle();
-    return data?.text || "Task";
+    return { title: data?.text || "Task" };
   }
 
   if (ref.reference_type === "block") {
-    const { data } = await supabase.from("blocks").select("type").eq("id", ref.reference_id).maybeSingle();
-    return data?.type ? `${data.type} block` : "Block";
+    const { data } = await supabase
+      .from("blocks")
+      .select("type, content")
+      .eq("id", ref.reference_id)
+      .maybeSingle();
+
+    if (!data) return { title: "Block", typeLabel: "Block" };
+
+    const content = (data as any).content || {};
+    if (data.type === "table" && content.tableId) {
+      const { data: table } = await supabase
+        .from("tables")
+        .select("title")
+        .eq("id", content.tableId)
+        .maybeSingle();
+      return { title: table?.title || "Table", typeLabel: "Table" };
+    }
+
+    const blockTypeLabel = data.type ? data.type.replace(/_/g, " ") : "Block";
+    const normalizedLabel = blockTypeLabel.charAt(0).toUpperCase() + blockTypeLabel.slice(1);
+    const typeLabel = `${normalizedLabel} block`;
+    if (content.title) return { title: content.title, typeLabel };
+    return { title: normalizedLabel, typeLabel };
   }
 
   if (ref.reference_type === "table_row") {
@@ -300,7 +411,7 @@ async function resolveReferenceTitle(supabase: any, ref: TimelineReference): Pro
       .select("id, data, table_id")
       .eq("id", ref.reference_id)
       .maybeSingle();
-    if (!row) return "Row";
+    if (!row) return { title: "Row" };
 
     const { data: fields } = await supabase
       .from("table_fields")
@@ -315,10 +426,10 @@ async function resolveReferenceTitle(supabase: any, ref: TimelineReference): Pro
     const fieldId = primary?.id || textField?.id || fallbackField?.id;
     const value = fieldId ? data[fieldId] : null;
 
-    return value ? String(value) : `Row ${row.id.slice(0, 6)}`;
+    return { title: value ? String(value) : `Row ${row.id.slice(0, 6)}` };
   }
 
-  return "Attachment";
+  return { title: "Attachment" };
 }
 
 async function requireEventInBlock(input: {
