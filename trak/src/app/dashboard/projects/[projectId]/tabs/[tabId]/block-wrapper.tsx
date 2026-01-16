@@ -18,6 +18,7 @@ import {
   Layout,
   Copy,
   Plus,
+  Tags,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -36,6 +37,8 @@ import {
 import MakeTemplateDialog from "./make-template-dialog";
 import BlockComments from "./block-comments";
 import { MessageSquare } from "lucide-react";
+import { PropertyPanel, PropertyBadge } from "@/components/properties";
+import { useEntityPropertiesWithInheritance } from "@/lib/hooks/use-property-queries";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -82,7 +85,14 @@ export default function BlockWrapper({
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+
+  // Fetch properties for this block
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
+  const directProperties = propertiesResult?.direct ?? [];
+  const inheritedProperties = (propertiesResult?.inherited ?? []).filter(p => p.is_visible);
+  const hasProperties = directProperties.length > 0 || inheritedProperties.length > 0;
+
   // Check if block has comments
   const blockContent = block.content || {};
   const comments = blockContent._blockComments || [];
@@ -296,13 +306,26 @@ export default function BlockWrapper({
                           setMenuOpen(false);
                         }}
                       >
-                        <MessageSquare className="h-4 w-4" /> 
+                        <MessageSquare className="h-4 w-4" />
                         <span>{hasComments ? "Comments" : "Add comment"}</span>
                         {hasComments && (
                           <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
                         )}
                       </DropdownMenuItem>
-                      
+
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setPropertiesOpen(true);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <Tags className="h-4 w-4" />
+                        <span>Properties</span>
+                        {hasProperties && (
+                          <span className="ml-auto text-xs text-[var(--muted-foreground)]">({directProperties.length + inheritedProperties.length})</span>
+                        )}
+                      </DropdownMenuItem>
+
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => onDelete?.(block.id)}
@@ -438,13 +461,26 @@ export default function BlockWrapper({
                       setMenuOpen(false);
                     }}
                   >
-                    <MessageSquare className="h-4 w-4" /> 
+                    <MessageSquare className="h-4 w-4" />
                     <span>{hasComments ? "Comments" : "Add comment"}</span>
                     {hasComments && (
                       <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
                     )}
                   </DropdownMenuItem>
-                  
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setPropertiesOpen(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Tags className="h-4 w-4" />
+                    <span>Properties</span>
+                    {hasProperties && (
+                      <span className="ml-auto text-xs text-[var(--muted-foreground)]">({directProperties.length + inheritedProperties.length})</span>
+                    )}
+                  </DropdownMenuItem>
+
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => onDelete?.(block.id)}
@@ -457,7 +493,7 @@ export default function BlockWrapper({
             )}
           </div>
         )}
-        
+
         {block.is_template && (
           <div className="absolute -top-3 left-3 flex items-center gap-1 border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
             <Copy className="h-2.5 w-2.5" />
@@ -569,13 +605,26 @@ export default function BlockWrapper({
                     setMenuOpen(false);
                   }}
                 >
-                  <MessageSquare className="h-4 w-4" /> 
+                  <MessageSquare className="h-4 w-4" />
                   <span>{hasComments ? "Comments" : "Add comment"}</span>
                   {hasComments && (
                     <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
                   )}
                 </DropdownMenuItem>
-                
+
+                <DropdownMenuItem
+                  onClick={() => {
+                    setPropertiesOpen(true);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Tags className="h-4 w-4" />
+                  <span>Properties</span>
+                  {hasProperties && (
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">({directProperties.length + inheritedProperties.length})</span>
+                  )}
+                </DropdownMenuItem>
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => onDelete?.(block.id)}
@@ -591,12 +640,35 @@ export default function BlockWrapper({
         <div className={cn("flex items-start gap-0", borderless && "space-y-3")}>
           <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3")}>
             {children}
+
+            {/* Property Badges */}
+            {hasProperties && (
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
+                {directProperties.map((prop) => (
+                  <PropertyBadge
+                    key={prop.id}
+                    definition={prop.definition}
+                    value={prop.value}
+                    onClick={() => setPropertiesOpen(true)}
+                  />
+                ))}
+                {inheritedProperties.map((prop) => (
+                  <PropertyBadge
+                    key={`inherited-${prop.property.id}`}
+                    definition={prop.property.definition}
+                    value={prop.property.value}
+                    inherited
+                    onClick={() => setPropertiesOpen(true)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Block Comments - positioned on the side (only show when open) */}
           {!borderless && commentsOpen && !readOnly && (
-            <BlockComments 
-              block={block} 
+            <BlockComments
+              block={block}
               onUpdate={onUpdate}
               isOpen={commentsOpen ? true : undefined}
               onToggle={() => setCommentsOpen(!commentsOpen)}
@@ -604,7 +676,7 @@ export default function BlockWrapper({
           )}
         </div>
       </div>
-      
+
       {!readOnly && (
         <MakeTemplateDialog
           isOpen={makeTemplateDialogOpen}
@@ -614,6 +686,73 @@ export default function BlockWrapper({
           onSuccess={() => onUpdate?.()}
         />
       )}
+
+      {/* Properties Panel */}
+      {!readOnly && workspaceId && (
+        <PropertyPanel
+          open={propertiesOpen}
+          onOpenChange={setPropertiesOpen}
+          entityType="block"
+          entityId={block.id}
+          workspaceId={workspaceId}
+          entityTitle={getBlockTitle(block)}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Get a display title for a block based on its type and content.
+ */
+function getBlockTitle(block: Block): string {
+  const content = (block.content ?? {}) as Record<string, unknown>;
+
+  switch (block.type) {
+    case "text":
+      const text = (content.text ?? content.content ?? "") as string;
+      if (typeof text === "string" && text.trim()) {
+        return text.slice(0, 50);
+      }
+      return "Text block";
+
+    case "task":
+      return (content.title as string) ?? "Task block";
+
+    case "table":
+      return (content.title as string) ?? "Table";
+
+    case "timeline":
+      return "Timeline";
+
+    case "image":
+      return (content.alt as string) ?? (content.filename as string) ?? "Image";
+
+    case "file":
+      return (content.filename as string) ?? "File";
+
+    case "video":
+      return (content.title as string) ?? "Video";
+
+    case "embed":
+      return (content.title as string) ?? "Embed";
+
+    case "link":
+      return (content.title as string) ?? (content.url as string) ?? "Link";
+
+    case "divider":
+      return "Divider";
+
+    case "section":
+      return (content.title as string) ?? "Section";
+
+    case "doc_reference":
+      return (content.title as string) ?? "Document reference";
+
+    case "pdf":
+      return (content.filename as string) ?? "PDF";
+
+    default:
+      return `${block.type} block`;
+  }
 }
