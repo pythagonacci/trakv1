@@ -40,6 +40,7 @@ export interface TimelineReference {
   reference_type: ReferenceType;
   reference_id: string;
   table_id: string | null;
+  field_mappings?: TimelineReferenceFieldMappings | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -49,7 +50,9 @@ export interface TimelineDependency {
   id: string;
   timeline_block_id: string;
   workspace_id: string;
+  from_type?: string;
   from_id: string;
+  to_type?: string;
   to_id: string;
   dependency_type: DependencyType;
   created_by: string | null;

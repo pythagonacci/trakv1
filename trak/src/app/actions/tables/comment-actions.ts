@@ -17,7 +17,7 @@ interface CreateCommentInput {
 
 export async function createComment(input: CreateCommentInput): Promise<ActionResult<TableComment>> {
   const access = await getRowAccess(input.rowId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, tableId } = access;
 
   const { data, error } = await supabase
@@ -39,7 +39,7 @@ export async function createComment(input: CreateCommentInput): Promise<ActionRe
 
 export async function updateComment(commentId: string, content: string): Promise<ActionResult<TableComment>> {
   const access = await getCommentAccess(commentId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, comment } = access;
 
   if (comment.user_id !== userId) {
@@ -61,7 +61,7 @@ export async function updateComment(commentId: string, content: string): Promise
 
 export async function deleteComment(commentId: string): Promise<ActionResult<null>> {
   const access = await getCommentAccess(commentId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, comment } = access;
 
   if (comment.user_id !== userId) {
@@ -77,7 +77,7 @@ export async function deleteComment(commentId: string): Promise<ActionResult<nul
 
 export async function resolveComment(commentId: string, resolved: boolean): Promise<ActionResult<TableComment>> {
   const access = await getCommentAccess(commentId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -95,7 +95,7 @@ export async function resolveComment(commentId: string, resolved: boolean): Prom
 
 export async function getRowComments(rowId: string): Promise<ActionResult<TableComment[]>> {
   const access = await getRowAccess(rowId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -117,7 +117,7 @@ export async function getRowComments(rowId: string): Promise<ActionResult<TableC
 async function getRowAccess(rowId: string) {
   const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" } as const;
+  if (!user) return { error: "Unauthorized" };
 
   const { data: row, error } = await supabase
     .from("table_rows")
@@ -125,10 +125,10 @@ async function getRowAccess(rowId: string) {
     .eq("id", rowId)
     .maybeSingle();
 
-  if (error || !row) return { error: "Row not found" } as const;
+  if (error || !row) return { error: "Row not found" };
 
   const access = await requireTableAccess(row.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   return { supabase: access.supabase, userId: user.id, tableId: row.table_id };
 }
@@ -136,7 +136,7 @@ async function getRowAccess(rowId: string) {
 async function getCommentAccess(commentId: string) {
   const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" } as const;
+  if (!user) return { error: "Unauthorized" };
 
   const { data: comment, error } = await supabase
     .from("table_comments")
@@ -144,10 +144,10 @@ async function getCommentAccess(commentId: string) {
     .eq("id", commentId)
     .maybeSingle();
 
-  if (error || !comment) return { error: "Comment not found" } as const;
+  if (error || !comment) return { error: "Comment not found" };
 
   const access = await getRowAccess(comment.row_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   return { supabase: access.supabase, userId: user.id, comment };
 }

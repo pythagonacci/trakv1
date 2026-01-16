@@ -215,8 +215,9 @@ export function useCreateRow(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data?: Record<string, unknown> | { data?: Record<string, unknown>; order?: number | string | null }) => {
-      if (data && typeof data === 'object' && ('data' in data || 'order' in data)) {
-        return createRow({ tableId, data: data.data, order: data.order });
+      if (data && typeof data === "object" && ("data" in data || "order" in data)) {
+        const payload = data as { data?: Record<string, unknown>; order?: number | string | null };
+        return createRow({ tableId, data: payload.data, order: payload.order });
       }
       return createRow({ tableId, data: data as Record<string, unknown> | undefined });
     },

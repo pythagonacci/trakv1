@@ -44,8 +44,8 @@ interface Task {
   text: string;
   projectName: string;
   tabName: string;
-  projectId: string;
-  tabId: string;
+  projectId?: string | null;
+  tabId?: string | null;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   dueDate?: string;
   dueTime?: string;
@@ -259,8 +259,10 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
               getPriorityColor={getPriorityColor}
               getPriorityLabel={getPriorityLabel}
               formatDueDate={formatDueDate}
-              onClick={() =>
-                router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+              onClick={
+                task.projectId && task.tabId
+                  ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+                  : undefined
               }
             />
           )}
@@ -283,8 +285,10 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
               getPriorityColor={getPriorityColor}
               getPriorityLabel={getPriorityLabel}
               formatDueDate={formatDueDate}
-              onClick={() =>
-                router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+              onClick={
+                task.projectId && task.tabId
+                  ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+                  : undefined
               }
             />
           )}
@@ -325,8 +329,10 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
                   {todayTasks.map((task) => (
                     <button
                       key={task.id}
-                      onClick={() =>
-                        router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+                      onClick={
+                        task.projectId && task.tabId
+                          ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+                          : undefined
                       }
                       className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--surface-hover)] text-[var(--foreground)]"
                     >

@@ -7,7 +7,7 @@ type ActionResult<T> = { data: T } | { error: string };
 
 export async function setTaskTags(taskId: string, tagNames: string[]): Promise<ActionResult<null>> {
   const access = await requireTaskItemAccess(taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, task } = access;
 
   const normalized = Array.from(new Set(tagNames.map((t) => t.trim()).filter(Boolean)));

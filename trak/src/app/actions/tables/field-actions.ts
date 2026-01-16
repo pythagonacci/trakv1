@@ -24,7 +24,7 @@ interface CreateFieldInput {
 
 export async function createField(input: CreateFieldInput): Promise<ActionResult<TableField>> {
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -56,8 +56,9 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
 }
 
 export async function updateField(fieldId: string, updates: Partial<Pick<TableField, "name" | "type" | "config" | "is_primary" | "width">>): Promise<ActionResult<TableField>> {
-  const { supabase, table, field, error } = await getFieldContext(fieldId);
-  if (error) return { error };
+  const access = await getFieldContext(fieldId);
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, table, field } = access;
 
   let nextConfig = updates.config;
   if (nextConfig !== undefined && (updates.type === "formula" || field.type === "formula")) {
@@ -106,8 +107,9 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
 }
 
 export async function deleteField(fieldId: string): Promise<ActionResult<null>> {
-  const { supabase, table, error } = await getFieldContext(fieldId);
-  if (error) return { error };
+  const access = await getFieldContext(fieldId);
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, table } = access;
 
   const { error: deleteError } = await supabase
     .from("table_fields")
@@ -123,7 +125,7 @@ export async function deleteField(fieldId: string): Promise<ActionResult<null>> 
 
 export async function reorderFields(tableId: string, orders: Array<{ fieldId: string; order: number }>): Promise<ActionResult<TableField[]>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Get max order to calculate safe temporary values
@@ -194,8 +196,9 @@ export async function reorderFields(tableId: string, orders: Array<{ fieldId: st
 }
 
 export async function updateFieldConfig(fieldId: string, config: Record<string, unknown>): Promise<ActionResult<TableField>> {
-  const { supabase, table, error } = await getFieldContext(fieldId);
-  if (error) return { error };
+  const access = await getFieldContext(fieldId);
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, table } = access;
 
   const { data, error: updateError } = await supabase
     .from("table_fields")
@@ -225,7 +228,7 @@ export async function updateFieldConfig(fieldId: string, config: Record<string, 
 
 async function getFieldContext(fieldId: string) {
   const supabase = await requireFieldSupabase();
-  if ("error" in supabase) return { error: supabase.error } as const;
+  if ("error" in supabase) return { error: supabase.error || "Unauthorized" };
 
   const { supabaseClient, userId } = supabase;
   const { data: field, error: fieldError } = await supabaseClient
@@ -235,11 +238,11 @@ async function getFieldContext(fieldId: string) {
     .maybeSingle();
 
   if (fieldError || !field) {
-    return { error: "Field not found" } as const;
+    return { error: "Field not found" };
   }
 
   const access = await requireTableAccess(field.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   return { supabase: access.supabase, table: access.table, userId, field };
 }
@@ -248,7 +251,7 @@ async function requireFieldSupabase() {
   const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return { error: "Unauthorized" } as const;
+    return { error: "Unauthorized" };
   }
-  return { supabaseClient: supabase, userId: user.id } as const;
+  return { supabaseClient: supabase, userId: user.id };
 }

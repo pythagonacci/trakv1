@@ -11,6 +11,7 @@ interface ContextMenuProps {
   onAddRowBelow?: () => void;
   onAddColumnLeft?: () => void;
   onAddColumnRight?: () => void;
+  onOpenProperties?: () => void;
   type: "cell" | "column";
 }
 
@@ -22,6 +23,7 @@ export function TableContextMenu({
   onAddRowBelow,
   onAddColumnLeft,
   onAddColumnRight,
+  onOpenProperties,
   type,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -92,6 +94,17 @@ export function TableContextMenu({
             >
               <ArrowUp className="h-3 w-3" />
               Add row above
+            </button>
+          )}
+          {onOpenProperties && (
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] flex items-center gap-2 transition-colors duration-150"
+              onClick={() => {
+                onOpenProperties();
+                onClose();
+              }}
+            >
+              Properties
             </button>
           )}
           {onAddRowBelow && (

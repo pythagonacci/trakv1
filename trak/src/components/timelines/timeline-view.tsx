@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import { PropertyBadge, PropertyPanel } from "@/components/properties";
+import { useEntityPropertiesWithInheritance } from "@/lib/hooks/use-property-queries";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import {
   useTimelineItems,
@@ -617,7 +619,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return Math.max(0, Math.min(totalColumns - 1, dateToColumn(date, range.start, zoomLevel)));
   }
 
-  function barStyle(startISO: string, endISO: string, rowIndex: number) {
+  function barStyle(startISO: string, endISO: string, rowIndex: number): React.CSSProperties {
     const s = clampDate(new Date(startISO));
     const e = clampDate(new Date(endISO));
     const startCol = toCol(s);
@@ -864,7 +866,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   // Save baseline
   const saveBaseline = async () => {
     const eventUpdates = events
-      .filter((event) => event.type === "event")
       .map((event) =>
         setBaselineMutation.mutateAsync({
           eventId: event.id,
@@ -1050,7 +1051,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                       onClick={() => {
                         const newStatusFilters = filters.status || [];
                         const updated = isSelected
-                          ? newStatusFilters.filter(s => s !== status)
+                          ? newStatusFilters.filter((s: typeof status) => s !== status)
                           : [...newStatusFilters, status];
                         handleFilterChange({ ...filters, status: updated });
                       }}
@@ -1336,6 +1337,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
             }
           }}
           members={members}
+          workspaceId={workspaceId}
         />
       )}
       </div>
@@ -1611,6 +1613,7 @@ function EditEventDialog({
   onAddReference,
   onDeleteReference,
   members,
+  workspaceId,
 }: {
   event: TimelineEvent;
   isOpen: boolean;
@@ -1622,6 +1625,7 @@ function EditEventDialog({
   onAddReference: () => void;
   onDeleteReference: (id: string) => void;
   members: WorkspaceMember[];
+  workspaceId?: string;
 }) {
   const getInitialState = React.useCallback(
     () => ({
@@ -1640,6 +1644,10 @@ function EditEventDialog({
 
   const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
   const [showColors, setShowColors] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
+  const directProperties = propertiesResult?.direct ?? [];
+  const inheritedProperties = (propertiesResult?.inherited ?? []).filter((prop) => prop.is_visible);
 
   React.useEffect(() => {
     if (isOpen) setLocal(getInitialState());
@@ -1826,6 +1834,41 @@ function EditEventDialog({
             </DropdownMenu>
           </div>
 
+          {/* Properties */}
+          {workspaceId && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
+                <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
+                  Manage properties
+                </Button>
+              </div>
+              {(directProperties.length > 0 || inheritedProperties.length > 0) ? (
+                <div className="flex flex-wrap gap-2">
+                  {directProperties.map((prop) => (
+                    <PropertyBadge
+                      key={prop.id}
+                      definition={prop.definition}
+                      value={prop.value}
+                      onClick={() => setPropertiesOpen(true)}
+                    />
+                  ))}
+                  {inheritedProperties.map((prop) => (
+                    <PropertyBadge
+                      key={`inherited-${prop.property.id}`}
+                      definition={prop.property.definition}
+                      value={prop.property.value}
+                      inherited
+                      onClick={() => setPropertiesOpen(true)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500">No properties yet.</p>
+              )}
+            </div>
+          )}
+
           {/* Attachments */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -1900,6 +1943,16 @@ function EditEventDialog({
           </div>
         </DialogFooter>
       </DialogContent>
+      {workspaceId && (
+        <PropertyPanel
+          open={propertiesOpen}
+          onOpenChange={setPropertiesOpen}
+          entityType="timeline_event"
+          entityId={event.id}
+          workspaceId={workspaceId}
+          entityTitle={event.title}
+        />
+      )}
     </Dialog>
   );
 }

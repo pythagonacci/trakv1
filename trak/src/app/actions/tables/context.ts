@@ -16,6 +16,9 @@ export interface TableAccessContext {
     id: string;
     workspace_id: string;
     project_id: string | null;
+    title: string;
+    description: string | null;
+    icon: string | null;
   };
 }
 
@@ -35,7 +38,7 @@ export async function requireTableAccess(tableId: string): Promise<
 
   const { data: table, error: tableError } = await supabase
     .from("tables")
-    .select("id, workspace_id, project_id")
+    .select("id, workspace_id, project_id, title, description, icon")
     .eq("id", tableId)
     .maybeSingle();
 

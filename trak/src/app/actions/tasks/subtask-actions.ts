@@ -12,7 +12,7 @@ export async function createTaskSubtask(input: {
   displayOrder?: number;
 }): Promise<ActionResult<TaskSubtask>> {
   const access = await requireTaskItemAccess(input.taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase

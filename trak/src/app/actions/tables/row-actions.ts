@@ -21,7 +21,7 @@ interface CreateRowInput {
 
 export async function createRow(input: CreateRowInput): Promise<ActionResult<TableRow>> {
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
   const { data, error } = await supabase
@@ -54,7 +54,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
 
 export async function updateRow(rowId: string, updates: { data?: Record<string, unknown> }): Promise<ActionResult<TableRow>> {
   const access = await getRowContext(rowId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, row } = access;
 
   const mergedData = { ...(row?.data || {}), ...(updates.data || {}) };
@@ -89,7 +89,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown)
   const access = await getRowContext(rowId);
   if ("error" in access) {
     console.error("updateCell: getRowContext error:", access.error);
-    return access;
+    return { error: access.error ?? "Unknown error" };
   }
   const { supabase, userId, row } = access;
 
@@ -163,7 +163,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown)
 
       if ("error" in syncResult) {
         console.error("updateCell: syncRelationLinks error:", syncResult.error);
-        return { error: syncResult.error };
+        return { error: syncResult.error ?? "Unknown error" };
       }
 
       // Update row data with relation IDs immediately
@@ -191,7 +191,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown)
             recomputeRollupsForRow(
               syncResult.data.relatedTableId,
               relatedRowId,
-              syncResult.data.reverseFieldId
+              syncResult.data.reverseFieldId ?? undefined
             )
           )
         ).catch((err) => {
@@ -246,7 +246,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown)
 
 export async function deleteRow(rowId: string): Promise<ActionResult<null>> {
   const access = await getRowContext(rowId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase.from("table_rows").delete().eq("id", rowId);
@@ -259,7 +259,7 @@ export async function deleteRow(rowId: string): Promise<ActionResult<null>> {
 export async function deleteRows(rowIds: string[]): Promise<ActionResult<null>> {
   if (rowIds.length === 0) return { data: null };
   const access = await getRowContext(rowIds[0]);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase.from("table_rows").delete().in("id", rowIds);
@@ -271,7 +271,7 @@ export async function deleteRows(rowIds: string[]): Promise<ActionResult<null>> 
 
 export async function reorderRows(tableId: string, orders: Array<{ rowId: string; order: number | string }>): Promise<ActionResult<TableRow[]>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const payload = orders.map((o) => ({
@@ -289,7 +289,7 @@ export async function reorderRows(tableId: string, orders: Array<{ rowId: string
 
 export async function duplicateRow(rowId: string): Promise<ActionResult<TableRow>> {
   const access = await getRowContext(rowId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, row } = access;
 
   const { data, error } = await supabase

@@ -32,6 +32,7 @@ import { TableHeaderCompact } from "./table-header-compact";
 import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
+import { PropertyPanel } from "@/components/properties";
 import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 import { BulkDeleteDialog } from "./bulk-delete-dialog";
 import { RelationConfigModal } from "./relation-config-modal";
@@ -76,6 +77,8 @@ export function TableView({ tableId }: Props) {
   const [detailColumnId, setDetailColumnId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: "cell" | "column"; rowId?: string; fieldId?: string } | null>(null);
+  const [propertiesRowId, setPropertiesRowId] = useState<string | null>(null);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pendingWidths, setPendingWidths] = useState<Record<string, number>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1172,6 +1175,14 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           onAddRowBelow={contextMenu.type === "cell" ? handleAddRowBelow : undefined}
           onAddColumnLeft={contextMenu.type === "column" ? handleAddColumnLeft : undefined}
           onAddColumnRight={contextMenu.type === "column" ? handleAddColumnRight : undefined}
+          onOpenProperties={
+            contextMenu.type === "cell" && contextMenu.rowId && tableData?.table.workspace_id
+              ? () => {
+                  setPropertiesRowId(contextMenu.rowId);
+                  setPropertiesOpen(true);
+                }
+              : undefined
+          }
         />
       )}
       <RelationConfigModal
@@ -1195,6 +1206,21 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         onClose={() => setFormulaConfigField(null)}
         onSave={handleSaveFormulaConfig}
       />
+      {propertiesRowId && tableData?.table.workspace_id && (
+        <PropertyPanel
+          open={propertiesOpen}
+          onOpenChange={(open) => {
+            setPropertiesOpen(open);
+            if (!open) {
+              setPropertiesRowId(null);
+            }
+          }}
+          entityType="table_row"
+          entityId={propertiesRowId}
+          workspaceId={tableData.table.workspace_id}
+          entityTitle="Table row"
+        />
+      )}
     </div>
   );
 }

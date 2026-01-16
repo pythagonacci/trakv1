@@ -10,7 +10,7 @@ export async function setTaskAssignees(
   assignees: Array<{ id?: string | null; name?: string | null }>
 ): Promise<ActionResult<null>> {
   const access = await requireTaskItemAccess(taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const normalized = assignees
@@ -43,7 +43,7 @@ export async function setTaskAssignees(
 
 export async function listTaskAssignees(taskId: string): Promise<ActionResult<TaskAssignee[]>> {
   const access = await requireTaskItemAccess(taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase

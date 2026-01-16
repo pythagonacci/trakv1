@@ -22,7 +22,7 @@ export async function createTaskItem(input: {
   };
 }): Promise<ActionResult<TaskItem>> {
   const access = await requireTaskBlockAccess(input.taskBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, block } = access;
 
   const { data: maxOrder } = await supabase
@@ -81,7 +81,7 @@ export async function updateTaskItem(
   }>
 ): Promise<ActionResult<TaskItem>> {
   const access = await requireTaskItemAccess(taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
   const payload: Record<string, any> = {
@@ -113,7 +113,7 @@ export async function updateTaskItem(
 
 export async function deleteTaskItem(taskId: string): Promise<ActionResult<null>> {
   const access = await requireTaskItemAccess(taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase.from("task_items").delete().eq("id", taskId);
@@ -123,7 +123,7 @@ export async function deleteTaskItem(taskId: string): Promise<ActionResult<null>
 
 export async function reorderTaskItems(taskBlockId: string, orderedIds: string[]): Promise<ActionResult<null>> {
   const access = await requireTaskBlockAccess(taskBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const updates = orderedIds.map((id, idx) => ({ id, display_order: idx }));

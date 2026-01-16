@@ -32,7 +32,7 @@ export async function createEntityLink(
     input.source_entity_type,
     input.source_entity_id
   );
-  if ("error" in sourceAccess) return sourceAccess;
+  if ("error" in sourceAccess) return { error: sourceAccess.error ?? "Unknown error" };
 
   // Verify target entity exists and is in the same workspace
   const targetWorkspaceId = await getWorkspaceIdForEntity(
@@ -91,7 +91,7 @@ export async function removeEntityLink(
   targetEntityId: string
 ): Promise<ActionResult<null>> {
   const access = await requireEntityAccess(sourceEntityType, sourceEntityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase
@@ -123,7 +123,7 @@ export async function getEntityLinks(
   }>
 > {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Get outgoing links (this entity links to others)
@@ -166,7 +166,7 @@ export async function getLinkedEntities(
   entityId: string
 ): Promise<ActionResult<EntityReference[]>> {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data: links, error } = await supabase
@@ -204,7 +204,7 @@ export async function getLinkingEntities(
   entityId: string
 ): Promise<ActionResult<EntityReference[]>> {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data: links, error } = await supabase
@@ -245,7 +245,7 @@ export async function searchLinkableEntities(
   limit: number = 10
 ): Promise<ActionResult<EntityReference[]>> {
   const access = await requireWorkspaceAccessForProperties(workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const types = entityTypes ?? ["block", "task", "timeline_event", "table_row"];
@@ -345,11 +345,12 @@ export async function searchLinkableEntities(
     for (const row of rows ?? []) {
       const title = getTableRowTitle(row);
       if (!searchQuery || title.toLowerCase().includes(searchQuery)) {
+        const table = Array.isArray(row.tables) ? row.tables[0] : row.tables;
         results.push({
           type: "table_row",
           id: row.id,
           title,
-          context: (row.tables as any)?.title ?? "Table",
+          context: table?.title ?? "Table",
         });
       }
     }
@@ -431,11 +432,12 @@ async function resolveEntityReference(
         .maybeSingle();
 
       if (!data) return null;
+      const table = Array.isArray(data.tables) ? data.tables[0] : data.tables;
       return {
         type: "table_row",
         id: data.id,
         title: getTableRowTitle(data),
-        context: data.tables?.title ?? "Table",
+        context: table?.title ?? "Table",
       };
     }
 
@@ -508,11 +510,16 @@ function getBlockTitle(block: {
  */
 function getTableRowTitle(row: {
   data: Record<string, unknown>;
-  tables?: {
-    table_fields?: Array<{ id: string; name: string; is_primary: boolean }>;
-  };
+  tables?:
+    | {
+        table_fields?: Array<{ id: string; name: string; is_primary: boolean }>;
+      }
+    | Array<{
+        table_fields?: Array<{ id: string; name: string; is_primary: boolean }>;
+      }>;
 }): string {
-  const fields = row.tables?.table_fields ?? [];
+  const table = Array.isArray(row.tables) ? row.tables[0] : row.tables;
+  const fields = table?.table_fields ?? [];
   const primaryField = fields.find((f) => f.is_primary);
 
   if (primaryField) {

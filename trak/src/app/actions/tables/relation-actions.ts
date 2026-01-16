@@ -91,7 +91,7 @@ export async function configureRelationField(input: {
   }
 
   const access = await requireTableAccess(field.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: relatedTable, error: relatedError } = await supabase
     .from("tables")
@@ -205,7 +205,7 @@ export async function getRelatedRows(
   }
 
   const access = await requireTableAccess(field.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const config = normalizeRelationConfig(field.config as TableField["config"]);
   const relatedTableId = config.relatedTableId;
@@ -244,7 +244,7 @@ export async function getRelatedRows(
 
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id, type, is_primary")
+    .select("id, name, type, is_primary")
     .eq("table_id", toTableId)
     .order("order", { ascending: true });
 
@@ -265,7 +265,7 @@ export async function getRelatedRows(
    */
   const determineDisplayField = (
     configuredFieldId: string | null | undefined,
-    tableFields: Array<{ id: string; type: string; is_primary?: boolean }> | null
+    tableFields: Array<{ id: string; name?: string; type: string; is_primary?: boolean }> | null
   ) => {
     if (!tableFields || tableFields.length === 0) return null;
 
@@ -306,7 +306,7 @@ export async function countRelationLinksForRows(input: {
   if (input.rowIds.length === 0) return { data: { count: 0 } };
 
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const quotedIds = input.rowIds.map((id) => `"${id}"`).join(",");
   const filter = `from_row_id.in.(${quotedIds}),to_row_id.in.(${quotedIds})`;
@@ -342,7 +342,7 @@ export async function syncRelationLinks(input: {
   if (!user) return { error: "Unauthorized" } as const;
 
   const access = await requireTableAccess(input.fromField.table_id);
-  if ("error" in access) return { error: access.error } as const;
+  if ("error" in access) return { error: access.error ?? "Unknown error" } as const;
 
   const config = normalizeRelationConfig(input.fromField.config);
   if (!config.relatedTableId) {

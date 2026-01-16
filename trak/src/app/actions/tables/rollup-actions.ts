@@ -152,7 +152,11 @@ function formatRollupErrorValue(message?: string) {
   return `#ERROR: ${message}`;
 }
 
-async function sanitizeRowData(supabase: ReturnType<typeof createClient>, tableId: string, data: Record<string, unknown>) {
+async function sanitizeRowData(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tableId: string,
+  data: Record<string, unknown>
+) {
   const { data: fields } = await supabase
     .from("table_fields")
     .select("id")
@@ -193,7 +197,7 @@ export async function computeRollupValue(
   }
 
   const access = await requireTableAccess(field.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const config = normalizeRollupConfig(field.config as TableField["config"]);
   if (!config.relationFieldId || !config.targetFieldId) {
@@ -322,7 +326,7 @@ export async function recomputeRollupField(fieldId: string): Promise<ActionResul
   }
 
   const access = await requireTableAccess(field.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: rows } = await supabase
     .from("table_rows")
@@ -342,7 +346,7 @@ export async function recomputeRollupsForRow(tableId: string, rowId: string, rel
   if (!user) return { error: "Unauthorized" } as const;
 
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return { error: access.error } as const;
+  if ("error" in access) return { error: access.error ?? "Unknown error" } as const;
 
   const { data: rollupFields } = await supabase
     .from("table_fields")

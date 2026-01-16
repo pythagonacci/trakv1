@@ -57,7 +57,7 @@ export async function getRecentLinkableItems(input: {
   limit?: number;
 }): Promise<ActionResult<LinkableItem[]>> {
   const access = await requireProjectAccess(input.projectId, input.workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
   const { data: tabs } = await supabase
@@ -66,7 +66,7 @@ export async function getRecentLinkableItems(input: {
     .eq("project_id", input.projectId)
     .limit(1000);
 
-  const tabMap = new Map((tabs || []).map((tab: any) => [tab.id, tab.name || "Untitled tab"]));
+  const tabMap = new Map<string, string>((tabs || []).map((tab: any) => [tab.id, tab.name || "Untitled tab"]));
   const tabIds = (tabs || []).map((tab: any) => tab.id);
   if (tabIds.length === 0) return { data: [] };
 
@@ -92,7 +92,7 @@ export async function searchLinkableItems(input: {
   limit?: number;
 }): Promise<ActionResult<LinkableItem[]>> {
   const access = await requireProjectAccess(input.projectId, input.workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const trimmed = input.query.trim();
   if (!trimmed) return { data: [] };
@@ -104,7 +104,7 @@ export async function searchLinkableItems(input: {
     .eq("project_id", input.projectId)
     .limit(1000);
 
-  const tabMap = new Map((tabs || []).map((tab: any) => [tab.id, tab.name || "Untitled tab"]));
+  const tabMap = new Map<string, string>((tabs || []).map((tab: any) => [tab.id, tab.name || "Untitled tab"]));
   const tabIds = (tabs || []).map((tab: any) => tab.id);
   if (tabIds.length === 0) return { data: [] };
 

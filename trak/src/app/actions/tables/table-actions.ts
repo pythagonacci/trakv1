@@ -22,7 +22,7 @@ interface CreateTableInput {
 export async function createTable(input: CreateTableInput): Promise<ActionResult<{ table: Table; primaryField: TableField }>> {
   const { workspaceId, projectId = null, title = "Untitled Table", description = null, icon = null } = input;
   const access = await requireWorkspaceAccessForTables(workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
   const { data: table, error: tableError } = await supabase
@@ -105,7 +105,7 @@ export async function createTable(input: CreateTableInput): Promise<ActionResult
 
 export async function getTable(tableId: string): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data: table, error: tableError } = await supabase
@@ -133,7 +133,7 @@ export async function getTable(tableId: string): Promise<ActionResult<{ table: T
 
 export async function updateTable(tableId: string, updates: Partial<Pick<Table, "title" | "description" | "icon" | "project_id">>): Promise<ActionResult<Table>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -157,7 +157,7 @@ export async function updateTable(tableId: string, updates: Partial<Pick<Table, 
 
 export async function deleteTable(tableId: string): Promise<ActionResult<null>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase.from("tables").delete().eq("id", tableId);
@@ -169,7 +169,7 @@ export async function deleteTable(tableId: string): Promise<ActionResult<null>> 
 
 export async function duplicateTable(tableId: string, options?: { includeRows?: boolean }): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table, userId } = access;
 
   // Load source table + fields
@@ -249,7 +249,7 @@ export async function duplicateTable(tableId: string, options?: { includeRows?: 
 
 export async function listWorkspaceTables(workspaceId: string): Promise<ActionResult<Table[]>> {
   const access = await requireWorkspaceAccessForTables(workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase

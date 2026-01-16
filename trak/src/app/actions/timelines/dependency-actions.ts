@@ -15,7 +15,7 @@ export async function createTimelineDependency(input: {
   dependencyType: DependencyType;
 }): Promise<ActionResult<TimelineDependency>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (!validateDependencyType(input.dependencyType)) {
     return { error: "Invalid dependency type" };
@@ -29,13 +29,13 @@ export async function createTimelineDependency(input: {
     .eq("timeline_block_id", block.id);
 
   const edges = (existing || []).map((edge) => ({
-    fromId: `${edge.from_type}:${edge.from_id}`,
-    toId: `${edge.to_type}:${edge.to_id}`,
+    fromId: `event:${edge.from_id}`,
+    toId: `event:${edge.to_id}`,
   }));
 
   const hasCycle = detectCircularDependencies(edges, {
-    fromId: `${input.fromType}:${input.fromId}`,
-    toId: `${input.toType}:${input.toId}`,
+    fromId: `event:${input.fromId}`,
+    toId: `event:${input.toId}`,
   });
   if (hasCycle) {
     return { error: "Dependency would create a circular chain" };
@@ -61,7 +61,7 @@ export async function createTimelineDependency(input: {
 
 export async function deleteTimelineDependency(dependencyId: string): Promise<ActionResult<null>> {
   const access = await getDependencyContext(dependencyId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
   const { error } = await supabase
@@ -76,7 +76,7 @@ export async function deleteTimelineDependency(dependencyId: string): Promise<Ac
 
 export async function getTimelineDependencies(timelineBlockId: string): Promise<ActionResult<TimelineDependency[]>> {
   const access = await requireTimelineAccess(timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, block } = access;
 

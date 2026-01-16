@@ -24,7 +24,7 @@ export async function createTimelineEvent(input: {
   displayOrder?: number;
 }): Promise<ActionResult<TimelineEvent>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { valid, message } = validateTimelineDateRange(input.startDate, input.endDate);
   if (!valid) return { error: message || "Invalid date range" };
@@ -93,7 +93,7 @@ export async function updateTimelineEvent(
   }>
 ): Promise<ActionResult<TimelineEvent>> {
   const access = await getEventContext(eventId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (updates.status && !validateEventStatus(updates.status)) {
     return { error: "Invalid status" };
@@ -139,7 +139,7 @@ export async function updateTimelineEvent(
 
 export async function deleteTimelineEvent(eventId: string): Promise<ActionResult<null>> {
   const access = await getEventContext(eventId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
   const { error } = await supabase.from("timeline_events").delete().eq("id", eventId);
@@ -150,7 +150,7 @@ export async function deleteTimelineEvent(eventId: string): Promise<ActionResult
 
 export async function duplicateTimelineEvent(eventId: string): Promise<ActionResult<TimelineEvent>> {
   const access = await getEventContext(eventId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, userId, event } = access;
 
@@ -186,7 +186,7 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
 
 export async function setTimelineEventBaseline(eventId: string, baseline: { start: string | null; end: string | null }): Promise<ActionResult<TimelineEvent>> {
   const access = await getEventContext(eventId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, userId } = access;
 

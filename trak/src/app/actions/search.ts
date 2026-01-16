@@ -1,7 +1,6 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { Block } from "./block";
 
 // ProseMirror node types for search
 interface ProseMirrorNode {
@@ -34,6 +33,12 @@ interface BlockSearchResult {
   id: string;
   content: Record<string, unknown>;
   tab: TabSearchResult;
+}
+
+interface TextBlockSearchResult {
+  id: string;
+  tab_id: string;
+  content: { text?: string } | null;
 }
 
 interface WorkspaceProject {
@@ -377,8 +382,9 @@ export async function searchWorkspaceContent(query: string, limit: number = 20):
             .in("tab_id", tabIds)
             .limit(limit); // Reduced from limit * 2
 
-          if (!textBlocksError && textBlocks) {
-            textBlocks.forEach((block: Block) => {
+          const typedTextBlocks = (textBlocks ?? []) as TextBlockSearchResult[];
+          if (!textBlocksError && typedTextBlocks.length > 0) {
+            typedTextBlocks.forEach((block) => {
               const text = block.content?.text || "";
               if (text.toLowerCase().includes(queryLower)) {
                 const tabInfo = tabMap.get(block.tab_id);

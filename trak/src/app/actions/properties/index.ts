@@ -32,12 +32,3 @@ export {
 } from "./entity-link-actions";
 
 export { queryEntities, queryEntitiesGroupedBy } from "./query-actions";
-
-export {
-  requireWorkspaceAccessForProperties,
-  requirePropertyDefinitionAccess,
-  requireEntityAccess,
-  getWorkspaceIdForEntity,
-  normalizePropertyName,
-  isSimilarPropertyName,
-} from "./context";

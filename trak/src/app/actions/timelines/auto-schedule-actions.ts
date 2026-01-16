@@ -27,7 +27,7 @@ function getRequiredStart(
 
 export async function autoScheduleTimeline(timelineBlockId: string): Promise<ActionResult<TimelineEvent[]>> {
   const access = await requireTimelineAccess(timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, userId, block } = access;
 

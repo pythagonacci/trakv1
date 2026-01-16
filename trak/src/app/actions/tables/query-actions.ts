@@ -17,7 +17,7 @@ interface GetTableDataInput {
 
 export async function getTableData(input: GetTableDataInput): Promise<ActionResult<{ rows: TableRow[]; view?: TableView | null }>> {
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   let view: TableView | null = null;
@@ -70,7 +70,7 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
 
 export async function searchTableRows(tableId: string, query: string): Promise<ActionResult<TableRow[]>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data: rows, error } = await supabase
@@ -91,7 +91,7 @@ export async function searchTableRows(tableId: string, query: string): Promise<A
 
 export async function getFilteredRows(tableId: string, filters: FilterCondition[]): Promise<ActionResult<TableRow[]>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { query, unsupportedFilters } = applyServerFilters(
@@ -115,7 +115,7 @@ export async function getTableRows(
   options?: { limit?: number; offset?: number }
 ): Promise<ActionResult<{ rows: TableRow[]; total: number; hasMore: boolean }>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;

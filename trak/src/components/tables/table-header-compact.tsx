@@ -20,7 +20,7 @@ interface Props {
   onSetDefault: (viewId: string) => void;
   onSwitchView: (viewId: string) => void;
   onUpdateTableTitle?: (title: string) => void;
-  searchInputRef?: React.RefObject<HTMLInputElement>;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
   openSearchTick?: number;
   groupBy?: GroupByConfig;
   onGroupByChange: (groupBy: GroupByConfig | undefined) => void;

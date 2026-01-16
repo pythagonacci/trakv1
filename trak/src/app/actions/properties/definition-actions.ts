@@ -25,7 +25,7 @@ export async function getPropertyDefinitions(
   workspaceId: string
 ): Promise<ActionResult<PropertyDefinition[]>> {
   const access = await requireWorkspaceAccessForProperties(workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -49,7 +49,7 @@ export async function getPropertyDefinition(
   definitionId: string
 ): Promise<ActionResult<PropertyDefinition>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -73,7 +73,7 @@ export async function createPropertyDefinition(
   input: CreatePropertyDefinitionInput
 ): Promise<ActionResult<PropertyDefinition>> {
   const access = await requireWorkspaceAccessForProperties(input.workspace_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Check for similar existing property names
@@ -122,7 +122,7 @@ export async function updatePropertyDefinition(
   updates: UpdatePropertyDefinitionInput
 ): Promise<ActionResult<PropertyDefinition>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, definition } = access;
 
   // If updating name, check for duplicates
@@ -184,7 +184,7 @@ export async function deletePropertyDefinition(
   definitionId: string
 ): Promise<ActionResult<null>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase
@@ -210,7 +210,7 @@ export async function mergePropertyOptions(
   targetValue: string
 ): Promise<ActionResult<{ updated_count: number }>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, definition } = access;
 
   // Get the property definition to verify it's a select type
@@ -297,7 +297,7 @@ export async function addPropertyOption(
   option: PropertyOption
 ): Promise<ActionResult<PropertyDefinition>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Get current definition
@@ -348,7 +348,7 @@ export async function updatePropertyOption(
   updates: Partial<Omit<PropertyOption, "id">>
 ): Promise<ActionResult<PropertyDefinition>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Get current definition
@@ -399,7 +399,7 @@ export async function removePropertyOption(
   optionId: string
 ): Promise<ActionResult<PropertyDefinition>> {
   const access = await requirePropertyDefinitionAccess(definitionId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Get current definition

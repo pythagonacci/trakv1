@@ -14,7 +14,7 @@ export async function createTaskReference(input: {
   tableId?: string | null;
 }): Promise<ActionResult<TaskReference>> {
   const access = await requireTaskItemAccess(input.taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, task } = access;
 
   const { data, error } = await supabase
@@ -57,7 +57,7 @@ export async function deleteTaskReference(referenceId: string): Promise<ActionRe
 
 export async function listTaskReferences(taskId: string): Promise<ActionResult<TaskReference[]>> {
   const access = await requireTaskItemAccess(taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase

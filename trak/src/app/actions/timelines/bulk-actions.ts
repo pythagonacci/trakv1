@@ -10,7 +10,7 @@ export async function bulkUpdateTimelineEvents(input: {
   updates: Array<{ id: string; startDate?: string; endDate?: string; displayOrder?: number }>;
 }): Promise<ActionResult<null>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.updates.length === 0) return { data: null };
 
@@ -37,7 +37,7 @@ export async function bulkDeleteTimelineEvents(input: {
   eventIds: string[];
 }): Promise<ActionResult<null>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.eventIds.length === 0) return { data: null };
 
@@ -57,7 +57,7 @@ export async function bulkDuplicateTimelineEvents(input: {
   eventIds: string[];
 }): Promise<ActionResult<TimelineEvent[]>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.eventIds.length === 0) return { data: [] };
 

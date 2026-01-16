@@ -16,7 +16,7 @@ export async function createTimelineReference(input: {
   tableId?: string | null;
 }): Promise<ActionResult<TimelineReference>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (!validateReferenceType(input.referenceType)) {
     return { error: "Invalid reference type" };
@@ -74,7 +74,7 @@ export async function updateTimelineReference(
   updates: Partial<{ tableId: string | null }>
 ): Promise<ActionResult<TimelineReference>> {
   const access = await getReferenceContext(referenceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
 
@@ -95,7 +95,7 @@ export async function updateTimelineReference(
 
 export async function deleteTimelineReference(referenceId: string): Promise<ActionResult<null>> {
   const access = await getReferenceContext(referenceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
   const { error } = await supabase.from("timeline_references").delete().eq("id", referenceId);
@@ -105,7 +105,7 @@ export async function deleteTimelineReference(referenceId: string): Promise<Acti
 
 export async function listTimelineReferences(eventId: string): Promise<ActionResult<TimelineReference[]>> {
   const access = await getReferenceContextByEvent(eventId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, event } = access;
   const { data, error } = await supabase
@@ -140,7 +140,7 @@ export async function bulkImportTableRows(input: {
   rowIds: string[];
 }): Promise<ActionResult<null>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
 

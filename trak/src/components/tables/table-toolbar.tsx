@@ -18,12 +18,16 @@ export function TableToolbar({ fields, sorts, onSortChange, filters, onFiltersCh
   const [columnSearch, setColumnSearch] = useState("");
 
   const toggleSort = (fieldId: string) => {
-    onSortChange((prev) => {
-      const existing = prev.find((s) => s.fieldId === fieldId);
-      if (!existing) return [{ fieldId, direction: "asc" }];
-      if (existing.direction === "asc") return [{ fieldId, direction: "desc" }];
-      return [];
-    });
+    const existing = sorts.find((s) => s.fieldId === fieldId);
+    if (!existing) {
+      onSortChange([{ fieldId, direction: "asc" }]);
+      return;
+    }
+    if (existing.direction === "asc") {
+      onSortChange([{ fieldId, direction: "desc" }]);
+      return;
+    }
+    onSortChange([]);
   };
 
   const addFilter = (fieldId: string) => {

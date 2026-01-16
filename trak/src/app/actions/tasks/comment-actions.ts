@@ -10,7 +10,7 @@ export async function createTaskComment(input: {
   text: string;
 }): Promise<ActionResult<TaskComment>> {
   const access = await requireTaskItemAccess(input.taskId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
   const { data, error } = await supabase

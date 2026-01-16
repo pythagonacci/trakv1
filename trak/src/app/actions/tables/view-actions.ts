@@ -19,7 +19,7 @@ interface CreateViewInput {
 
 export async function createView(input: CreateViewInput): Promise<ActionResult<TableView>> {
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
   const { data, error } = await supabase
@@ -43,7 +43,7 @@ export async function createView(input: CreateViewInput): Promise<ActionResult<T
 
 export async function listViews(tableId: string): Promise<ActionResult<TableView[]>> {
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -94,7 +94,7 @@ export async function getView(viewId: string): Promise<ActionResult<TableView>> 
 
 export async function updateView(viewId: string, updates: Partial<Pick<TableView, "name" | "type" | "config" | "is_default">>): Promise<ActionResult<TableView>> {
   const access = await getViewContext(viewId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, view } = access;
 
   const { data, error } = await supabase
@@ -118,7 +118,7 @@ export async function updateView(viewId: string, updates: Partial<Pick<TableView
 
 export async function deleteView(viewId: string): Promise<ActionResult<null>> {
   const access = await getViewContext(viewId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, view } = access;
 
   const { error } = await supabase
@@ -135,7 +135,7 @@ export async function deleteView(viewId: string): Promise<ActionResult<null>> {
 
 export async function setDefaultView(viewId: string): Promise<ActionResult<TableView>> {
   const access = await getViewContext(viewId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, view } = access;
 
   const { data, error } = await supabase
@@ -174,7 +174,7 @@ async function getViewContext(viewId: string) {
   }
 
   const access = await requireTableAccess(view.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   return { supabase: access.supabase, view, userId: user.id };
 }

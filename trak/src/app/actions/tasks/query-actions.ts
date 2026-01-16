@@ -28,7 +28,7 @@ export interface TaskItemView {
 
 export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionResult<TaskItemView[]>> {
   const access = await requireTaskBlockAccess(taskBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data: items, error: itemsError } = await supabase
@@ -166,7 +166,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
 
 export async function getWorkspaceTasksWithDueDates(workspaceId: string): Promise<ActionResult<TaskItem[]>> {
   const access = await requireWorkspaceAccessForTasks(workspaceId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase

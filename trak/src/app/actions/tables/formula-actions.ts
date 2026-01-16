@@ -57,7 +57,7 @@ export async function createFormulaField(input: {
   if (!user) return { error: "Unauthorized" };
 
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: fields } = await supabase
     .from("table_fields")
@@ -106,7 +106,7 @@ export async function recomputeFormulaField(fieldId: string): Promise<ActionResu
   }
 
   const access = await requireTableAccess(field.table_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: fields } = await supabase
     .from("table_fields")
@@ -159,7 +159,7 @@ export async function recomputeFormulasForRow(
   if (!user) return { error: "Unauthorized" } as const;
 
   const access = await requireTableAccess(tableId);
-  if ("error" in access) return { error: access.error } as const;
+  if ("error" in access) return { error: access.error ?? "Unknown error" } as const;
 
   const { data: formulaFields } = await supabase
     .from("table_fields")

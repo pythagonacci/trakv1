@@ -32,7 +32,7 @@ export async function bulkUpdateRows(input: {
   if (!user) return { error: "Unauthorized" };
 
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
 
@@ -86,7 +86,7 @@ export async function bulkDeleteRows(input: {
   if (!user) return { error: "Unauthorized" };
 
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
 
@@ -155,7 +155,7 @@ export async function bulkDuplicateRows(input: {
   if (!user) return { error: "Unauthorized" };
 
   const access = await requireTableAccess(input.tableId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
 

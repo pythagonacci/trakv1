@@ -7,7 +7,7 @@ type ActionResult<T> = { data: T } | { error: string };
 
 export async function getTimelineItems(timelineBlockId: string): Promise<ActionResult<{ events: TimelineEvent[] }>> {
   const access = await requireTimelineAccess(timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, block } = access;
 
@@ -25,7 +25,7 @@ export async function getTimelineItems(timelineBlockId: string): Promise<ActionR
 
 export async function getResolvedTimelineItems(timelineBlockId: string): Promise<ActionResult<TimelineItem[]>> {
   const access = await requireTimelineAccess(timelineBlockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const itemsResult = await getTimelineItems(timelineBlockId);
   if ("error" in itemsResult) return itemsResult;

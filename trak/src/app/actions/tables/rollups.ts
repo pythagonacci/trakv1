@@ -95,7 +95,7 @@ export async function computeRollupValue(
     // 1. Get rollup field config
     const { data: field } = await supabase
       .from('table_fields')
-      .select('config, table_id')
+      .select('config, table_id, type')
       .eq('id', fieldId)
       .single();
 

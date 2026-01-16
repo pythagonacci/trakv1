@@ -10,7 +10,7 @@ interface DeleteTabDialogProps {
   onClose: () => void;
   tab: { id: string; name: string } | null;
   onSuccess?: () => void;
-  triggerRef?: React.RefObject<HTMLElement> | null;
+  triggerRef?: React.RefObject<HTMLElement | null> | null;
 }
 
 export default function DeleteTabDialog({

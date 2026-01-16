@@ -26,7 +26,7 @@ export async function getEntityProperties(
   entityId: string
 ): Promise<ActionResult<EntityPropertyWithDefinition[]>> {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
@@ -66,7 +66,7 @@ export async function setEntityProperty(
   input: SetEntityPropertyInput
 ): Promise<ActionResult<EntityProperty>> {
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
 
   // Verify the property definition belongs to this workspace
@@ -119,7 +119,7 @@ export async function removeEntityProperty(
   propertyDefinitionId: string
 ): Promise<ActionResult<null>> {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase
@@ -145,7 +145,7 @@ export async function getEntityPropertiesWithInheritance(
   entityId: string
 ): Promise<ActionResult<EntityPropertiesResult>> {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
 
   // Get direct properties
@@ -312,7 +312,7 @@ export async function setInheritedPropertyVisibility(
   isVisible: boolean
 ): Promise<ActionResult<null>> {
   const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { error } = await supabase.from("entity_inherited_display").upsert(

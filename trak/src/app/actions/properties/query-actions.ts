@@ -24,7 +24,7 @@ export async function queryEntities(
   params: QueryEntitiesParams
 ): Promise<ActionResult<EntityReference[]>> {
   const access = await requireWorkspaceAccessForProperties(params.workspace_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const entityTypes = params.entity_types ?? [
@@ -57,7 +57,7 @@ export async function queryEntitiesGroupedBy(
   groupByPropertyId: string
 ): Promise<ActionResult<GroupedEntitiesResult[]>> {
   const access = await requireWorkspaceAccessForProperties(params.workspace_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   // Get the property definition for grouping
@@ -223,13 +223,20 @@ async function queryEntitiesByType(
       }
 
       const { data: blocks } = await query;
+      const typedBlocks = (blocks ?? []) as Array<{
+        id: string;
+        type: string;
+        content: Record<string, unknown> | null;
+        tabs?: { title?: string } | null;
+      }>;
 
       // Apply property filters
       const filteredBlocks = await filterByProperties(
         supabase,
         "block",
-        blocks ?? [],
-        params.properties
+        typedBlocks,
+        params.properties,
+        params.include_inherited
       );
 
       for (const block of filteredBlocks) {
@@ -257,13 +264,19 @@ async function queryEntitiesByType(
       }
 
       const { data: tasks } = await query;
+      const typedTasks = (tasks ?? []) as Array<{
+        id: string;
+        title: string;
+        tabs?: { title?: string } | null;
+      }>;
 
       // Apply property filters
       const filteredTasks = await filterByProperties(
         supabase,
         "task",
-        tasks ?? [],
-        params.properties
+        typedTasks,
+        params.properties,
+        params.include_inherited
       );
 
       for (const task of filteredTasks) {
@@ -305,13 +318,18 @@ async function queryEntitiesByType(
       }
 
       const { data: events } = await query;
+      const typedEvents = (events ?? []) as Array<{
+        id: string;
+        title: string;
+      }>;
 
       // Apply property filters
       const filteredEvents = await filterByProperties(
         supabase,
         "timeline_event",
-        events ?? [],
-        params.properties
+        typedEvents,
+        params.properties,
+        params.include_inherited
       );
 
       for (const event of filteredEvents) {
@@ -350,21 +368,30 @@ async function queryEntitiesByType(
       // Note: table_rows don't have direct tab scope
 
       const { data: rows } = await query;
+      const typedRows = (rows ?? []) as Array<{
+        id: string;
+        data: Record<string, unknown>;
+        tables?:
+          | { title?: string; table_fields?: Array<{ id: string; name: string; is_primary: boolean }> }
+          | Array<{ title?: string; table_fields?: Array<{ id: string; name: string; is_primary: boolean }> }>;
+      }>;
 
       // Apply property filters
       const filteredRows = await filterByProperties(
         supabase,
         "table_row",
-        rows ?? [],
-        params.properties
+        typedRows,
+        params.properties,
+        params.include_inherited
       );
 
       for (const row of filteredRows) {
+        const table = Array.isArray(row.tables) ? row.tables[0] : row.tables;
         results.push({
           type: "table_row",
           id: row.id,
           title: getTableRowTitle(row),
-          context: (row.tables as any)?.title ?? "Table",
+          context: table?.title ?? "Table",
         });
       }
       break;
@@ -381,7 +408,8 @@ async function filterByProperties<T extends { id: string }>(
   supabase: any,
   entityType: EntityType,
   entities: T[],
-  filters?: PropertyFilter[]
+  filters?: PropertyFilter[],
+  includeInherited?: boolean
 ): Promise<T[]> {
   if (!filters || filters.length === 0) {
     return entities;
@@ -405,6 +433,7 @@ async function filterByProperties<T extends { id: string }>(
 
   // Create a map of entity -> property definition -> value
   const propMap = new Map<string, Map<string, unknown>>();
+  const directPropIds = new Map<string, Set<string>>();
   for (const prop of props ?? []) {
     let entityMap = propMap.get(prop.entity_id);
     if (!entityMap) {
@@ -412,6 +441,78 @@ async function filterByProperties<T extends { id: string }>(
       propMap.set(prop.entity_id, entityMap);
     }
     entityMap.set(prop.property_definition_id, prop.value);
+    const directSet = directPropIds.get(prop.entity_id) ?? new Set<string>();
+    directSet.add(prop.property_definition_id);
+    directPropIds.set(prop.entity_id, directSet);
+  }
+
+  if (includeInherited) {
+    const { data: links } = await supabase
+      .from("entity_links")
+      .select("target_entity_id, source_entity_type, source_entity_id")
+      .eq("target_entity_type", entityType)
+      .in("target_entity_id", entityIds);
+
+    const linksByTarget = new Map<string, Array<{ sourceType: EntityType; sourceId: string }>>();
+    const sourceIdsByType = new Map<EntityType, Set<string>>();
+    for (const link of links ?? []) {
+      const targetList = linksByTarget.get(link.target_entity_id) ?? [];
+      targetList.push({
+        sourceType: link.source_entity_type as EntityType,
+        sourceId: link.source_entity_id,
+      });
+      linksByTarget.set(link.target_entity_id, targetList);
+
+      const typeSet = sourceIdsByType.get(link.source_entity_type as EntityType) ?? new Set<string>();
+      typeSet.add(link.source_entity_id);
+      sourceIdsByType.set(link.source_entity_type as EntityType, typeSet);
+    }
+
+    const sourcePropsByType = new Map<EntityType, Map<string, Array<{ property_definition_id: string; value: unknown }>>>();
+    for (const [sourceType, ids] of sourceIdsByType.entries()) {
+      const idsArray = Array.from(ids);
+      if (idsArray.length === 0) continue;
+      const { data: sourceProps } = await supabase
+        .from("entity_properties")
+        .select("entity_id, property_definition_id, value")
+        .eq("entity_type", sourceType)
+        .in("entity_id", idsArray)
+        .in(
+          "property_definition_id",
+          filters.map((f) => f.property_definition_id)
+        );
+
+      const propsByEntity = new Map<string, Array<{ property_definition_id: string; value: unknown }>>();
+      for (const prop of sourceProps ?? []) {
+        const list = propsByEntity.get(prop.entity_id) ?? [];
+        list.push({ property_definition_id: prop.property_definition_id, value: prop.value });
+        propsByEntity.set(prop.entity_id, list);
+      }
+      sourcePropsByType.set(sourceType, propsByEntity);
+    }
+
+    for (const [targetId, linksForTarget] of linksByTarget.entries()) {
+      const entityMap = propMap.get(targetId) ?? new Map<string, unknown>();
+      const directSet = directPropIds.get(targetId) ?? new Set<string>();
+      for (const link of linksForTarget) {
+        const propsByEntity = sourcePropsByType.get(link.sourceType);
+        const propsForSource = propsByEntity?.get(link.sourceId) ?? [];
+        for (const prop of propsForSource) {
+          if (directSet.has(prop.property_definition_id)) continue;
+          const existing = entityMap.get(prop.property_definition_id);
+          if (existing === undefined) {
+            entityMap.set(prop.property_definition_id, prop.value);
+          } else if (Array.isArray(existing)) {
+            entityMap.set(prop.property_definition_id, [...existing, prop.value]);
+          } else {
+            entityMap.set(prop.property_definition_id, [existing, prop.value]);
+          }
+        }
+      }
+      if (entityMap.size > 0) {
+        propMap.set(targetId, entityMap);
+      }
+    }
   }
 
   // Filter entities
@@ -434,6 +535,26 @@ async function filterByProperties<T extends { id: string }>(
  * Check if a value matches a filter.
  */
 function matchesFilter(value: unknown, filter: PropertyFilter): boolean {
+  if (Array.isArray(value)) {
+    switch (filter.operator) {
+      case "equals":
+        return value.includes(filter.value);
+      case "not_equals":
+        return !value.includes(filter.value);
+      case "contains":
+        return value.some((item) =>
+          typeof item === "string" && typeof filter.value === "string"
+            ? item.toLowerCase().includes(filter.value.toLowerCase())
+            : item === filter.value
+        );
+      case "is_empty":
+        return value.length === 0;
+      case "is_not_empty":
+        return value.length > 0;
+      default:
+        break;
+    }
+  }
   switch (filter.operator) {
     case "equals":
       return value === filter.value;
@@ -444,9 +565,6 @@ function matchesFilter(value: unknown, filter: PropertyFilter): boolean {
     case "contains":
       if (typeof value === "string" && typeof filter.value === "string") {
         return value.toLowerCase().includes(filter.value.toLowerCase());
-      }
-      if (Array.isArray(value)) {
-        return value.includes(filter.value);
       }
       return false;
 
@@ -534,11 +652,16 @@ function getBlockTitle(block: {
  */
 function getTableRowTitle(row: {
   data: Record<string, unknown>;
-  tables?: {
-    table_fields?: Array<{ id: string; name: string; is_primary: boolean }>;
-  };
+  tables?:
+    | {
+        table_fields?: Array<{ id: string; name: string; is_primary: boolean }>;
+      }
+    | Array<{
+        table_fields?: Array<{ id: string; name: string; is_primary: boolean }>;
+      }>;
 }): string {
-  const fields = row.tables?.table_fields ?? [];
+  const table = Array.isArray(row.tables) ? row.tables[0] : row.tables;
+  const fields = table?.table_fields ?? [];
   const primaryField = fields.find((f) => f.is_primary);
 
   if (primaryField) {

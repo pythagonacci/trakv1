@@ -25,6 +25,8 @@ import {
 } from "@/lib/hooks/use-task-queries";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import { useTheme } from "@/app/dashboard/theme-context";
+import { PropertyBadge, PropertyPanel } from "@/components/properties";
+import { useEntityPropertiesWithInheritance } from "@/lib/hooks/use-property-queries";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -150,6 +152,42 @@ function TaskDescription({
   );
 }
 
+function TaskPropertyBadges({
+  entityId,
+  onOpen,
+}: {
+  entityId: string;
+  onOpen: () => void;
+}) {
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("task", entityId);
+  const direct = propertiesResult?.direct ?? [];
+  const inherited = (propertiesResult?.inherited ?? []).filter((prop) => prop.is_visible);
+
+  if (direct.length === 0 && inherited.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-1">
+      {direct.map((prop) => (
+        <PropertyBadge
+          key={prop.id}
+          definition={prop.definition}
+          value={prop.value}
+          onClick={onOpen}
+        />
+      ))}
+      {inherited.map((prop) => (
+        <PropertyBadge
+          key={`inherited-${prop.property.id}`}
+          definition={prop.property.definition}
+          value={prop.property.value}
+          inherited
+          onClick={onOpen}
+        />
+      ))}
+    </div>
+  );
+}
+
 interface WorkspaceMember {
   id: string;
   name: string;
@@ -173,6 +211,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const { data: serverTasks = [] } = useTaskItems(block.id, { enabled: !isTempBlock });
   const tasks = isTempBlock ? (content.tasks || []) : (serverTasks as Task[]);
   const initialGlobalHideIcons = content.hideIcons || false;
+  const propertiesTask = propertiesTaskId ? tasks.find((t) => String(t.id) === propertiesTaskId) : undefined;
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(title);
@@ -185,6 +224,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [newTagInput, setNewTagInput] = useState("");
   const [referenceTaskId, setReferenceTaskId] = useState<string | null>(null);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
+  const [propertiesTaskId, setPropertiesTaskId] = useState<string | null>(null);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
   const dateInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
   const timeInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
 
@@ -817,6 +858,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           const taskSections = expandedSections[task.id] || {};
           const hasAnyExpanded = taskSections.comments || taskSections.references;
           const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
+          const taskEntityId = typeof task.id === "string" ? task.id : null;
+          const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
           
           return (
             <div
@@ -1137,6 +1180,16 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                   )}
                 </div>
 
+                {canUseProperties && taskEntityId && (
+                  <TaskPropertyBadges
+                    entityId={taskEntityId}
+                    onOpen={() => {
+                      setPropertiesTaskId(taskEntityId);
+                      setPropertiesOpen(true);
+                    }}
+                  />
+                )}
+
                 {/* Hidden date/time inputs for menu access when icons are hidden */}
                 {!shouldShowIcons(task) && (
                   <>
@@ -1217,6 +1270,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                     </DropdownMenuItem>
                     
                     <DropdownMenuSeparator />
+
+                    {canUseProperties && taskEntityId && (
+                      <>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setPropertiesTaskId(taskEntityId);
+                            setPropertiesOpen(true);
+                          }}
+                        >
+                          <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
+                          Properties
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     
                     {/* Tags Section */}
                     <div className="px-2 py-1.5 text-xs font-semibold text-[var(--muted-foreground)]">Tags</div>
@@ -1484,6 +1552,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
             }
             return true;
           }}
+        />
+      )}
+      {propertiesTaskId && workspaceId && (
+        <PropertyPanel
+          open={propertiesOpen}
+          onOpenChange={(open) => {
+            setPropertiesOpen(open);
+            if (!open) {
+              setPropertiesTaskId(null);
+            }
+          }}
+          entityType="task"
+          entityId={propertiesTaskId}
+          workspaceId={workspaceId}
+          entityTitle={propertiesTask?.text ?? "Task"}
         />
       )}
     </div>
