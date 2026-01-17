@@ -1,200 +1,45 @@
 "use client";
 
-// Universal Properties & Linking System - React Query hooks
-// Wraps server actions for property definitions, entity properties, and entity links
+// Trak Universal Properties - React Query Hooks (Simplified)
+// Fixed properties: status, priority, assignee, due date, tags
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import {
-  getPropertyDefinitions,
-  createPropertyDefinition,
-  updatePropertyDefinition,
-  deletePropertyDefinition,
-  addPropertyOption,
-  updatePropertyOption,
-  removePropertyOption,
-  mergePropertyOptions,
   getEntityProperties,
   getEntityPropertiesWithInheritance,
-  setEntityProperty,
-  removeEntityProperty,
-  setInheritedPropertyVisibility,
-  getEntityLinks,
+  setEntityProperties,
+  addTag,
+  removeTag,
+  clearEntityProperties,
+  getWorkspaceMembers,
   createEntityLink,
   removeEntityLink,
-  searchLinkableEntities,
-  queryEntities,
-  queryEntitiesGroupedBy,
-} from "@/app/actions/properties";
+  getEntityLinks,
+  setInheritedPropertyVisibility,
+} from "@/app/actions/entity-properties";
 import type {
-  PropertyDefinition,
-  PropertyOption,
   EntityType,
-  PropertyValue,
-  CreatePropertyDefinitionInput,
-  UpdatePropertyDefinitionInput,
-  CreateEntityLinkInput,
-  QueryEntitiesParams,
-  EntityPropertyWithDefinition,
-  EntityPropertiesResult,
+  EntityProperties,
+  EntityPropertiesWithInheritance,
+  SetEntityPropertiesInput,
+  AddTagInput,
+  RemoveTagInput,
+  WorkspaceMember,
 } from "@/types/properties";
 
-// ---------------------------------------------------------------------------
-// Property Definitions
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all property definitions for a workspace.
- */
-export function usePropertyDefinitions(workspaceId?: string) {
-  return useQuery({
-    queryKey: queryKeys.propertyDefinitions(workspaceId ?? ""),
-    queryFn: async () => {
-      if (!workspaceId) return [];
-      const result = await getPropertyDefinitions(workspaceId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: Boolean(workspaceId),
-    staleTime: 60_000, // Property definitions don't change often
-  });
-}
-
-/**
- * Create a new property definition.
- */
-export function useCreatePropertyDefinition(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: Omit<CreatePropertyDefinitionInput, "workspace_id">) =>
-      createPropertyDefinition({ ...input, workspace_id: workspaceId }),
-    onSuccess: (result) => {
-      if ("data" in result) {
-        qc.invalidateQueries({
-          queryKey: queryKeys.propertyDefinitions(workspaceId),
-        });
-      }
-    },
-  });
-}
-
-/**
- * Update an existing property definition.
- */
-export function useUpdatePropertyDefinition(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: {
-      definitionId: string;
-      updates: UpdatePropertyDefinitionInput;
-    }) => updatePropertyDefinition(args.definitionId, args.updates),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.propertyDefinitions(workspaceId),
-      });
-    },
-  });
-}
-
-/**
- * Delete a property definition.
- */
-export function useDeletePropertyDefinition(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (definitionId: string) => deletePropertyDefinition(definitionId),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.propertyDefinitions(workspaceId),
-      });
-      // Also invalidate entity properties since they may reference deleted definition
-      qc.invalidateQueries({ queryKey: ["entityProperties"] });
-    },
-  });
-}
-
-/**
- * Add an option to a select/multi_select property.
- */
-export function useAddPropertyOption(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: { definitionId: string; option: PropertyOption }) =>
-      addPropertyOption(args.definitionId, args.option),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.propertyDefinitions(workspaceId),
-      });
-    },
-  });
-}
-
-/**
- * Update an option within a select/multi_select property.
- */
-export function useUpdatePropertyOption(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: {
-      definitionId: string;
-      optionId: string;
-      updates: Partial<Omit<PropertyOption, "id">>;
-    }) => updatePropertyOption(args.definitionId, args.optionId, args.updates),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.propertyDefinitions(workspaceId),
-      });
-    },
-  });
-}
-
-/**
- * Remove an option from a select/multi_select property.
- */
-export function useRemovePropertyOption(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: { definitionId: string; optionId: string }) =>
-      removePropertyOption(args.definitionId, args.optionId),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.propertyDefinitions(workspaceId),
-      });
-    },
-  });
-}
-
-/**
- * Merge duplicate option values (for deduplication).
- */
-export function useMergePropertyOptions(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: {
-      definitionId: string;
-      sourceValue: string;
-      targetValue: string;
-    }) => mergePropertyOptions(args.definitionId, args.sourceValue, args.targetValue),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.propertyDefinitions(workspaceId),
-      });
-      qc.invalidateQueries({ queryKey: ["entityProperties"] });
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
+// ============================================================================
 // Entity Properties
-// ---------------------------------------------------------------------------
+// ============================================================================
 
 /**
- * Fetch direct properties on an entity.
+ * Fetch direct properties on an entity
  */
-export function useEntityProperties(entityType: EntityType, entityId: string) {
+export function useEntityProperties(entityType: EntityType, entityId?: string) {
   return useQuery({
-    queryKey: queryKeys.entityProperties(entityType, entityId),
+    queryKey: queryKeys.entityProperties(entityType, entityId ?? ""),
     queryFn: async () => {
+      if (!entityId) return null;
       const result = await getEntityProperties(entityType, entityId);
       if ("error" in result) throw new Error(result.error);
       return result.data;
@@ -205,15 +50,16 @@ export function useEntityProperties(entityType: EntityType, entityId: string) {
 }
 
 /**
- * Fetch properties with inheritance (direct + inherited from linked entities).
+ * Fetch properties with inheritance (direct + inherited from linked entities)
  */
 export function useEntityPropertiesWithInheritance(
   entityType: EntityType,
-  entityId: string
+  entityId?: string
 ) {
   return useQuery({
-    queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+    queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId ?? ""),
     queryFn: async () => {
+      if (!entityId) return { direct: null, inherited: [] };
       const result = await getEntityPropertiesWithInheritance(entityType, entityId);
       if ("error" in result) throw new Error(result.error);
       return result.data;
@@ -224,61 +70,50 @@ export function useEntityPropertiesWithInheritance(
 }
 
 /**
- * Set a property value on an entity.
+ * Set/update entity properties
  */
-export function useSetEntityProperty(
+export function useSetEntityProperties(
   entityType: EntityType,
   entityId: string,
   workspaceId: string
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { propertyDefinitionId: string; value: PropertyValue }) =>
-      setEntityProperty({
+    mutationFn: (updates: SetEntityPropertiesInput["updates"]) =>
+      setEntityProperties({
         entity_type: entityType,
         entity_id: entityId,
-        property_definition_id: args.propertyDefinitionId,
-        value: args.value,
         workspace_id: workspaceId,
+        updates,
       }),
-    onMutate: async (args) => {
+    onMutate: async (updates) => {
       // Optimistic update
       await qc.cancelQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
 
-      const previousDirect = qc.getQueryData<EntityPropertyWithDefinition[]>(
+      const previous = qc.getQueryData<EntityProperties | null>(
         queryKeys.entityProperties(entityType, entityId)
       );
 
-      if (previousDirect) {
-        const existingIndex = previousDirect.findIndex(
-          (p) => p.property_definition_id === args.propertyDefinitionId
-        );
-        const updatedDirect = [...previousDirect];
-
-        if (existingIndex >= 0) {
-          updatedDirect[existingIndex] = {
-            ...updatedDirect[existingIndex],
-            value: args.value,
-          };
-        }
-        // Note: Can't add new property optimistically since we don't have the definition
-
+      if (previous) {
         qc.setQueryData(
           queryKeys.entityProperties(entityType, entityId),
-          updatedDirect
+          {
+            ...previous,
+            ...updates,
+          }
         );
       }
 
-      return { previousDirect };
+      return { previous };
     },
-    onError: (err, args, context) => {
+    onError: (err, updates, context) => {
       // Rollback on error
-      if (context?.previousDirect) {
+      if (context?.previous) {
         qc.setQueryData(
           queryKeys.entityProperties(entityType, entityId),
-          context.previousDirect
+          context.previous
         );
       }
     },
@@ -294,48 +129,26 @@ export function useSetEntityProperty(
 }
 
 /**
- * Remove a property from an entity.
+ * Add a tag to an entity
  */
-export function useRemoveEntityProperty(entityType: EntityType, entityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (propertyDefinitionId: string) =>
-      removeEntityProperty(entityType, entityId, propertyDefinitionId),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityProperties(entityType, entityId),
-      });
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
-      });
-    },
-  });
-}
-
-/**
- * Toggle visibility of an inherited property.
- */
-export function useSetInheritedPropertyVisibility(
+export function useAddTag(
   entityType: EntityType,
-  entityId: string
+  entityId: string,
+  workspaceId: string
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: {
-      sourceEntityType: EntityType;
-      sourceEntityId: string;
-      propertyDefinitionId: string;
-      isVisible: boolean;
-    }) =>
-      setInheritedPropertyVisibility(
-        entityType,
-        entityId,
-        args.sourceEntityType,
-        args.sourceEntityId,
-        args.propertyDefinitionId,
-        args.isVisible
-      ),
+    mutationFn: (tag: string) =>
+      addTag({
+        entity_type: entityType,
+        entity_id: entityId,
+        workspace_id: workspaceId,
+        tag,
+      }),
     onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityProperties(entityType, entityId),
+      });
       qc.invalidateQueries({
         queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
       });
@@ -343,17 +156,80 @@ export function useSetInheritedPropertyVisibility(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Entity Links
-// ---------------------------------------------------------------------------
+/**
+ * Remove a tag from an entity
+ */
+export function useRemoveTag(entityType: EntityType, entityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tag: string) =>
+      removeTag({
+        entity_type: entityType,
+        entity_id: entityId,
+        tag,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityProperties(entityType, entityId),
+      });
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+      });
+    },
+  });
+}
 
 /**
- * Fetch all links for an entity (outgoing and incoming).
+ * Clear all properties for an entity
  */
-export function useEntityLinks(entityType: EntityType, entityId: string) {
+export function useClearEntityProperties(entityType: EntityType, entityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => clearEntityProperties(entityType, entityId),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityProperties(entityType, entityId),
+      });
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+      });
+    },
+  });
+}
+
+// ============================================================================
+// Workspace Members (for assignee dropdown)
+// ============================================================================
+
+/**
+ * Fetch all members of a workspace
+ */
+export function useWorkspaceMembers(workspaceId?: string) {
   return useQuery({
-    queryKey: queryKeys.entityLinks(entityType, entityId),
+    queryKey: ["workspaceMembers", workspaceId],
     queryFn: async () => {
+      if (!workspaceId) return [];
+      const result = await getWorkspaceMembers(workspaceId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  });
+}
+
+// ============================================================================
+// Entity Links
+// ============================================================================
+
+/**
+ * Fetch all links for an entity (outgoing and incoming)
+ */
+export function useEntityLinks(entityType: EntityType, entityId?: string) {
+  return useQuery({
+    queryKey: queryKeys.entityLinks(entityType, entityId ?? ""),
+    queryFn: async () => {
+      if (!entityId) return { outgoing: [], incoming: [] };
       const result = await getEntityLinks(entityType, entityId);
       if ("error" in result) throw new Error(result.error);
       return result.data;
@@ -364,7 +240,7 @@ export function useEntityLinks(entityType: EntityType, entityId: string) {
 }
 
 /**
- * Create a link between entities.
+ * Create a link between entities
  */
 export function useCreateEntityLink(
   sourceEntityType: EntityType,
@@ -389,7 +265,7 @@ export function useCreateEntityLink(
       qc.invalidateQueries({
         queryKey: queryKeys.entityLinks(args.targetEntityType, args.targetEntityId),
       });
-      // Invalidate target's properties with inheritance since it gained new inherited properties
+      // Invalidate target's properties with inheritance
       qc.invalidateQueries({
         queryKey: queryKeys.entityPropertiesWithInheritance(
           args.targetEntityType,
@@ -401,7 +277,7 @@ export function useCreateEntityLink(
 }
 
 /**
- * Remove a link between entities.
+ * Remove a link between entities
  */
 export function useRemoveEntityLink(
   sourceEntityType: EntityType,
@@ -424,7 +300,7 @@ export function useRemoveEntityLink(
       qc.invalidateQueries({
         queryKey: queryKeys.entityLinks(args.targetEntityType, args.targetEntityId),
       });
-      // Invalidate target's properties with inheritance since it lost inherited properties
+      // Invalidate target's properties with inheritance
       qc.invalidateQueries({
         queryKey: queryKeys.entityPropertiesWithInheritance(
           args.targetEntityType,
@@ -435,62 +311,35 @@ export function useRemoveEntityLink(
   });
 }
 
+// ============================================================================
+// Inherited Property Visibility
+// ============================================================================
+
 /**
- * Search for linkable entities (for @ mention picker).
+ * Toggle visibility of inherited properties from a source entity
  */
-export function useSearchLinkableEntities(
-  workspaceId: string,
-  query: string,
-  entityTypes?: EntityType[],
-  limit: number = 10
+export function useSetInheritedPropertyVisibility(
+  entityType: EntityType,
+  entityId: string
 ) {
-  return useQuery({
-    queryKey: ["linkableEntities", workspaceId, query, entityTypes, limit],
-    queryFn: async () => {
-      const result = await searchLinkableEntities(workspaceId, query, entityTypes, limit);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      sourceEntityType: EntityType;
+      sourceEntityId: string;
+      isVisible: boolean;
+    }) =>
+      setInheritedPropertyVisibility({
+        entity_type: entityType,
+        entity_id: entityId,
+        source_entity_type: args.sourceEntityType,
+        source_entity_id: args.sourceEntityId,
+        is_visible: args.isVisible,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+      });
     },
-    enabled: Boolean(workspaceId),
-    staleTime: 10_000,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Query Entities
-// ---------------------------------------------------------------------------
-
-/**
- * Query entities matching property criteria.
- */
-export function useQueryEntities(params: QueryEntitiesParams) {
-  return useQuery({
-    queryKey: ["queryEntities", params],
-    queryFn: async () => {
-      const result = await queryEntities(params);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: Boolean(params.workspace_id),
-    staleTime: 30_000,
-  });
-}
-
-/**
- * Query entities grouped by a property value.
- */
-export function useQueryEntitiesGroupedBy(
-  params: QueryEntitiesParams,
-  groupByPropertyId: string
-) {
-  return useQuery({
-    queryKey: ["queryEntitiesGrouped", params, groupByPropertyId],
-    queryFn: async () => {
-      const result = await queryEntitiesGroupedBy(params, groupByPropertyId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: Boolean(params.workspace_id && groupByPropertyId),
-    staleTime: 30_000,
   });
 }

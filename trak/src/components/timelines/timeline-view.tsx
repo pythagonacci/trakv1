@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
-import { PropertyBadge, PropertyPanel } from "@/components/properties";
-import { useEntityPropertiesWithInheritance } from "@/lib/hooks/use-property-queries";
+import { PropertyBadges, PropertyMenu } from "@/components/properties";
+import { useEntityPropertiesWithInheritance, useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import {
   useTimelineItems,
@@ -1646,8 +1646,15 @@ function EditEventDialog({
   const [showColors, setShowColors] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
-  const directProperties = propertiesResult?.direct ?? [];
-  const inheritedProperties = (propertiesResult?.inherited ?? []).filter((prop) => prop.is_visible);
+  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const direct = propertiesResult?.direct;
+  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
+  
+  const getMemberName = (assigneeId: string | null) => {
+    if (!assigneeId) return undefined;
+    const member = workspaceMembers.find((m) => m.id === assigneeId);
+    return member?.name || member?.email;
+  };
 
   React.useEffect(() => {
     if (isOpen) setLocal(getInitialState());
@@ -1843,23 +1850,22 @@ function EditEventDialog({
                   Manage properties
                 </Button>
               </div>
-              {(directProperties.length > 0 || inheritedProperties.length > 0) ? (
+              {(direct || inherited.length > 0) ? (
                 <div className="flex flex-wrap gap-2">
-                  {directProperties.map((prop) => (
-                    <PropertyBadge
-                      key={prop.id}
-                      definition={prop.definition}
-                      value={prop.value}
+                  {direct && (
+                    <PropertyBadges
+                      properties={direct}
                       onClick={() => setPropertiesOpen(true)}
+                      memberName={getMemberName(direct.assignee_id)}
                     />
-                  ))}
-                  {inheritedProperties.map((prop) => (
-                    <PropertyBadge
-                      key={`inherited-${prop.property.id}`}
-                      definition={prop.property.definition}
-                      value={prop.property.value}
+                  )}
+                  {inherited.map((inh) => (
+                    <PropertyBadges
+                      key={`inherited-${inh.source_entity_id}`}
+                      properties={inh.properties}
                       inherited
                       onClick={() => setPropertiesOpen(true)}
+                      memberName={getMemberName(inh.properties.assignee_id)}
                     />
                   ))}
                 </div>
@@ -1944,7 +1950,7 @@ function EditEventDialog({
         </DialogFooter>
       </DialogContent>
       {workspaceId && (
-        <PropertyPanel
+        <PropertyMenu
           open={propertiesOpen}
           onOpenChange={setPropertiesOpen}
           entityType="timeline_event"

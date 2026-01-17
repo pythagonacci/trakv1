@@ -37,8 +37,11 @@ import {
 import MakeTemplateDialog from "./make-template-dialog";
 import BlockComments from "./block-comments";
 import { MessageSquare } from "lucide-react";
-import { PropertyPanel, PropertyBadge } from "@/components/properties";
-import { useEntityPropertiesWithInheritance } from "@/lib/hooks/use-property-queries";
+import { PropertyMenu, PropertyBadges } from "@/components/properties";
+import {
+  useEntityPropertiesWithInheritance,
+  useWorkspaceMembers,
+} from "@/lib/hooks/use-property-queries";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -89,9 +92,23 @@ export default function BlockWrapper({
 
   // Fetch properties for this block
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
-  const directProperties = propertiesResult?.direct ?? [];
-  const inheritedProperties = (propertiesResult?.inherited ?? []).filter(p => p.is_visible);
-  const hasProperties = directProperties.length > 0 || inheritedProperties.length > 0;
+  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const direct = propertiesResult?.direct;
+  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
+
+  const getMemberName = (assigneeId: string | null) => {
+    if (!assigneeId) return undefined;
+    const member = workspaceMembers.find((m) => m.id === assigneeId);
+    return member?.name || member?.email;
+  };
+
+  const directCount = countEntityProperties(direct);
+  const inheritedCount = inherited.reduce(
+    (sum, inh) => sum + countEntityProperties(inh.properties),
+    0
+  );
+  const totalPropertiesCount = directCount + inheritedCount;
+  const hasProperties = totalPropertiesCount > 0;
 
   // Check if block has comments
   const blockContent = block.content || {};
@@ -322,7 +339,9 @@ export default function BlockWrapper({
                         <Tags className="h-4 w-4" />
                         <span>Properties</span>
                         {hasProperties && (
-                          <span className="ml-auto text-xs text-[var(--muted-foreground)]">({directProperties.length + inheritedProperties.length})</span>
+                          <span className="ml-auto text-xs text-[var(--muted-foreground)]">
+                            ({totalPropertiesCount})
+                          </span>
                         )}
                       </DropdownMenuItem>
 
@@ -477,7 +496,9 @@ export default function BlockWrapper({
                     <Tags className="h-4 w-4" />
                     <span>Properties</span>
                     {hasProperties && (
-                      <span className="ml-auto text-xs text-[var(--muted-foreground)]">({directProperties.length + inheritedProperties.length})</span>
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">
+                      ({totalPropertiesCount})
+                    </span>
                     )}
                   </DropdownMenuItem>
 
@@ -621,7 +642,9 @@ export default function BlockWrapper({
                   <Tags className="h-4 w-4" />
                   <span>Properties</span>
                   {hasProperties && (
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">({directProperties.length + inheritedProperties.length})</span>
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">
+                      ({totalPropertiesCount})
+                    </span>
                   )}
                 </DropdownMenuItem>
 
@@ -644,21 +667,20 @@ export default function BlockWrapper({
             {/* Property Badges */}
             {hasProperties && (
               <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
-                {directProperties.map((prop) => (
-                  <PropertyBadge
-                    key={prop.id}
-                    definition={prop.definition}
-                    value={prop.value}
+                {direct && (
+                  <PropertyBadges
+                    properties={direct}
                     onClick={() => setPropertiesOpen(true)}
+                    memberName={getMemberName(direct.assignee_id)}
                   />
-                ))}
-                {inheritedProperties.map((prop) => (
-                  <PropertyBadge
-                    key={`inherited-${prop.property.id}`}
-                    definition={prop.property.definition}
-                    value={prop.property.value}
+                )}
+                {inherited.map((inh) => (
+                  <PropertyBadges
+                    key={`inherited-${inh.source_entity_id}`}
+                    properties={inh.properties}
                     inherited
                     onClick={() => setPropertiesOpen(true)}
+                    memberName={getMemberName(inh.properties.assignee_id)}
                   />
                 ))}
               </div>
@@ -689,7 +711,7 @@ export default function BlockWrapper({
 
       {/* Properties Panel */}
       {!readOnly && workspaceId && (
-        <PropertyPanel
+        <PropertyMenu
           open={propertiesOpen}
           onOpenChange={setPropertiesOpen}
           entityType="block"
@@ -699,6 +721,20 @@ export default function BlockWrapper({
         />
       )}
     </div>
+  );
+}
+
+function countEntityProperties(
+  props: { status?: unknown; priority?: unknown; assignee_id?: unknown; due_date?: unknown; tags?: unknown } | null | undefined
+): number {
+  if (!props) return 0;
+  const tags = Array.isArray(props.tags) ? props.tags : [];
+  return (
+    (props.status ? 1 : 0) +
+    (props.priority ? 1 : 0) +
+    (props.assignee_id ? 1 : 0) +
+    (props.due_date ? 1 : 0) +
+    tags.length
   );
 }
 

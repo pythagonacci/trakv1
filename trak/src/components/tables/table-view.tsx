@@ -32,7 +32,7 @@ import { TableHeaderCompact } from "./table-header-compact";
 import { RowComments } from "./comments/row-comments";
 import { ColumnDetailPanel } from "./column-detail-panel";
 import { TableContextMenu } from "./table-context-menu";
-import { PropertyPanel } from "@/components/properties";
+import { PropertyMenu } from "@/components/properties";
 import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 import { BulkDeleteDialog } from "./bulk-delete-dialog";
 import { RelationConfigModal } from "./relation-config-modal";
@@ -1207,7 +1207,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         onSave={handleSaveFormulaConfig}
       />
       {propertiesRowId && tableData?.table.workspace_id && (
-        <PropertyPanel
+        <PropertyMenu
           open={propertiesOpen}
           onOpenChange={(open) => {
             setPropertiesOpen(open);

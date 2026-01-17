@@ -25,8 +25,8 @@ import {
 } from "@/lib/hooks/use-task-queries";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import { useTheme } from "@/app/dashboard/theme-context";
-import { PropertyBadge, PropertyPanel } from "@/components/properties";
-import { useEntityPropertiesWithInheritance } from "@/lib/hooks/use-property-queries";
+import { PropertyBadges, PropertyMenu } from "@/components/properties";
+import { useEntityPropertiesWithInheritance, useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -155,33 +155,41 @@ function TaskDescription({
 function TaskPropertyBadges({
   entityId,
   onOpen,
+  workspaceId,
 }: {
   entityId: string;
   onOpen: () => void;
+  workspaceId: string;
 }) {
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("task", entityId);
-  const direct = propertiesResult?.direct ?? [];
-  const inherited = (propertiesResult?.inherited ?? []).filter((prop) => prop.is_visible);
+  const { data: members = [] } = useWorkspaceMembers(workspaceId);
 
-  if (direct.length === 0 && inherited.length === 0) return null;
+  const direct = propertiesResult?.direct;
+  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
+
+  // Get member name for assignee badge
+  const getMemberName = (assigneeId: string | null) => {
+    if (!assigneeId) return undefined;
+    const member = members.find((m) => m.id === assigneeId);
+    return member?.name || member?.email;
+  };
 
   return (
     <div className="flex flex-wrap gap-1.5 pt-1">
-      {direct.map((prop) => (
-        <PropertyBadge
-          key={prop.id}
-          definition={prop.definition}
-          value={prop.value}
+      {direct && (
+        <PropertyBadges
+          properties={direct}
           onClick={onOpen}
+          memberName={getMemberName(direct.assignee_id)}
         />
-      ))}
-      {inherited.map((prop) => (
-        <PropertyBadge
-          key={`inherited-${prop.property.id}`}
-          definition={prop.property.definition}
-          value={prop.property.value}
+      )}
+      {inherited.map((inh) => (
+        <PropertyBadges
+          key={`inherited-${inh.source_entity_id}`}
+          properties={inh.properties}
           inherited
           onClick={onOpen}
+          memberName={getMemberName(inh.properties.assignee_id)}
         />
       ))}
     </div>
@@ -211,7 +219,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const { data: serverTasks = [] } = useTaskItems(block.id, { enabled: !isTempBlock });
   const tasks = isTempBlock ? (content.tasks || []) : (serverTasks as Task[]);
   const initialGlobalHideIcons = content.hideIcons || false;
-  const propertiesTask = propertiesTaskId ? tasks.find((t) => String(t.id) === propertiesTaskId) : undefined;
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(title);
@@ -226,6 +233,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const [propertiesTaskId, setPropertiesTaskId] = useState<string | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+
+  const propertiesTask = propertiesTaskId ? tasks.find((t) => String(t.id) === propertiesTaskId) : undefined;
   const dateInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
   const timeInputRefs = useRef<Record<string | number, HTMLInputElement | null>>({});
 
@@ -1183,6 +1192,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                 {canUseProperties && taskEntityId && (
                   <TaskPropertyBadges
                     entityId={taskEntityId}
+                    workspaceId={workspaceId}
                     onOpen={() => {
                       setPropertiesTaskId(taskEntityId);
                       setPropertiesOpen(true);
@@ -1555,7 +1565,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
         />
       )}
       {propertiesTaskId && workspaceId && (
-        <PropertyPanel
+        <PropertyMenu
           open={propertiesOpen}
           onOpenChange={(open) => {
             setPropertiesOpen(open);

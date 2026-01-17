@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EntityType } from "@/types/properties";
+import { normalizePropertyName, isSimilarPropertyName } from "@/lib/properties/name-utils";
 
 export interface WorkspaceAccessContext {
   supabase: SupabaseClient;
@@ -151,27 +152,6 @@ export async function requireEntityAccess(
   return { supabase, userId: user.id, workspaceId };
 }
 
-/**
- * Normalizes a property name for duplicate detection.
- * Converts to lowercase and replaces special characters with a single separator.
- */
-export function normalizePropertyName(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[\s_-]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
-
-/**
- * Checks if a property name is similar to existing ones (fuzzy duplicate detection).
- */
-export function isSimilarPropertyName(name: string, existingNames: string[]): string | null {
-  const normalized = normalizePropertyName(name);
-  for (const existing of existingNames) {
-    if (normalizePropertyName(existing) === normalized) {
-      return existing;
-    }
-  }
-  return null;
-}
+// Re-export utility functions for backwards compatibility
+// Note: These are imported from @/lib/properties/name-utils (not Server Actions)
+export { normalizePropertyName, isSimilarPropertyName };
