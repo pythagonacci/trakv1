@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import {
   getEntityProperties,
+  getEntitiesProperties,
   getEntityPropertiesWithInheritance,
   setEntityProperties,
   addTag,
@@ -45,6 +46,28 @@ export function useEntityProperties(entityType: EntityType, entityId?: string) {
       return result.data;
     },
     enabled: Boolean(entityId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Bulk fetch direct properties for multiple entities of the same type.
+ * Returns a map keyed by entity_id.
+ */
+export function useEntitiesProperties(
+  entityType: EntityType,
+  entityIds: string[],
+  workspaceId?: string
+) {
+  return useQuery({
+    queryKey: ["entitiesProperties", entityType, workspaceId ?? "", entityIds],
+    queryFn: async () => {
+      if (!workspaceId || entityIds.length === 0) return {} as Record<string, EntityProperties>;
+      const result = await getEntitiesProperties(entityType, entityIds, workspaceId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(workspaceId) && entityIds.length > 0,
     staleTime: 30_000,
   });
 }
@@ -123,6 +146,38 @@ export function useSetEntityProperties(
       });
       qc.invalidateQueries({
         queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+      });
+      // Invalidate any bulk queries for this entity type/workspace
+      qc.invalidateQueries({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
+    },
+  });
+}
+
+/**
+ * Set/update properties for entities of a given type (entityId passed at call-time).
+ * Useful for lists (e.g., task list) where entityId varies per row.
+ */
+export function useSetEntityPropertiesForType(entityType: EntityType, workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { entityId: string; updates: SetEntityPropertiesInput["updates"] }) =>
+      setEntityProperties({
+        entity_type: entityType,
+        entity_id: args.entityId,
+        workspace_id: workspaceId,
+        updates: args.updates,
+      }),
+    onSuccess: (_result, args) => {
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityProperties(entityType, args.entityId),
+      });
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, args.entityId),
+      });
+      qc.invalidateQueries({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
       });
     },
   });

@@ -176,6 +176,45 @@ export async function getEntityProperties(
 }
 
 /**
+ * Bulk fetch direct properties for multiple entities of the same type.
+ * Returns a map keyed by entity_id.
+ */
+export async function getEntitiesProperties(
+  entityType: EntityType,
+  entityIds: string[],
+  workspaceId: string
+): Promise<ActionResult<Record<string, EntityProperties>>> {
+  if (entityIds.length === 0) return { data: {} };
+
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+  if (!membership) return { error: "Not a member of this workspace" };
+
+  const { data, error } = await supabase
+    .from("entity_properties")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("entity_type", entityType)
+    .in("entity_id", entityIds);
+
+  if (error) {
+    console.error("getEntitiesProperties error:", error);
+    return { error: "Failed to fetch entity properties" };
+  }
+
+  const result: Record<string, EntityProperties> = {};
+  for (const row of data ?? []) {
+    // entity_id is UUID in DB; ensure it's a string key
+    result[String((row as any).entity_id)] = row as EntityProperties;
+  }
+
+  return { data: result };
+}
+
+/**
  * Get properties with inheritance (direct + inherited from linked entities)
  */
 export async function getEntityPropertiesWithInheritance(
@@ -290,6 +329,37 @@ export async function setEntityProperties(
   if (error || !data) {
     console.error("setEntityProperties error:", error);
     return { error: "Failed to set entity properties" };
+  }
+
+  // Keep legacy task fields loosely in sync (so existing task UI/queries don't drift).
+  // Universal properties are the source of truth.
+  if (input.entity_type === "task") {
+    const status = (data as any).status as string | null;
+    const priority = (data as any).priority as string | null;
+    const dueDate = (data as any).due_date as string | null;
+
+    const legacyStatus =
+      status === "done"
+        ? "done"
+        : status === "in_progress"
+        ? "in-progress"
+        : status === "blocked"
+        ? "todo"
+        : "todo";
+
+    const legacyPriority =
+      priority === "low" || priority === "medium" || priority === "high" || priority === "urgent"
+        ? priority
+        : "none";
+
+    await supabase
+      .from("task_items")
+      .update({
+        status: legacyStatus,
+        priority: legacyPriority,
+        due_date: dueDate ?? null,
+      })
+      .eq("id", input.entity_id);
   }
 
   return { data };
@@ -419,6 +489,18 @@ export async function clearEntityProperties(
   if (error) {
     console.error("clearEntityProperties error:", error);
     return { error: "Failed to clear entity properties" };
+  }
+
+  // Best-effort sync for tasks: reset legacy fields to defaults
+  if (entityType === "task") {
+    await supabase
+      .from("task_items")
+      .update({
+        status: "todo",
+        priority: "none",
+        due_date: null,
+      })
+      .eq("id", entityId);
   }
 
   return { data: null };
