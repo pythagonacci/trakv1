@@ -11,9 +11,6 @@ const withBundleAnalyzer = bundleAnalyzer({
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 
 const nextConfig = {
-  // Output standalone build for deployment (only in production)
-  ...(process.env.NODE_ENV === 'production' && { output: 'standalone' }),
-  
   turbopack: {
     root: projectRoot,
   },
