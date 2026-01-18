@@ -1178,7 +1178,9 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           onOpenProperties={
             contextMenu.type === "cell" && contextMenu.rowId && tableData?.table.workspace_id
               ? () => {
-                  setPropertiesRowId(contextMenu.rowId);
+                  const rowId = contextMenu.rowId;
+                  if (!rowId) return;
+                  setPropertiesRowId(rowId);
                   setPropertiesOpen(true);
                 }
               : undefined

@@ -155,6 +155,87 @@ export interface SetInheritedPropertyVisibilityInput {
 }
 
 // ============================================================================
+// Legacy Property Definition Types (schema-driven properties)
+// ============================================================================
+
+export type PropertyType =
+  | "text"
+  | "number"
+  | "select"
+  | "multi_select"
+  | "date"
+  | "checkbox"
+  | "url"
+  | "email"
+  | "phone";
+
+export interface PropertyOption {
+  id: string;
+  label: string;
+  color?: string | null;
+}
+
+export interface PropertyDefinition {
+  id: string;
+  workspace_id: string;
+  name: string;
+  type: PropertyType;
+  options?: PropertyOption[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PropertyValue = string | number | boolean | string[] | null;
+
+export interface CreatePropertyDefinitionInput {
+  workspace_id: string;
+  name: string;
+  type: PropertyType;
+  options?: PropertyOption[];
+}
+
+export interface UpdatePropertyDefinitionInput {
+  name?: string;
+  options?: PropertyOption[];
+}
+
+export interface EntityProperty {
+  id: string;
+  entity_type: EntityType;
+  entity_id: string;
+  property_definition_id: string;
+  value: PropertyValue;
+  workspace_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityPropertyWithDefinition extends EntityProperty {
+  definition: PropertyDefinition;
+}
+
+export interface InheritedProperty {
+  property: EntityPropertyWithDefinition;
+  source: {
+    entity_type: EntityType;
+    entity_id: string;
+  };
+  is_visible: boolean;
+}
+
+export interface EntityPropertiesResult {
+  direct: EntityPropertyWithDefinition[];
+  inherited: InheritedProperty[];
+}
+
+export interface SetEntityPropertyInput {
+  entity_type: EntityType;
+  entity_id: string;
+  property_definition_id: string;
+  value: PropertyValue;
+}
+
+// ============================================================================
 // Query Types
 // ============================================================================
 
@@ -168,12 +249,20 @@ export interface QueryEntitiesParams {
   tab_id?: string;
   entity_types?: EntityType[];
   filters?: QueryFilter[];
+  properties?: PropertyFilter[];
+  include_inherited?: boolean;
 }
 
 export interface QueryFilter {
   field: 'status' | 'priority' | 'assignee_id' | 'due_date' | 'tags';
   operator: 'equals' | 'not_equals' | 'contains' | 'is_empty' | 'is_not_empty' | 'before' | 'after';
   value?: string | string[];
+}
+
+export interface PropertyFilter {
+  property_definition_id: string;
+  operator: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty" | "before" | "after";
+  value?: PropertyValue;
 }
 
 export interface GroupedEntitiesResult {
