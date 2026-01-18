@@ -194,6 +194,41 @@ function dateToColumn(date: Date, rangeStart: Date, zoomLevel: ZoomLevel): numbe
   return 0;
 }
 
+function weekColumnOffset(date: Date, rangeStart: Date): number {
+  const clamped = clampDate(date);
+  const startWeek = startOfWeek(clampDate(rangeStart));
+  const dateWeek = startOfWeek(clamped);
+  const weekIndex = differenceInCalendarDays(dateWeek, startWeek) / 7;
+  const dayOffset = differenceInCalendarDays(clamped, dateWeek);
+  return weekIndex + dayOffset / 7;
+}
+
+function quarterColumnOffset(date: Date, rangeStart: Date): number {
+  const clamped = clampDate(date);
+  const startQuarter = startOfQuarter(clampDate(rangeStart));
+  const dateQuarter = startOfQuarter(clamped);
+  const quarterIndex = ((dateQuarter.getFullYear() - startQuarter.getFullYear()) * 4) +
+    (Math.floor(dateQuarter.getMonth() / 3) - Math.floor(startQuarter.getMonth() / 3));
+  const quarterStart = dateQuarter;
+  const quarterEnd = endOfQuarter(dateQuarter);
+  const daysInQuarter = differenceInCalendarDays(addDays(quarterEnd, 1), quarterStart);
+  const dayOffset = differenceInCalendarDays(clamped, quarterStart);
+  return quarterIndex + dayOffset / daysInQuarter;
+}
+
+function monthColumnOffset(date: Date, rangeStart: Date): number {
+  const clamped = clampDate(date);
+  const startMonth = startOfMonth(clampDate(rangeStart));
+  const dateMonth = startOfMonth(clamped);
+  const monthIndex = (dateMonth.getFullYear() - startMonth.getFullYear()) * 12 +
+    (dateMonth.getMonth() - startMonth.getMonth());
+  const monthStart = dateMonth;
+  const monthEnd = endOfMonth(dateMonth);
+  const daysInMonth = differenceInCalendarDays(addDays(monthEnd, 1), monthStart);
+  const dayOffset = differenceInCalendarDays(clamped, monthStart);
+  return monthIndex + dayOffset / daysInMonth;
+}
+
 function columnToDate(column: number, rangeStart: Date, zoomLevel: ZoomLevel): Date {
   const start = clampDate(rangeStart);
   
@@ -463,7 +498,11 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     groupBy: content.groupBy || "none",
   };
 
-  const range = useMemo(() => {
+  const initialZoomLevel: ZoomLevel =
+    viewConfig.zoomLevel === "year" ? "quarter" : (viewConfig.zoomLevel || "day");
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(initialZoomLevel);
+
+  const baseRange = useMemo(() => {
     const startDate = viewConfig.startDate ? new Date(viewConfig.startDate) : addDays(new Date(), -7);
     const endDate = viewConfig.endDate ? new Date(viewConfig.endDate) : addDays(new Date(), 30);
     return {
@@ -471,6 +510,16 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       end: clampDate(endDate),
     };
   }, [viewConfig.startDate, viewConfig.endDate]);
+
+  const displayRange = useMemo(() => {
+    if (zoomLevel === "month" || zoomLevel === "quarter" || zoomLevel === "year") {
+      return {
+        start: startOfYear(baseRange.start),
+        end: endOfYear(baseRange.end),
+      };
+    }
+    return baseRange;
+  }, [baseRange, zoomLevel]);
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -481,9 +530,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   
   // New state for Phase 1 & 2 features
-  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(viewConfig.zoomLevel || "day");
   const [filters, setFilters] = useState(viewConfig.filters || {});
   const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee">(viewConfig.groupBy || "none");
   const [draggingEventId, setDraggingEventId] = useState<string | null>(null);
@@ -524,6 +573,26 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     loadMembers();
   }, [workspaceId, readOnly]);
 
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+
+    const updateWidth = () => {
+      setContainerWidth(node.clientWidth);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const observer = new ResizeObserver(() => updateWidth());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
 
   // Mount flag for portal (avoids SSR/TS issues)
   React.useEffect(() => setMounted(true), []);
@@ -544,9 +613,17 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }, 120);
   }
 
-  const grid = useMemo(() => buildGrid(range.start, range.end, zoomLevel), [range, zoomLevel]);
-  const columnWidth = useMemo(() => getColumnWidth(zoomLevel), [zoomLevel]);
+  const grid = useMemo(
+    () => buildGrid(displayRange.start, displayRange.end, zoomLevel),
+    [displayRange.start, displayRange.end, zoomLevel]
+  );
   const totalColumns = useMemo(() => grid.length, [grid]);
+  const baseColumnWidth = useMemo(() => getColumnWidth(zoomLevel), [zoomLevel]);
+  const columnWidth = useMemo(() => {
+    if (!containerWidth || totalColumns === 0) return baseColumnWidth;
+    const fillWidth = Math.floor(containerWidth / totalColumns);
+    return Math.max(baseColumnWidth, fillWidth);
+  }, [baseColumnWidth, containerWidth, totalColumns]);
   const memberMap = useMemo(() => new Map(members.map((member) => [member.id, member.name])), [members]);
 
   const events = useMemo<TimelineEvent[]>(() => {
@@ -616,21 +693,53 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   }, [filteredEvents]);
 
   function toCol(date: Date) {
-    return Math.max(0, Math.min(totalColumns - 1, dateToColumn(date, range.start, zoomLevel)));
+    return Math.max(0, Math.min(totalColumns - 1, dateToColumn(date, displayRange.start, zoomLevel)));
   }
 
   function barStyle(startISO: string, endISO: string, rowIndex: number): React.CSSProperties {
     const s = clampDate(new Date(startISO));
     const e = clampDate(new Date(endISO));
-    const startCol = toCol(s);
-    const endCol = toCol(e);
-    const span = Math.max(1, endCol - startCol + 1);
+    let left = 0;
+    let width = 0;
+    if (zoomLevel === "week") {
+      const startOffset = weekColumnOffset(s, displayRange.start);
+      const endOffset = weekColumnOffset(addDays(e, 1), displayRange.start);
+      const clampedStart = Math.max(0, Math.min(totalColumns, startOffset));
+      const clampedEnd = Math.max(0, Math.min(totalColumns, endOffset));
+      const span = Math.max(1 / 7, clampedEnd - clampedStart);
+      left = clampedStart * columnWidth;
+      width = span * columnWidth;
+    } else if (zoomLevel === "month") {
+      const startOffset = monthColumnOffset(s, displayRange.start);
+      const endOffset = monthColumnOffset(addDays(e, 1), displayRange.start);
+      const clampedStart = Math.max(0, Math.min(totalColumns, startOffset));
+      const clampedEnd = Math.max(0, Math.min(totalColumns, endOffset));
+      const daysInMonth = differenceInCalendarDays(addDays(endOfMonth(s), 1), startOfMonth(s));
+      const span = Math.max(1 / Math.max(1, daysInMonth), clampedEnd - clampedStart);
+      left = clampedStart * columnWidth;
+      width = span * columnWidth;
+    } else if (zoomLevel === "quarter") {
+      const startOffset = quarterColumnOffset(s, displayRange.start);
+      const endOffset = quarterColumnOffset(addDays(e, 1), displayRange.start);
+      const clampedStart = Math.max(0, Math.min(totalColumns, startOffset));
+      const clampedEnd = Math.max(0, Math.min(totalColumns, endOffset));
+      const daysInQuarter = differenceInCalendarDays(addDays(endOfQuarter(s), 1), startOfQuarter(s));
+      const span = Math.max(1 / Math.max(1, daysInQuarter), clampedEnd - clampedStart);
+      left = clampedStart * columnWidth;
+      width = span * columnWidth;
+    } else {
+      const startCol = toCol(s);
+      const endCol = toCol(e);
+      const span = Math.max(1, endCol - startCol + 1);
+      left = startCol * columnWidth;
+      width = span * columnWidth;
+    }
     const rowHeight = 44; // Grid row height
     const topOffset = rowIndex * rowHeight + (rowHeight / 2) - 16; // Center vertically (event bar is 32px/2 = 16px offset)
     return {
       position: 'absolute',
-      left: `${startCol * columnWidth}px`,
-      width: `${span * columnWidth}px`,
+      left: `${left}px`,
+      width: `${width}px`,
       top: `${topOffset}px`,
     };
   }
@@ -825,7 +934,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       return;
     }
 
-    const newDate = columnToDate(columnIndex, range.start, zoomLevel);
+    const newDate = columnToDate(columnIndex, displayRange.start, zoomLevel);
     
     let updatedEvent: TimelineEvent;
     if (edge === "start") {
@@ -1001,13 +1110,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-              {format(range.start, "MMM d")} – {format(range.end, "MMM d, yyyy")}
+              {format(displayRange.start, "MMM d")} – {format(displayRange.end, "MMM d, yyyy")}
             </div>
           </div>
           <div className="flex items-center gap-1.5">
             {/* Zoom controls */}
             <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
-              {(["day", "week", "month", "quarter", "year"] as ZoomLevel[]).map((level) => (
+              {(["day", "week", "month", "quarter"] as ZoomLevel[]).map((level) => (
                 <button
                   key={level}
                   onClick={() => handleZoomChange(level)}
@@ -1275,8 +1384,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           isOpen={isAddDialogOpen}
           onClose={() => setIsAddDialogOpen(false)}
           onSave={saveNewEvent}
-          defaultStart={range.start}
-          defaultEnd={addDays(range.start, 3)}
+          defaultStart={displayRange.start}
+          defaultEnd={addDays(displayRange.start, 3)}
           members={members}
         />
       )}
