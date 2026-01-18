@@ -14,16 +14,16 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
   const content = (block.content || {}) as {
     title?: string;
     url?: string;
-    description?: string;
     caption?: string;
   };
 
   const [title, setTitle] = useState(content.title || "");
   const [url, setUrl] = useState(content.url || "");
-  const [description, setDescription] = useState(content.description || "");
   const [caption, setCaption] = useState(content.caption || "");
   const [isEditing, setIsEditing] = useState(false);
+  const [isCaptionEditing, setIsCaptionEditing] = useState(false);
   const [savingCaption, setSavingCaption] = useState(false);
+  const captionInputRef = useRef<HTMLInputElement>(null);
   const captionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-open editing mode for empty links
@@ -56,10 +56,13 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
     }, 1000);
   };
 
+  const handleCaptionBlur = () => {
+    setIsCaptionEditing(false);
+  };
+
   const handleSaveLink = async () => {
     const trimmedTitle = title.trim();
     const trimmedUrl = url.trim();
-    const trimmedDescription = description.trim();
 
     // Basic URL validation
     let finalUrl = trimmedUrl;
@@ -73,7 +76,7 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
         ...content,
         title: trimmedTitle || null,
         url: finalUrl || null,
-        description: trimmedDescription || null,
+        description: null,
       },
     });
 
@@ -84,13 +87,18 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
   const handleCancelEdit = () => {
     setTitle(content.title || "");
     setUrl(content.url || "");
-    setDescription(content.description || "");
     setIsEditing(false);
   };
 
   const displayTitle = content.title || "Untitled Link";
   const displayUrl = content.url || "#";
   const isValidUrl = content.url && (content.url.startsWith('http://') || content.url.startsWith('https://'));
+
+  useEffect(() => {
+    if (isCaptionEditing) {
+      captionInputRef.current?.focus();
+    }
+  }, [isCaptionEditing]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -112,20 +120,6 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
-              Title
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Link title..."
-              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none"
-              autoFocus
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
               URL
             </label>
             <input
@@ -134,19 +128,20 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com"
               className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none"
+              autoFocus
             />
           </div>
 
           <div>
             <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
-              Description (optional)
+              Title
             </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief description..."
-              rows={2}
-              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none resize-none"
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Link title..."
+              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none"
             />
           </div>
         </div>
@@ -197,11 +192,6 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
                 <ExternalLink className="h-3 w-3 text-[var(--tertiary-foreground)] shrink-0" />
               )}
             </div>
-            {content.description && (
-              <div className="text-xs text-[var(--muted-foreground)]">
-                {content.description}
-              </div>
-            )}
             <div className="text-[11px] text-[var(--tertiary-foreground)]">
               {isValidUrl ? displayUrl : "Click to add URL"}
             </div>
@@ -218,20 +208,41 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
         </button>
       </div>
 
-      <div className="px-1">
-        <input
-          type="text"
-          value={caption}
-          onChange={(e) => handleCaptionChange(e.target.value)}
-          placeholder="Add caption..."
-          onClick={(e) => e.stopPropagation()}
-          className="w-full rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] focus:outline-none focus:border-[var(--ring)]"
-        />
-        {savingCaption && (
-          <span className="ml-2 text-[11px] text-[var(--tertiary-foreground)]">Saving...</span>
+      <div className="group px-1">
+        {isCaptionEditing ? (
+          <div className="flex items-center gap-2">
+            <input
+              ref={captionInputRef}
+              type="text"
+              value={caption}
+              onChange={(e) => handleCaptionChange(e.target.value)}
+              onBlur={handleCaptionBlur}
+              placeholder="Add caption..."
+              onClick={(e) => e.stopPropagation()}
+              className="w-full rounded-[4px] border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors focus:outline-none focus:border-[var(--ring)]"
+            />
+            {savingCaption && (
+              <span className="text-[11px] text-[var(--tertiary-foreground)]">Saving...</span>
+            )}
+          </div>
+        ) : caption ? (
+          <button
+            type="button"
+            onClick={() => setIsCaptionEditing(true)}
+            className="w-full text-left rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)]"
+          >
+            {caption}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsCaptionEditing(true)}
+            className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto w-full text-left rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-opacity hover:border-[var(--border)]"
+          >
+            Add caption
+          </button>
         )}
       </div>
     </div>
   );
 }
-

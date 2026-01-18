@@ -199,7 +199,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     switch (type) {
       case "text": return { text: "" };
       case "task": return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
-      case "link": return { title: null, url: null, description: null, caption: "" };
+      case "link": return { title: null, url: null, caption: "" };
       case "divider": return {};
       case "table": 
         // Note: The actual tableId will be set by the server when createBlock is called

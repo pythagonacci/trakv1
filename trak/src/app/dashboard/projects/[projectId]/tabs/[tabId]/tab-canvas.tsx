@@ -247,7 +247,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     } else if (newType === "task") {
       newContent = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
     } else if (newType === "link") {
-      newContent = { title: "", url: "", description: "" };
+      newContent = { title: "", url: "" };
     } else if (newType === "divider") {
       newContent = {};
     } else if (newType === "table") {
@@ -309,7 +309,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       case "task":
         return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
       case "link":
-        return { title: null, url: null, description: null, caption: "" };
+        return { title: null, url: null, caption: "" };
       case "divider":
         return {};
       case "table":
