@@ -175,7 +175,7 @@ export default function ClientAddBlockButton({
       case "text":
         return { text: "" };
       case "task":
-        return { title: "New Task List", hideIcons: false };
+        return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
       case "link":
         return { title: "", url: "", description: "" };
       case "divider":

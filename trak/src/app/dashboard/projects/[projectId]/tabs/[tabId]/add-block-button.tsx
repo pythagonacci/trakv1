@@ -198,7 +198,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
   const getDefaultContent = (type: BlockType) => {
     switch (type) {
       case "text": return { text: "" };
-      case "task": return { title: "New Task List", hideIcons: false };
+      case "task": return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
       case "link": return { title: null, url: null, description: null, caption: "" };
       case "divider": return {};
       case "table": 

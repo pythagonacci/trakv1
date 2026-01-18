@@ -82,4 +82,6 @@ export interface TaskReference {
 export interface TaskBlockContent {
   title: string;
   hideIcons?: boolean;
+  viewMode?: "list" | "board";
+  boardGroupBy?: "status" | "priority" | "assignee" | "dueDate" | "tags";
 }
