@@ -1920,9 +1920,9 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           onDragEnd={handleBoardDragEnd}
         >
           <div className="overflow-x-auto">
-            <div className="inline-flex min-w-full gap-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
+            <div className="flex w-full min-w-max gap-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
               {boardColumns.map((column) => (
-                <div key={column.id} className="flex w-64 flex-col gap-2">
+                <div key={column.id} className="flex min-w-[240px] flex-1 flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
                       {column.label}
