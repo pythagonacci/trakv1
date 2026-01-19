@@ -6,8 +6,8 @@ import dynamic from "next/dynamic";
 function TableLoadingState() {
   return (
     <div className="space-y-2">
-      <div className="h-8 w-48 rounded-sm border border-[var(--border)] bg-[var(--surface)]/60" />
-      <div className="h-40 w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)]/40" />
+      <div className="h-8 w-48 rounded-md border border-[var(--border)] bg-[var(--surface)]/60" />
+      <div className="h-40 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/40" />
     </div>
   );
 }

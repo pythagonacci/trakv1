@@ -590,7 +590,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
       <div className={cn("px-4", isToolbarPinned ? "pt-0 pb-8" : "py-8")}>
         {/* Paper-like Document */}
         <div
-          className="max-w-[850px] mx-auto shadow-lg rounded-sm min-h-[1100px] border border-[var(--border)]"
+          className="max-w-[850px] mx-auto shadow-lg rounded-xl min-h-[1100px] border border-[var(--border)]"
           style={{ background: theme.paperBg }}
         >
           <RichTextEditor

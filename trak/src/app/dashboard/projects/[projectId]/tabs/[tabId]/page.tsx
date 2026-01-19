@@ -179,7 +179,7 @@ export default async function TabPage({
 
   return (
     <div className="min-h-screen bg-transparent">
-      <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
+      <div className="w-full px-2 md:px-3 lg:px-4">
         {/* Project Header - Minimal, elegant */}
         <div className="pt-4 pb-2">
           <ProjectHeader project={project} tabId={tabId} />

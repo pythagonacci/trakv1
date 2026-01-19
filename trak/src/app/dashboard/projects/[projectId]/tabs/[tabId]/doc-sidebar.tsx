@@ -144,7 +144,7 @@ export default function DocSidebar({ docId, onClose }: DocSidebarProps) {
               <Loader2 className="h-6 w-6 animate-spin text-[var(--muted-foreground)]" />
             </div>
           ) : doc ? (
-            <div className="max-w-[700px] mx-auto bg-[var(--background)] shadow-lg rounded-sm min-h-[800px]">
+            <div className="max-w-[700px] mx-auto bg-[var(--background)] shadow-lg rounded-lg min-h-[800px]">
               <RichTextEditor
                 content={content}
                 onChange={setContent}

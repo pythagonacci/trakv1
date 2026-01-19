@@ -66,7 +66,7 @@ const formatText = (text: string): string => {
     // Process markdown formatting (do this before HTML tag replacement to avoid conflicts)
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-[var(--foreground)]">$1</strong>');
     formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
-    formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-sm bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>');
+    formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-md bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>');
 
     if (/^### /.test(formatted)) {
       return `<h3 class="text-base font-medium text-[var(--foreground)] mb-2">${formatted.replace(/^### /, "")}</h3>`;
@@ -512,7 +512,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
         }}
       >
         {/* Thin top toolbar */}
-        <div className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] rounded-t-[4px] z-10">
+        <div className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] rounded-t-lg z-10">
           <button
             onMouseDown={(e) => {
               e.preventDefault();
@@ -631,7 +631,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             }
             syncContentFromHTML();
           }}
-          className="w-full resize-none rounded-[4px] bg-[var(--surface)] px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
+          className="w-full resize-none rounded-lg bg-[var(--surface)] px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
           style={{ minHeight: '20px', height: 'auto' }}
         />
         {saveStatus !== "idle" && (

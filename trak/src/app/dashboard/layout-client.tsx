@@ -152,7 +152,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] z-50 relative"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] z-50 relative"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -165,9 +165,9 @@ function Sidebar({
             <button
               onClick={() => setWorkspaceDropdownOpen(!workspaceDropdownOpen)}
               disabled={isSwitching}
-              className="flex w-full items-center gap-2.5 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[var(--surface-hover)] disabled:opacity-50"
+              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[var(--surface-hover)] disabled:opacity-50"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-[2px] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[10px] font-semibold text-[var(--river-indigo)]">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[10px] font-semibold text-[var(--river-indigo)]">
                 {isSwitching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : getInitials(currentWorkspace?.name)}
               </div>
               <div className="min-w-0 flex-1">
@@ -189,15 +189,15 @@ function Sidebar({
             </button>
 
             {workspaceDropdownOpen && workspaces.length > 1 && (
-              <div className="mt-2 space-y-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
+              <div className="mt-2 space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
                 {workspaces.map((workspace) => (
                   <button
                     key={workspace.id}
                     onClick={() => handleWorkspaceSwitch(workspace)}
                     disabled={isSwitching}
-                    className="flex w-full items-center gap-2.5 rounded-[2px] px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
+                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
                   >
-                    <div className="flex h-6 w-6 items-center justify-center rounded-[2px] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
                       {getInitials(workspace.name)}
                     </div>
                     <div className="min-w-0 flex-1 text-left">
@@ -291,11 +291,11 @@ function Sidebar({
       </div>
 
       {/* Theme Toggle - Arts Palette accent */}
-      <div className="border-t border-[var(--border)] px-3 py-2">
+        <div className="border-t border-[var(--border)] px-3 py-2">
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
             title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
           >
             <Palette className="h-4 w-4" />
@@ -303,7 +303,7 @@ function Sidebar({
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-            className="flex w-full items-center gap-2.5 rounded-[2px] border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 px-3 py-2 text-sm text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
+              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 px-3 py-2 text-sm text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
           >
             <Palette className="h-3.5 w-3.5" />
             <span className="text-xs font-medium">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
@@ -315,17 +315,17 @@ function Sidebar({
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--velvet-purple)]/15"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--velvet-purple)]/15"
           >
             {getUserInitials()}
           </button>
         ) : (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]"
+            className="flex w-full items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-[2px] bg-[var(--velvet-purple)]/10 border border-[var(--velvet-purple)]/20 text-[var(--velvet-purple)] text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--velvet-purple)]/10 border border-[var(--velvet-purple)]/20 text-[var(--velvet-purple)] text-xs font-semibold">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
@@ -343,10 +343,10 @@ function Sidebar({
         )}
 
         {userDropdownOpen && (
-          <div className="mt-2 space-y-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
+          <div className="mt-2 space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
             <button
               onClick={handleLogout}
-              className="flex w-full items-center gap-2.5 rounded-[2px] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             >
               <LogOut className="h-3.5 w-3.5" />
               Log out
@@ -379,7 +379,7 @@ function NavLink({
       prefetch={prefetch}
       className={cn(
         // SARAJEVO NAV with ARTS PALETTE colors
-        "group flex w-full items-center rounded-[2px] text-sm font-medium transition-colors duration-150",
+        "group flex w-full items-center rounded-md text-sm font-medium transition-colors duration-150",
         collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
         active
           ? "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border-l-2 border-[var(--dome-teal)]"
@@ -389,7 +389,7 @@ function NavLink({
     >
       <span
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-[2px] transition-colors duration-150",
+          "flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150",
           active
             ? "bg-[var(--dome-teal)]/15 text-[var(--dome-teal)]"
             : "text-[var(--river-indigo)] group-hover:text-[var(--dome-teal)]"
@@ -443,10 +443,10 @@ function Header() {
           <h1 className="text-xl font-semibold tracking-tight text-[var(--foreground)] font-[var(--font-serif)]">{getPageTitle()}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button className="hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] md:inline-flex">
+          <button className="hidden rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] md:inline-flex">
             Quick actions
           </button>
-          <button className="inline-flex h-8 w-8 items-center justify-center rounded-[2px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]">
+          <button className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]">
             <Plus className="h-3.5 w-3.5" />
           </button>
         </div>

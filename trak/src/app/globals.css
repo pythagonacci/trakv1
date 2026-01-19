@@ -58,12 +58,12 @@
     --nav-icon: #52637A; /* River Indigo for sidebar icons */
     --nav-icon-active: #4A7A78; /* Dome Teal for active state */
 
-    /* Border Radius - Sharp, no rounded corners */
-    --radius-xs: 0px;
-    --radius-sm: 0px;
-    --radius-md: 0px;
-    --radius-lg: 0px;
-    --radius-xl: 0px;
+    /* Border Radius - Rounded rectangles for a softer, modern UI */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
     
     /* Shadows - Minimal, replaced with borders */
     --shadow-card: none;
@@ -95,7 +95,7 @@
     --nav-icon-active: #5A8A88;
   }
 
-  /* Brutalist Theme - Cursor Black Midnight dark mode with no rounded corners */
+  /* Brutalist Theme - Cursor Black Midnight dark mode */
   .brutalist {
     --background: #1c1c1c;
     --surface: #252526;
@@ -114,12 +114,12 @@
     --warning: #dcdcaa;
     --error: #f48771;
     --info: #4ec9b0;
-    /* Remove all border radius */
-    --radius-xs: 0px;
-    --radius-sm: 0px;
-    --radius-md: 0px;
-    --radius-lg: 0px;
-    --radius-xl: 0px;
+    /* Keep theme-specific radius values for consistency */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
   }
 
   * {
@@ -202,13 +202,6 @@
   textarea:focus,
   select:focus {
     border-color: var(--border-strong);
-  }
-
-  /* Brutalist theme - remove all rounded corners */
-  .brutalist *,
-  .brutalist *::before,
-  .brutalist *::after {
-    border-radius: 0 !important;
   }
 
   /* Brutalist theme styling is handled at component level, not via CSS overrides */
@@ -305,6 +298,19 @@
   .focus-structural:focus-visible {
     outline: 2px solid var(--border-strong);
     outline-offset: 2px;
+  }
+
+  /* Round legacy sharp utility classes for a modern UI */
+  .rounded-\[2px\] {
+    border-radius: var(--radius-sm) !important;
+  }
+
+  .rounded-\[4px\] {
+    border-radius: var(--radius-md) !important;
+  }
+
+  .rounded-sm {
+    border-radius: var(--radius-sm) !important;
   }
 }
 
@@ -504,12 +510,12 @@
 
 ::-webkit-scrollbar-track {
   background: var(--surface-muted);
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -532,12 +538,12 @@
 
 .scrollbar-thin::-webkit-scrollbar-track {
   background: var(--surface-muted);
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   border: 2px solid transparent;
   background-clip: padding-box;
 }

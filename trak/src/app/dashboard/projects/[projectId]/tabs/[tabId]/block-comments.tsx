@@ -213,7 +213,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
           {commentCount} {commentCount === 1 ? "comment" : "comments"}
         </span>
         {/* Tiny square indicator - next to comment count */}
-        <div className="h-2 w-2 rounded-sm bg-[var(--primary)]" />
+        <div className="h-2 w-2 rounded bg-[var(--primary)]" />
         {/* Collapse button - right next to comment count */}
         <button
           onClick={(e) => {
@@ -254,13 +254,13 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                 return (
                   <div
                     key={comment.id}
-                    className="group/comment relative rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs w-full"
+                    className="group/comment relative rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs w-full"
                   >
                     <div className="flex items-start justify-between gap-1.5 w-full">
                       <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex items-center gap-1.5 mb-0.5">
                           {/* Velvet Purple avatar initial */}
-                          <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-[var(--velvet-purple)]/15 text-[var(--velvet-purple)] text-[9px] font-semibold flex-shrink-0">
+                          <span className="flex h-4 w-4 items-center justify-center rounded-md bg-[var(--velvet-purple)]/15 text-[var(--velvet-purple)] text-[9px] font-semibold flex-shrink-0">
                             {(isOwnComment ? "Y" : authorDisplay.charAt(0).toUpperCase())}
                           </span>
                           <span className="font-medium text-[var(--foreground)] text-xs">
@@ -313,7 +313,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                     setShowCommentInput(true);
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center h-4 w-4 rounded-[4px] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+                  className="flex items-center justify-center h-4 w-4 rounded-md text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
                   title="Add Comment"
                 >
                   <Plus className="h-2.5 w-2.5" />
@@ -325,7 +325,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                     // TODO: Implement reply functionality
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center h-4 w-4 rounded-[4px] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+                  className="flex items-center justify-center h-4 w-4 rounded-md text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
                   title="Reply"
                 >
                   <Reply className="h-2.5 w-2.5" />
@@ -376,7 +376,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                   e.stopPropagation();
                 }}
                 placeholder="Add comment... (Enter to submit, Shift+Enter for new line)"
-                className="w-full min-h-[50px] rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+                className="w-full min-h-[50px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
                 rows={2}
                 disabled={!currentUser || isLoading}
                 style={{ pointerEvents: 'auto', cursor: 'text' }}

@@ -50,8 +50,8 @@ import { GroupHeader } from "./group-header";
 function TableViewLoadingState() {
   return (
     <div className="space-y-2">
-      <div className="h-8 w-48 rounded-sm border border-[var(--border)] bg-[var(--surface)]/60" />
-      <div className="h-40 w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)]/40" />
+      <div className="h-8 w-48 rounded-md border border-[var(--border)] bg-[var(--surface)]/60" />
+      <div className="h-40 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/40" />
     </div>
   );
 }
@@ -897,7 +897,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
   }
 
   return (
-    <div className="rounded-[2px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
       {error && (
         <div className="px-3 py-2 text-sm text-[var(--error-foreground)] bg-[var(--error)]/20 border-b border-[var(--error)]/30">
           {error}
@@ -958,7 +958,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             <button
               key={f!.id}
               onClick={() => handleShowField(f!.id)}
-              className="px-2 py-1 rounded-[2px] border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] transition-colors duration-150"
+              className="px-2 py-1 rounded-md border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] transition-colors duration-150"
             >
               Show {f!.name}
             </button>
@@ -1125,7 +1125,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                           onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
                         });
                       }}
-                      className="px-3 py-1 text-sm rounded-[2px] bg-[var(--surface-hover)] text-[var(--foreground)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-colors duration-150 border border-[var(--border)]"
+                      className="px-3 py-1 text-sm rounded-md bg-[var(--surface-hover)] text-[var(--foreground)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-colors duration-150 border border-[var(--border)]"
                     >
                       Add your first row
                     </button>
@@ -1145,7 +1145,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                   onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
                 });
               }}
-              className="inline-flex items-center gap-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150"
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150"
             >
               <Plus className="h-3 w-3" />
               Add row

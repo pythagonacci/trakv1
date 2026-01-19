@@ -180,7 +180,7 @@ export default function BlockWrapper({
 
       <div
         className={cn(
-          "relative flex min-w-0 flex-col w-full transition-all duration-150 ease-out",
+          "relative flex min-w-0 flex-col w-full rounded-lg transition-all duration-150 ease-out",
           borderless
             ? "border-none bg-transparent px-0 py-0 shadow-none"
             : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
@@ -212,7 +212,7 @@ export default function BlockWrapper({
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "inline-flex items-center justify-center border p-1.5 transition-colors",
+                    "inline-flex items-center justify-center rounded-md border p-1.5 transition-colors",
                     hasComments || commentsOpen
                       ? "border-blue-200 bg-blue-50 text-blue-700"
                       : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -226,7 +226,7 @@ export default function BlockWrapper({
                   <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                     <DropdownMenuTrigger asChild>
                       <button 
-                        className="inline-flex items-center justify-center border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                        className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                       >
@@ -369,7 +369,7 @@ export default function BlockWrapper({
               }}
               onMouseDown={(e) => e.stopPropagation()}
               className={cn(
-                "inline-flex items-center justify-center border p-1.5 transition-colors",
+                "inline-flex items-center justify-center rounded-md border p-1.5 transition-colors",
                 hasComments || commentsOpen
                   ? "border-blue-200 bg-blue-50 text-blue-700"
                   : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -383,7 +383,7 @@ export default function BlockWrapper({
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
                   <button 
-                    className="inline-flex items-center justify-center border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                   >
@@ -516,7 +516,7 @@ export default function BlockWrapper({
         )}
 
         {block.is_template && (
-          <div className="absolute -top-3 left-3 flex items-center gap-1 border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
+          <div className="absolute -top-3 left-3 flex items-center gap-1 rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
             <Copy className="h-2.5 w-2.5" />
             {block.template_name || "REUSABLE"}
           </div>

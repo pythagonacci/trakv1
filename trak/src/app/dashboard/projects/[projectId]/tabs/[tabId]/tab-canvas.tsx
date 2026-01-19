@@ -997,142 +997,80 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   return (
     <FileUrlContext.Provider value={initialFileUrls}>
-      <div className="space-y-2">
-        {!hasBlocks ? (
-        <div
-          onClick={handleEmptyCanvasClick}
-          className="cursor-text border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleEmptyCanvasClick();
-            }
-          }}
-        >
-          <EmptyCanvasState
-            actions={(
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <AddBlockButton
-                  tabId={tabId}
-                  projectId={projectId}
-                  onBlockCreated={handleBlockCreated}
-                  onBlockResolved={resolveOptimisticBlock}
-                  onBlockError={handleBlockError}
-                  getNextPosition={getNextPosition}
-                />
-              </div>
-            )}
-          />
-        </div>
-      ) : (
-        <div 
-          className={cn(
-            "p-6 transition-all duration-300 relative border border-[var(--foreground)]/15 min-h-[calc(100vh-200px)]",
-            !currentTheme.containerBg && "bg-[var(--surface)]/40"
-          )}
-          style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
-        >
-          {!isMounted ? (
-            <div className="space-y-5">
-              {blockRows.map((row, rowIdx) => (
+      <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 space-y-2">
+          {!hasBlocks ? (
+          <div
+            onClick={handleEmptyCanvasClick}
+            className="cursor-text rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleEmptyCanvasClick();
+              }
+            }}
+          >
+            <EmptyCanvasState
+              actions={(
                 <div
-                  key={rowIdx}
-                  className={cn(
-                    "grid gap-4",
-                    row.blocks.length === 1
-                      ? "grid-cols-1"
-                      : row.maxColumns === 2
-                      ? "grid-cols-1 md:grid-cols-2"
-                      : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-                  )}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {row.blocks.map((block) => (
-                    <div key={`${block.id}-${block.type}`} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
-                      <BlockRenderer
-                        block={block}
-                        workspaceId={workspaceId}
-                        projectId={projectId}
-                        tabId={tabId}
-                        onUpdate={handleUpdate}
-                        scrollToTaskId={scrollToTaskId}
-                        onDelete={handleDelete}
-                        onConvert={handleConvert}
-                        onAddBlockAbove={handleAddBlockAbove}
-                        onAddBlockBelow={handleAddBlockBelow}
-                        onOpenDoc={setOpenDocId}
-                        isDragging={false}
-                      />
-                    </div>
-                  ))}
+                  <AddBlockButton
+                    tabId={tabId}
+                    projectId={projectId}
+                    onBlockCreated={handleBlockCreated}
+                    onBlockResolved={resolveOptimisticBlock}
+                    onBlockError={handleBlockError}
+                    getNextPosition={getNextPosition}
+                  />
                 </div>
-              ))}
-              {/* Add block button appears right after the last block row */}
-              <div className="flex gap-3 pt-2">
-                <AddBlockButton
-                  tabId={tabId}
-                  projectId={projectId}
-                  onBlockCreated={handleBlockCreated}
-                  onBlockResolved={resolveOptimisticBlock}
-                  onBlockError={handleBlockError}
-                  getNextPosition={getNextPosition}
-                />
-              </div>
-            </div>
-          ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-            >
-              <div className="space-y-5 w-full">
+              )}
+            />
+          </div>
+        ) : (
+          <div 
+            className={cn(
+              "p-6 transition-all duration-300 relative border border-[var(--foreground)]/15 min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
+              !currentTheme.containerBg && "bg-[var(--surface)]/40"
+            )}
+            style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
+          >
+            {!isMounted ? (
+              <div className="space-y-5">
                 {blockRows.map((row, rowIdx) => (
-                  <SortableContext
+                  <div
                     key={rowIdx}
-                    items={row.blocks.map((b) => b.id)}
-                    strategy={verticalListSortingStrategy}
+                    className={cn(
+                      "grid gap-4",
+                      row.blocks.length === 1
+                        ? "grid-cols-1"
+                        : row.maxColumns === 2
+                        ? "grid-cols-1 md:grid-cols-2"
+                        : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+                    )}
                   >
-                    <div
-                      className={cn(
-                        "grid gap-4",
-                        row.blocks.length === 1
-                          ? "grid-cols-1"
-                          : row.maxColumns === 2
-                          ? "grid-cols-1 md:grid-cols-2"
-                          : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
-                      )}
-                    >
-                      {row.blocks.map((block) => (
-                        <div
-                          key={`${block.id}-${block.type}`}
-                          className={cn(
-                            "min-w-0",
-                            newBlockIds.has(block.id) && "animate-block-swoosh-in",
-                          )}
-                        >
-                          <BlockRenderer
-                            block={block}
-                            workspaceId={workspaceId}
-                            projectId={projectId}
-                            tabId={tabId}
-                            onUpdate={handleUpdate}
-                            scrollToTaskId={scrollToTaskId}
-                            onDelete={handleDelete}
-                            onConvert={handleConvert}
-                            onAddBlockAbove={handleAddBlockAbove}
-                            onAddBlockBelow={handleAddBlockBelow}
-                            onOpenDoc={setOpenDocId}
-                            isDragging={isDragging && draggedBlock?.id === block.id}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </SortableContext>
+                    {row.blocks.map((block) => (
+                      <div key={`${block.id}-${block.type}`} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
+                        <BlockRenderer
+                          block={block}
+                          workspaceId={workspaceId}
+                          projectId={projectId}
+                          tabId={tabId}
+                          onUpdate={handleUpdate}
+                          scrollToTaskId={scrollToTaskId}
+                          onDelete={handleDelete}
+                          onConvert={handleConvert}
+                          onAddBlockAbove={handleAddBlockAbove}
+                          onAddBlockBelow={handleAddBlockBelow}
+                          onOpenDoc={setOpenDocId}
+                          isDragging={false}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 ))}
                 {/* Add block button appears right after the last block row */}
                 <div className="flex gap-3 pt-2">
@@ -1146,14 +1084,79 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                   />
                 </div>
               </div>
-            </DndContext>
-          )}
+            ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="space-y-5 w-full">
+                  {blockRows.map((row, rowIdx) => (
+                    <SortableContext
+                      key={rowIdx}
+                      items={row.blocks.map((b) => b.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div
+                        className={cn(
+                          "grid gap-4",
+                          row.blocks.length === 1
+                            ? "grid-cols-1"
+                            : row.maxColumns === 2
+                            ? "grid-cols-1 md:grid-cols-2"
+                            : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+                        )}
+                      >
+                        {row.blocks.map((block) => (
+                          <div
+                            key={`${block.id}-${block.type}`}
+                            className={cn(
+                              "min-w-0",
+                              newBlockIds.has(block.id) && "animate-block-swoosh-in",
+                            )}
+                          >
+                            <BlockRenderer
+                              block={block}
+                              workspaceId={workspaceId}
+                              projectId={projectId}
+                              tabId={tabId}
+                              onUpdate={handleUpdate}
+                              scrollToTaskId={scrollToTaskId}
+                              onDelete={handleDelete}
+                              onConvert={handleConvert}
+                              onAddBlockAbove={handleAddBlockAbove}
+                              onAddBlockBelow={handleAddBlockBelow}
+                              onOpenDoc={setOpenDocId}
+                              isDragging={isDragging && draggedBlock?.id === block.id}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </SortableContext>
+                  ))}
+                  {/* Add block button appears right after the last block row */}
+                  <div className="flex gap-3 pt-2">
+                    <AddBlockButton
+                      tabId={tabId}
+                      projectId={projectId}
+                      onBlockCreated={handleBlockCreated}
+                      onBlockResolved={resolveOptimisticBlock}
+                      onBlockError={handleBlockError}
+                      getNextPosition={getNextPosition}
+                    />
+                  </div>
+                </div>
+              </DndContext>
+            )}
+          </div>
+        )}
         </div>
-      )}
+        <div id="timeline-event-panel-root" className="min-w-0 shrink-0" />
+      </div>
 
       {/* Doc Sidebar */}
       <DocSidebar docId={openDocId} onClose={() => setOpenDocId(null)} />
-      </div>
     </FileUrlContext.Provider>
   );
 }

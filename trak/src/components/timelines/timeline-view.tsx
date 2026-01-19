@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -522,11 +522,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   }, [baseRange, zoomLevel]);
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<"view" | "edit">("view");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [panelRoot, setPanelRoot] = useState<HTMLElement | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -596,6 +598,26 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   // Mount flag for portal (avoids SSR/TS issues)
   React.useEffect(() => setMounted(true), []);
+  React.useEffect(() => {
+    setPanelRoot(document.getElementById("timeline-event-panel-root"));
+  }, []);
+  React.useEffect(() => {
+    if (!panelRoot) {
+      setPanelRoot(document.getElementById("timeline-event-panel-root"));
+    }
+  }, [panelRoot, selectedEventId]);
+
+  const openPanel = (eventId: string, mode: "view" | "edit") => {
+    setSelectedEventId(eventId);
+    setPanelMode(mode);
+    setIsPanelOpen(true);
+  };
+
+  const closePanel = () => {
+    setIsPanelOpen(false);
+    setSelectedEventId(null);
+    setPanelMode("view");
+  };
 
   // Hide timer to bridge the gap between bar and tooltip
   const hideTimer = useRef<number | null>(null);
@@ -997,6 +1019,47 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const selectedEvent = events.find((event) => event.id === selectedEventId);
   const { data: selectedReferences = [] } = useTimelineReferences(selectedEventId ?? undefined);
   const { data: hoveredReferences = [] } = useTimelineReferences(hoveredEventId ?? undefined);
+  const editPanel = !readOnly && isPanelOpen && selectedEvent ? (
+    panelMode === "edit" ? (
+      <EditEventDialog
+        event={selectedEvent}
+        isOpen={isPanelOpen}
+        onClose={closePanel}
+        onUpdate={(patch) => {
+          updateEvent(selectedEvent.id, patch);
+          closePanel();
+        }}
+        onDelete={() => {
+          removeEvent(selectedEvent.id);
+          closePanel();
+        }}
+        onDuplicate={() => {
+          duplicateEvent(selectedEvent.id);
+          closePanel();
+        }}
+        references={selectedReferences}
+        onAddReference={() => setIsReferenceDialogOpen(true)}
+        onDeleteReference={async (referenceId) => {
+          const result = await deleteReferenceMutation.mutateAsync(referenceId);
+          if ("error" in result) {
+            console.error("Failed to remove reference:", result.error);
+          }
+        }}
+        members={members}
+        workspaceId={workspaceId}
+      />
+    ) : (
+      <EventDetailsPanel
+        event={selectedEvent}
+        isOpen={isPanelOpen}
+        onClose={closePanel}
+        onEdit={() => setPanelMode("edit")}
+        references={selectedReferences}
+        workspaceId={workspaceId}
+      />
+    )
+  ) : null;
+  const editPanelPortal = panelRoot && editPanel ? createPortal(editPanel, panelRoot) : editPanel;
 
   // ---- Build tooltip element (or null) once per render; pass into createPortal below ----
   const tooltipEl =
@@ -1067,8 +1130,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedEventId(event.id);
-                    setIsEditDialogOpen(true);
+                    openPanel(event.id, "edit");
                     setHoveredEventId(null);
                     setTooltipPosition(null);
                   }}
@@ -1328,8 +1390,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                     onClick={(e) => {
                       if (readOnly) return;
                       e.stopPropagation();
-                      setSelectedEventId(it.id);
-                      setIsEditDialogOpen(true);
+                      openPanel(it.id, "view");
+                      setHoveredEventId(null);
+                      setTooltipPosition(null);
                     }}
                     barStyle={barStyle(it.start, it.end, eventRowIndex)}
                     columnWidth={columnWidth}
@@ -1413,53 +1476,25 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         />
       )}
 
-      {/* Edit Event Dialog */}
-      {!readOnly && isEditDialogOpen && selectedEvent && (
-        <EditEventDialog
-          event={selectedEvent}
-          isOpen={isEditDialogOpen}
-          onClose={() => {
-            setIsEditDialogOpen(false);
-            setSelectedEventId(null);
-          }}
-          onUpdate={(patch) => {
-            updateEvent(selectedEvent.id, patch);
-            setIsEditDialogOpen(false);
-            setSelectedEventId(null);
-          }}
-          onDelete={() => {
-            removeEvent(selectedEvent.id);
-            setIsEditDialogOpen(false);
-            setSelectedEventId(null);
-          }}
-          onDuplicate={() => {
-            duplicateEvent(selectedEvent.id);
-            setIsEditDialogOpen(false);
-            setSelectedEventId(null);
-          }}
-          references={selectedReferences}
-          onAddReference={() => setIsReferenceDialogOpen(true)}
-          onDeleteReference={async (referenceId) => {
-            const result = await deleteReferenceMutation.mutateAsync(referenceId);
-            if ("error" in result) {
-              console.error("Failed to remove reference:", result.error);
-            }
-          }}
-          members={members}
-          workspaceId={workspaceId}
-        />
-      )}
       </div>
     );
 
   if (readOnly) {
-    return timelineContent;
+    return (
+      <>
+        {timelineContent}
+        {editPanelPortal}
+      </>
+    );
   }
 
   return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      {timelineContent}
-    </DndContext>
+    <>
+      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        {timelineContent}
+      </DndContext>
+      {editPanelPortal}
+    </>
   );
 }
 
@@ -1710,6 +1745,139 @@ function AddEventDialog({
   );
 }
 
+function EventDetailsPanel({
+  event,
+  isOpen,
+  onClose,
+  onEdit,
+  references,
+  workspaceId,
+}: {
+  event: TimelineEvent;
+  isOpen: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string }>;
+  workspaceId?: string;
+}) {
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
+  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const direct = propertiesResult?.direct;
+  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
+
+  const assigneeLabel =
+    event.assignee ||
+    (event.assigneeId
+      ? workspaceMembers.find((m) => m.id === event.assigneeId)?.name
+      : undefined) ||
+    "Unassigned";
+  const statusLabel = event.status ? event.status.replace("-", " ") : "None";
+  const progressLabel = `${event.progress ?? 0}%`;
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0"
+      role="complementary"
+      aria-label={`Event details: ${event.title}`}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
+          <div className="text-lg font-semibold text-[var(--foreground)] truncate">
+            {event.title || "Event details"}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            Edit
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
+        <div className="space-y-4">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
+            <div className="mt-1 text-sm text-[var(--foreground)]">
+              {format(new Date(event.start), "MMM d, yyyy")} – {format(new Date(event.end), "MMM d, yyyy")}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
+              <div className="mt-1 text-sm text-[var(--foreground)] capitalize">{statusLabel}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
+              <div className="mt-1 text-sm text-[var(--foreground)]">{assigneeLabel}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
+              <div className="mt-1 text-sm text-[var(--foreground)]">{progressLabel}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Milestone</div>
+              <div className="mt-1 text-sm text-[var(--foreground)]">{event.isMilestone ? "Yes" : "No"}</div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Notes</div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)]">
+              {event.notes?.trim() ? event.notes : "No notes yet."}
+            </div>
+          </div>
+
+          {workspaceId && (direct || inherited.length > 0) && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</div>
+              <div className="flex flex-wrap gap-2">
+                {direct && <PropertyBadges properties={direct} />}
+                {inherited.map((inh) => (
+                  <PropertyBadges
+                    key={`inherited-${inh.source_entity_id}`}
+                    properties={inh.properties}
+                    inherited
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</div>
+            {references.length === 0 ? (
+              <div className="text-xs text-neutral-500">No attachments yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {references.map((ref) => (
+                  <div
+                    key={ref.id}
+                    className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
+                  >
+                    <div className="font-medium text-neutral-800 dark:text-neutral-200">
+                      {ref.title}
+                    </div>
+                    <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+                      {ref.type_label || ref.reference_type}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Edit Event Dialog Component
 function EditEventDialog({
   event,
@@ -1769,272 +1937,308 @@ function EditEventDialog({
     if (isOpen) setLocal(getInitialState());
   }, [isOpen, getInitialState]);
 
+  React.useEffect(() => {
+    setPropertiesOpen(false);
+  }, [event.id]);
+
+  const closePanel = React.useCallback(() => {
+    setPropertiesOpen(false);
+    onClose();
+  }, [onClose]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closePanel();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closePanel, isOpen]);
+
   const handleSave = () => {
     if (!local.title.trim()) return;
     onUpdate(local);
   };
 
+  if (!isOpen) return null;
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Event</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          {/* Title */}
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
-            <input
-              type="text"
-              value={local.title}
-              onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Event title"
-              autoFocus
-            />
+    <div
+      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0"
+      role="complementary"
+      aria-label={`Event details: ${event.title}`}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
+          <div className="text-lg font-semibold text-[var(--foreground)] truncate">
+            {event.title || "Event details"}
           </div>
+        </div>
+        <Button variant="ghost" size="icon" onClick={closePanel} className="h-8 w-8">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
 
-          {/* Color & Status */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Color</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  className={cn(
-                    "w-full h-10 rounded-lg border border-neutral-200 dark:border-neutral-800 flex items-center gap-2 px-3",
-                    local.color || "bg-neutral-900"
+      <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
+        <div className="space-y-4">
+              {/* Title */}
+              <div>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
+                <input
+                  type="text"
+                  value={local.title}
+                  onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Event title"
+                  autoFocus
+                />
+              </div>
+
+              {/* Color & Status */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Color</label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className={cn(
+                        "w-full h-10 rounded-lg border border-neutral-200 dark:border-neutral-800 flex items-center gap-2 px-3",
+                        local.color || "bg-neutral-900"
+                      )}
+                      onClick={() => setShowColors((v) => !v)}
+                    >
+                      <div className={cn("h-5 w-5 rounded-full", local.color || "bg-neutral-900")} />
+                      <span className="text-sm text-neutral-600 dark:text-neutral-400">Change</span>
+                    </button>
+                    {showColors && (
+                      <div className="absolute z-10 mt-2 grid grid-cols-6 gap-2 p-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg">
+                        {DEFAULT_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            className={cn("h-8 w-8 rounded-full", c)}
+                            onClick={() => {
+                              setLocal((s) => ({ ...s, color: c }));
+                              setShowColors(false);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
+                  <select
+                    value={local.status ?? "planned"}
+                    onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEvent["status"] }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="planned">Planned</option>
+                    <option value="in-progress">In progress</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="done">Done</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Progress & Milestone */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Progress (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={local.progress ?? 0}
+                    onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={local.isMilestone ?? false}
+                      onChange={(e) => {
+                        setLocal((s) => ({
+                          ...s,
+                          isMilestone: e.target.checked,
+                          end: e.target.checked ? s.start : s.end,
+                        }));
+                      }}
+                      className="w-4 h-4 rounded border-neutral-300"
+                    />
+                    <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Milestone</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
+                  <input
+                    type="date"
+                    value={format(new Date(local.start), "yyyy-MM-dd")}
+                    onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={local.isMilestone}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
+                  <input
+                    type="date"
+                    value={format(new Date(local.end), "yyyy-MM-dd")}
+                    onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={local.isMilestone}
+                  />
+                </div>
+              </div>
+
+              {/* Assignee */}
+              <div>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Assignee (optional)</label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm text-left flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-neutral-500" />
+                        <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
+                          {members.find((member) => member.id === local.assigneeId)?.name || "Unassigned"}
+                        </span>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-neutral-400" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
+                    <DropdownMenuItem
+                      onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
+                      className="text-neutral-500"
+                    >
+                      Unassigned
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {members.length > 0 ? (
+                      members.map((member) => (
+                        <DropdownMenuItem
+                          key={member.id}
+                          onClick={() => setLocal((s) => ({ ...s, assigneeId: member.id }))}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
+                              {member.name[0]?.toUpperCase() || "?"}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm truncate">{member.name}</div>
+                              <div className="text-xs text-neutral-500 truncate">{member.email}</div>
+                            </div>
+                          </div>
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <DropdownMenuItem disabled className="text-neutral-400">
+                        Loading members...
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {/* Properties */}
+              {workspaceId && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
+                    <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
+                      Manage properties
+                    </Button>
+                  </div>
+                  {(direct || inherited.length > 0) ? (
+                    <div className="flex flex-wrap gap-2">
+                      {direct && (
+                        <PropertyBadges
+                          properties={direct}
+                          onClick={() => setPropertiesOpen(true)}
+                          memberName={getMemberName(direct.assignee_id)}
+                        />
+                      )}
+                      {inherited.map((inh) => (
+                        <PropertyBadges
+                          key={`inherited-${inh.source_entity_id}`}
+                          properties={inh.properties}
+                          inherited
+                          onClick={() => setPropertiesOpen(true)}
+                          memberName={getMemberName(inh.properties.assignee_id)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-500">No properties yet.</p>
                   )}
-                  onClick={() => setShowColors((v) => !v)}
-                >
-                  <div className={cn("h-5 w-5 rounded-full", local.color || "bg-neutral-900")} />
-                  <span className="text-sm text-neutral-600 dark:text-neutral-400">Change</span>
-                </button>
-                {showColors && (
-                  <div className="absolute z-10 mt-2 grid grid-cols-6 gap-2 p-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg">
-                    {DEFAULT_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={cn("h-8 w-8 rounded-full", c)}
-                        onClick={() => {
-                          setLocal((s) => ({ ...s, color: c }));
-                          setShowColors(false);
-                        }}
-                      />
+                </div>
+              )}
+
+              {/* Attachments */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</label>
+                  <Button variant="outline" size="sm" onClick={onAddReference}>
+                    Add attachment
+                  </Button>
+                </div>
+                {references.length === 0 ? (
+                  <p className="text-xs text-neutral-500">No attachments yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {references.map((ref) => (
+                      <div
+                        key={ref.id}
+                        className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-medium text-neutral-800 dark:text-neutral-200">
+                            {ref.title}
+                          </div>
+                          <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+                            {ref.type_label || ref.reference_type}
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onDeleteReference(ref.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
-            </div>
 
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
-              <select
-                value={local.status ?? "planned"}
-                onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEvent["status"] }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="planned">Planned</option>
-                <option value="in-progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Progress & Milestone */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Progress (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={local.progress ?? 0}
-                onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={local.isMilestone ?? false}
-                  onChange={(e) => {
-                    setLocal((s) => ({
-                      ...s,
-                      isMilestone: e.target.checked,
-                      end: e.target.checked ? s.start : s.end,
-                    }));
-                  }}
-                  className="w-4 h-4 rounded border-neutral-300"
+              {/* Notes */}
+              <div>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
+                <textarea
+                  value={local.notes ?? ""}
+                  onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  placeholder="Additional details..."
                 />
-                <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Milestone</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
-              <input
-                type="date"
-                value={format(new Date(local.start), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={local.isMilestone}
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
-              <input
-                type="date"
-                value={format(new Date(local.end), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={local.isMilestone}
-              />
-            </div>
-          </div>
-
-          {/* Assignee */}
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Assignee (optional)</label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm text-left flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-neutral-500" />
-                    <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                      {members.find((member) => member.id === local.assigneeId)?.name || "Unassigned"}
-                    </span>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-neutral-400" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
-                <DropdownMenuItem
-                  onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
-                  className="text-neutral-500"
-                >
-                  Unassigned
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {members.length > 0 ? (
-                  members.map((member) => (
-                    <DropdownMenuItem
-                      key={member.id}
-                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.id }))}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                          {member.name[0]?.toUpperCase() || "?"}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm truncate">{member.name}</div>
-                          <div className="text-xs text-neutral-500 truncate">{member.email}</div>
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  ))
-                ) : (
-                  <DropdownMenuItem disabled className="text-neutral-400">
-                    Loading members...
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Properties */}
-          {workspaceId && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
-                <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
-                  Manage properties
-                </Button>
               </div>
-              {(direct || inherited.length > 0) ? (
-                <div className="flex flex-wrap gap-2">
-                  {direct && (
-                    <PropertyBadges
-                      properties={direct}
-                      onClick={() => setPropertiesOpen(true)}
-                      memberName={getMemberName(direct.assignee_id)}
-                    />
-                  )}
-                  {inherited.map((inh) => (
-                    <PropertyBadges
-                      key={`inherited-${inh.source_entity_id}`}
-                      properties={inh.properties}
-                      inherited
-                      onClick={() => setPropertiesOpen(true)}
-                      memberName={getMemberName(inh.properties.assignee_id)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-neutral-500">No properties yet.</p>
-              )}
             </div>
-          )}
-
-          {/* Attachments */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</label>
-              <Button variant="outline" size="sm" onClick={onAddReference}>
-                Add attachment
-              </Button>
-            </div>
-            {references.length === 0 ? (
-              <p className="text-xs text-neutral-500">No attachments yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {references.map((ref) => (
-                  <div
-                    key={ref.id}
-                    className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-neutral-800 dark:text-neutral-200">
-                        {ref.title}
-                      </div>
-                      <div className="text-[11px] uppercase tracking-wide text-neutral-400">
-                        {ref.type_label || ref.reference_type}
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onDeleteReference(ref.id)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
-          {/* Notes */}
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
-            <textarea
-              value={local.notes ?? ""}
-              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Additional details..."
-            />
-          </div>
-        </div>
-
-        <DialogFooter className="flex items-center justify-between">
+      <div className="border-t border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+        <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={onDuplicate}>
               Duplicate
@@ -2049,15 +2253,15 @@ function EditEventDialog({
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={closePanel}>
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={!local.title.trim()}>
               Save
             </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
+        </div>
+      </div>
       {workspaceId && (
         <PropertyMenu
           open={propertiesOpen}
@@ -2068,7 +2272,7 @@ function EditEventDialog({
           entityTitle={event.title}
         />
       )}
-    </Dialog>
+    </div>
   );
 }
 
