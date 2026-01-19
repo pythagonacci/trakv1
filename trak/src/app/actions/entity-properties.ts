@@ -527,9 +527,9 @@ export async function getWorkspaceMembers(
     return { error: "Not a member of this workspace" };
   }
 
-  const { data, error } = await supabase
+  const { data: members, error } = await supabase
     .from("workspace_members")
-    .select("id, user_id, workspace_id, name, email, avatar_url, role")
+    .select("*")
     .eq("workspace_id", workspaceId);
 
   if (error) {
@@ -537,7 +537,54 @@ export async function getWorkspaceMembers(
     return { error: "Failed to fetch workspace members" };
   }
 
-  return { data: data || [] };
+  if (!members || members.length === 0) {
+    return { data: [] };
+  }
+
+  const userIds = members.map((member: any) => member.user_id).filter(Boolean);
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("*")
+    .in("id", userIds);
+
+  if (profilesError) {
+    console.error("getWorkspaceMembers profiles error:", profilesError);
+  const fallback = members.map((member: any) => ({
+    id: member.user_id || member.id,
+    user_id: member.user_id || member.id,
+    workspace_id: member.workspace_id ?? workspaceId,
+    name: member.name || member.email || "Unknown",
+    email: member.email || "",
+    avatar_url: member.avatar_url ?? null,
+    role: member.role,
+  }));
+    return { data: fallback };
+  }
+
+  const profileMap = new Map((profiles || []).map((profile: any) => [profile.id, profile]));
+  const transformed = members.map((member: any) => {
+    const profile = profileMap.get(member.user_id);
+    const name =
+      profile?.name ||
+      profile?.full_name ||
+      profile?.display_name ||
+      profile?.username ||
+      member.name ||
+      profile?.email ||
+      member.email ||
+      "Unknown";
+    return {
+      id: member.user_id || member.id,
+      user_id: member.user_id || member.id,
+      workspace_id: member.workspace_id ?? workspaceId,
+      name,
+      email: profile?.email || member.email || "",
+      avatar_url: profile?.avatar_url ?? member.avatar_url ?? null,
+      role: member.role,
+    };
+  });
+
+  return { data: transformed };
 }
 
 // ============================================================================
