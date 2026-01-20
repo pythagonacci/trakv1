@@ -365,8 +365,8 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
           side="right"
           sideOffset={12}
           alignOffset={-140}
-          avoidCollisions={false}
-          className="w-60"
+          collisionPadding={12}
+          className="w-60 max-h-[min(40vh,20rem,var(--radix-popper-available-height))]"
         >
           <DropdownMenuItem
             onClick={() => setBlockReferenceSelectorOpen(true)}
