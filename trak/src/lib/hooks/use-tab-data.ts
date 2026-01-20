@@ -77,7 +77,11 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
   const queryClient = useQueryClient();
   const cachedData = queryClient.getQueryData<Record<string, string>>(queryKeys.fileUrls(fileIds));
   const hasCache = !!cachedData;
-  const shouldUseInitialData = !hasCache && initialUrls;
+  const hasInitialUrls = !!initialUrls && Object.keys(initialUrls).length > 0;
+  const initialUrlsCoverAll = fileIds.length > 0 && hasInitialUrls
+    ? fileIds.every((id) => Boolean(initialUrls?.[id]))
+    : false;
+  const shouldUseInitialData = !hasCache && initialUrlsCoverAll;
   
   return useQuery({
     queryKey: queryKeys.fileUrls(fileIds),

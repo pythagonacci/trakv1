@@ -14,7 +14,7 @@ interface ImageBlockProps {
   block: Block;
   workspaceId?: string;
   projectId?: string;
-  onUpdate?: () => void;
+  onUpdate?: (updatedBlock?: Block) => void;
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -119,7 +119,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
       }
 
       // Update block content with fileId
-      await updateBlock({
+      const updateResult = await updateBlock({
         blockId: block.id,
         content: { 
           fileId,
@@ -128,8 +128,11 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
         },
       });
 
-      // Trigger update - page will refresh and prefetch new file URL
-      onUpdate?.();
+      if (updateResult.error) {
+        alert("Failed to update image block: " + updateResult.error);
+      } else {
+        onUpdate?.(updateResult.data);
+      }
       setUploading(false);
     } catch (error: any) {
       console.error("Upload error:", error);
@@ -149,7 +152,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
     // Debounce save
     setSavingCaption(true);
     captionTimeoutRef.current = setTimeout(async () => {
-      await updateBlock({
+      const result = await updateBlock({
         blockId: block.id,
         content: {
           ...block.content,
@@ -157,7 +160,9 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
         },
       });
       setSavingCaption(false);
-      onUpdate?.();
+      if (result.data) {
+        onUpdate?.(result.data);
+      }
     }, 1000);
   };
 
@@ -186,8 +191,10 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
           ...block.content,
           width: width,
         },
-      }).then(() => {
-        onUpdate?.();
+      }).then((result) => {
+        if (result.data) {
+          onUpdate?.(result.data);
+        }
       });
       
       setDragInfo(null);
@@ -333,4 +340,3 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
     </div>
   );
 }
-

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -24,6 +25,7 @@ import BlockRenderer from "./block-renderer";
 import DocSidebar from "./doc-sidebar";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
+import { queryKeys } from "@/lib/react-query/query-client";
 
 // Create context for file URLs
 export const FileUrlContext = createContext<Record<string, string>>({});
@@ -50,6 +52,7 @@ interface BlockRow {
 
 export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {} }: TabCanvasProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -180,14 +183,29 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   const handleUpdate = (updatedBlock?: Block) => {
     if (updatedBlock) {
+      const updateBlockList = (prevBlocks?: Block[]) => {
+        if (!prevBlocks || prevBlocks.length === 0) return [updatedBlock];
+        let found = false;
+        const next = prevBlocks.map((block) => {
+          if (block.id === updatedBlock.id) {
+            found = true;
+            return updatedBlock;
+          }
+          return block;
+        });
+        return found ? next : [...next, updatedBlock];
+      };
+
       // Update local state with the updated block (no router.refresh for inline edits)
-      setBlocks(prev =>
-        prev.map(b => (b.id === updatedBlock.id ? updatedBlock : b))
-      );
-    } else {
-      // Fallback: refresh only when no block provided (for errors or structural changes)
-      router.refresh();
+      setBlocks((prev) => updateBlockList(prev));
+      // Keep React Query cache in sync so file URL queries can update.
+      queryClient.setQueryData(queryKeys.tabBlocks(tabId), (prev) => updateBlockList(prev as Block[] | undefined));
+      return;
     }
+
+    // Fallback: refetch blocks when no updated block is provided.
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+    router.refresh();
   };
 
   const handleDelete = async (blockId: string) => {
