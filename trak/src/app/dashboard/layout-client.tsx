@@ -51,6 +51,18 @@ export default function DashboardLayoutClient({
   children: React.ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const pathname = usePathname();
+  const wasProjectView = useRef<boolean | null>(null);
+
+  const isProjectView =
+    pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
+
+  useEffect(() => {
+    if (wasProjectView.current !== true && isProjectView) {
+      setSidebarCollapsed(true);
+    }
+    wasProjectView.current = isProjectView;
+  }, [isProjectView]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
