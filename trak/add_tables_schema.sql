@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS table_views (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   table_id UUID NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
   name TEXT NOT NULL DEFAULT 'Untitled View',
-  type TEXT NOT NULL DEFAULT 'table' CHECK (type IN ('table', 'board', 'calendar', 'list', 'gallery')),
+  type TEXT NOT NULL DEFAULT 'table' CHECK (type IN ('table', 'board', 'timeline', 'calendar', 'list', 'gallery')),
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_default BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
