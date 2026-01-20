@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
 import { Upload, X, FileText, Image, Video, Music, Archive, File, AlertCircle, RefreshCw } from "lucide-react";
@@ -14,6 +14,11 @@ interface FileUploadZoneProps {
   compact?: boolean;
   maxFiles?: number;
   accept?: string; // Optional file type filter (e.g., "video/*", "video/mp4")
+  hideDropZone?: boolean;
+}
+
+export interface FileUploadZoneHandle {
+  openFileDialog: () => void;
 }
 
 interface UploadingFile {
@@ -70,19 +75,27 @@ const generatePreview = (file: File): Promise<string> => {
   });
 };
 
-export default function FileUploadZone({
-  workspaceId,
-  projectId,
-  blockId,
-  onUploadComplete,
-  compact = false,
-  maxFiles,
-  accept = "*/*",
-}: FileUploadZoneProps) {
+const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(function FileUploadZone(
+  {
+    workspaceId,
+    projectId,
+    blockId,
+    onUploadComplete,
+    compact = false,
+    maxFiles,
+    accept = "*/*",
+    hideDropZone = false,
+  },
+  ref
+) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeUploadsRef = useRef<Promise<void>[]>([]);
+
+  useImperativeHandle(ref, () => ({
+    openFileDialog: () => fileInputRef.current?.click(),
+  }));
 
   const updateUploadingFile = useCallback((id: string, updates: Partial<UploadingFile>) => {
     setUploadingFiles((prev) =>
@@ -352,11 +365,20 @@ export default function FileUploadZone({
 
   const hasActiveUploads = uploadingFiles.length > 0;
   const isUploading = uploadingFiles.some((f) => f.status === "uploading");
+  const showDropZone = !hasActiveUploads && !hideDropZone;
 
   return (
     <div className="space-y-4">
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+        accept={accept}
+      />
       {/* Drop Zone */}
-      {!hasActiveUploads && (
+      {showDropZone && (
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -370,14 +392,6 @@ export default function FileUploadZone({
             compact ? "p-4" : "p-8"
           )}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-            accept={accept}
-          />
           <div className="flex flex-col items-center justify-center text-center space-y-2">
             <Upload
               className={cn(
@@ -509,5 +523,6 @@ export default function FileUploadZone({
       )}
     </div>
   );
-}
+});
 
+export default FileUploadZone;

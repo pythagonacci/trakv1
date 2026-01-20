@@ -6,7 +6,7 @@ import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
 import { Video, Download, Trash2, AlertTriangle, ExternalLink } from "lucide-react";
 import VideoPlayer from "./video-player";
-import FileUploadZone from "./file-upload-zone";
+import FileUploadZone, { type FileUploadZoneHandle } from "./file-upload-zone";
 
 interface VideoBlockProps {
   block: Block;
@@ -127,6 +127,7 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
   const [loading, setLoading] = useState(true);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [showUploadZone, setShowUploadZone] = useState(false);
+  const uploadZoneRef = useRef<FileUploadZoneHandle | null>(null);
 
   useEffect(() => {
     loadFiles();
@@ -210,6 +211,11 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
     onUpdate?.();
   };
 
+  const handleStartUpload = () => {
+    setShowUploadZone(true);
+    uploadZoneRef.current?.openFileDialog();
+  };
+
   if (loading) {
     return (
       <div className="p-5 text-sm text-neutral-500">Loading videos...</div>
@@ -220,38 +226,37 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
   if (files.length === 0) {
     return (
       <div className="p-5 space-y-4">
-        {!showUploadZone ? (
-          <>
-            <div className="text-sm text-neutral-500 text-center">
-              No videos uploaded. Upload MP4 files to display here.
-            </div>
-            <div className="flex justify-center">
-              <button
-                onClick={() => setShowUploadZone(true)}
-                className="px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors"
-              >
-                Upload Video
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="space-y-4">
+        <div className="text-sm text-neutral-500 text-center">
+          No videos uploaded. Upload MP4 files to display here.
+        </div>
+        {!showUploadZone && (
+          <div className="flex justify-center">
+            <button
+              onClick={handleStartUpload}
+              className="px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors"
+            >
+              Upload Video
+            </button>
+          </div>
+        )}
+        <div className={showUploadZone ? "space-y-4" : "hidden"}>
             <FileUploadZone
+              ref={uploadZoneRef}
               workspaceId={workspaceId}
               projectId={projectId}
               blockId={block.id}
               onUploadComplete={handleUploadComplete}
               compact={true}
               accept="video/*"
+              hideDropZone={true}
             />
             <button
               onClick={() => setShowUploadZone(false)}
               className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             >
-              Cancel
-            </button>
-          </div>
-        )}
+            Cancel
+          </button>
+        </div>
       </div>
     );
   }
@@ -358,7 +363,7 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
       {/* Add More Videos Button */}
       {!showUploadZone && (
         <button
-          onClick={() => setShowUploadZone(true)}
+          onClick={handleStartUpload}
           className="w-full px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 transition-colors"
         >
           + Add Another Video
@@ -366,24 +371,24 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
       )}
 
       {/* Upload Zone */}
-      {showUploadZone && (
-        <div className="space-y-2">
-          <FileUploadZone
-            workspaceId={workspaceId}
-            projectId={projectId}
-            blockId={block.id}
-            onUploadComplete={handleUploadComplete}
-            compact={true}
-          />
-          <button
-            onClick={() => setShowUploadZone(false)}
-            className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+      <div className={showUploadZone ? "space-y-2" : "hidden"}>
+        <FileUploadZone
+          ref={uploadZoneRef}
+          workspaceId={workspaceId}
+          projectId={projectId}
+          blockId={block.id}
+          onUploadComplete={handleUploadComplete}
+          compact={true}
+          accept="video/*"
+          hideDropZone={true}
+        />
+        <button
+          onClick={() => setShowUploadZone(false)}
+          className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
-
