@@ -43,7 +43,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { DndContext, DragEndEvent, useDraggable, useDroppable, DragStartEvent, DragOverlay, closestCenter } from "@dnd-kit/core";
+import { DndContext, DragEndEvent, useDraggable, useDroppable, DragStartEvent, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
 type ZoomLevel = "day" | "week" | "month" | "quarter" | "year";
@@ -63,6 +63,12 @@ interface TimelineEvent {
   baselineStart?: string;
   baselineEnd?: string;
 }
+
+type TimelineEventPatch = Partial<TimelineEvent> & {
+  status?: TimelineEvent["status"] | null;
+  notes?: string | null;
+  color?: string | null;
+};
 
 interface TimelineContent {
   viewConfig: TimelineBlockContent["viewConfig"];
@@ -311,6 +317,17 @@ function DraggableEvent({
   if (readOnly) {
     const progress = event.progress ?? 0;
     const hasBaseline = event.baselineStart && event.baselineEnd;
+    const barWidth =
+      typeof barStyle.width === "string"
+        ? parseFloat(barStyle.width)
+        : typeof barStyle.width === "number"
+        ? barStyle.width
+        : 0;
+    const needsTitleLabel =
+      !event.isMilestone &&
+      barWidth > 0 &&
+      event.title &&
+      (barWidth < 90 || event.title.length * 6 > barWidth - 24);
     return (
       <div
         className="absolute z-10 pointer-events-auto"
@@ -345,6 +362,11 @@ function DraggableEvent({
           />
         ) : (
           <>
+            {needsTitleLabel && (
+              <div className="absolute -top-5 left-0 z-20 max-w-[200px] truncate rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--foreground)] shadow-sm pointer-events-none">
+                {event.title}
+              </div>
+            )}
             <div
               className={cn(
                 "event-bar flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
@@ -400,6 +422,17 @@ function DraggableEvent({
 
   const progress = event.progress ?? 0;
   const hasBaseline = event.baselineStart && event.baselineEnd;
+  const barWidth =
+    typeof barStyle.width === "string"
+      ? parseFloat(barStyle.width)
+      : typeof barStyle.width === "number"
+      ? barStyle.width
+      : 0;
+  const needsTitleLabel =
+    !event.isMilestone &&
+    barWidth > 0 &&
+    event.title &&
+    (barWidth < 90 || event.title.length * 6 > barWidth - 24);
 
   return (
     <div
@@ -438,6 +471,11 @@ function DraggableEvent({
         />
       ) : (
         <>
+          {needsTitleLabel && (
+            <div className="absolute -top-5 left-0 z-20 max-w-[200px] truncate rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--foreground)] shadow-sm pointer-events-none">
+              {event.title}
+            </div>
+          )}
           {/* Event bar */}
           <div
             className={cn(
@@ -523,7 +561,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [panelMode, setPanelMode] = useState<"view" | "edit">("view");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);
@@ -548,6 +585,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const deleteReferenceMutation = useDeleteTimelineReference(block.id);
   const duplicateEventMutation = useDuplicateTimelineEvent(block.id);
   const setBaselineMutation = useSetTimelineEventBaseline(block.id);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    })
+  );
 
   // Load workspace members
   useEffect(() => {
@@ -607,16 +651,14 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
   }, [panelRoot, selectedEventId]);
 
-  const openPanel = (eventId: string, mode: "view" | "edit") => {
+  const openPanel = (eventId: string) => {
     setSelectedEventId(eventId);
-    setPanelMode(mode);
     setIsPanelOpen(true);
   };
 
   const closePanel = () => {
     setIsPanelOpen(false);
     setSelectedEventId(null);
-    setPanelMode("view");
   };
 
   // Hide timer to bridge the gap between bar and tooltip
@@ -792,8 +834,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const removeEvent = async (id: string) => {
     const result = await deleteEventMutation.mutateAsync(id);
     if (selectedEventId === id) {
-      setSelectedEventId(null);
-      setIsEditDialogOpen(false);
+      closePanel();
     }
     if ("error" in result) {
       console.error("Failed to remove event:", result.error);
@@ -807,22 +848,23 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
   };
 
-  const updateEvent = async (id: string, patch: Partial<TimelineEvent>) => {
+  const updateEvent = async (id: string, patch: TimelineEventPatch) => {
+    const updates: Record<string, unknown> = {};
+    if (patch.title !== undefined) updates.title = patch.title;
+    if (patch.start !== undefined) updates.startDate = patch.start;
+    if (patch.end !== undefined) updates.endDate = patch.end;
+    if (patch.status !== undefined) updates.status = patch.status;
+    if (patch.assigneeId !== undefined) updates.assigneeId = patch.assigneeId ?? null;
+    if (patch.notes !== undefined) updates.notes = patch.notes;
+    if (patch.progress !== undefined) updates.progress = patch.progress;
+    if (patch.color !== undefined) updates.color = patch.color;
+    if (patch.isMilestone !== undefined) updates.isMilestone = patch.isMilestone;
+    if (patch.baselineStart !== undefined) updates.baselineStart = patch.baselineStart ?? null;
+    if (patch.baselineEnd !== undefined) updates.baselineEnd = patch.baselineEnd ?? null;
+
     const result = await updateEventMutation.mutateAsync({
       eventId: id,
-      updates: {
-        title: patch.title,
-        startDate: patch.start,
-        endDate: patch.end,
-        status: patch.status,
-        assigneeId: patch.assigneeId ?? null,
-        notes: patch.notes ?? null,
-        progress: patch.progress,
-        color: patch.color ?? null,
-        isMilestone: patch.isMilestone,
-        baselineStart: patch.baselineStart ?? null,
-        baselineEnd: patch.baselineEnd ?? null,
-      },
+      updates,
     });
     if ("error" in result) {
       console.error("Failed to update event:", result.error);
@@ -957,32 +999,44 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
 
     const newDate = columnToDate(columnIndex, displayRange.start, zoomLevel);
-    
-    let updatedEvent: TimelineEvent;
+    const currentStart = clampDate(new Date(activeEvent.start));
+    const currentEnd = clampDate(new Date(activeEvent.end));
+    const duration = Math.max(0, differenceInCalendarDays(currentEnd, currentStart));
+
+    let nextStart = currentStart;
+    let nextEnd = currentEnd;
+
     if (edge === "start") {
-      const currentEnd = new Date(activeEvent.end);
-      const duration = differenceInCalendarDays(currentEnd, new Date(activeEvent.start));
-      updatedEvent = {
-        ...activeEvent,
-        start: clampDate(newDate).toISOString(),
-        end: clampDate(addDays(newDate, duration)).toISOString(),
-      };
+      nextStart = clampDate(newDate);
+      nextEnd = clampDate(addDays(nextStart, duration));
     } else if (edge === "end") {
-      updatedEvent = {
-        ...activeEvent,
-        end: clampDate(newDate).toISOString(),
-      };
+      nextEnd = clampDate(newDate);
+      if (nextEnd < currentStart) {
+        nextEnd = currentStart;
+      }
     } else {
       // Moving entire event
-      const currentStart = new Date(activeEvent.start);
-      const currentEnd = new Date(activeEvent.end);
-      const duration = differenceInCalendarDays(currentEnd, currentStart);
-      updatedEvent = {
-        ...activeEvent,
-        start: clampDate(newDate).toISOString(),
-        end: clampDate(addDays(newDate, duration)).toISOString(),
-      };
+      nextStart = clampDate(newDate);
+      nextEnd = clampDate(addDays(nextStart, duration));
     }
+
+    if (nextStart.getTime() === currentStart.getTime() && nextEnd.getTime() === currentEnd.getTime()) {
+      setDraggingEventId(null);
+      setDragResizeEdge(null);
+      return;
+    }
+
+    if (nextStart > nextEnd) {
+      setDraggingEventId(null);
+      setDragResizeEdge(null);
+      return;
+    }
+
+    const updatedEvent: TimelineEvent = {
+      ...activeEvent,
+      start: nextStart.toISOString(),
+      end: nextEnd.toISOString(),
+    };
 
     try {
       await updateEvent(eventId, updatedEvent);
@@ -1020,44 +1074,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const { data: selectedReferences = [] } = useTimelineReferences(selectedEventId ?? undefined);
   const { data: hoveredReferences = [] } = useTimelineReferences(hoveredEventId ?? undefined);
   const editPanel = !readOnly && isPanelOpen && selectedEvent ? (
-    panelMode === "edit" ? (
-      <EditEventDialog
-        event={selectedEvent}
-        isOpen={isPanelOpen}
-        onClose={closePanel}
-        onUpdate={(patch) => {
-          updateEvent(selectedEvent.id, patch);
-          closePanel();
-        }}
-        onDelete={() => {
-          removeEvent(selectedEvent.id);
-          closePanel();
-        }}
-        onDuplicate={() => {
-          duplicateEvent(selectedEvent.id);
-          closePanel();
-        }}
-        references={selectedReferences}
-        onAddReference={() => setIsReferenceDialogOpen(true)}
-        onDeleteReference={async (referenceId) => {
-          const result = await deleteReferenceMutation.mutateAsync(referenceId);
-          if ("error" in result) {
-            console.error("Failed to remove reference:", result.error);
-          }
-        }}
-        members={members}
-        workspaceId={workspaceId}
-      />
-    ) : (
-      <EventDetailsPanel
-        event={selectedEvent}
-        isOpen={isPanelOpen}
-        onClose={closePanel}
-        onEdit={() => setPanelMode("edit")}
-        references={selectedReferences}
-        workspaceId={workspaceId}
-      />
-    )
+    <EventDetailsPanel
+      event={selectedEvent}
+      isOpen={isPanelOpen}
+      onClose={closePanel}
+      onUpdate={(patch) => updateEvent(selectedEvent.id, patch)}
+      references={selectedReferences}
+      workspaceId={workspaceId}
+      onAddReference={() => setIsReferenceDialogOpen(true)}
+    />
   ) : null;
   const editPanelPortal = panelRoot && editPanel ? createPortal(editPanel, panelRoot) : editPanel;
 
@@ -1126,17 +1151,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
               </div>
             {!readOnly && (
             <div className="mt-3 flex items-center gap-2">
-                <button
-                  className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openPanel(event.id, "edit");
-                    setHoveredEventId(null);
-                    setTooltipPosition(null);
-                  }}
-                >
-                  Edit
-                </button>
                 <button
                   className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
@@ -1390,7 +1404,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                     onClick={(e) => {
                       if (readOnly) return;
                       e.stopPropagation();
-                      openPanel(it.id, "view");
+                      openPanel(it.id);
                       setHoveredEventId(null);
                       setTooltipPosition(null);
                     }}
@@ -1490,9 +1504,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   return (
     <>
-      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {timelineContent}
-      </DndContext>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {timelineContent}
+    </DndContext>
       {editPanelPortal}
     </>
   );
@@ -1749,36 +1763,134 @@ function EventDetailsPanel({
   event,
   isOpen,
   onClose,
-  onEdit,
+  onUpdate,
   references,
   workspaceId,
+  onAddReference,
 }: {
   event: TimelineEvent;
   isOpen: boolean;
   onClose: () => void;
-  onEdit: () => void;
+  onUpdate: (patch: TimelineEventPatch) => void;
   references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string }>;
   workspaceId?: string;
+  onAddReference: () => void;
 }) {
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
   const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
 
+  const [local, setLocal] = useState({
+    status: event.status ?? null,
+    assigneeId: event.assigneeId ?? null,
+    progress: event.progress ?? 0,
+    notes: event.notes ?? "",
+    start: event.start,
+    end: event.end,
+    isMilestone: event.isMilestone ?? false,
+    color: event.color ?? null,
+  });
+  const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
+
+  React.useEffect(() => {
+    setLocal({
+      status: event.status ?? null,
+      assigneeId: event.assigneeId ?? null,
+      progress: event.progress ?? 0,
+      notes: event.notes ?? "",
+      start: event.start,
+      end: event.end,
+      isMilestone: event.isMilestone ?? false,
+      color: event.color ?? null,
+    });
+    setIsColorDialogOpen(false);
+  }, [event]);
+
   const assigneeLabel =
-    event.assignee ||
-    (event.assigneeId
-      ? workspaceMembers.find((m) => m.id === event.assigneeId)?.name
-      : undefined) ||
-    "Unassigned";
-  const statusLabel = event.status ? event.status.replace("-", " ") : "None";
-  const progressLabel = `${event.progress ?? 0}%`;
+    (local.assigneeId
+      ? workspaceMembers.find((m) => m.id === local.assigneeId)?.name
+      : undefined) || "Unassigned";
+
+  const handleStartChange = (value: string) => {
+    if (!value) return;
+    const nextStart = clampDate(new Date(value));
+    let nextEnd = clampDate(new Date(local.end));
+    if (nextStart > nextEnd) {
+      nextEnd = nextStart;
+    }
+    const nextStartIso = nextStart.toISOString();
+    const nextEndIso = nextEnd.toISOString();
+    setLocal((s) => ({ ...s, start: nextStartIso, end: nextEndIso }));
+    if (nextStartIso !== event.start || nextEndIso !== event.end) {
+      onUpdate({ start: nextStartIso, end: nextEndIso });
+    }
+  };
+
+  const handleEndChange = (value: string) => {
+    if (!value) return;
+    let nextEnd = clampDate(new Date(value));
+    let nextStart = clampDate(new Date(local.start));
+    if (nextEnd < nextStart) {
+      nextStart = nextEnd;
+    }
+    const nextStartIso = nextStart.toISOString();
+    const nextEndIso = nextEnd.toISOString();
+    setLocal((s) => ({ ...s, start: nextStartIso, end: nextEndIso }));
+    if (nextStartIso !== event.start || nextEndIso !== event.end) {
+      onUpdate({ start: nextStartIso, end: nextEndIso });
+    }
+  };
+
+  const handleStatusChange = (value: string) => {
+    const nextStatus = value === "none" ? null : (value as TimelineEvent["status"]);
+    setLocal((s) => ({ ...s, status: nextStatus }));
+    if ((event.status ?? null) !== nextStatus) {
+      onUpdate({ status: nextStatus });
+    }
+  };
+
+  const handleAssigneeChange = (assigneeId: string | null) => {
+    setLocal((s) => ({ ...s, assigneeId }));
+    if ((event.assigneeId ?? null) !== assigneeId) {
+      onUpdate({ assigneeId });
+    }
+  };
+
+  const handleColorChange = (color: string | null) => {
+    setLocal((s) => ({ ...s, color }));
+    if ((event.color ?? null) !== color) {
+      onUpdate({ color });
+    }
+  };
+
+  const handleProgressBlur = () => {
+    const nextProgress = Math.min(100, Math.max(0, Number(local.progress) || 0));
+    setLocal((s) => ({ ...s, progress: nextProgress }));
+    if ((event.progress ?? 0) !== nextProgress) {
+      onUpdate({ progress: nextProgress });
+    }
+  };
+
+  const handleNotesBlur = () => {
+    const nextNotes = local.notes.trim();
+    const prevNotes = (event.notes ?? "").trim();
+    if (nextNotes !== prevNotes) {
+      onUpdate({ notes: nextNotes.length > 0 ? nextNotes : null });
+    }
+  };
+
+  const colorChoices = [
+    { value: null as string | null, className: "bg-[var(--foreground)]", label: "Default" },
+    ...DEFAULT_COLORS.map((color) => ({ value: color, className: color, label: color })),
+  ];
+  const currentColorClass = local.color ?? "bg-[var(--foreground)]";
 
   if (!isOpen) return null;
 
   return (
     <div
-      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0"
+      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl overflow-hidden"
       role="complementary"
       aria-label={`Event details: ${event.title}`}
     >
@@ -1789,49 +1901,125 @@ function EventDetailsPanel({
             {event.title || "Event details"}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+          <X className="h-4 w-4" />
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
         <div className="space-y-4">
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
-            <div className="mt-1 text-sm text-[var(--foreground)]">
-              {format(new Date(event.start), "MMM d, yyyy")} – {format(new Date(event.end), "MMM d, yyyy")}
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={format(new Date(local.start), "yyyy-MM-dd")}
+                onChange={(e) => handleStartChange(e.target.value)}
+                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="date"
+                value={format(new Date(local.end), "yyyy-MM-dd")}
+                onChange={(e) => handleEndChange(e.target.value)}
+                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={local.isMilestone}
+              />
             </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Color</div>
+            <button
+              type="button"
+              onClick={() => setIsColorDialogOpen(true)}
+              className={cn(
+                "mt-2 h-6 w-6 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]",
+                currentColorClass
+              )}
+              title="Change color"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
-              <div className="mt-1 text-sm text-[var(--foreground)] capitalize">{statusLabel}</div>
+              <select
+                value={local.status ?? "none"}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="none">None</option>
+                <option value="planned">Planned</option>
+                <option value="in-progress">In progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="done">Done</option>
+              </select>
             </div>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
-              <div className="mt-1 text-sm text-[var(--foreground)]">{assigneeLabel}</div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)]">
+                    {assigneeLabel}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
+                  <DropdownMenuItem
+                    onClick={() => handleAssigneeChange(null)}
+                    className="text-neutral-500"
+                  >
+                    Unassigned
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {workspaceMembers.length > 0 ? (
+                    workspaceMembers.map((member) => (
+                      <DropdownMenuItem
+                        key={member.id}
+                        onClick={() => handleAssigneeChange(member.id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
+                            {member.name[0]?.toUpperCase() || "?"}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm truncate">{member.name}</div>
+                            <div className="text-xs text-neutral-500 truncate">{member.email}</div>
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+                    ))
+                  ) : (
+                    <DropdownMenuItem disabled className="text-neutral-400">
+                      Loading members...
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
-              <div className="mt-1 text-sm text-[var(--foreground)]">{progressLabel}</div>
-            </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Milestone</div>
-              <div className="mt-1 text-sm text-[var(--foreground)]">{event.isMilestone ? "Yes" : "No"}</div>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={local.progress}
+                onChange={(e) => setLocal((s) => ({ ...s, progress: Number(e.target.value) }))}
+                onBlur={handleProgressBlur}
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
 
           <div className="space-y-2">
             <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Notes</div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)]">
-              {event.notes?.trim() ? event.notes : "No notes yet."}
-            </div>
+            <textarea
+              value={local.notes}
+              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+              onBlur={handleNotesBlur}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Add notes..."
+              rows={2}
+            />
           </div>
 
           {workspaceId && (direct || inherited.length > 0) && (
@@ -1851,10 +2039,13 @@ function EventDetailsPanel({
           )}
 
           <div className="space-y-2">
-            <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</div>
-            {references.length === 0 ? (
-              <div className="text-xs text-neutral-500">No attachments yet.</div>
-            ) : (
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</div>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={onAddReference}>
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            {references.length > 0 && (
               <div className="space-y-2">
                 {references.map((ref) => (
                   <div
@@ -1874,6 +2065,31 @@ function EventDetailsPanel({
           </div>
         </div>
       </div>
+      <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Pick a color</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-6 gap-2">
+            {colorChoices.map((choice) => (
+              <button
+                key={choice.label}
+                type="button"
+                onClick={() => {
+                  handleColorChange(choice.value);
+                  setIsColorDialogOpen(false);
+                }}
+                className={cn(
+                  "h-8 w-8 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]",
+                  choice.className,
+                  (local.color ?? null) === choice.value && "ring-2 ring-[var(--foreground)]"
+                )}
+                title={choice.label}
+              />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
