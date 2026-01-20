@@ -84,6 +84,7 @@ interface TimelineBlockProps {
 
 interface WorkspaceMember {
   id: string;
+  user_id?: string | null;
   name: string;
   email: string;
   role: string;
@@ -103,6 +104,11 @@ const DEFAULT_COLORS = [
   "bg-teal-500/50",
   "bg-cyan-500/50",
 ];
+
+function findWorkspaceMember(members: WorkspaceMember[], memberId?: string | null) {
+  if (!memberId) return undefined;
+  return members.find((m) => m.id === memberId) || members.find((m) => m.user_id === memberId);
+}
 
 function clampDate(d: Date) {
   return startOfDay(d);
@@ -688,7 +694,16 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     const fillWidth = Math.floor(containerWidth / totalColumns);
     return Math.max(baseColumnWidth, fillWidth);
   }, [baseColumnWidth, containerWidth, totalColumns]);
-  const memberMap = useMemo(() => new Map(members.map((member) => [member.id, member.name])), [members]);
+  const memberMap = useMemo(() => {
+    const map = new Map<string, string>();
+    members.forEach((member) => {
+      map.set(member.id, member.name);
+      if (member.user_id) {
+        map.set(member.user_id, member.name);
+      }
+    });
+    return map;
+  }, [members]);
 
   const events = useMemo<TimelineEvent[]>(() => {
     return timelineItems.map((item) => ({
@@ -1694,7 +1709,7 @@ function AddEventDialog({
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4 text-neutral-500" />
                     <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                      {members.find((member) => member.id === local.assigneeId)?.name || "Unassigned"}
+                      {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
                     </span>
                   </div>
                   <ChevronDown className="w-4 h-4 text-neutral-400" />
@@ -1712,7 +1727,7 @@ function AddEventDialog({
                   members.map((member) => (
                     <DropdownMenuItem
                       key={member.id}
-                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.id }))}
+                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
                     >
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
@@ -1808,9 +1823,8 @@ function EventDetailsPanel({
   }, [event]);
 
   const assigneeLabel =
-    (local.assigneeId
-      ? workspaceMembers.find((m) => m.id === local.assigneeId)?.name
-      : undefined) || "Unassigned";
+    (local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId)?.name : undefined) ||
+    "Unassigned";
 
   const handleStartChange = (value: string) => {
     if (!value) return;
@@ -2145,7 +2159,7 @@ function EditEventDialog({
   
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
-    const member = workspaceMembers.find((m) => m.id === assigneeId);
+    const member = findWorkspaceMember(workspaceMembers, assigneeId);
     return member?.name || member?.email;
   };
 
@@ -2328,7 +2342,7 @@ function EditEventDialog({
                       <div className="flex items-center gap-2">
                         <User className="w-4 h-4 text-neutral-500" />
                         <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                          {members.find((member) => member.id === local.assigneeId)?.name || "Unassigned"}
+                          {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
                         </span>
                       </div>
                       <ChevronDown className="w-4 h-4 text-neutral-400" />
@@ -2343,11 +2357,11 @@ function EditEventDialog({
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {members.length > 0 ? (
-                      members.map((member) => (
-                        <DropdownMenuItem
-                          key={member.id}
-                          onClick={() => setLocal((s) => ({ ...s, assigneeId: member.id }))}
-                        >
+                  members.map((member) => (
+                    <DropdownMenuItem
+                      key={member.id}
+                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
+                    >
                           <div className="flex items-center gap-2">
                             <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
                               {member.name[0]?.toUpperCase() || "?"}

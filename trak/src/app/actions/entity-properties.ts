@@ -549,15 +549,15 @@ export async function getWorkspaceMembers(
 
   if (profilesError) {
     console.error("getWorkspaceMembers profiles error:", profilesError);
-  const fallback = members.map((member: any) => ({
-    id: member.user_id || member.id,
-    user_id: member.user_id || member.id,
-    workspace_id: member.workspace_id ?? workspaceId,
-    name: member.name || member.email || "Unknown",
-    email: member.email || "",
-    avatar_url: member.avatar_url ?? null,
-    role: member.role,
-  }));
+    const fallback = members.map((member: any) => ({
+      id: member.id || member.user_id,
+      user_id: member.user_id || member.id,
+      workspace_id: member.workspace_id ?? workspaceId,
+      name: member.name || member.email || "Unknown",
+      email: member.email || "",
+      avatar_url: member.avatar_url ?? null,
+      role: member.role,
+    }));
     return { data: fallback };
   }
 
@@ -574,7 +574,7 @@ export async function getWorkspaceMembers(
       member.email ||
       "Unknown";
     return {
-      id: member.user_id || member.id,
+      id: member.id || member.user_id,
       user_id: member.user_id || member.id,
       workspace_id: member.workspace_id ?? workspaceId,
       name,

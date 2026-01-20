@@ -14,6 +14,7 @@ import {
   Paperclip,
   Video,
   Image,
+  Images,
   Maximize2,
   Layout,
   Copy,
@@ -60,6 +61,7 @@ interface BlockWrapperProps {
       | "file"
       | "video"
       | "image"
+      | "gallery"
       | "embed"
       | "doc_reference"
       | "section"
@@ -97,7 +99,7 @@ export default function BlockWrapper({
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
-    const member = workspaceMembers.find((m) => m.id === assigneeId);
+    const member = workspaceMembers.find((m) => m.id === assigneeId || m.user_id === assigneeId);
     return member?.name || member?.email;
   };
 
@@ -141,6 +143,7 @@ export default function BlockWrapper({
     { type: "file", label: "File", icon: <Paperclip className="h-4 w-4" /> },
     { type: "video", label: "Video", icon: <Video className="h-4 w-4" /> },
     { type: "image", label: "Image", icon: <Image className="h-4 w-4" /> },
+    { type: "gallery", label: "Gallery", icon: <Images className="h-4 w-4" /> },
     { type: "embed", label: "Embed", icon: <Maximize2 className="h-4 w-4" /> },
     { type: "section", label: "Section", icon: <Layout className="h-4 w-4" /> },
   ];

@@ -207,7 +207,7 @@ function TaskPropertyBadges({
   // Get member name for assignee badge
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
-    const member = members.find((m) => m.id === assigneeId);
+    const member = members.find((m) => m.id === assigneeId || m.user_id === assigneeId);
     return member?.name || member?.email;
   };
 
@@ -367,6 +367,22 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const initialBoardGroupBy = content.boardGroupBy || "status";
 
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const workspaceMemberLookup = useMemo(() => {
+    const map = new Map<string, (typeof workspaceMembers)[number]>();
+    workspaceMembers.forEach((member) => {
+      map.set(member.id, member);
+      if (member.user_id) {
+        map.set(member.user_id, member);
+      }
+    });
+    return map;
+  }, [workspaceMembers]);
+  const getWorkspaceMember = (assigneeId?: string | null) =>
+    assigneeId ? workspaceMemberLookup.get(assigneeId) : undefined;
+  const normalizeAssigneeId = (assigneeId?: string | null) => {
+    const member = getWorkspaceMember(assigneeId);
+    return member?.id ?? assigneeId ?? null;
+  };
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(title);
@@ -1032,8 +1048,9 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       orderedTasks.forEach((task) => {
         const taskId = String(task.id);
         const effectiveAssigneeId = getEffectiveAssigneeId(taskId, task);
-        if (effectiveAssigneeId) {
-          assigneeIds.add(effectiveAssigneeId);
+        const normalizedAssigneeId = normalizeAssigneeId(effectiveAssigneeId);
+        if (normalizedAssigneeId) {
+          assigneeIds.add(normalizedAssigneeId);
         } else if (task.assignees && task.assignees.length > 0) {
           assigneeNames.add(task.assignees[0]);
         }
@@ -1125,6 +1142,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       const effectiveStatus = getEffectiveStatus(taskId, task);
       const effectivePriority = getEffectivePriority(taskId, task);
       const effectiveAssigneeId = getEffectiveAssigneeId(taskId, task);
+      const normalizedAssigneeId = normalizeAssigneeId(effectiveAssigneeId);
       const effectiveTags = getEffectiveTags(taskId, task);
       const effectiveDueDate = getEffectiveDueDate(taskId, task);
 
@@ -1134,17 +1152,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       } else if (boardGroupBy === "priority") {
         columnId = `priority:${effectivePriority || "none"}`;
       } else if (boardGroupBy === "assignee") {
-        if (effectiveAssigneeId) {
-          columnId = `assignee:${effectiveAssigneeId}`;
+        if (normalizedAssigneeId) {
+          columnId = `assignee:${normalizedAssigneeId}`;
           if (!columnMap.has(columnId)) {
-            const member = workspaceMembers.find((m) => m.id === effectiveAssigneeId);
+            const member = getWorkspaceMember(normalizedAssigneeId);
             addColumn({
               id: columnId,
               label: member?.name || member?.email || "Assignee",
               taskIds: [],
               groupBy: "assignee",
-              value: effectiveAssigneeId,
-              assigneeId: effectiveAssigneeId,
+              value: normalizedAssigneeId,
+              assigneeId: normalizedAssigneeId,
             });
           }
         } else if (task.assignees && task.assignees.length > 0) {
@@ -1486,6 +1504,14 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           const effectivePriority = getEffectivePriority(String(task.id), task);
           const effectiveAssigneeId = getEffectiveAssigneeId(String(task.id), task);
           const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
+          const priorityLabel = effectivePriority
+            ? PRIORITY_OPTIONS.find((o) => o.value === effectivePriority)?.label ?? effectivePriority
+            : null;
+          const assigneeMember = getWorkspaceMember(effectiveAssigneeId);
+          const assigneeName = effectiveAssigneeId
+            ? assigneeMember?.name || assigneeMember?.email || "Assigned"
+            : null;
+          const dueDateLabel = effectiveDueDate || null;
           const showInlineIcons =
             shouldShowIcons(task) ||
             Boolean(effectivePriority || effectiveAssigneeId || effectiveDueDate);
@@ -1646,7 +1672,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             type="button"
                             onClick={(e) => e.stopPropagation()}
                             className={cn(
-                              "inline-flex items-center justify-center rounded-[2px] px-1.5 py-0.5 transition-colors",
+                              "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
                               effectivePriority
                                 ? PRIORITY_COLORS[effectivePriority]
                                 : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
@@ -1658,6 +1684,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             }
                           >
                             <Flag className="h-3 w-3" />
+                            {priorityLabel && <span className="max-w-[120px] truncate">{priorityLabel}</span>}
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
@@ -1695,22 +1722,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             type="button"
                             onClick={(e) => e.stopPropagation()}
                             className={cn(
-                              "inline-flex items-center justify-center rounded-[2px] px-1.5 py-0.5 transition-colors",
+                              "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
                               effectiveAssigneeId
                                 ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                                 : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
                             )}
                             title={
-                              effectiveAssigneeId
-                                ? `Assignee: ${
-                                    workspaceMembers.find((m) => m.id === effectiveAssigneeId)?.name ||
-                                    workspaceMembers.find((m) => m.id === effectiveAssigneeId)?.email ||
-                                    "Assigned"
-                                  }`
-                                : "Assign"
+                              assigneeName ? `Assignee: ${assigneeName}` : "Assign"
                             }
                           >
                             <Users className="h-3 w-3" />
+                            {assigneeName && <span className="max-w-[140px] truncate">{assigneeName}</span>}
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
@@ -1744,7 +1766,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                       {/* Due Date */}
                       <label
                         className={cn(
-                          "relative inline-flex items-center justify-center rounded-[2px] px-1.5 py-0.5 transition-colors cursor-pointer",
+                          "relative inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors cursor-pointer",
                           effectiveDueDate
                             ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                             : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
@@ -1754,6 +1776,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         onMouseDown={(e) => e.stopPropagation()}
                       >
                         <Calendar className="h-3 w-3" />
+                        {dueDateLabel && <span className="max-w-[110px] truncate">{dueDateLabel}</span>}
                         <input
                           type="date"
                           value={effectiveDueDate || ""}
@@ -1954,9 +1977,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         const effectiveAssigneeId = getEffectiveAssigneeId(taskId, task);
                         const effectiveDueDate = getEffectiveDueDate(taskId, task);
                         const effectiveTags = getEffectiveTags(taskId, task);
+                        const assigneeMember = getWorkspaceMember(effectiveAssigneeId);
                         const assigneeName =
                           (effectiveAssigneeId &&
-                            workspaceMembers.find((m) => m.id === effectiveAssigneeId)?.name) ||
+                            (assigneeMember?.name || assigneeMember?.email)) ||
                           task.assignees?.[0];
                         const assigneeInitial = assigneeName ? assigneeName.trim()[0]?.toUpperCase() : "?";
 

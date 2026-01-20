@@ -73,6 +73,19 @@ export function PropertyMenu({
 
   const direct = propertiesResult?.direct;
   const inherited = propertiesResult?.inherited ?? [];
+  const memberLookup = React.useMemo(() => {
+    const map = new Map<string, (typeof members)[number]>();
+    members.forEach((member) => {
+      map.set(member.id, member);
+      if (member.user_id) {
+        map.set(member.user_id, member);
+      }
+    });
+    return map;
+  }, [members]);
+  const selectedAssigneeId = direct?.assignee_id
+    ? memberLookup.get(direct.assignee_id)?.id ?? "none"
+    : "none";
 
   const handleAddTag = () => {
     if (!newTagInput.trim()) return;
@@ -181,7 +194,7 @@ export function PropertyMenu({
             <div className="space-y-2">
               <Label className="text-sm font-medium">Assignee</Label>
               <Select
-                value={direct?.assignee_id || "none"}
+                value={selectedAssigneeId}
                 onValueChange={(value) =>
                   setProperties.mutate({
                     assignee_id: value === "none" ? null : value,

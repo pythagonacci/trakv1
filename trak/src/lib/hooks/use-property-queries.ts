@@ -261,7 +261,7 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
  */
 export function useWorkspaceMembers(workspaceId?: string) {
   return useQuery({
-    queryKey: ["workspaceMembers", workspaceId],
+    queryKey: ["workspaceMembers", "properties", workspaceId],
     queryFn: async () => {
       if (!workspaceId) return [];
       const result = await getWorkspaceMembers(workspaceId);
