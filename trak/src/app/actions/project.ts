@@ -225,6 +225,18 @@ function summarizeBlockPreview(
         summary: content.caption || "Image",
         meta: content.alt || undefined,
       };
+    case "gallery": {
+      const items = Array.isArray(content.items) ? content.items : [];
+      const withImages = items.filter((item: any) => item?.fileId).length;
+      const layout = typeof content.layout === "string" ? content.layout : undefined;
+      const detailLines = items.length
+        ? [`${withImages}/${items.length} images`]
+        : ["No images yet"];
+      return {
+        summary: layout ? `Gallery ${layout}` : "Gallery",
+        detailLines,
+      };
+    }
     case "embed":
       return {
         summary: truncatePreviewText(content.title || content.url, 70) || "Embed",

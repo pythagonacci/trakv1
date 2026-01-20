@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -24,12 +24,7 @@ import ClientTabBlockRenderer from "./client-tab-block-renderer";
 import DocSidebar from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/doc-sidebar";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/tab-themes";
-
-// Create context for file URLs
-export const FileUrlContext = createContext<Record<string, string>>({});
-
-// Export hook for blocks to use
-export const useFileUrls = () => useContext(FileUrlContext);
+import { FileUrlContext } from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/tab-canvas";
 
 interface ClientTabCanvasProps {
   tabId: string;
@@ -239,7 +234,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
     }
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "section" | "doc_reference") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "gallery" | "video" | "embed" | "section" | "doc_reference") => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {
@@ -276,6 +271,8 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
       newContent = { files: [] };
     } else if (newType === "image") {
       newContent = { fileId: null, caption: "", width: 400 };
+    } else if (newType === "gallery") {
+      newContent = { layout: null, items: [] };
     } else if (newType === "video") {
       newContent = { files: [] };
     } else if (newType === "embed") {

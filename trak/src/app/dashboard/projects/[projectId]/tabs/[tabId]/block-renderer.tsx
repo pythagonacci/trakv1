@@ -53,6 +53,11 @@ const ImageBlock = dynamic(() => import("./image-block"), {
   ssr: true,
 });
 
+const GalleryBlock = dynamic(() => import("./gallery-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
 const EmbedBlock = dynamic(() => import("./embed-block"), {
   loading: () => <BlockLoadingState />,
   ssr: true,
@@ -85,7 +90,7 @@ interface BlockRendererProps {
   tabId?: string;
   onUpdate?: (updatedBlock?: Block) => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "section" | "doc_reference") => void;
+  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "gallery" | "video" | "embed" | "section" | "doc_reference") => void;
   onAddBlockAbove?: (blockId: string, type?: Block["type"]) => void;
   onAddBlockBelow?: (blockId: string, type?: Block["type"]) => void;
   onOpenDoc?: (docId: string) => void;
@@ -149,6 +154,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
         return <FileBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "image":
         return <ImageBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "gallery":
+        return <GalleryBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "video":
         return <VideoBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "embed":

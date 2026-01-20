@@ -45,6 +45,13 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
     if (block.type === 'image' && block.content?.fileId) {
       ids.push(block.content.fileId as string);
     }
+    if (block.type === 'gallery' && Array.isArray(block.content?.items)) {
+      block.content.items.forEach((item: any) => {
+        if (item?.fileId) {
+          ids.push(item.fileId as string);
+        }
+      });
+    }
     if (block.type === 'pdf' && block.content?.fileId) {
       ids.push(block.content.fileId as string);
     }
@@ -123,4 +130,3 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
     />
   );
 }
-

@@ -10,7 +10,7 @@ import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section" | "doc_reference";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "doc_reference";
 
 export interface Block {
   id: string;
@@ -364,6 +364,9 @@ export async function createBlock(data: {
           break;
         case "image":
           content = { fileId: null, caption: "", width: 400 };
+          break;
+        case "gallery":
+          content = { layout: null, items: [] };
           break;
         case "embed":
           content = { url: "", displayMode: "inline" };

@@ -53,6 +53,11 @@ const ImageBlock = dynamic(() => import("@/app/dashboard/projects/[projectId]/ta
   ssr: true,
 });
 
+const GalleryBlock = dynamic(() => import("@/app/dashboard/projects/[projectId]/tabs/[tabId]/gallery-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
 const EmbedBlock = dynamic(() => import("@/app/dashboard/projects/[projectId]/tabs/[tabId]/embed-block"), {
   loading: () => <BlockLoadingState />,
   ssr: true,
@@ -125,6 +130,8 @@ export default function ClientTabBlockRenderer({
         return <FileBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "image":
         return <ImageBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
+      case "gallery":
+        return <GalleryBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "video":
         return <VideoBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={() => onUpdate?.()} />;
       case "embed":

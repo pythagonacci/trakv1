@@ -188,6 +188,8 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
         return { files: [] };
       case "image":
         return { fileId: null, caption: "", width: 400 };
+      case "gallery":
+        return { layout: null, items: [] };
       case "embed":
         return { url: "", displayMode: "inline" };
       case "section":

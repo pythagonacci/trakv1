@@ -12,6 +12,7 @@ import TimelineBlock from "./timeline-block";
 import FileBlock from "./file-block";
 import VideoBlock from "./video-block";
 import ImageBlock from "./image-block";
+import GalleryBlock from "./gallery-block";
 import EmbedBlock from "./embed-block";
 import PdfBlock from "./pdf-block";
 import SectionBlock from "./section-block";
@@ -109,6 +110,8 @@ export default function BlockReferenceRenderer({
         return <FileBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "image":
         return <ImageBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "gallery":
+        return <GalleryBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "video":
         return <VideoBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "embed":

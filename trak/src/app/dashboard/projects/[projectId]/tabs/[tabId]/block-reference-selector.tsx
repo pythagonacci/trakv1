@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, FileText, X, Copy, Table, CheckSquare, Link2, Calendar, Upload, Image, Video, Maximize2, Layout } from "lucide-react";
+import { Search, FileText, X, Copy, Table, CheckSquare, Link2, Calendar, Upload, Image, Images, Video, Maximize2, Layout } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getTemplateBlocks } from "@/app/actions/block-templates";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
@@ -38,6 +38,7 @@ const blockIcons: Record<string, React.ReactNode> = {
   file: <Upload className="h-4 w-4" />,
   pdf: <FileText className="h-4 w-4" />,
   image: <Image className="h-4 w-4" />,
+  gallery: <Images className="h-4 w-4" />,
   video: <Video className="h-4 w-4" />,
   embed: <Maximize2 className="h-4 w-4" />,
   section: <Layout className="h-4 w-4" />,
@@ -52,6 +53,7 @@ const blockTypeLabels: Record<string, string> = {
   file: "File",
   pdf: "File",
   image: "Image",
+  gallery: "Gallery",
   video: "Video",
   embed: "Embed",
   section: "Section",
@@ -221,6 +223,5 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
     </Dialog>
   );
 }
-
 
 

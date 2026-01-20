@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout, Copy, AlertCircle } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Images, Layout, Copy, AlertCircle } from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -87,6 +87,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "Image",
     icon: <Image className="w-4 h-4" />,
     description: "Upload and display images with captions",
+  },
+  {
+    type: "gallery",
+    label: "Gallery",
+    icon: <Images className="w-4 h-4" />,
+    description: "Grid of images with a scrollable layout",
   },
   {
     type: "embed",
@@ -219,6 +225,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "file": return { files: [] };
       case "video": return { files: [] };
       case "image": return { fileId: null, caption: "", width: 400 };
+      case "gallery": return { layout: null, items: [] };
       case "embed": return { url: "", displayMode: "inline" };
       case "section": return { height: 400 };
       case "doc_reference": return { doc_id: "", doc_title: "" };

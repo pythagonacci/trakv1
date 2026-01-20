@@ -58,6 +58,7 @@ export default function MakeTemplateDialog({ isOpen, onClose, blockId, blockType
       timeline: "Timeline",
       file: "File",
       image: "Image",
+      gallery: "Gallery",
       video: "Video",
       embed: "Embed",
       pdf: "File",
@@ -107,6 +108,5 @@ export default function MakeTemplateDialog({ isOpen, onClose, blockId, blockType
     </Dialog>
   );
 }
-
 
 

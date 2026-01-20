@@ -65,6 +65,15 @@ export default async function ClientPage({
     if (block.type === 'image' && block.content?.fileId) {
       fileIds.push(block.content.fileId as string);
     }
+
+    // Gallery blocks
+    if (block.type === 'gallery' && Array.isArray(block.content?.items)) {
+      block.content.items.forEach((item: any) => {
+        if (item?.fileId) {
+          fileIds.push(item.fileId as string);
+        }
+      });
+    }
     
     // PDF blocks
     if (block.type === 'pdf' && block.content?.fileId) {
@@ -141,4 +150,3 @@ export default async function ClientPage({
     </div>
   );
 }
-

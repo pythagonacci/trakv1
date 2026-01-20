@@ -9,7 +9,7 @@ import { getBatchFileUrls } from "@/app/actions/file";
 // TYPES
 // ============================================================================
 
-export type ClientTabBlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "embed" | "pdf" | "section" | "doc_reference";
+export type ClientTabBlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "doc_reference";
 
 export interface ClientTabBlock {
   id: string;

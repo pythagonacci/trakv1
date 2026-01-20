@@ -18,6 +18,7 @@ import {
   CalendarRange,
   Paperclip,
   Image as ImageIcon,
+  Images as ImagesIcon,
   PlayCircle,
   Globe,
   FileText as FileTextIcon,
@@ -99,6 +100,7 @@ const blockIconLookup: Partial<Record<BlockType, LucideIcon>> = {
   file: Paperclip,
   video: PlayCircle,
   image: ImageIcon,
+  gallery: ImagesIcon,
   embed: Globe,
   pdf: FileTextIcon,
   section: LayoutPanelTop,
@@ -579,4 +581,3 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId }:
     );
   }
 }
-

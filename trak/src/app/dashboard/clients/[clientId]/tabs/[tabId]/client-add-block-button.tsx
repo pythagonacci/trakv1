@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Layout } from "lucide-react";
+import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Images, Layout } from "lucide-react";
 import { createClientTabBlock, type ClientTabBlock, type ClientTabBlockType } from "@/app/actions/client-tab-block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -71,6 +71,12 @@ const blockTypes: Array<{ type: ClientTabBlockType; label: string; icon: React.R
     label: "Image",
     icon: <Image className="w-4 h-4" />,
     description: "Image with caption",
+  },
+  {
+    type: "gallery",
+    label: "Gallery",
+    icon: <Images className="w-4 h-4" />,
+    description: "Scrollable image grid",
   },
   {
     type: "video",
@@ -200,6 +206,8 @@ export default function ClientAddBlockButton({
         return { files: [] };
       case "image":
         return { fileId: null, caption: "", width: 400 };
+      case "gallery":
+        return { layout: null, items: [] };
       case "video":
         return { files: [] };
       case "embed":

@@ -257,7 +257,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     }
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "video" | "embed" | "section" | "doc_reference") => {
+  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "gallery" | "video" | "embed" | "section" | "doc_reference") => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {
@@ -300,6 +300,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       newContent = { url: "", displayMode: "inline" };
     } else if (newType === "section") {
       newContent = { height: 400 };
+    } else if (newType === "gallery") {
+      newContent = { layout: null, items: [] };
     } else if (newType === "doc_reference") {
       newContent = { doc_id: "", doc_title: "" };
     }
@@ -351,6 +353,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         return { files: [] };
       case "image":
         return { fileId: null, caption: "", width: 400 };
+      case "gallery":
+        return { layout: null, items: [] };
       case "embed":
         return { url: "", displayMode: "inline" };
       case "section":
