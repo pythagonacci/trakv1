@@ -179,3 +179,68 @@ export async function bulkDuplicateRows(input: {
   if (error) return { error: "Failed to duplicate rows" };
   return { data: null };
 }
+
+export async function bulkInsertRows(input: {
+  tableId: string;
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>;
+}): Promise<ActionResult<{ insertedIds: string[] }>> {
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const access = await requireTableAccess(input.tableId);
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+
+  if (!input.rows.length) return { data: { insertedIds: [] } };
+
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, type")
+    .eq("table_id", input.tableId);
+
+  const readOnlyTypes = new Set([
+    "rollup",
+    "formula",
+    "created_time",
+    "last_edited_time",
+    "created_by",
+    "last_edited_by",
+  ]);
+  const validIds = new Set(
+    (fields || []).filter((field) => !readOnlyTypes.has(field.type)).map((field) => field.id)
+  );
+
+  const cleanedRows = input.rows.map((row) => ({
+    table_id: input.tableId,
+    data: sanitizeRowData(row.data || {}, validIds),
+    order: row.order ?? null,
+    created_by: user.id,
+    updated_by: user.id,
+  }));
+
+  const chunkSize = 100;
+  const insertedIds: string[] = [];
+  for (let i = 0; i < cleanedRows.length; i += chunkSize) {
+    const chunk = cleanedRows.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("table_rows")
+      .insert(chunk)
+      .select("id");
+    if (error) {
+      console.error("bulkInsertRows: failed to insert rows:", error);
+      return { error: error.message || "Failed to insert rows" };
+    }
+    if (data) {
+      data.forEach((row) => insertedIds.push(row.id));
+    }
+  }
+
+  await Promise.all(
+    insertedIds.map(async (rowId) => {
+      await recomputeFormulasForRow(input.tableId, rowId);
+      await recomputeRollupsForRow(input.tableId, rowId);
+    })
+  );
+
+  return { data: { insertedIds } };
+}

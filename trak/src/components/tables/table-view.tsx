@@ -25,6 +25,7 @@ import {
   useBulkDeleteRows,
   useBulkDuplicateRows,
   useBulkUpdateRows,
+  useBulkInsertRows,
 } from "@/lib/hooks/use-table-queries";
 import { TableHeaderRow } from "./table-header-row";
 import { TableRow } from "./table-row";
@@ -48,6 +49,17 @@ import { groupRows, canGroupByField } from "@/lib/table-grouping";
 import { GroupHeader } from "./group-header";
 import { BoardView } from "./board-view";
 import { TableTimelineView } from "./table-timeline-view";
+import Toast from "@/app/dashboard/projects/toast";
+import { TableImportModal, type ImportColumnMapping } from "./table-import-modal";
+import {
+  parsePastedTable,
+  isStructuredData,
+  inferFieldType,
+  buildSelectOptions,
+  transformValue,
+  findOptionByLabel,
+  normalizeHeaderName,
+} from "@/lib/table-import";
 
 function TableViewLoadingState() {
   return (
@@ -63,6 +75,14 @@ const isFocusableElement = (el: HTMLElement | null) => {
   const tag = el.tagName.toLowerCase();
   const focusableTags = ["input", "textarea", "select", "button"];
   if (focusableTags.includes(tag)) return true;
+  const contentEditable = (el as HTMLElement).getAttribute("contenteditable");
+  return contentEditable === "true";
+};
+
+const isTextInputElement = (el: HTMLElement | null) => {
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  if (["input", "textarea", "select"].includes(tag)) return true;
   const contentEditable = (el as HTMLElement).getAttribute("contenteditable");
   return contentEditable === "true";
 };
@@ -97,6 +117,11 @@ export function TableView({ tableId }: Props) {
   const [relationCount, setRelationCount] = useState<number | null>(null);
   const [countingRelations, setCountingRelations] = useState(false);
   const [editRequest, setEditRequest] = useState<{ rowId: string; fieldId: string; initialValue?: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [importData, setImportData] = useState<ReturnType<typeof parsePastedTable> | null>(null);
+  const [importMappings, setImportMappings] = useState<ImportColumnMapping[]>([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   // Fetch workspace members for person fields
   const { data: workspaceMembers } = useQuery({
@@ -135,8 +160,17 @@ export function TableView({ tableId }: Props) {
   const bulkDeleteRows = useBulkDeleteRows(tableId);
   const bulkDuplicateRows = useBulkDuplicateRows(tableId);
   const bulkUpdateRows = useBulkUpdateRows(tableId);
+  const bulkInsertRows = useBulkInsertRows(tableId);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
+  const editableFields = useMemo(
+    () =>
+      allFields.filter(
+        (field) =>
+          !["rollup", "formula", "created_time", "last_edited_time", "created_by", "last_edited_by"].includes(field.type)
+      ),
+    [allFields]
+  );
   const hiddenFields = useMemo(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
   const pinnedFields = useMemo(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
   const dateFields = useMemo(() => allFields.filter((f) => f.type === "date"), [allFields]);
@@ -522,6 +556,192 @@ export function TableView({ tableId }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const getLastOrderValue = () => {
+    const numericOrders = sortedRows
+      .map((row) => Number(row.order))
+      .filter((order) => !Number.isNaN(order));
+    if (numericOrders.length === 0) return 0;
+    return Math.max(...numericOrders);
+  };
+
+  const buildUniqueFieldName = (name: string, usedNames: Set<string>) => {
+    const baseName = name.trim() || "New Field";
+    let next = baseName;
+    let suffix = 2;
+    while (usedNames.has(next.toLowerCase())) {
+      next = `${baseName} (${suffix})`;
+      suffix += 1;
+    }
+    usedNames.add(next.toLowerCase());
+    return next;
+  };
+
+  const handlePasteImport = useCallback(
+    async (parsed: NonNullable<ReturnType<typeof parsePastedTable>>, mappings?: ImportColumnMapping[]) => {
+      setImporting(true);
+      setError(null);
+      try {
+        const mappingList = (mappings || importMappings).map((entry) => ({ ...entry }));
+        const usedNames = new Set(allFields.map((field) => field.name.trim().toLowerCase()));
+        const createdFields: TableField[] = [];
+        const fieldMap = new Map<string, TableField>(allFields.map((field) => [field.id, field]));
+
+        for (const mapping of mappingList) {
+          if (mapping.mode !== "new") continue;
+          const columnValues = parsed.rows.map((row) => row[mapping.columnIndex] ?? "");
+          const nextType = mapping.newFieldType || inferFieldType(columnValues);
+          const nextName = buildUniqueFieldName(
+            normalizeHeaderName(mapping.newFieldName || mapping.columnName),
+            usedNames
+          );
+          const config =
+            nextType === "select" || nextType === "multi_select"
+              ? { options: buildSelectOptions(columnValues) }
+              : undefined;
+          const result = await createField.mutateAsync({
+            name: nextName,
+            type: nextType,
+            ...(config ? { config } : {}),
+          });
+          if ("error" in result) {
+            throw new Error(result.error);
+          }
+          createdFields.push(result.data);
+          fieldMap.set(result.data.id, result.data);
+          mapping.fieldId = result.data.id;
+          mapping.mode = "field";
+        }
+
+        const mappedCount = mappingList.filter((mapping) => mapping.mode === "field" && mapping.fieldId).length;
+        if (mappedCount === 0) {
+          setToast({ message: "No columns selected to import.", type: "error" });
+          return;
+        }
+
+        const fieldConfigUpdates = new Map<string, TableField["config"]>();
+        const optionLookup = new Map<string, Map<string, string>>();
+
+        mappingList.forEach((mapping) => {
+          if (mapping.mode !== "field" || !mapping.fieldId) return;
+          const field = fieldMap.get(mapping.fieldId);
+          if (!field) return;
+          if (!["select", "multi_select", "status"].includes(field.type)) return;
+
+          const config = (field.config || {}) as { options?: Array<{ id: string; label: string; color: string }> };
+          const options = [...(config.options || [])];
+          const newOptions: Array<{ id: string; label: string; color: string }> = [];
+          const ensureOption = (label: string) => {
+            const existing = findOptionByLabel(options, label);
+            if (existing) return existing.id;
+            const nextOption = {
+              id: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              label: label.trim(),
+              color: "#3b82f6",
+            };
+            options.push(nextOption);
+            newOptions.push(nextOption);
+            return nextOption.id;
+          };
+
+          parsed.rows.forEach((row) => {
+            const raw = row[mapping.columnIndex] ?? "";
+            if (!raw || !raw.trim()) return;
+            if (field.type === "multi_select") {
+              raw
+                .split(/[,;]+/)
+                .map((part) => part.trim())
+                .filter(Boolean)
+                .forEach((label) => ensureOption(label));
+            } else {
+              ensureOption(raw);
+            }
+          });
+
+          if (newOptions.length > 0) {
+            fieldConfigUpdates.set(field.id, { ...config, options });
+            const lookup = new Map<string, string>();
+            options.forEach((opt) => lookup.set(opt.label.trim().toLowerCase(), opt.id));
+            optionLookup.set(field.id, lookup);
+          } else if (options.length > 0) {
+            const lookup = new Map<string, string>();
+            options.forEach((opt) => lookup.set(opt.label.trim().toLowerCase(), opt.id));
+            optionLookup.set(field.id, lookup);
+          }
+        });
+
+        for (const [fieldId, config] of fieldConfigUpdates.entries()) {
+          const updateResult = await updateField.mutateAsync({ id: fieldId, updates: { config } });
+          if ("error" in updateResult) {
+            throw new Error(updateResult.error);
+          }
+        }
+
+        const baseOrder = getLastOrderValue();
+        const rowsToInsert = parsed.rows.map((row, idx) => {
+          const data: Record<string, unknown> = {};
+          mappingList.forEach((mapping) => {
+            if (mapping.mode !== "field" || !mapping.fieldId) return;
+            const field = fieldMap.get(mapping.fieldId);
+            if (!field) return;
+            const rawValue = row[mapping.columnIndex] ?? "";
+            if (!rawValue || !rawValue.trim()) {
+              data[field.id] = null;
+              return;
+            }
+            if (field.type === "select" || field.type === "status") {
+              const lookup = optionLookup.get(field.id);
+              if (lookup) {
+                const id = lookup.get(rawValue.trim().toLowerCase());
+                data[field.id] = id ?? null;
+              } else {
+                data[field.id] = rawValue.trim();
+              }
+              return;
+            }
+            if (field.type === "multi_select") {
+              const lookup = optionLookup.get(field.id);
+              const parts = rawValue
+                .split(/[,;]+/)
+                .map((part) => part.trim())
+                .filter(Boolean);
+              if (lookup) {
+                data[field.id] = parts.map((part) => lookup.get(part.toLowerCase()) || part);
+              } else {
+                data[field.id] = parts;
+              }
+              return;
+            }
+            data[field.id] = transformValue(rawValue, field);
+          });
+          return { data, order: baseOrder + idx + 1 };
+        });
+
+        const insertResult = await bulkInsertRows.mutateAsync(rowsToInsert);
+        if ("error" in insertResult) {
+          throw new Error(insertResult.error);
+        }
+
+        setImportModalOpen(false);
+        setImportData(null);
+        setImportMappings([]);
+        const createdCount = createdFields.length;
+        setToast({
+          message: `Imported ${rowsToInsert.length} rows${createdCount ? `, created ${createdCount} columns` : ""}`,
+          type: "success",
+        });
+      } catch (err) {
+        console.error("Import failed:", err);
+        setToast({
+          message: err instanceof Error ? err.message : "Failed to import rows",
+          type: "error",
+        });
+      } finally {
+        setImporting(false);
+      }
+    },
+    [allFields, bulkInsertRows, createField, importMappings, sortedRows, updateField]
+  );
+
   const handleAddField = useCallback(() => {
     setError(null);
     createField.mutate({ name: "New Field", type: "text" }, {
@@ -832,6 +1052,99 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
     const value = targetGroupId === "__ungrouped__" ? null : targetGroupId;
     updateCell.mutate({ rowId, fieldId: groupByField.id, value });
   };
+
+  const buildInitialImportMappings = (parsed: NonNullable<ReturnType<typeof parsePastedTable>>) => {
+    const normalizedFieldMap = new Map(
+      editableFields.map((field) => [field.name.trim().toLowerCase(), field.id])
+    );
+    return parsed.headers.map((header, index) => {
+      const normalizedHeader = header.trim().toLowerCase();
+      const columnValues = parsed.rows.map((row) => row[index] ?? "");
+      const inferredType = inferFieldType(columnValues);
+
+      if (parsed.hasHeader && normalizedFieldMap.has(normalizedHeader)) {
+        return {
+          columnIndex: index,
+          columnName: header,
+          mode: "field",
+          fieldId: normalizedFieldMap.get(normalizedHeader),
+          newFieldType: inferredType,
+        } as ImportColumnMapping;
+      }
+
+      if (!parsed.hasHeader && editableFields[index]) {
+        return {
+          columnIndex: index,
+          columnName: header,
+          mode: "field",
+          fieldId: editableFields[index].id,
+          newFieldType: inferredType,
+        } as ImportColumnMapping;
+      }
+
+      return {
+        columnIndex: index,
+        columnName: header,
+        mode: "new",
+        newFieldName: header,
+        newFieldType: inferredType,
+      } as ImportColumnMapping;
+    });
+  };
+
+  const handlePasteText = useCallback(
+    (text: string) => {
+      if (!text || !isStructuredData(text)) {
+        setToast({ message: "Couldn't detect structured data.", type: "error" });
+        return;
+      }
+      const parsed = parsePastedTable(text);
+      if (!parsed) {
+        setToast({ message: "Couldn't detect structured data.", type: "error" });
+        return;
+      }
+      if (parsed.rows.length === 0) {
+        setToast({ message: "No data rows detected to import.", type: "error" });
+        return;
+      }
+
+      const mappings = buildInitialImportMappings(parsed);
+      setImportData(parsed);
+      setImportMappings(mappings);
+
+      if (editableFields.length === 0 || sortedRows.length === 0) {
+        handlePasteImport(parsed, mappings);
+        return;
+      }
+
+      setImportModalOpen(true);
+    },
+    [editableFields, sortedRows.length, handlePasteImport]
+  );
+
+  useEffect(() => {
+    if (viewType !== "table") return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      if (isTextInputElement(event.target as HTMLElement)) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const targetNode = event.target as Node | null;
+      const activeNode = document.activeElement as Node | null;
+      const isWithinTable =
+        (targetNode && container.contains(targetNode)) || (activeNode && container.contains(activeNode));
+      if (!isWithinTable) return;
+
+      const pastedText = event.clipboardData?.getData("text/plain");
+      if (!pastedText) return;
+      if (!isStructuredData(pastedText)) return;
+      event.preventDefault();
+      handlePasteText(pastedText);
+    };
+
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [handlePasteText, viewType]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1282,6 +1595,26 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           onClose={() => setDetailColumnId(null)}
         />
       )}
+      <TableImportModal
+        open={importModalOpen}
+        rowCount={importData?.rows.length ?? 0}
+        columns={importMappings}
+        fields={editableFields}
+        previewRows={importData?.rows.slice(0, 5) ?? []}
+        largePasteWarning={(importData?.rows.length ?? 0) > 1000}
+        loading={importing}
+        onClose={() => {
+          if (importing) return;
+          setImportModalOpen(false);
+          setImportData(null);
+          setImportMappings([]);
+        }}
+        onChange={(next) => setImportMappings(next)}
+        onConfirm={() => {
+          if (!importData) return;
+          handlePasteImport(importData, importMappings);
+        }}
+      />
       {contextMenu && (
         <TableContextMenu
           x={contextMenu.x}
@@ -1340,6 +1673,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           entityTitle="Table row"
         />
       )}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }

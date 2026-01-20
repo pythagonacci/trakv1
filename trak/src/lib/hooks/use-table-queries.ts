@@ -13,7 +13,7 @@ import { createView, getView, updateView, deleteView, setDefaultView, listViews 
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
 import { getTableData, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
 import { getRelatedRows, configureRelationField } from "@/app/actions/tables/relation-actions";
-import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows } from "@/app/actions/tables/bulk-actions";
+import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows, bulkInsertRows } from "@/app/actions/tables/bulk-actions";
 import type { Table, TableField, TableRow, TableView, TableComment, FilterCondition } from "@/types/table";
 
 // ---------------------------------------------------------------------------
@@ -526,6 +526,17 @@ export function useBulkDuplicateRows(tableId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowIds: string[]) => bulkDuplicateRows({ tableId, rowIds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function useBulkInsertRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>) =>
+      bulkInsertRows({ tableId, rows }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
     },
