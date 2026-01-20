@@ -6,7 +6,7 @@ import { type Block, updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
-import { Loader2, X, Image as ImageIcon, Images } from "lucide-react";
+import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface GalleryBlockProps {
@@ -17,10 +17,12 @@ interface GalleryBlockProps {
 }
 
 type GalleryLayout = "3x3" | "2x3";
+type ImageFitMode = "contain" | "cover";
 
 type GalleryItem = {
   fileId: string | null;
   caption?: string;
+  fitMode?: ImageFitMode;
 };
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -45,6 +47,7 @@ const buildItems = (rawItems: unknown, layout: GalleryLayout | null): GalleryIte
     normalized.push({
       fileId: typeof item?.fileId === "string" ? item.fileId : null,
       caption: typeof item?.caption === "string" ? item.caption : "",
+      fitMode: item?.fitMode === "contain" || item?.fitMode === "cover" ? item.fitMode : undefined,
     });
   }
 
@@ -62,15 +65,28 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [items, setItems] = useState<GalleryItem[]>(
     buildItems(block.content?.items, (block.content?.layout as GalleryLayout) || null)
   );
+  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>(
+    (block.content?.imageFitMode as ImageFitMode) || "contain"
+  );
+  const [title, setTitle] = useState<string>(
+    (block.content?.title as string) || "Gallery"
+  );
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [sideModalIndex, setSideModalIndex] = useState<number | null>(null);
+  const [hoveredImageIndex, setHoveredImageIndex] = useState<number | null>(null);
+  const [isSettingsHovered, setIsSettingsHovered] = useState(false);
 
   useEffect(() => {
     const nextLayout = (block.content?.layout as GalleryLayout) || null;
     setLayout(nextLayout);
     setItems(buildItems(block.content?.items, nextLayout));
+    setImageFitMode((block.content?.imageFitMode as ImageFitMode) || "contain");
+    setTitle((block.content?.title as string) || "Gallery");
   }, [block.content]);
+
 
   useEffect(() => {
     return () => {
@@ -78,7 +94,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     };
   }, []);
 
-  const persistItems = async (nextItems: GalleryItem[], nextLayout = layout) => {
+  const persistItems = async (nextItems: GalleryItem[], nextLayout = layout, nextFitMode = imageFitMode, nextTitle = title) => {
     if (!nextLayout) return;
     const result = await updateBlock({
       blockId: block.id,
@@ -86,10 +102,30 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         ...(block.content || {}),
         layout: nextLayout,
         items: nextItems,
+        imageFitMode: nextFitMode,
+        title: nextTitle,
       },
     });
     if (result.data) {
       onUpdate?.(result.data);
+    }
+  };
+
+  const handleFitModeChange = async (mode: ImageFitMode) => {
+    setImageFitMode(mode);
+    await persistItems(items, layout, mode);
+  };
+
+  const handleTitleChange = async (newTitle: string) => {
+    setTitle(newTitle);
+    await persistItems(items, layout, imageFitMode, newTitle);
+  };
+
+  const handleTitleBlur = () => {
+    setIsEditingTitle(false);
+    if (!title.trim()) {
+      setTitle("Gallery");
+      handleTitleChange("Gallery");
     }
   };
 
@@ -210,6 +246,18 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     captionTimeoutsRef.current.set(index, timeout);
   };
 
+  const handleImageFitModeToggle = async (index: number) => {
+    const item = items[index];
+    const currentFitMode = item.fitMode || imageFitMode;
+    const nextFitMode: ImageFitMode = currentFitMode === "contain" ? "cover" : "contain";
+    
+    const nextItems = items.map((it, idx) =>
+      idx === index ? { ...it, fitMode: nextFitMode } : it
+    );
+    setItems(nextItems);
+    await persistItems(nextItems);
+  };
+
   if (!layout) {
     return (
       <div className="p-4 space-y-3">
@@ -254,63 +302,232 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   }
 
   const { columns, rows } = GALLERY_LAYOUTS[layout];
-  const gridWidth = columns * CELL_WIDTH + (columns - 1) * CELL_GAP;
-  const gridHeight = rows * CELL_HEIGHT + (rows - 1) * CELL_GAP;
   const lightboxItem = lightboxIndex !== null ? items[lightboxIndex] : null;
   const lightboxUrl = lightboxItem?.fileId ? fileUrls[lightboxItem.fileId] : null;
 
   return (
     <div className="p-4 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          Gallery layout
+      <div className="flex items-center justify-between gap-2 relative">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {isEditingTitle ? (
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={handleTitleBlur}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleTitleBlur();
+                }
+              }}
+              className="text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-transparent border-b border-neutral-300 dark:border-neutral-700 focus:outline-none focus:border-neutral-500 dark:focus:border-neutral-500 flex-1 min-w-0"
+              autoFocus
+            />
+          ) : (
+            <div
+              className="text-sm font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-2 cursor-pointer hover:text-neutral-900 dark:hover:text-neutral-100 group"
+              onClick={() => setIsEditingTitle(true)}
+            >
+              <span>{title}</span>
+              <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500">Current:</span>
-          <select
-            value={layout}
-            onChange={(e) => handleLayoutChange(e.target.value as GalleryLayout)}
-            className="rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1 text-xs text-neutral-700 dark:text-neutral-300"
+        <div className="relative">
+          <button
+            type="button"
+            className="p-1.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+            title="Gallery settings"
+            onMouseEnter={() => setIsSettingsHovered(true)}
+            onMouseLeave={() => setIsSettingsHovered(false)}
           >
-            {(Object.keys(GALLERY_LAYOUTS) as GalleryLayout[]).map((option) => (
-              <option key={option} value={option}>
-                {GALLERY_LAYOUTS[option].label}
-              </option>
-            ))}
-          </select>
+            <Settings className="h-4 w-4" />
+          </button>
+          <div 
+            className={cn(
+              "absolute right-0 top-full pt-1 transition-all duration-200 z-10",
+              isSettingsHovered ? "opacity-100 visible pointer-events-auto" : "opacity-0 invisible pointer-events-none"
+            )}
+            onMouseEnter={() => setIsSettingsHovered(true)}
+            onMouseLeave={() => setIsSettingsHovered(false)}
+          >
+            <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg p-3 min-w-[200px]">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
+                    Layout
+                  </label>
+                  <select
+                    value={layout}
+                    onChange={(e) => handleLayoutChange(e.target.value as GalleryLayout)}
+                    className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+                  >
+                    {(Object.keys(GALLERY_LAYOUTS) as GalleryLayout[]).map((option) => (
+                      <option key={option} value={option}>
+                        {GALLERY_LAYOUTS[option].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
+                    Default Image Fit
+                  </label>
+                  <select
+                    value={imageFitMode}
+                    onChange={(e) => handleFitModeChange(e.target.value as ImageFitMode)}
+                    className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+                  >
+                    <option value="contain">Fit (show full image)</option>
+                    <option value="cover">Fill (crop to fill)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900/40">
-        <div className="h-[280px] md:h-[360px] overflow-auto p-3">
-          <div
-            className="grid"
-            style={{
-              gap: `${CELL_GAP}px`,
-              gridTemplateColumns: `repeat(${columns}, ${CELL_WIDTH}px)`,
-              gridTemplateRows: `repeat(${rows}, ${CELL_HEIGHT}px)`,
-              width: `${gridWidth}px`,
-              height: `${gridHeight}px`,
-            }}
-          >
+        <div className="p-3">
+          {sideModalIndex !== null ? (
+            <div className="flex gap-3 h-[500px]">
+              {/* Compressed gallery on the left */}
+              <div className="flex-shrink-0 overflow-y-auto" style={{ width: `${CELL_WIDTH * 2 + CELL_GAP}px` }}>
+                <div
+                  className="grid gap-3"
+                  style={{
+                    gridTemplateColumns: `repeat(2, ${CELL_WIDTH}px)`,
+                  }}
+                >
+                  {items
+                    .map((item, index) => ({ item, index }))
+                    .filter(({ item, index }) => index !== sideModalIndex && item.fileId)
+                    .map(({ item, index }) => {
+                      const fileId = item.fileId;
+                      const imageUrl = fileId ? fileUrls[fileId] : null;
+                      const isUploading = uploadingSlots.has(index);
+                      const isPendingUrl = Boolean(fileId) && !imageUrl;
+                      const itemFitMode = item.fitMode || imageFitMode;
+
+                      return (
+                        <div
+                          key={`compressed-slot-${index}`}
+                          className={cn(
+                            "relative overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60 cursor-pointer transition-all hover:border-neutral-400 dark:hover:border-neutral-600",
+                            isUploading && "border-solid"
+                          )}
+                          style={{ width: `${CELL_WIDTH}px`, height: `${CELL_HEIGHT}px` }}
+                          onClick={() => setSideModalIndex(index)}
+                          onDrop={(e) => handleDrop(e, index)}
+                          onDragOver={(e) => e.preventDefault()}
+                        >
+                          {isUploading && (
+                            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
+                              <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+                            </div>
+                          )}
+
+                          {imageUrl ? (
+                            <div className={cn(
+                              "relative w-full h-full",
+                              itemFitMode === "contain" && "flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50"
+                            )}>
+                              <Image
+                                src={imageUrl}
+                                alt={item.caption || `Gallery image ${index + 1}`}
+                                width={CELL_WIDTH}
+                                height={CELL_HEIGHT}
+                                className={cn(
+                                  itemFitMode === "contain" 
+                                    ? "max-h-full max-w-full object-contain" 
+                                    : "h-full w-full object-cover"
+                                )}
+                                loading="lazy"
+                                unoptimized
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center text-xs text-neutral-500">
+                              {isPendingUrl ? (
+                                <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+                              ) : (
+                                <ImageIcon className="h-6 w-6 text-neutral-400" />
+                              )}
+                              <span>{isPendingUrl ? "Loading image..." : "Drop image or click to upload"}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Selected image on the right */}
+              <div className="flex-1 relative bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+                {sideModalIndex !== null && items[sideModalIndex]?.fileId && fileUrls[items[sideModalIndex].fileId!] ? (
+                  <>
+                    <div className="absolute top-2 right-2 z-10 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSideModalIndex(null)}
+                        className="rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
+                        title="Close"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="relative w-full h-full flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50">
+                      <Image
+                        src={fileUrls[items[sideModalIndex].fileId!]}
+                        alt={items[sideModalIndex].caption || `Gallery image ${sideModalIndex + 1}`}
+                        fill
+                        className="object-contain"
+                        loading="lazy"
+                        unoptimized
+                      />
+                    </div>
+                    {items[sideModalIndex].caption && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white p-3 text-sm">
+                        {items[sideModalIndex].caption}
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div
+              className="grid w-full"
+              style={{
+                gap: `${CELL_GAP}px`,
+                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                aspectRatio: `${columns} / ${rows}`,
+                minHeight: '400px',
+              }}
+            >
             {items.map((item, index) => {
               const fileId = item.fileId;
               const imageUrl = fileId ? fileUrls[fileId] : null;
               const hasFile = Boolean(fileId);
               const isUploading = uploadingSlots.has(index);
               const isPendingUrl = hasFile && !imageUrl;
+              const itemFitMode = item.fitMode || imageFitMode;
 
               return (
                 <div
                   key={`gallery-slot-${index}`}
                   className={cn(
-                    "group relative overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
+                    "relative overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
                     isUploading && "border-solid"
                   )}
+                  onMouseEnter={() => setHoveredImageIndex(index)}
+                  onMouseLeave={() => setHoveredImageIndex(null)}
                   onClick={() => {
                     if (hasFile) {
                       if (imageUrl) {
-                        setLightboxIndex(index);
+                        setSideModalIndex(index);
                       }
                       return;
                     }
@@ -329,28 +546,59 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
 
                   {imageUrl ? (
                     <>
-                      <div className="relative h-full w-full">
+                      <div className={cn(
+                        "relative h-full w-full",
+                        itemFitMode === "contain" && "flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50"
+                      )}>
                         <Image
                           src={imageUrl}
                           alt={item.caption || `Gallery image ${index + 1}`}
-                          width={CELL_WIDTH}
-                          height={CELL_HEIGHT}
-                          className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
+                          fill
+                          className={cn(
+                            itemFitMode === "contain" 
+                              ? "object-contain" 
+                              : "object-cover",
+                            "transition-opacity",
+                            hoveredImageIndex === index && "opacity-90"
+                          )}
                           loading="lazy"
                           unoptimized
                         />
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openFilePicker(index);
-                        }}
-                        className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-                      >
-                        Replace
-                      </button>
-                      <div className="absolute bottom-2 left-2 right-2 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className={cn(
+                        "absolute right-2 top-2 flex gap-1 transition-opacity",
+                        hoveredImageIndex === index ? "opacity-100" : "opacity-0"
+                      )}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleImageFitModeToggle(index);
+                          }}
+                          className="rounded-full bg-black/60 p-1.5 text-white transition-colors hover:bg-black/80"
+                          title={itemFitMode === "contain" ? "Fill block (crop to fill)" : "Fit image (show full)"}
+                        >
+                          {itemFitMode === "contain" ? (
+                            <Maximize2 className="h-3 w-3" />
+                          ) : (
+                            <Minimize2 className="h-3 w-3" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openFilePicker(index);
+                          }}
+                          className="rounded-full bg-black/60 px-2 py-1 text-[10px] text-white transition-colors hover:bg-black/80"
+                        >
+                          Replace
+                        </button>
+                      </div>
+                      <div className={cn(
+                        "absolute bottom-2 left-2 right-2 transition-opacity",
+                        hoveredImageIndex === index ? "opacity-100" : "opacity-0"
+                      )}>
                         <input
                           type="text"
                           value={item.caption || ""}
@@ -374,7 +622,8 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 </div>
               );
             })}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
