@@ -79,12 +79,6 @@ const blockTypes: Array<{ type: ClientTabBlockType; label: string; icon: React.R
     description: "Video player",
   },
   {
-    type: "pdf",
-    label: "PDF",
-    icon: <FileText className="w-4 h-4" />,
-    description: "PDF viewer",
-  },
-  {
     type: "embed",
     label: "Embed",
     icon: <Maximize2 className="w-4 h-4" />,
@@ -210,8 +204,6 @@ export default function ClientAddBlockButton({
         return { files: [] };
       case "embed":
         return { url: "", displayMode: "inline" };
-      case "pdf":
-        return { fileId: null };
       case "section":
         return { title: "", description: "", height: 400 };
       default:

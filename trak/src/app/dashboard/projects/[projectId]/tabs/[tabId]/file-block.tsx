@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { type Block } from "@/app/actions/block";
-import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
+import { getBatchFileUrls, getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
-import { FileText, Image, Video, Music, Archive, File, Download, Trash2 } from "lucide-react";
+import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import FileUploadZone from "./file-upload-zone";
 
 interface FileBlockProps {
   block: Block;
@@ -44,6 +45,198 @@ const formatFileSize = (bytes: number): string => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
 };
 
+const MIN_ZOOM = 50;
+const MAX_ZOOM = 200;
+const ZOOM_STEP = 25;
+
+const isPdfFile = (file?: BlockFile["file"]) => {
+  if (!file) return false;
+  const fileType = file.file_type?.toLowerCase() || "";
+  if (fileType === "application/pdf") return true;
+  return file.file_name?.toLowerCase().endsWith(".pdf") || false;
+};
+
+interface PdfAttachmentProps {
+  attachmentId: string;
+  file: BlockFile["file"];
+  pdfUrl?: string;
+  isLoadingUrl?: boolean;
+  onDownload: (fileId: string, fileName: string) => void;
+  onDelete: (attachmentId: string) => void;
+}
+
+function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDownload, onDelete }: PdfAttachmentProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [zoom, setZoom] = useState(100);
+  const [iframeError, setIframeError] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  const pdfViewerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setTotalPages(0);
+    setZoom(100);
+    setIframeError(false);
+  }, [file.id, pdfUrl]);
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const handleZoomIn = () => {
+    setZoom((prev) => Math.min(prev + ZOOM_STEP, MAX_ZOOM));
+  };
+
+  const handleZoomOut = () => {
+    setZoom((prev) => Math.max(prev - ZOOM_STEP, MIN_ZOOM));
+  };
+
+  return (
+    <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-[var(--foreground)]">{file.file_name}</p>
+          <p className="text-xs text-[var(--tertiary-foreground)]">{formatFileSize(file.file_size)}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {!isExpanded && (
+            <button
+              onClick={() => onDownload(file.id, file.file_name)}
+              className="rounded-[4px] p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Download PDF"
+              disabled={!pdfUrl}
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            onClick={() => setIsExpanded((prev) => !prev)}
+            className="rounded-[4px] border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            aria-pressed={isExpanded}
+          >
+            {isExpanded ? "Hide preview" : "Show preview"}
+          </button>
+          <button
+            onClick={() => onDelete(attachmentId)}
+            className="rounded-[4px] p-2 text-red-600 transition-colors hover:bg-red-50"
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {isExpanded && pdfUrl && (
+        <div className="flex items-center justify-between p-2 bg-neutral-100 dark:bg-neutral-800 rounded-lg">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePreviousPage}
+              disabled={currentPage === 1}
+              className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Previous page"
+            >
+              <ChevronLeft className="w-5 h-5 text-neutral-600 dark:text-neutral-400" />
+            </button>
+            <span className="text-sm text-neutral-700 dark:text-neutral-300 min-w-[80px] text-center">
+              {currentPage} / {totalPages || "?"}
+            </span>
+            <button
+              onClick={handleNextPage}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Next page"
+            >
+              <ChevronRight className="w-5 h-5 text-neutral-600 dark:text-neutral-400" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleZoomOut}
+              disabled={zoom <= MIN_ZOOM}
+              className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Zoom out"
+            >
+              <ZoomOut className="w-5 h-5 text-neutral-600 dark:text-neutral-400" />
+            </button>
+            <span className="text-sm text-neutral-700 dark:text-neutral-300 min-w-[50px] text-center">
+              {zoom}%
+            </span>
+            <button
+              onClick={handleZoomIn}
+              disabled={zoom >= MAX_ZOOM}
+              className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Zoom in"
+            >
+              <ZoomIn className="w-5 h-5 text-neutral-600 dark:text-neutral-400" />
+            </button>
+          </div>
+
+          <button
+            onClick={() => onDownload(file.id, file.file_name)}
+            className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded transition-colors"
+            title="Download PDF"
+            disabled={!pdfUrl}
+          >
+            <Download className="w-5 h-5 text-neutral-600 dark:text-neutral-400" />
+          </button>
+        </div>
+      )}
+
+      {isExpanded && pdfUrl ? (
+        iframeError ? (
+          <div className="p-8 text-center border rounded-lg bg-neutral-100 dark:bg-neutral-800">
+            <FileText className="w-12 h-12 mx-auto mb-4 text-neutral-400" />
+            <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+              Your browser doesn't support embedded PDF viewing
+            </p>
+            <button
+              onClick={() => onDownload(file.id, file.file_name)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Download PDF
+            </button>
+          </div>
+        ) : (
+          <div className="w-full border rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800" style={{ maxHeight: "600px", overflowY: "auto" }}>
+            <div
+              ref={pdfViewerRef}
+              style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center", minHeight: "800px" }}
+            >
+              <iframe
+                src={`${pdfUrl}#page=${currentPage}`}
+                className="w-full border-0"
+                style={{ minHeight: "800px" }}
+                title={`PDF Viewer - ${file.file_name}`}
+                loading="lazy"
+                onError={() => {
+                  setIframeError(true);
+                }}
+              />
+            </div>
+          </div>
+        )
+      ) : isExpanded ? (
+        <div className="p-8 text-center border rounded-lg bg-neutral-100 dark:bg-neutral-800">
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {isLoadingUrl ? "Loading PDF..." : "Failed to load PDF"}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function FileBlock({ block, workspaceId, projectId, onUpdate }: FileBlockProps) {
   // Get file URLs from context (prefetched at page level)
   const fileUrls = useFileUrls();
@@ -51,10 +244,43 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   const [files, setFiles] = useState<BlockFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+  const [showUploadZone, setShowUploadZone] = useState(false);
+  const [resolvedFileUrls, setResolvedFileUrls] = useState<Record<string, string>>({});
+  const [loadingFileIds, setLoadingFileIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadFiles();
   }, [block.id]);
+
+  const ensureFileUrls = async (blockFiles: BlockFile[]) => {
+    const combinedUrls = { ...fileUrls, ...resolvedFileUrls };
+    const missingIds = blockFiles
+      .map((blockFile) => blockFile.file?.id)
+      .filter((id): id is string => Boolean(id))
+      .filter((id) => !combinedUrls[id]);
+
+    if (missingIds.length === 0) return;
+
+    setLoadingFileIds((prev) => {
+      const next = new Set(prev);
+      missingIds.forEach((id) => next.add(id));
+      return next;
+    });
+
+    const result = await getBatchFileUrls(missingIds);
+    if (result.data) {
+      setResolvedFileUrls((prev) => ({
+        ...prev,
+        ...result.data,
+      }));
+    }
+
+    setLoadingFileIds((prev) => {
+      const next = new Set(prev);
+      missingIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
 
   const loadFiles = async () => {
     // Skip loading if this is a temporary block (not yet saved to database)
@@ -75,6 +301,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
       }));
       setFiles(normalizedFiles);
       // URLs are already loaded from context - no need to fetch them
+      await ensureFileUrls(normalizedFiles);
     }
     setLoading(false);
   };
@@ -88,7 +315,8 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   };
 
   const handleDownloadFile = async (fileId: string, fileName: string) => {
-    const url = fileUrls[fileId];
+    const mergedFileUrls = { ...fileUrls, ...resolvedFileUrls };
+    const url = mergedFileUrls[fileId];
     if (url) {
       const link = document.createElement("a");
       link.href = url;
@@ -103,15 +331,39 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     setImageErrors((prev) => ({ ...prev, [fileId]: true }));
   };
 
+  const handleUploadComplete = () => {
+    setShowUploadZone(false);
+    loadFiles();
+    onUpdate?.();
+  };
+
   if (loading) {
     return <div className="text-sm text-[var(--muted-foreground)]">Loading files…</div>;
   }
 
+  if (block.id.startsWith('temp-')) {
+    return (
+      <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+        Saving block... You can upload files once it's ready.
+      </div>
+    );
+  }
+
+  const mergedFileUrls = { ...fileUrls, ...resolvedFileUrls };
+  const pdfFiles = files.filter((blockFile) => isPdfFile(blockFile.file));
+  const otherFiles = files.filter((blockFile) => !isPdfFile(blockFile.file));
+
   // Show empty state if no files
   if (files.length === 0) {
     return (
-      <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
-        No files attached. Use the block menu to upload files.
+      <div className="space-y-3">
+        <FileUploadZone
+          workspaceId={workspaceId}
+          projectId={projectId}
+          blockId={block.id}
+          onUploadComplete={handleUploadComplete}
+          compact={true}
+        />
       </div>
     );
   }
@@ -123,12 +375,34 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
         <span>{files.length} attached</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {files.map((blockFile) => {
+      {pdfFiles.length > 0 && (
+        <div className="space-y-4">
+          {pdfFiles.map((blockFile) => {
+            const file = blockFile.file;
+            const pdfUrl = mergedFileUrls[file.id];
+            const isLoadingUrl = loadingFileIds.has(file.id);
+            return (
+              <PdfAttachment
+                key={blockFile.id}
+                attachmentId={blockFile.id}
+                file={file}
+                pdfUrl={pdfUrl}
+                isLoadingUrl={isLoadingUrl}
+                onDownload={handleDownloadFile}
+                onDelete={handleDeleteFile}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {otherFiles.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          {otherFiles.map((blockFile) => {
             const file = blockFile.file;
             const FileIcon = getFileIcon(file.file_type);
             const isImage = file.file_type.startsWith("image/");
-            const imageUrl = fileUrls[file.id];
+            const imageUrl = mergedFileUrls[file.id];
             const imageFailed = imageErrors[file.id];
  
             return (
@@ -185,8 +459,33 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
               </div>
             );
           })}
-      </div>
+        </div>
+      )}
+
+      {!showUploadZone ? (
+        <button
+          onClick={() => setShowUploadZone(true)}
+          className="w-full rounded-[6px] border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+        >
+          + Add files
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <FileUploadZone
+            workspaceId={workspaceId}
+            projectId={projectId}
+            blockId={block.id}
+            onUploadComplete={handleUploadComplete}
+            compact={true}
+          />
+          <button
+            onClick={() => setShowUploadZone(false)}
+            className="text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }
-

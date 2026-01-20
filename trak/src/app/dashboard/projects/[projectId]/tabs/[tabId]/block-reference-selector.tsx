@@ -36,6 +36,7 @@ const blockIcons: Record<string, React.ReactNode> = {
   table: <Table className="h-4 w-4" />,
   timeline: <Calendar className="h-4 w-4" />,
   file: <Upload className="h-4 w-4" />,
+  pdf: <FileText className="h-4 w-4" />,
   image: <Image className="h-4 w-4" />,
   video: <Video className="h-4 w-4" />,
   embed: <Maximize2 className="h-4 w-4" />,
@@ -49,6 +50,7 @@ const blockTypeLabels: Record<string, string> = {
   table: "Table",
   timeline: "Timeline",
   file: "File",
+  pdf: "File",
   image: "Image",
   video: "Video",
   embed: "Embed",
@@ -219,7 +221,6 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
     </Dialog>
   );
 }
-
 
 
 

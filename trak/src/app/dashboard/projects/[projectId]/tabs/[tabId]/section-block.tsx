@@ -190,8 +190,6 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
         return { fileId: null, caption: "", width: 400 };
       case "embed":
         return { url: "", displayMode: "inline" };
-      case "pdf":
-        return { fileId: null };
       case "section":
         return { height: 400 };
       case "doc_reference":

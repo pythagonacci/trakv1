@@ -61,7 +61,6 @@ interface BlockWrapperProps {
       | "video"
       | "image"
       | "embed"
-      | "pdf"
       | "doc_reference"
       | "section"
   ) => void;
@@ -143,7 +142,6 @@ export default function BlockWrapper({
     { type: "video", label: "Video", icon: <Video className="h-4 w-4" /> },
     { type: "image", label: "Image", icon: <Image className="h-4 w-4" /> },
     { type: "embed", label: "Embed", icon: <Maximize2 className="h-4 w-4" /> },
-    { type: "pdf", label: "PDF", icon: <FileText className="h-4 w-4" /> },
     { type: "section", label: "Section", icon: <Layout className="h-4 w-4" /> },
   ];
 
@@ -786,7 +784,7 @@ function getBlockTitle(block: Block): string {
       return (content.title as string) ?? "Document reference";
 
     case "pdf":
-      return (content.filename as string) ?? "PDF";
+      return (content.filename as string) ?? "File";
 
     default:
       return `${block.type} block`;

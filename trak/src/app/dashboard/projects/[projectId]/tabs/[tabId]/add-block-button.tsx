@@ -95,12 +95,6 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     description: "Embed external content (YouTube, Figma, etc.)",
   },
   {
-    type: "pdf",
-    label: "PDF",
-    icon: <FileText className="w-4 h-4" />,
-    description: "Upload and view PDF documents",
-  },
-  {
     type: "section",
     label: "Section",
     icon: <Layout className="w-4 h-4" />,
@@ -226,7 +220,6 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "video": return { files: [] };
       case "image": return { fileId: null, caption: "", width: 400 };
       case "embed": return { url: "", displayMode: "inline" };
-      case "pdf": return { fileId: null };
       case "section": return { height: 400 };
       case "doc_reference": return { doc_id: "", doc_title: "" };
       default: return {};
