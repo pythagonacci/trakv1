@@ -11,9 +11,10 @@ interface Props {
   onStartEdit: () => void;
   onCancel: () => void;
   onCommit: (value: unknown) => void;
+  initialValue?: string | null;
 }
 
-export function NumberCell({ value, editing, onStartEdit, onCommit, onCancel, saving }: Props) {
+export function NumberCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue }: Props) {
   const [draft, setDraft] = useState<string>(String(value ?? ""));
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -26,6 +27,13 @@ export function NumberCell({ value, editing, onStartEdit, onCommit, onCancel, sa
       inputRef.current?.focus();
     }
   }, [editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    if (initialValue === undefined || initialValue === null) return;
+    if (!/^[0-9.\-]$/.test(initialValue) && initialValue !== "") return;
+    setDraft(initialValue);
+  }, [editing, initialValue]);
 
   if (editing) {
     return (

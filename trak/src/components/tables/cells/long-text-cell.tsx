@@ -11,9 +11,10 @@ interface Props {
   onStartEdit: () => void;
   onCancel: () => void;
   onCommit: (value: unknown) => void;
+  initialValue?: string | null;
 }
 
-export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, saving }: Props) {
+export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue }: Props) {
   const [draft, setDraft] = useState<string>(String(value ?? ""));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -29,6 +30,12 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   }, [editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    if (initialValue === undefined || initialValue === null) return;
+    setDraft(initialValue);
+  }, [editing, initialValue]);
 
   // Auto-resize on content change
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

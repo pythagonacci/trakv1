@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, memo } from "react";
+import { useEffect, useState, memo } from "react";
 import { type TableField } from "@/types/table";
 import { TextCell } from "./cells/text-cell";
 import { LongTextCell } from "./cells/long-text-cell";
@@ -39,6 +39,8 @@ interface TableCellProps {
   fieldMap?: Record<string, TableField>;
   onUploadFiles?: (files: File[]) => Promise<string[]>;
   onUpdateFieldConfig?: (config: any) => void;
+  editRequest?: { rowId: string; fieldId: string; initialValue?: string };
+  onEditRequestHandled?: () => void;
 }
 
 export const TableCell = memo(function TableCell({
@@ -57,16 +59,34 @@ export const TableCell = memo(function TableCell({
   fieldMap,
   onUploadFiles,
   onUpdateFieldConfig,
+  editRequest,
+  onEditRequestHandled,
 }: TableCellProps) {
   const [editing, setEditing] = useState(false);
+  const [initialValue, setInitialValue] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editRequest) return;
+    if (editRequest.rowId !== rowId || editRequest.fieldId !== field.id) return;
+    setInitialValue(editRequest.initialValue ?? "");
+    setEditing(true);
+    onEditRequestHandled?.();
+  }, [editRequest, field.id, onEditRequestHandled, rowId]);
 
   const commonProps = {
     value,
     editing,
     saving,
-    onStartEdit: () => setEditing(true),
-    onCancel: () => setEditing(false),
+    onStartEdit: () => {
+      setInitialValue(null);
+      setEditing(true);
+    },
+    onCancel: () => {
+      setInitialValue(null);
+      setEditing(false);
+    },
     onCommit: (val: unknown) => {
+      setInitialValue(null);
       setEditing(false);
       onChange(val);
     },
@@ -74,9 +94,9 @@ export const TableCell = memo(function TableCell({
 
   switch (field.type) {
     case "long_text":
-      return <LongTextCell {...commonProps} field={field} />;
+      return <LongTextCell {...commonProps} field={field} initialValue={initialValue} />;
     case "number":
-      return <NumberCell {...commonProps} field={field} />;
+      return <NumberCell {...commonProps} field={field} initialValue={initialValue} />;
     case "date":
       return <DateCell {...commonProps} field={field} />;
     case "checkbox":
@@ -90,11 +110,11 @@ export const TableCell = memo(function TableCell({
     case "priority":
       return <PriorityCell {...commonProps} field={field} />;
     case "url":
-      return <UrlCell {...commonProps} field={field} />;
+      return <UrlCell {...commonProps} field={field} initialValue={initialValue} />;
     case "email":
-      return <EmailCell {...commonProps} field={field} />;
+      return <EmailCell {...commonProps} field={field} initialValue={initialValue} />;
     case "phone":
-      return <PhoneCell {...commonProps} field={field} />;
+      return <PhoneCell {...commonProps} field={field} initialValue={initialValue} />;
     case "person":
       return <PersonCell {...commonProps} field={field} workspaceMembers={workspaceMembers} />;
     case "files":
@@ -106,6 +126,6 @@ export const TableCell = memo(function TableCell({
     case "formula":
       return <FormulaCell field={field} value={value} rowId={rowId} tableId={tableId} />;
     default:
-      return <TextCell {...commonProps} field={field} />;
+      return <TextCell {...commonProps} field={field} initialValue={initialValue} />;
   }
 });

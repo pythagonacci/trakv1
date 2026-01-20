@@ -13,9 +13,10 @@ interface Props {
   onStartEdit: () => void;
   onCancel: () => void;
   onCommit: (value: unknown) => void;
+  initialValue?: string | null;
 }
 
-export function UrlCell({ value, editing, onStartEdit, onCommit, onCancel, saving }: Props) {
+export function UrlCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue }: Props) {
   const [draft, setDraft] = useState<string>(String(value ?? ""));
   const [error, setError] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,6 +31,13 @@ export function UrlCell({ value, editing, onStartEdit, onCommit, onCancel, savin
       inputRef.current?.focus();
     }
   }, [editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    if (initialValue === undefined || initialValue === null) return;
+    setDraft(initialValue);
+    setError("");
+  }, [editing, initialValue]);
 
   const handleCommit = () => {
     if (!draft.trim()) {

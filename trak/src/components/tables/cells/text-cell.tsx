@@ -11,9 +11,10 @@ interface Props {
   onStartEdit: () => void;
   onCancel: () => void;
   onCommit: (value: unknown) => void;
+  initialValue?: string | null;
 }
 
-export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, saving }: Props) {
+export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue }: Props) {
   const [draft, setDraft] = useState<string>(String(value ?? ""));
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -26,6 +27,12 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
       inputRef.current?.focus();
     }
   }, [editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    if (initialValue === undefined || initialValue === null) return;
+    setDraft(initialValue);
+  }, [editing, initialValue]);
 
   if (editing) {
     return (

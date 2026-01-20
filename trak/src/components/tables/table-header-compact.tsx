@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Search, Filter, ChevronDown, X, Plus } from "lucide-react";
-import type { TableView, TableField, FilterCondition, GroupByConfig } from "@/types/table";
+import type { TableView, TableField, FilterCondition, GroupByConfig, ViewType } from "@/types/table";
 
 interface Props {
   tableId: string;
@@ -14,7 +15,7 @@ interface Props {
   onSearch?: (q: string) => void;
   onColumnSearch?: (fieldId: string) => void;
   onFiltersChange: (filters: FilterCondition[]) => void;
-  onCreateView: () => void;
+  onCreateView: (type: ViewType) => void;
   onRenameView: (viewId: string, name: string) => void;
   onDeleteView: (viewId: string) => void;
   onSetDefault: (viewId: string) => void;
@@ -24,6 +25,7 @@ interface Props {
   openSearchTick?: number;
   groupBy?: GroupByConfig;
   onGroupByChange: (groupBy: GroupByConfig | undefined) => void;
+  hasDateFields?: boolean;
 }
 
 export function TableHeaderCompact({
@@ -46,6 +48,7 @@ export function TableHeaderCompact({
   openSearchTick,
   groupBy,
   onGroupByChange,
+  hasDateFields,
 }: Props) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState("");
@@ -60,9 +63,23 @@ export function TableHeaderCompact({
   const viewsDropdownRef = useRef<HTMLDivElement>(null);
   const filtersButtonRef = useRef<HTMLButtonElement>(null);
   const filtersDropdownRef = useRef<HTMLDivElement>(null);
+  const groupButtonRef = useRef<HTMLButtonElement>(null);
+  const groupDropdownRef = useRef<HTMLDivElement>(null);
+  const [groupDropdownStyle, setGroupDropdownStyle] = useState<React.CSSProperties | null>(null);
   const prevOpenSearchTickRef = useRef<number | undefined>(openSearchTick);
 
   const activeView = views.find((v) => v.id === activeViewId);
+  const viewLabel = activeView?.is_default ? "Default view" : activeView?.name || "Default view";
+  const viewTypeLabel = activeView?.type ? activeView.type.toUpperCase() : "";
+  const timelineEnabled = Boolean(hasDateFields);
+  const viewTypeOptions: Array<{ type: ViewType; label: string; disabled?: boolean }> = [
+    { type: "table", label: "Table" },
+    { type: "board", label: "Board" },
+    { type: "timeline", label: "Timeline", disabled: !timelineEnabled },
+    { type: "list", label: "List" },
+    { type: "gallery", label: "Gallery" },
+    { type: "calendar", label: "Calendar" },
+  ];
 
   useEffect(() => {
     setDraftTitle(tableTitle || "Untitled Table");
@@ -81,6 +98,39 @@ export function TableHeaderCompact({
   // Removed views positioning useEffect - using absolute positioning instead
 
   // Removed filters positioning useEffect - using absolute positioning instead
+  useEffect(() => {
+    if (!showGroupBy) return;
+    const updatePosition = () => {
+      const anchor = groupButtonRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const width = 224;
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      const maxHeight = 320;
+      const openUpward = spaceBelow < 200 && spaceAbove > spaceBelow;
+      const height = Math.min(maxHeight, openUpward ? spaceAbove : spaceBelow);
+      const top = openUpward ? rect.top - height : rect.bottom;
+      const left = Math.min(Math.max(rect.right - width, 8), window.innerWidth - width - 8);
+      setGroupDropdownStyle({
+        position: "fixed",
+        top,
+        left,
+        width,
+        maxHeight: Math.max(160, height),
+        zIndex: 200,
+      });
+    };
+
+    updatePosition();
+    const handleScroll = () => requestAnimationFrame(updatePosition);
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [showGroupBy]);
 
   const addFilter = (fieldId: string) => {
     const next: FilterCondition = {
@@ -137,6 +187,57 @@ export function TableHeaderCompact({
           >
             {tableTitle ?? "Untitled Table"}
           </h1>
+        )}
+        {views.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[420px]">
+            {views.map((view) => {
+              const isActive = view.id === activeViewId;
+              const groupFieldId = view.config?.groupBy?.fieldId;
+              const groupField = groupFieldId ? fields.find((f) => f.id === groupFieldId) : undefined;
+              const groupLabel = groupField ? groupField.name : "Group";
+              const tabMeta =
+                view.type === "board" && groupField
+                  ? `Board • ${groupLabel}`
+                  : view.type === "timeline"
+                  ? "Timeline"
+                  : view.type === "table"
+                  ? "Table"
+                  : view.type;
+              return (
+                <div
+                  key={view.id}
+                  className={`group inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-1 transition-colors duration-150 ${
+                    isActive
+                      ? "bg-[var(--surface-muted)] border-[var(--border-strong)] text-[var(--foreground)]"
+                      : "border-transparent text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  }`}
+                  title={tabMeta}
+                >
+                  <button
+                    onClick={() => onSwitchView(view.id)}
+                    className="flex items-center gap-1.5"
+                  >
+                    <span className="text-xs">{view.name}</span>
+                    {view.type === "board" && groupField && (
+                      <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                        {groupLabel}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteView(view.id);
+                    }}
+                    className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--error)] opacity-0 group-hover:opacity-100 transition"
+                    title="Delete view"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -197,81 +298,89 @@ export function TableHeaderCompact({
         {/* Group by */}
         <div className="relative">
           <button
+            ref={groupButtonRef}
             onClick={() => setShowGroupBy(!showGroupBy)}
             className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150 text-xs"
             title="Group by"
           >
             Group {groupBy?.fieldId ? "•" : ""}
           </button>
-          {showGroupBy && (
-            <div className="absolute right-0 top-full mt-1 w-56 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[200] py-1">
-              <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">Group by</div>
-              <button
-                onClick={() => {
-                  onGroupByChange(undefined);
-                  setShowGroupBy(false);
-                }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${!groupBy ? "bg-[var(--surface-muted)]" : ""}`}
+          {showGroupBy &&
+            groupDropdownStyle &&
+            createPortal(
+              <div
+                ref={groupDropdownRef}
+                style={groupDropdownStyle}
+                className="rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-popover py-1 overflow-y-auto"
               >
-                None
-              </button>
-              <div className="mt-1 border-t border-[var(--border)]" />
-              {fields
-                .filter((f) => ["select", "multi_select", "status", "priority", "person"].includes(f.type))
-                .map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => {
-                      onGroupByChange({ fieldId: f.id, showEmptyGroups: groupBy?.showEmptyGroups ?? true, sortOrder: groupBy?.sortOrder ?? "asc" });
-                      setShowGroupBy(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${groupBy?.fieldId === f.id ? "bg-[var(--surface-muted)]" : ""}`}
-                  >
-                    {f.name}
-                  </button>
-                ))}
-              {groupBy?.fieldId && (
-                <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-2 px-3">
-                  <label className="flex items-center gap-2 text-xs text-[var(--foreground)]">
-                    <input
-                      type="checkbox"
-                      checked={groupBy.showEmptyGroups ?? true}
-                      onChange={(e) =>
-                        onGroupByChange({
-                          ...groupBy,
-                          showEmptyGroups: e.target.checked,
-                        })
-                      }
-                    />
-                    Show empty groups
-                  </label>
-                  <div className="flex items-center gap-2 text-xs text-[var(--foreground)]">
-                    <span className="text-[var(--muted-foreground)]">Group order</span>
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">Group by</div>
+                <button
+                  onClick={() => {
+                    onGroupByChange(undefined);
+                    setShowGroupBy(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${!groupBy ? "bg-[var(--surface-muted)]" : ""}`}
+                >
+                  None
+                </button>
+                <div className="mt-1 border-t border-[var(--border)]" />
+                {fields
+                  .filter((f) => ["select", "multi_select", "status", "priority", "person", "checkbox"].includes(f.type))
+                  .map((f) => (
                     <button
-                      className={`px-2 py-1 rounded-[2px] border text-[11px] ${
-                        (groupBy.sortOrder ?? "asc") === "asc"
-                          ? "border-[var(--border-strong)] text-[var(--foreground)]"
-                          : "border-[var(--border)] text-[var(--muted-foreground)]"
-                      }`}
-                      onClick={() => onGroupByChange({ ...groupBy, sortOrder: "asc" })}
+                      key={f.id}
+                      onClick={() => {
+                        onGroupByChange({ fieldId: f.id, showEmptyGroups: groupBy?.showEmptyGroups ?? true, sortOrder: groupBy?.sortOrder ?? "asc" });
+                        setShowGroupBy(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${groupBy?.fieldId === f.id ? "bg-[var(--surface-muted)]" : ""}`}
                     >
-                      A→Z
+                      {f.name}
                     </button>
-                    <button
-                      className={`px-2 py-1 rounded-[2px] border text-[11px] ${
-                        groupBy.sortOrder === "desc"
-                          ? "border-[var(--border-strong)] text-[var(--foreground)]"
-                          : "border-[var(--border)] text-[var(--muted-foreground)]"
-                      }`}
-                      onClick={() => onGroupByChange({ ...groupBy, sortOrder: "desc" })}
-                    >
-                      Z→A
-                    </button>
+                  ))}
+                {groupBy?.fieldId && (
+                  <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-2 px-3">
+                    <label className="flex items-center gap-2 text-xs text-[var(--foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={groupBy.showEmptyGroups ?? true}
+                        onChange={(e) =>
+                          onGroupByChange({
+                            ...groupBy,
+                            showEmptyGroups: e.target.checked,
+                          })
+                        }
+                      />
+                      Show empty groups
+                    </label>
+                    <div className="flex items-center gap-2 text-xs text-[var(--foreground)]">
+                      <span className="text-[var(--muted-foreground)]">Group order</span>
+                      <button
+                        className={`px-2 py-1 rounded-[2px] border text-[11px] ${
+                          (groupBy.sortOrder ?? "asc") === "asc"
+                            ? "border-[var(--border-strong)] text-[var(--foreground)]"
+                            : "border-[var(--border)] text-[var(--muted-foreground)]"
+                        }`}
+                        onClick={() => onGroupByChange({ ...groupBy, sortOrder: "asc" })}
+                      >
+                        A→Z
+                      </button>
+                      <button
+                        className={`px-2 py-1 rounded-[2px] border text-[11px] ${
+                          groupBy.sortOrder === "desc"
+                            ? "border-[var(--border-strong)] text-[var(--foreground)]"
+                            : "border-[var(--border)] text-[var(--muted-foreground)]"
+                        }`}
+                        onClick={() => onGroupByChange({ ...groupBy, sortOrder: "desc" })}
+                      >
+                        Z→A
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>,
+              document.body
+            )}
         </div>
 
         {/* Search icon */}
@@ -291,7 +400,7 @@ export function TableHeaderCompact({
             className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150 text-xs"
             title="Views"
           >
-            {activeView?.name || "Views"}
+            <span>{viewLabel}</span>
             <ChevronDown className="h-3 w-3" />
           </button>
           {showViews && (
@@ -340,6 +449,9 @@ export function TableHeaderCompact({
                       )}
                       {view.is_default && <span className="text-[10px] text-[var(--dome-teal)]">★</span>}
                     </div>
+                    <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                      {view.type}
+                    </span>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                       <button
                         className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
@@ -365,16 +477,26 @@ export function TableHeaderCompact({
                   </div>
                 ))}
                 <div className="border-t border-[var(--border)] mt-1 pt-1">
-                  <button
-                    className="w-full px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] text-left flex items-center gap-2 transition-colors duration-150"
-                    onClick={() => {
-                      onCreateView();
-                      setShowViews(false);
-                    }}
-                  >
-                    <Plus className="h-3 w-3" />
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
                     New view
-                  </button>
+                  </div>
+                  {viewTypeOptions.map((option) => (
+                    <button
+                      key={option.type}
+                      disabled={option.disabled}
+                      className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                      onClick={() => {
+                        onCreateView(option.type);
+                        setShowViews(false);
+                      }}
+                    >
+                      <Plus className="h-3 w-3" />
+                      {option.label}
+                      {option.type === "timeline" && !timelineEnabled && (
+                        <span className="ml-auto text-[10px] text-[var(--tertiary-foreground)]">Needs date field</span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
           )}
@@ -487,7 +609,7 @@ export function TableHeaderCompact({
       </div>
 
       {/* Click outside to close dropdowns */}
-      {(showViews || showFilters) && (
+      {(showViews || showFilters || showGroupBy) && (
         <div
           className="fixed inset-0 z-[199]"
           onClick={(e) => {
@@ -495,6 +617,7 @@ export function TableHeaderCompact({
             if (e.target === e.currentTarget) {
               setShowViews(false);
               setShowFilters(false);
+              setShowGroupBy(false);
             }
           }}
         />

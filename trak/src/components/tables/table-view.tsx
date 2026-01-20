@@ -2,7 +2,7 @@
 
 // Table refactor baseline (Sept 2024):
 // - Uses new Supabase-backed schema (tables/table_fields/table_rows/table_views) and React Query hooks in src/lib/hooks/use-table-queries.ts.
-// - Only table view is implemented here; other view types (board/list/gallery/calendar) intentionally omitted per scope.
+// - Table, board, and timeline views live here; list/gallery/calendar are stubbed.
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { Plus, EyeOff } from "lucide-react";
@@ -46,6 +46,8 @@ import { queryKeys } from "@/lib/react-query/query-client";
 import React from "react";
 import { groupRows, canGroupByField } from "@/lib/table-grouping";
 import { GroupHeader } from "./group-header";
+import { BoardView } from "./board-view";
+import { TableTimelineView } from "./table-timeline-view";
 
 function TableViewLoadingState() {
   return (
@@ -94,6 +96,7 @@ export function TableView({ tableId }: Props) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [relationCount, setRelationCount] = useState<number | null>(null);
   const [countingRelations, setCountingRelations] = useState(false);
+  const [editRequest, setEditRequest] = useState<{ rowId: string; fieldId: string; initialValue?: string } | null>(null);
 
   // Fetch workspace members for person fields
   const { data: workspaceMembers } = useQuery({
@@ -113,6 +116,7 @@ export function TableView({ tableId }: Props) {
   const { data: rowData, isLoading: rowsLoading } = useTableRows(tableId, activeViewId || undefined);
   const view = rowData?.view;
   const effectiveViewId = activeViewId || view?.id || undefined;
+  const viewType = view?.type || "table";
 
   const createRow = useCreateRow(tableId, effectiveViewId);
   const updateCell = useUpdateCell(tableId, effectiveViewId);
@@ -135,6 +139,7 @@ export function TableView({ tableId }: Props) {
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
   const hiddenFields = useMemo(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
   const pinnedFields = useMemo(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
+  const dateFields = useMemo(() => allFields.filter((f) => f.type === "date"), [allFields]);
   
   // Order fields: pinned first, then others
   const fields = useMemo(() => {
@@ -211,6 +216,18 @@ export function TableView({ tableId }: Props) {
     updateView.mutate({ config: nextConfig });
   };
 
+  const handleTimelineDateFieldChange = (fieldId: string) => {
+    if (!view?.id) return;
+    const nextConfig: ViewConfig = {
+      ...(view.config || {}),
+      timelineConfig: {
+        ...(view.config?.timelineConfig || {}),
+        dateFieldId: fieldId,
+      },
+    };
+    updateView.mutate({ config: nextConfig });
+  };
+
   const handlePinColumn = (fieldId: string) => {
     const isPinned = pinnedFields.includes(fieldId);
     const nextPinned = isPinned
@@ -249,9 +266,10 @@ export function TableView({ tableId }: Props) {
   }, [sortedRows, groupByField, groupByConfig, collapsedGroups, workspaceMembers]);
 
   const visibleRows = useMemo(() => {
+    if (viewType !== "table") return sortedRows;
     if (!groupedData.grouped) return groupedData.rows;
     return groupedData.groups.flatMap((group) => (group.isCollapsed ? [] : group.rows));
-  }, [groupedData]);
+  }, [groupedData, sortedRows, viewType]);
 
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
@@ -796,6 +814,21 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
 
   const handleDropRowInGroup = (rowId: string, targetGroupId: string) => {
     if (!groupByField) return;
+    if (groupByField.type === "multi_select") {
+      const current = sortedRows.find((row) => row.id === rowId)?.data?.[groupByField.id];
+      const currentValues = Array.isArray(current) ? current.map(String) : [];
+      const next =
+        targetGroupId === "__ungrouped__"
+          ? []
+          : Array.from(new Set([...currentValues, targetGroupId]));
+      updateCell.mutate({ rowId, fieldId: groupByField.id, value: next });
+      return;
+    }
+    if (groupByField.type === "checkbox") {
+      const value = targetGroupId === "__ungrouped__" ? null : targetGroupId === "true";
+      updateCell.mutate({ rowId, fieldId: groupByField.id, value });
+      return;
+    }
     const value = targetGroupId === "__ungrouped__" ? null : targetGroupId;
     updateCell.mutate({ rowId, fieldId: groupByField.id, value });
   };
@@ -846,19 +879,37 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
   }, [sortedRows, fields]);
 
   const handleCellKeyDown = useCallback((e: React.KeyboardEvent, rowId: string, fieldId: string) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    if (isFocusableElement(e.target as HTMLElement)) return;
+    if (e.key === "Tab") return;
     const rowIndex = sortedRows.findIndex((r) => r.id === rowId);
     const colIndex = fields.findIndex((f) => f.id === fieldId);
     if (rowIndex === -1 || colIndex === -1) return;
-    e.preventDefault();
-    if (e.key === "ArrowLeft") {
-      focusCell(rowIndex, Math.max(0, colIndex - 1));
-    } else if (e.key === "ArrowRight") {
-      focusCell(rowIndex, Math.min(fields.length - 1, colIndex + 1));
-    } else if (e.key === "ArrowUp") {
-      focusCell(Math.max(0, rowIndex - 1), colIndex);
-    } else if (e.key === "ArrowDown") {
-      focusCell(Math.min(sortedRows.length - 1, rowIndex + 1), colIndex);
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+      e.preventDefault();
+      if (e.key === "ArrowLeft") {
+        focusCell(rowIndex, Math.max(0, colIndex - 1));
+      } else if (e.key === "ArrowRight") {
+        focusCell(rowIndex, Math.min(fields.length - 1, colIndex + 1));
+      } else if (e.key === "ArrowUp") {
+        focusCell(Math.max(0, rowIndex - 1), colIndex);
+      } else if (e.key === "ArrowDown") {
+        focusCell(Math.min(sortedRows.length - 1, rowIndex + 1), colIndex);
+      }
+      return;
+    }
+
+    const isModifier = e.metaKey || e.ctrlKey || e.altKey;
+    if (isModifier) return;
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      setEditRequest({ rowId, fieldId, initialValue: "" });
+      return;
+    }
+
+    if (e.key.length === 1) {
+      e.preventDefault();
+      setEditRequest({ rowId, fieldId, initialValue: e.key });
     }
   }, [fields, sortedRows, focusCell]);
 
@@ -881,6 +932,22 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
       setCollapsedGroups([]);
     }
   }, [view?.config?.groupBy?.collapsed]);
+
+  useEffect(() => {
+    if (viewType !== "timeline") return;
+    if (!view?.id) return;
+    if (dateFields.length === 0) return;
+    const current = view.config?.timelineConfig?.dateFieldId;
+    if (current && dateFields.some((field) => field.id === current)) return;
+    const nextConfig: ViewConfig = {
+      ...(view.config || {}),
+      timelineConfig: {
+        ...(view.config?.timelineConfig || {}),
+        dateFieldId: dateFields[0].id,
+      },
+    };
+    updateView.mutate({ config: nextConfig });
+  }, [viewType, view?.id, view?.config, dateFields, updateView]);
 
   useEffect(() => {
     if (views && views.length > 0) {
@@ -920,9 +987,14 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         openSearchTick={openSearchTick}
         groupBy={groupByConfig}
         onGroupByChange={handleGroupByChange}
-        onCreateView={() =>
+        onCreateView={(type) => {
+          const label = type.charAt(0).toUpperCase() + type.slice(1);
+          const config: ViewConfig | undefined =
+            type === "timeline" && dateFields.length > 0
+              ? { timelineConfig: { dateFieldId: dateFields[0].id } }
+              : undefined;
           createView.mutate(
-            { name: "New view", type: "table" },
+            { name: `${label} view`, type, config },
             {
               onSuccess: (res) => {
                 if ("data" in res && res.data?.id) {
@@ -930,8 +1002,8 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                 }
               },
             }
-          )
-        }
+          );
+        }}
         onRenameView={(viewId, name) => {
           setActiveViewId(viewId);
           updateView.mutate({ name });
@@ -948,9 +1020,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             onError: (err) => setError(err instanceof Error ? err.message : "Failed to update table title"),
           });
         }}
+        hasDateFields={dateFields.length > 0}
       />
 
-      {hiddenFieldList.length > 0 && (
+      {viewType === "table" && hiddenFieldList.length > 0 && (
         <div className="px-3 py-2 text-xs text-[var(--muted-foreground)] flex items-center gap-2">
           <EyeOff className="h-4 w-4" />
           Hidden columns:
@@ -984,136 +1057,139 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         onCancel={() => setDeleteDialogOpen(false)}
         onConfirm={confirmBulkDelete}
       />
-
-      <div className="relative w-full" ref={containerRef}>
-        <div className="overflow-x-auto w-full" style={{ maxHeight: '480px', overflowY: 'scroll' }}>
-          <div style={{ width: 'max-content', minWidth: '100%' }}>
-            <div className="max-h-[480px] overflow-x-hidden divide-y divide-[var(--border)] scrollbar-thin" style={{ width: 'max-content', minWidth: '100%', overflowY: 'scroll' }}>
-              <TableHeaderRow
-                fields={fields}
-                columnTemplate={columnTemplate}
-                sorts={sorts}
-                pinnedFields={pinnedFields}
-                selectedCount={selectedRows.size}
-                totalCount={sortedRows.length}
-                selectionWidth={selectionWidth}
-                onToggleAllRows={handleToggleAllRows}
-                onSetSort={handleSetSort}
-            onToggleSort={(fieldId) => {
-              const next = (() => {
-                const existing = sorts.find((s) => s.fieldId === fieldId);
-                if (!existing) return [{ fieldId, direction: "asc" as const }];
-                if (existing.direction === "asc") return [{ fieldId, direction: "desc" as const }];
-                return [];
-              })();
-              setSorts(next);
-              persistViewConfig(next, filters);
-            }}
-            onRenameField={handleRenameField}
-            onDeleteField={handleDeleteField}
-            onAddField={handleAddField}
-            onChangeType={handleChangeType}
-            onReorderField={handleReorderField}
-            onInsertField={handleInsertField}
-            onPinColumn={handlePinColumn}
-            onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
-            onConfigureField={handleConfigureField}
-            onUpdateFieldConfig={handleUpdateFieldConfig}
-            columnRefs={Object.fromEntries(
-              fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
-            )}
-            onColumnContextMenu={handleColumnContextMenu}
-            onHideField={handleHideField}
-              onResize={handleResizeWidth}
-              widths={widthMap}
-              calculations={view?.config?.field_calculations || {}}
-              rows={sortedRows}
-              onUpdateCalculation={handleUpdateCalculation}
-              className="sticky top-0 z-[5]"
-          />
-            {groupedData.grouped ? (
-              groupedData.groups.map((group) => (
-                <React.Fragment key={group.groupId}>
-                  <GroupHeader
-                    groupId={group.groupId}
-                    groupLabel={group.groupLabel}
-                    groupColor={group.groupColor}
-                    count={group.count}
-                    isCollapsed={group.isCollapsed}
-                    onToggle={() => handleToggleGroup(group.groupId)}
-                    onDropRow={(rowId) => handleDropRowInGroup(rowId, group.groupId)}
-                  />
-                  {!group.isCollapsed &&
-                    group.rows.map((row) => (
-                      <TableRow
-                        key={row.id}
-                        fields={fields}
-                        columnTemplate={columnTemplate}
-                        tableId={tableId}
-                        rowId={row.id}
-                        data={row.data || {}}
-                        onChange={handleCellChange}
-                        savingRowIds={savingRows}
-                        onOpenComments={(rid) => setCommentsRowId(rid)}
-                        pinnedFields={pinnedFields}
-                        onContextMenu={handleCellContextMenu}
-                        widths={widthMap}
-                        selectionWidth={selectionWidth}
-                        showSelection
-                        isSelected={selectedRows.has(row.id)}
-                        onSelectRow={handleSelectRow}
-                        rowMetadata={{
-                          created_at: row.created_at,
-                          updated_at: row.updated_at,
-                          created_by: row.created_by || undefined,
-                          updated_by: row.updated_by || undefined,
-                        }}
-                        workspaceMembers={workspaceMembers}
-                        onCellKeyDown={handleCellKeyDown}
-                        cellRefs={cellRefs}
-                        draggable
-                        onDragStart={(id, e) => {
-                          e.dataTransfer.setData("rowId", id);
-                          e.dataTransfer.effectAllowed = "move";
-                        }}
-                        onUpdateFieldConfig={handleUpdateFieldConfig}
-                      />
-                    ))}
-                </React.Fragment>
-              ))
-            ) : (
-              sortedRows.map((row) => (
-                <TableRow
-                  key={row.id}
+      {viewType === "table" && (
+        <div className="relative w-full" ref={containerRef}>
+          <div className="overflow-x-auto w-full" style={{ maxHeight: '480px', overflowY: 'scroll' }}>
+            <div style={{ width: 'max-content', minWidth: '100%' }}>
+              <div className="max-h-[480px] overflow-x-hidden divide-y divide-[var(--border)] scrollbar-thin" style={{ width: 'max-content', minWidth: '100%', overflowY: 'scroll' }}>
+                <TableHeaderRow
                   fields={fields}
                   columnTemplate={columnTemplate}
-                  tableId={tableId}
-                  rowId={row.id}
-                  data={row.data || {}}
-                  onChange={handleCellChange}
-                  savingRowIds={savingRows}
-                  onOpenComments={(rid) => setCommentsRowId(rid)}
+                  sorts={sorts}
                   pinnedFields={pinnedFields}
-                  onContextMenu={handleCellContextMenu}
-                  widths={widthMap}
+                  selectedCount={selectedRows.size}
+                  totalCount={sortedRows.length}
                   selectionWidth={selectionWidth}
-                  showSelection
-                  isSelected={selectedRows.has(row.id)}
-                  onSelectRow={handleSelectRow}
-                  rowMetadata={{
-                    created_at: row.created_at,
-                    updated_at: row.updated_at,
-                    created_by: row.created_by || undefined,
-                    updated_by: row.updated_by || undefined,
+                  onToggleAllRows={handleToggleAllRows}
+                  onSetSort={handleSetSort}
+                  onToggleSort={(fieldId) => {
+                    const next = (() => {
+                      const existing = sorts.find((s) => s.fieldId === fieldId);
+                      if (!existing) return [{ fieldId, direction: "asc" as const }];
+                      if (existing.direction === "asc") return [{ fieldId, direction: "desc" as const }];
+                      return [];
+                    })();
+                    setSorts(next);
+                    persistViewConfig(next, filters);
                   }}
-                  workspaceMembers={workspaceMembers}
-                  onCellKeyDown={handleCellKeyDown}
-                  cellRefs={cellRefs}
+                  onRenameField={handleRenameField}
+                  onDeleteField={handleDeleteField}
+                  onAddField={handleAddField}
+                  onChangeType={handleChangeType}
+                  onReorderField={handleReorderField}
+                  onInsertField={handleInsertField}
+                  onPinColumn={handlePinColumn}
+                  onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
+                  onConfigureField={handleConfigureField}
                   onUpdateFieldConfig={handleUpdateFieldConfig}
+                  columnRefs={Object.fromEntries(
+                    fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
+                  )}
+                  onColumnContextMenu={handleColumnContextMenu}
+                  onHideField={handleHideField}
+                  onResize={handleResizeWidth}
+                  widths={widthMap}
+                  calculations={view?.config?.field_calculations || {}}
+                  rows={sortedRows}
+                  onUpdateCalculation={handleUpdateCalculation}
+                  className="sticky top-0 z-[5]"
                 />
-              ))
-            )}
-
+                {groupedData.grouped ? (
+                  groupedData.groups.map((group) => (
+                    <React.Fragment key={group.groupId}>
+                      <GroupHeader
+                        groupId={group.groupId}
+                        groupLabel={group.groupLabel}
+                        groupColor={group.groupColor}
+                        count={group.count}
+                        isCollapsed={group.isCollapsed}
+                        onToggle={() => handleToggleGroup(group.groupId)}
+                        onDropRow={(rowId) => handleDropRowInGroup(rowId, group.groupId)}
+                      />
+                      {!group.isCollapsed &&
+                        group.rows.map((row) => (
+                          <TableRow
+                            key={row.id}
+                            fields={fields}
+                            columnTemplate={columnTemplate}
+                            tableId={tableId}
+                            rowId={row.id}
+                            data={row.data || {}}
+                            onChange={handleCellChange}
+                            savingRowIds={savingRows}
+                            onOpenComments={(rid) => setCommentsRowId(rid)}
+                            pinnedFields={pinnedFields}
+                            onContextMenu={handleCellContextMenu}
+                            widths={widthMap}
+                            selectionWidth={selectionWidth}
+                            showSelection
+                            isSelected={selectedRows.has(row.id)}
+                            onSelectRow={handleSelectRow}
+                            rowMetadata={{
+                              created_at: row.created_at,
+                              updated_at: row.updated_at,
+                              created_by: row.created_by || undefined,
+                              updated_by: row.updated_by || undefined,
+                            }}
+                            workspaceMembers={workspaceMembers}
+                            onCellKeyDown={handleCellKeyDown}
+                            cellRefs={cellRefs}
+                        editRequest={editRequest || undefined}
+                        onEditRequestHandled={() => setEditRequest(null)}
+                            draggable
+                            onDragStart={(id, e) => {
+                              e.dataTransfer.setData("rowId", id);
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onUpdateFieldConfig={handleUpdateFieldConfig}
+                          />
+                        ))}
+                    </React.Fragment>
+                  ))
+                ) : (
+                  sortedRows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      fields={fields}
+                      columnTemplate={columnTemplate}
+                      tableId={tableId}
+                      rowId={row.id}
+                      data={row.data || {}}
+                      onChange={handleCellChange}
+                      savingRowIds={savingRows}
+                      onOpenComments={(rid) => setCommentsRowId(rid)}
+                      pinnedFields={pinnedFields}
+                      onContextMenu={handleCellContextMenu}
+                      widths={widthMap}
+                      selectionWidth={selectionWidth}
+                      showSelection
+                      isSelected={selectedRows.has(row.id)}
+                      onSelectRow={handleSelectRow}
+                      rowMetadata={{
+                        created_at: row.created_at,
+                        updated_at: row.updated_at,
+                        created_by: row.created_by || undefined,
+                        updated_by: row.updated_by || undefined,
+                      }}
+                      workspaceMembers={workspaceMembers}
+                      onCellKeyDown={handleCellKeyDown}
+                      cellRefs={cellRefs}
+                  editRequest={editRequest || undefined}
+                  onEditRequestHandled={() => setEditRequest(null)}
+                      onUpdateFieldConfig={handleUpdateFieldConfig}
+                    />
+                  ))
+                )}
 
                 {sortedRows.length === 0 && (
                   <div className="p-6 text-sm text-[var(--muted-foreground)] flex flex-col gap-2 items-center">
@@ -1151,7 +1227,48 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
               Add row
             </button>
           </div>
-      </div>
+        </div>
+      )}
+
+      {viewType === "board" && (
+        <BoardView
+          fields={fields}
+          rows={sortedRows}
+          groupBy={groupByConfig}
+          workspaceMembers={workspaceMembers}
+          selectedRows={selectedRows}
+          onSelectRow={handleSelectRow}
+          onUpdateCell={handleCellChange}
+          onCreateRow={(data) => {
+            setError(null);
+            createRow.mutate({ data }, {
+              onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
+            });
+          }}
+          onContextMenu={handleCellContextMenu}
+        />
+      )}
+
+      {viewType === "timeline" && (
+        <TableTimelineView
+          fields={fields}
+          rows={sortedRows}
+          dateFieldId={view?.config?.timelineConfig?.dateFieldId}
+          groupBy={groupByConfig}
+          workspaceMembers={workspaceMembers}
+          selectedRows={selectedRows}
+          onSelectRow={handleSelectRow}
+          onUpdateCell={handleCellChange}
+          onDateFieldChange={handleTimelineDateFieldChange}
+          onContextMenu={handleCellContextMenu}
+        />
+      )}
+
+      {["list", "gallery", "calendar"].includes(viewType) && (
+        <div className="p-6 text-sm text-gray-500">
+          This view type is coming soon.
+        </div>
+      )}
       {commentsRowId && (
         <div className="fixed inset-y-0 right-0 z-40">
           <RowComments rowId={commentsRowId} onClose={() => setCommentsRowId(null)} />

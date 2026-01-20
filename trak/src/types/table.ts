@@ -27,7 +27,7 @@ export type FieldType =
   | "status"
   | "priority";
 
-export type ViewType = "table" | "board" | "calendar" | "list" | "gallery";
+export type ViewType = "table" | "board" | "timeline" | "calendar" | "list" | "gallery";
 
 export interface SelectFieldOption {
   /** Stable option identifier used in cells */
@@ -242,6 +242,11 @@ export interface ViewConfig {
   galleryConfig?: {
     coverFieldId?: string;
     cardSize: "small" | "medium" | "large";
+  };
+  /** Timeline view configuration */
+  timelineConfig?: {
+    dateFieldId: string;
+    groupByFieldId?: string;
   };
   /** Column calculation metadata */
   field_calculations?: Record<string, CalculationType>;

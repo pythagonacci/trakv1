@@ -34,6 +34,8 @@ interface Props {
   draggable?: boolean;
   onDragStart?: (rowId: string, e: React.DragEvent) => void;
   onUpdateFieldConfig?: (fieldId: string, config: any) => void;
+  editRequest?: { rowId: string; fieldId: string; initialValue?: string };
+  onEditRequestHandled?: () => void;
 }
 
 export const TableRow = memo(function TableRow({
@@ -61,6 +63,8 @@ export const TableRow = memo(function TableRow({
   draggable,
   onDragStart,
   onUpdateFieldConfig,
+  editRequest,
+  onEditRequestHandled,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const fieldMap = useMemo(() => {
@@ -143,6 +147,8 @@ export const TableRow = memo(function TableRow({
               fieldMap={fieldMap}
               onUploadFiles={onUploadFiles}
               onUpdateFieldConfig={(config) => onUpdateFieldConfig?.(field.id, config)}
+              editRequest={editRequest}
+              onEditRequestHandled={onEditRequestHandled}
             />
           </div>
         );
