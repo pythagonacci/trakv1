@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -17,6 +17,7 @@ import type {
   PriorityFieldConfig,
   PriorityLevelConfig,
   SelectFieldConfig,
+  SelectFieldOption,
   StatusFieldConfig,
   TableField,
   TableRow,
@@ -41,9 +42,9 @@ interface TableTimelineViewProps {
 }
 
 const getPriorityIcon = (order: number) => {
-  if (order >= 3) return <ArrowUp className="h-3 w-3" />;
-  if (order >= 2) return <Minus className="h-3 w-3" />;
-  return <ArrowDown className="h-3 w-3" />;
+  if (order >= 3) return <ArrowUp className="h-2 w-2" />;
+  if (order >= 2) return <Minus className="h-2 w-2" />;
+  return <ArrowDown className="h-2 w-2" />;
 };
 
 const withAlpha = (color: string, alpha: string) => {
@@ -52,7 +53,6 @@ const withAlpha = (color: string, alpha: string) => {
   return color;
 };
 
-const clampText = (s: string, max = 28) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 const toDateDisplay = (value: unknown) => {
   if (!value) return "";
@@ -84,29 +84,23 @@ const getScale = (rangeDays: number): TimelineScale => {
   return "month";
 };
 
-const getColumnWidth = (scale: TimelineScale) => {
-  // Compact so you can see more at once.
-  if (scale === "day") return 56;
-  if (scale === "week") return 92;
-  return 132;
+const getBaseColumnWidth = (scale: TimelineScale) => {
+  if (scale === "day") return 76;
+  if (scale === "week") return 140;
+  return 220;
 };
 
-// Compact vertical sizing (tight but readable)
-const ROW_HEIGHT = 44; // increased because pill includes 2 lines (title + date)
-const ROW_GAP = 8;
-const LANE_MIN_HEIGHT = 56;
+// Layout sizing
+const ROW_HEIGHT = 48; // Smaller cards
+const ROW_GAP = 6;
+const LANE_MIN_HEIGHT = 60;
+const CARD_HORIZONTAL_PADDING = 8;
+const CARD_MIN_WIDTH = 100; // Smaller minimum width to prevent overlap
 
-// Horizontal padding inside each card area
-const CARD_HORIZONTAL_PADDING = 12;
-
-// If you have lots of items on the same day, a slightly narrower card helps reduce “wall of cards”
-const WIDTH_MULTIPLIER = 0.82;
-
-const getStatusColor = (status: any | null) => status?.color || "#e5e7eb";
+const getStatusColor = (status: SelectFieldOption | null) => status?.color || "#e5e7eb";
 const getPriorityColor = (priority: PriorityLevelConfig | null) => priority?.color || "#e5e7eb";
 
-// Simple, deterministic track-packing: place each item into the first track
-// whose last end offset doesn't overlap this item's start offset.
+// Track packing: place each item into the first track where it doesn't overlap.
 function packIntoTracks<T extends { start: number; end: number }>(items: T[]) {
   const sorted = [...items].sort((a, b) => a.start - b.start || a.end - b.end);
   const trackLastEnd: number[] = [];
@@ -148,7 +142,28 @@ export function TableTimelineView({
   const dateField = dateFieldId ? fields.find((f) => f.id === dateFieldId) : dateFields[0];
 
   const groupByField = groupBy?.fieldId ? fields.find((f) => f.id === groupBy.fieldId) : undefined;
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  // Only one tooltip at a time
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+
+  // Expand columns to fill the visible viewport width
+  const [viewportWidth, setViewportWidth] = useState<number>(0);
+
+  useEffect(() => {
+    if (!viewportRef.current) return;
+
+    const el = viewportRef.current;
+
+    const update = () => setViewportWidth(el.clientWidth || 0);
+    update();
+
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
 
   const scheduledRows = useMemo(() => {
     if (!dateField) return [];
@@ -174,9 +189,7 @@ export function TableTimelineView({
   }, [scheduledRows]);
 
   const scale = range ? getScale(differenceInCalendarDays(range.end, range.start)) : "week";
-  const columnWidth = getColumnWidth(scale);
 
-  // Shared timelineStart for BOTH ticks and offsets.
   const timelineStart = useMemo(() => {
     if (!range) return startOfWeek(startOfDay(new Date()));
     if (scale === "day") return startOfDay(range.start);
@@ -197,6 +210,17 @@ export function TableTimelineView({
     const totalMonths = differenceInCalendarMonths(range.end, timelineStart);
     return Array.from({ length: totalMonths + 1 }, (_, idx) => addMonths(timelineStart, idx));
   }, [range, scale, timelineStart]);
+
+  const columnWidth = useMemo(() => {
+    const base = getBaseColumnWidth(scale);
+    if (!ticks.length) return base;
+    const desired = viewportWidth > 0 ? Math.floor(viewportWidth / ticks.length) : base;
+    return Math.max(base, desired);
+  }, [scale, ticks.length, viewportWidth]);
+
+  const timelineWidth = useMemo(() => {
+    return Math.max(ticks.length * columnWidth, viewportWidth || 0, 520);
+  }, [ticks.length, columnWidth, viewportWidth]);
 
   const getOffsetForDate = (date: Date) => {
     if (!range) return 0;
@@ -278,7 +302,6 @@ export function TableTimelineView({
     return <div className="p-6 text-sm text-gray-500">Add a date field to enable timeline view.</div>;
   }
 
-  const timelineWidth = Math.max(ticks.length * columnWidth, 520);
   const todayOffset = range ? getOffsetForDate(new Date()) : null;
 
   return (
@@ -306,38 +329,52 @@ export function TableTimelineView({
 
       {range && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
-          <div className="border-b border-gray-200 bg-gray-50/50">
-            <div className="flex" style={{ width: timelineWidth }}>
-              {ticks.map((tick, idx) => (
-                <div
-                  key={`${tick.toISOString()}-${idx}`}
-                  className="text-[11px] text-gray-500 px-2 py-2 border-r border-gray-200 last:border-r-0 whitespace-nowrap"
-                  style={{ width: columnWidth }}
-                >
-                  {scale === "month" ? format(tick, "MMM yyyy") : format(tick, "MMM d")}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="overflow-x-auto" ref={scrollRef}>
+          {/* Scrollable container for both header and content */}
+          <div
+            className="overflow-x-auto"
+            ref={viewportRef}
+            onMouseLeave={() => setHoveredRowId(null)}
+          >
             <div style={{ width: timelineWidth }}>
+              {/* Header ticks */}
+              <div className="border-b border-gray-200 bg-gray-50/50">
+                <div className="flex">
+                  {ticks.map((tick, idx) => (
+                    <div
+                      key={`${tick.toISOString()}-${idx}`}
+                      className="text-[11px] text-gray-600 px-3 py-2 border-r border-gray-200 last:border-r-0 whitespace-nowrap"
+                      style={{ width: columnWidth }}
+                    >
+                      {scale === "month" ? format(tick, "MMM yyyy") : format(tick, "MMM d")}
+                    </div>
+                  ))}
+                </div>
+              </div>
               {lanes.map((lane) => {
                 const laneRowsWithDates = lane.rows
                   .map((row) => ({ row, date: parseDateValue(row.data?.[dateField.id]) }))
                   .filter((x): x is { row: TableRow; date: Date } => !!x.date);
 
-                // Card width for packing + rendering
-                const cardWidth = Math.max(
-                  60,
-                  Math.floor((columnWidth - CARD_HORIZONTAL_PADDING) * WIDTH_MULTIPLIER)
-                );
+                // Make card width scale-appropriate to prevent spanning multiple dates
+                let cardWidth = CARD_MIN_WIDTH;
+                if (scale === "day") {
+                  // For day view, cards should fit within a single day column
+                  cardWidth = Math.min(CARD_MIN_WIDTH, Math.floor(columnWidth * 0.6));
+                } else if (scale === "week") {
+                  // For week view, cards should fit within a single week column
+                  cardWidth = Math.min(CARD_MIN_WIDTH, Math.floor(columnWidth * 0.5));
+                } else {
+                  // For month view, cards should fit within a single month column
+                  cardWidth = Math.min(CARD_MIN_WIDTH, Math.floor(columnWidth * 0.4));
+                }
 
-                // Items become segments for packing (using a width so packing is deterministic)
                 const items = laneRowsWithDates.map(({ row, date }) => {
-                  const start = getOffsetForDate(date);
+                  const normalizedDate = startOfDay(date);
+                  // Add small offset from column edge to prevent overlap
+                  const columnStart = getOffsetForDate(normalizedDate);
+                  const start = columnStart + 4; // 4px offset from column edge
                   const end = start + cardWidth;
-                  return { row, date, start, end };
+                  return { row, date: normalizedDate, start, end };
                 });
 
                 const { placed, trackCount } = packIntoTracks(items);
@@ -349,7 +386,7 @@ export function TableTimelineView({
 
                 return (
                   <div key={lane.id} className="border-b border-gray-200">
-                    <div className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white">
+                    <div className="px-3 py-2 text-xs font-semibold text-gray-700 bg-white">
                       {lane.label} · {laneRowsWithDates.length}
                     </div>
 
@@ -363,10 +400,10 @@ export function TableTimelineView({
                       onDrop={(e) => {
                         e.preventDefault();
                         const rowId = e.dataTransfer.getData("rowId");
-                        if (!rowId || !scrollRef.current) return;
+                        if (!rowId || !viewportRef.current) return;
 
-                        const rect = scrollRef.current.getBoundingClientRect();
-                        const offset = e.clientX - rect.left + scrollRef.current.scrollLeft;
+                        const rect = viewportRef.current.getBoundingClientRect();
+                        const offset = e.clientX - rect.left + viewportRef.current.scrollLeft;
                         const nextDate = getDateFromOffset(offset);
                         if (!nextDate) return;
 
@@ -400,6 +437,7 @@ export function TableTimelineView({
                         ))}
                       </div>
 
+                      {/* Today line */}
                       {todayOffset !== null &&
                         todayOffset >= 0 &&
                         todayOffset <= timelineWidth && (
@@ -409,6 +447,7 @@ export function TableTimelineView({
                           />
                         )}
 
+                      {/* Items */}
                       {placed.map(({ row, date, start, track }) => {
                         const title = primaryField
                           ? String(row.data?.[primaryField.id] ?? "Untitled")
@@ -417,16 +456,20 @@ export function TableTimelineView({
                         const priorityValue = priorityField ? row.data?.[priorityField.id] : null;
                         const statusValue = statusField ? row.data?.[statusField.id] : null;
                         const personValue = personField ? row.data?.[personField.id] : null;
+
                         const person = workspaceMembers.find((m) => m.id === personValue);
 
                         const priority = resolveOption(
                           priorityField,
                           priorityValue
                         ) as PriorityLevelConfig | null;
+
                         const status = resolveOption(statusField, statusValue);
 
                         const statusColor = getStatusColor(status);
                         const priorityColor = getPriorityColor(priority);
+
+                        const showTooltip = hoveredRowId === row.id;
 
                         return (
                           <div
@@ -438,9 +481,11 @@ export function TableTimelineView({
                               width: cardWidth,
                             }}
                           >
+                            {/* Event box */}
                             <div
-                              className="group relative h-full"
-                              style={{ height: ROW_HEIGHT }}
+                              className="relative h-full w-full"
+                              onMouseEnter={() => setHoveredRowId(row.id)}
+                              onMouseLeave={() => setHoveredRowId((prev) => (prev === row.id ? null : prev))}
                               draggable
                               onDragStart={(e) => {
                                 e.dataTransfer.setData("rowId", row.id);
@@ -451,34 +496,36 @@ export function TableTimelineView({
                                 onContextMenu?.(e, row.id);
                               }}
                             >
-                              {/* Compact pill (no wrapping, no multi-line badges) */}
                               <div
-                                className="h-full w-full rounded-md border bg-white hover:shadow-sm transition-shadow flex items-center gap-2 px-2 overflow-hidden"
+                                className="h-full w-full rounded border bg-white hover:shadow-sm transition-shadow flex items-center gap-1 overflow-hidden"
                                 style={{
                                   borderColor: "rgba(229,231,235,1)",
+                                  paddingLeft: CARD_HORIZONTAL_PADDING,
+                                  paddingRight: CARD_HORIZONTAL_PADDING,
+                                  height: ROW_HEIGHT,
                                 }}
                               >
                                 {/* Status indicator */}
                                 <div
-                                  className="h-6 w-1.5 rounded-full flex-shrink-0"
+                                  className="h-5 w-0.5 rounded-full flex-shrink-0"
                                   style={{ backgroundColor: statusColor }}
                                 />
 
-                                {/* Title + date */}
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-sm font-medium text-gray-900 truncate">
-                                    {clampText(String(title), 34)}
+                                {/* Title + Date */}
+                                <div className="min-w-0 flex-1 flex flex-col justify-center gap-0 overflow-hidden">
+                                  <div className="text-[10px] font-semibold text-gray-900 truncate leading-tight">
+                                    {title}
                                   </div>
-                                  <div className="text-[11px] text-gray-500 leading-4">
+                                  <div className="text-[9px] text-gray-500 leading-tight truncate">
                                     {format(date, "MMM d")}
                                   </div>
                                 </div>
 
-                                {/* Tiny indicators + checkbox */}
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {/* Right indicators */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                   {priority && (
                                     <div
-                                      className="h-6 px-1.5 rounded border text-[11px] font-medium flex items-center gap-1"
+                                      className="h-4 px-1 rounded border flex items-center justify-center"
                                       style={{
                                         backgroundColor: withAlpha(priorityColor, "1A"),
                                         borderColor: withAlpha(priorityColor, "33"),
@@ -492,7 +539,7 @@ export function TableTimelineView({
 
                                   {person && (
                                     <div
-                                      className="h-6 w-6 rounded-full border flex items-center justify-center text-[9px] text-gray-700 bg-gray-50"
+                                      className="h-6 w-6 rounded-full border flex items-center justify-center text-[8px] font-semibold text-gray-700 bg-gray-50"
                                       style={{ borderColor: "rgba(229,231,235,1)" }}
                                       title={formatUserDisplay(person)}
                                     >
@@ -504,76 +551,71 @@ export function TableTimelineView({
                                     type="checkbox"
                                     checked={selectedRows.has(row.id)}
                                     onChange={(e) =>
-                                      onSelectRow(
-                                        row.id,
-                                        e as unknown as React.MouseEvent<HTMLInputElement>
-                                      )
+                                      onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
                                     }
-                                    className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-2 focus:ring-gray-900 focus:ring-offset-0"
+                                    className="w-3.5 h-3.5 rounded border-gray-300 text-gray-900 focus:ring-1 focus:ring-gray-900 focus:ring-offset-0"
                                   />
                                 </div>
                               </div>
 
-                              {/* Hover tooltip with full metadata (doesn't affect layout) */}
-                              <div className="pointer-events-none absolute left-0 top-full mt-2 hidden group-hover:block z-20">
-                                <div className="w-[260px] rounded-lg border border-gray-200 bg-white shadow-lg p-3">
-                                  <div className="text-sm font-semibold text-gray-900">
-                                    {String(title)}
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-0.5">
-                                    {toDateDisplay(date)}
-                                  </div>
+                              {/* Tooltip */}
+                              {showTooltip && (
+                                <div className="absolute left-0 top-full mt-2 z-30">
+                                  <div className="w-[300px] rounded-lg border border-gray-200 bg-white shadow-lg p-3">
+                                    <div className="text-sm font-semibold text-gray-900">{title}</div>
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                      {toDateDisplay(date)}
+                                    </div>
 
-                                  <div className="flex flex-wrap gap-2 mt-2">
-                                    {status && (
-                                      <span
-                                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border"
-                                        style={{
-                                          backgroundColor: status.color
-                                            ? withAlpha(status.color, "1A")
-                                            : "#f3f4f6",
-                                          borderColor: status.color
-                                            ? withAlpha(status.color, "33")
-                                            : "#e5e7eb",
-                                          color: status.color || "#374151",
-                                        }}
-                                      >
+                                    <div className="flex flex-wrap gap-2 mt-2">
+                                      {status && (
                                         <span
-                                          className="h-1.5 w-1.5 rounded-full"
+                                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border"
                                           style={{
-                                            backgroundColor: status.color || "#9ca3af",
+                                            backgroundColor: status.color
+                                              ? withAlpha(status.color, "1A")
+                                              : "#f3f4f6",
+                                            borderColor: status.color
+                                              ? withAlpha(status.color, "33")
+                                              : "#e5e7eb",
+                                            color: status.color || "#374151",
                                           }}
-                                        />
-                                        {status.label}
-                                      </span>
-                                    )}
+                                        >
+                                          <span
+                                            className="h-1.5 w-1.5 rounded-full"
+                                            style={{ backgroundColor: status.color || "#9ca3af" }}
+                                          />
+                                          {status.label}
+                                        </span>
+                                      )}
 
-                                    {priority && (
-                                      <span
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border"
-                                        style={{
-                                          backgroundColor: priority.color
-                                            ? withAlpha(priority.color, "1A")
-                                            : "#f3f4f6",
-                                          borderColor: priority.color
-                                            ? withAlpha(priority.color, "33")
-                                            : "#e5e7eb",
-                                          color: priority.color || "#374151",
-                                        }}
-                                      >
-                                        {getPriorityIcon(priority.order || 0)}
-                                        {priority.label}
-                                      </span>
-                                    )}
+                                      {priority && (
+                                        <span
+                                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border"
+                                          style={{
+                                            backgroundColor: priority.color
+                                              ? withAlpha(priority.color, "1A")
+                                              : "#f3f4f6",
+                                            borderColor: priority.color
+                                              ? withAlpha(priority.color, "33")
+                                              : "#e5e7eb",
+                                            color: priority.color || "#374151",
+                                          }}
+                                        >
+                                          {getPriorityIcon(priority.order || 0)}
+                                          {priority.label}
+                                        </span>
+                                      )}
 
-                                    {person && (
-                                      <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">
-                                        {formatUserDisplay(person)}
-                                      </span>
-                                    )}
+                                      {person && (
+                                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">
+                                          {formatUserDisplay(person)}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -594,9 +636,7 @@ export function TableTimelineView({
           </div>
           <div className="space-y-2">
             {unscheduledRows.map((row) => {
-              const title = primaryField
-                ? String(row.data?.[primaryField.id] ?? "Untitled")
-                : "Untitled";
+              const title = primaryField ? String(row.data?.[primaryField.id] ?? "Untitled") : "Untitled";
               return (
                 <div
                   key={row.id}
