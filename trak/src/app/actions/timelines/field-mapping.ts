@@ -90,25 +90,6 @@ export async function resolveReferenceData(input: {
     };
   }
 
-  if (reference.reference_type === "task") {
-    const { data: task } = await supabase
-      .from("standalone_tasks")
-      .select("id, text, due_date, created_at, updated_at")
-      .eq("id", reference.reference_id)
-      .single();
-
-    if (!task) return null;
-
-    const start = task.due_date ? new Date(task.due_date).toISOString() : task.created_at;
-    const end = task.due_date ? new Date(task.due_date).toISOString() : task.updated_at;
-
-    return {
-      title: task.text,
-      start_date: start,
-      end_date: end,
-    };
-  }
-
   if (reference.reference_type === "block") {
     const { data: block } = await supabase
       .from("blocks")

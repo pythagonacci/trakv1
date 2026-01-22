@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import DashboardOverview from "./dashboard-overview";
 import { getServerUser } from "@/lib/auth/get-server-user";
-import { getStandaloneTasks } from "@/app/actions/standalone-task";
 import { BlockComment } from "@/types/block-comment";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +28,7 @@ export default async function DashboardPage() {
   }
 
   // Fetch dashboard data with graceful degradation
-  const [projectsResult, docsResult, tasksResult, standaloneTasksResult, commentBlocksResult] = await Promise.allSettled([
+  const [projectsResult, docsResult, tasksResult, commentBlocksResult] = await Promise.allSettled([
     // Get projects
     supabase
       .from("projects")
@@ -72,9 +71,6 @@ export default async function DashboardPage() {
       .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
       .limit(20),
-    
-    // Get standalone tasks
-    getStandaloneTasks(workspaceId),
 
     // Blocks with potential client comments - optimized with inner joins
     supabase
@@ -113,16 +109,12 @@ export default async function DashboardPage() {
     ? tasksResult.value.data || []
     : [];
 
-  const standaloneTasks = standaloneTasksResult.status === 'fulfilled'
-    ? standaloneTasksResult.value.data || []
-    : [];
-
   const commentBlocks = commentBlocksResult.status === 'fulfilled' && !commentBlocksResult.value.error
     ? commentBlocksResult.value.data || []
     : [];
 
   // Extract uncompleted tasks from project blocks
-  const projectTasks = taskItems
+  const tasks = taskItems
     .filter((task: any) => {
       const status = typeof task.status === "string" ? task.status.toLowerCase() : "";
       const isDoneStatus = status === "done" || status === "complete" || status === "completed";
@@ -139,25 +131,8 @@ export default async function DashboardPage() {
       dueDate: task.due_date,
       dueTime: task.due_time,
       status: task.status ?? "todo",
-    }));
-
-  // Transform standalone tasks to match format
-  const standaloneTasksFormatted = standaloneTasks
-    .filter((task: any) => task.status !== "done")
-    .map((task: any) => ({
-      id: `standalone-${task.id}`,
-      text: task.text,
-      projectName: "Miscellaneous",
-      tabName: "Tasks",
-      projectId: null,
-      tabId: null,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      dueTime: task.dueTime,
-    }));
-
-  // Combine and limit to 10
-  const tasks = [...projectTasks, ...standaloneTasksFormatted].slice(0, 10);
+    }))
+    .slice(0, 10);
 
   const clientFeedback = commentBlocks
     .flatMap((block: any) => {

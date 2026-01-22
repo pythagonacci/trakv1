@@ -210,18 +210,6 @@ async function resolveReferenceAccess(input: {
     return { tableId: null };
   }
 
-  if (referenceType === "task") {
-    const { data: task } = await supabase
-      .from("standalone_tasks")
-      .select("id, workspace_id")
-      .eq("id", referenceId)
-      .single();
-
-    if (!task) return { error: "Task not found" };
-    if (task.workspace_id !== workspaceId) return { error: "Task is in a different workspace" };
-    return { tableId: null };
-  }
-
   if (referenceType === "block") {
     const { data: block } = await supabase
       .from("blocks")
@@ -262,19 +250,6 @@ async function resolveReferenceIdByName(input: {
 
     if (!data || data.length === 0) return { error: "No document found with that title." };
     if (data.length > 1) return { error: "Multiple documents matched that title. Please use the ID instead." };
-    return { referenceId: data[0].id };
-  }
-
-  if (input.referenceType === "task") {
-    const { data } = await input.supabase
-      .from("standalone_tasks")
-      .select("id, text")
-      .eq("workspace_id", input.workspaceId)
-      .ilike("text", referenceId)
-      .limit(5);
-
-    if (!data || data.length === 0) return { error: "No task found with that name." };
-    if (data.length > 1) return { error: "Multiple tasks matched that name. Please use the ID instead." };
     return { referenceId: data[0].id };
   }
 
@@ -372,11 +347,6 @@ async function resolveReferenceSummary(
   if (ref.reference_type === "doc") {
     const { data } = await supabase.from("docs").select("title").eq("id", ref.reference_id).maybeSingle();
     return { title: data?.title || "Doc" };
-  }
-
-  if (ref.reference_type === "task") {
-    const { data } = await supabase.from("standalone_tasks").select("text").eq("id", ref.reference_id).maybeSingle();
-    return { title: data?.text || "Task" };
   }
 
   if (ref.reference_type === "block") {

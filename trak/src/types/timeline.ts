@@ -1,6 +1,6 @@
 export type TimelineEventStatus = "planned" | "in-progress" | "blocked" | "done";
 export type DependencyType = "finish-to-start" | "start-to-start" | "finish-to-finish" | "start-to-finish";
-export type ReferenceType = "doc" | "table_row" | "task" | "block";
+export type ReferenceType = "doc" | "table_row" | "block";
 export type TimelineItemType = "event";
 
 export interface TimelineEvent {

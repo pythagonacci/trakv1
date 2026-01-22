@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Flag,
   Calendar,
-  CheckSquare,
   MessageSquare,
 } from "lucide-react";
 import {
@@ -189,13 +188,6 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
             <CalendarDays className="h-4 w-4" />
             Today view
           </Button>
-          <button 
-            onClick={() => router.push("/dashboard/tasks")}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors flex items-center gap-1.5"
-          >
-            <CheckSquare className="h-4 w-4" />
-            Add Task
-          </button>
           <button 
             onClick={() => router.push("/dashboard/projects")}
             className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"

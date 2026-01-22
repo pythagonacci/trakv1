@@ -7,7 +7,7 @@ const VALID_DEPENDENCY_TYPES: DependencyType[] = [
   "start-to-finish",
 ];
 
-const VALID_REFERENCE_TYPES: ReferenceType[] = ["doc", "table_row", "task", "block"];
+const VALID_REFERENCE_TYPES: ReferenceType[] = ["doc", "table_row", "block"];
 const VALID_EVENT_STATUSES: TimelineEventStatus[] = ["planned", "in-progress", "blocked", "done"];
 
 export function validateTimelineDateRange(startDate: string, endDate: string) {

@@ -18,7 +18,6 @@ import {
   Calendar as CalendarIcon,
   Palette,
   Square,
-  CheckSquare,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -283,14 +282,6 @@ function Sidebar({
             Calendar
           </NavLink>
           <NavLink
-            href="/dashboard/tasks"
-            icon={<CheckSquare className="h-4 w-4" />}
-            active={pathname?.startsWith("/dashboard/tasks")}
-            collapsed={collapsed}
-          >
-            Tasks
-          </NavLink>
-          <NavLink
             href="/dashboard/payments"
             icon={<CreditCard className="h-4 w-4" />}
             active={pathname?.startsWith("/dashboard/payments")}
@@ -429,10 +420,9 @@ function Header() {
   const isHomePage = pathname === "/dashboard";
   const isClientsPage = pathname?.startsWith("/dashboard/clients");
   const isInternalPage = pathname?.startsWith("/dashboard/internal");
-  const isTasksPage = pathname?.startsWith("/dashboard/tasks");
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
 
-  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isTasksPage || isCalendarPage) {
+  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isCalendarPage) {
     return null;
   }
 

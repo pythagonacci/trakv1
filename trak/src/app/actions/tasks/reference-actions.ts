@@ -98,9 +98,7 @@ async function resolveReferenceSummary(
 
   if (ref.reference_type === "task") {
     const { data: taskItem } = await supabase.from("task_items").select("title").eq("id", ref.reference_id).maybeSingle();
-    if (taskItem?.title) return { title: taskItem.title };
-    const { data } = await supabase.from("standalone_tasks").select("text").eq("id", ref.reference_id).maybeSingle();
-    return { title: data?.text || "Task" };
+    return { title: taskItem?.title || "Task" };
   }
 
   if (ref.reference_type === "tab") {
