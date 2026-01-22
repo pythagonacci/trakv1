@@ -257,7 +257,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     }
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "gallery" | "video" | "embed" | "section" | "doc_reference") => {
+  const handleConvert = async (blockId: string, newType: BlockType) => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {

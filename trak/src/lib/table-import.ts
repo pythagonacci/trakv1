@@ -29,22 +29,22 @@ const countDelimitersOutsideQuotes = (line: string, delimiter: string) => {
   return count;
 };
 
-const detectDelimiter = (text: string) => {
+const detectDelimiter = (text: string): (typeof DELIMITERS)[number] | null => {
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length === 0) return null;
 
-  let best: { delimiter: string; score: number } | null = null;
-  DELIMITERS.forEach((delimiter) => {
+  let best: { delimiter: (typeof DELIMITERS)[number]; score: number } | null = null;
+  for (const delimiter of DELIMITERS) {
     const counts = lines.map((line) => countDelimitersOutsideQuotes(line, delimiter));
     const max = Math.max(...counts);
     const avg = counts.reduce((sum, val) => sum + val, 0) / counts.length;
     const score = max + avg;
-    if (max === 0) return;
+    if (max === 0) continue;
     if (!best || score > best.score) {
       best = { delimiter, score };
     }
-  });
-  return best?.delimiter ?? null;
+  }
+  return best ? best.delimiter : null;
 };
 
 const parseDelimitedText = (text: string, delimiter: string) => {

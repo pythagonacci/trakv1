@@ -49,23 +49,7 @@ interface BlockWrapperProps {
   workspaceId?: string;
   projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (
-    blockId: string,
-    newType:
-      | "text"
-      | "task"
-      | "link"
-      | "divider"
-      | "table"
-      | "timeline"
-      | "file"
-      | "video"
-      | "image"
-      | "gallery"
-      | "embed"
-      | "doc_reference"
-      | "section"
-  ) => void;
+  onConvert?: (blockId: string, newType: Block["type"]) => void;
   onUpdate?: () => void;
   onAddBlockAbove?: (blockId: string, type?: Block["type"]) => void;
   onAddBlockBelow?: (blockId: string, type?: Block["type"]) => void;

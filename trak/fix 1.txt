@@ -1,0 +1,107 @@
+﻿Prompt: Fix AI Search Issues
+Context
+Three issues need fixing in app/actions/ai-search.ts to ensure AI can find ALL matching data in the workspace.
+________________
+
+
+Issue 1: Task Assignee/Tag Filtering (CRITICAL)
+Problem: Current implementation filters on joined tables (task_assignees, task_tag_links) which excludes tasks without assignees/tags, even when those filters aren't specified.
+Example: searchTasks({ status: "done" }) should return ALL done tasks, but currently only returns done tasks that have at least one assignee.
+Root Cause: Lines 282-291 filter on join tables directly:
+typescript
+if (params.assignee) {
+  query = query.ilike("task_assignees.assignee_name", `%${params.assignee}%`);
+}
+This creates INNER JOIN behavior.
+Fix: Use post-fetch filtering for assignees and tags.
+Pattern:
+1. Remove assignee/tag filters from the SQL query (lines 282-291)
+2. After fetching results and mapping to TaskSearchResult[], add:
+typescript
+// Post-fetch filtering
+if (params.assignee) {
+  const assigneeLower = params.assignee.toLowerCase();
+  combined = combined.filter(task =>
+    task.assignees.some(a => a.name?.toLowerCase().includes(assigneeLower))
+  );
+}
+
+
+if (params.assigneeId) {
+  combined = combined.filter(task =>
+    task.assignees.some(a => a.id === params.assigneeId)
+  );
+}
+
+
+if (params.tags && params.tags.length > 0) {
+  combined = combined.filter(task =>
+    params.tags!.some(tag => task.tags.includes(tag))
+  );
+}
+Apply to: Both task_items and standalone_tasks queries in searchTasks function.
+________________
+
+
+Issue 2: Archived Content Not Filtered
+Problem: Functions have includeArchived?: boolean parameter but don't use it in queries.
+Affected: searchDocs, searchProjects, and any other functions with this parameter.
+Fix: After workspace filter, add:
+typescript
+if (params.includeArchived === false) {
+  query = query.eq("is_archived", false);
+}
+Note: Default behavior is includeArchived = true (show everything).
+________________
+
+
+Issue 3: File Search Misses Standalone Files
+Problem: Current searchFiles queries file_attachments table, missing standalone files uploaded via uploadStandaloneFile (files without block attachments).
+Root Cause: Starting from file_attachments excludes files that exist only in files table.
+Fix: Query files table directly (it has workspace_id):
+typescript
+let query = supabase
+  .from("files")
+  .select(`
+    id, workspace_id, file_name, file_size, file_type, storage_path, 
+    bucket, project_id, uploaded_by, created_at,
+    file_attachments(id, block_id, display_mode)
+  `)
+  .eq("workspace_id", workspaceId);
+Update FileSearchResult interface:
+typescript
+interface FileSearchResult {
+  id: string;
+  file_id: string;
+  workspace_id: string;
+  project_id: string;
+  file_name: string;
+  file_type: string | null;
+  file_size: number;
+  storage_path: string;
+  bucket: string;
+  uploaded_by: string;
+  created_at: string;
+  block_id: string | null;        // null for standalone files
+  display_mode: string | null;
+  attachment_id: string | null;
+  is_attached: boolean;            // true if file_attachments exists
+}
+Mapping logic:
+typescript
+const attachment = Array.isArray(file.file_attachments) && file.file_attachments.length > 0
+  ? file.file_attachments[0]
+  : null;
+
+
+return {
+  // ... file fields
+  block_id: attachment?.block_id ?? null,
+  display_mode: attachment?.display_mode ?? null,
+  attachment_id: attachment?.id ?? null,
+  is_attached: !!attachment,
+};
+________________
+
+
+Apply all three fixes to app/actions/ai-search.ts.

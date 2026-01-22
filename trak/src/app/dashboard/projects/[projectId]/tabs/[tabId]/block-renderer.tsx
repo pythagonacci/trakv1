@@ -90,7 +90,7 @@ interface BlockRendererProps {
   tabId?: string;
   onUpdate?: (updatedBlock?: Block) => void;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "gallery" | "video" | "embed" | "section" | "doc_reference") => void;
+  onConvert?: (blockId: string, newType: Block["type"]) => void;
   onAddBlockAbove?: (blockId: string, type?: Block["type"]) => void;
   onAddBlockBelow?: (blockId: string, type?: Block["type"]) => void;
   onOpenDoc?: (docId: string) => void;

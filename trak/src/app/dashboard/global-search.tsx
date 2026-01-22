@@ -3,8 +3,27 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Search, FileText, CheckSquare, Folder, File, Layers, X, Loader2 } from "lucide-react";
-import { searchWorkspaceContent, type SearchResult, type SearchResultType } from "@/app/actions/search";
+import {
+  searchBlocks,
+  searchDocs,
+  searchProjects,
+  searchTabs,
+  searchTasks,
+} from "@/app/actions/ai-search";
 import { cn } from "@/lib/utils";
+
+type SearchResultType = "project" | "task" | "doc" | "text_block" | "tab";
+
+interface SearchResult {
+  id: string;
+  type: SearchResultType;
+  title: string;
+  subtitle?: string;
+  url: string;
+  preview?: string;
+  highlightedPreview?: string;
+  metadata?: Record<string, any>;
+}
 
 export default function GlobalSearch() {
   const [query, setQuery] = useState("");
@@ -26,17 +45,105 @@ export default function GlobalSearch() {
 
     setIsSearching(true);
     const timeoutId = setTimeout(async () => {
-      const result = await searchWorkspaceContent(query.trim(), 10); // Reduced limit for faster results
-      if (result.data) {
-        setResults(result.data);
-        setIsOpen(result.data.length > 0);
-      } else if (result.error) {
-        console.error("Search error:", result.error);
-        setResults([]);
-        setIsOpen(false);
+      const searchText = query.trim();
+      const limit = 10;
+
+      const [projects, tasks, docs, blocks, tabs] = await Promise.all([
+        searchProjects({ searchText, limit }),
+        searchTasks({ searchText, limit }),
+        searchDocs({ searchText, limit }),
+        searchBlocks({ type: "text", searchText, limit }),
+        searchTabs({ searchText, limit }),
+      ]);
+
+      const merged: SearchResult[] = [];
+
+      if (projects.data) {
+        merged.push(
+          ...projects.data.map((project) => ({
+            id: project.id,
+            type: "project" as const,
+            title: project.name,
+            url: `/dashboard/projects/${project.id}`,
+          }))
+        );
       }
+
+      if (tasks.data) {
+        merged.push(
+          ...tasks.data.map((task) => {
+            const projectId = task.project_id;
+            const tabId = task.tab_id;
+            const blockId = task.task_block_id;
+            const taskUrl =
+              projectId && tabId && blockId
+                ? `/dashboard/projects/${projectId}/tabs/${tabId}?task=${blockId}-${task.id}`
+                : "/dashboard";
+
+            return {
+              id: task.id,
+              type: "task" as const,
+              title: task.title,
+              subtitle: task.taskType === "standalone" ? "Standalone Task" : undefined,
+              url: taskUrl,
+              preview: task.title,
+              metadata: {
+                taskType: task.taskType,
+                projectId,
+                tabId,
+                blockId,
+              },
+            };
+          })
+        );
+      }
+
+      if (docs.data) {
+        merged.push(
+          ...docs.data.map((doc) => ({
+            id: doc.id,
+            type: "doc" as const,
+            title: doc.title,
+            url: `/dashboard/docs/${doc.id}`,
+            preview: doc.title,
+          }))
+        );
+      }
+
+      if (blocks.data) {
+        merged.push(
+          ...blocks.data.map((block) => {
+            const text =
+              typeof block.content?.text === "string" ? block.content.text : "Text block";
+            const preview = text.replace(/\s+/g, " ").trim().slice(0, 100);
+            const projectId = block.project_id;
+            return {
+              id: block.id,
+              type: "text_block" as const,
+              title: preview || "Text block",
+              url: projectId ? `/dashboard/projects/${projectId}/tabs/${block.tab_id}` : "/dashboard",
+              preview,
+            };
+          })
+        );
+      }
+
+      if (tabs.data) {
+        merged.push(
+          ...tabs.data.map((tab) => ({
+            id: tab.id,
+            type: "tab" as const,
+            title: tab.name,
+            url: `/dashboard/projects/${tab.project_id}/tabs/${tab.id}`,
+          }))
+        );
+      }
+
+      const filtered = merged.slice(0, limit);
+      setResults(filtered);
+      setIsOpen(filtered.length > 0);
       setIsSearching(false);
-    }, 200); // Reduced debounce from 300ms to 200ms
+    }, 200);
 
     return () => clearTimeout(timeoutId);
   }, [query]);
@@ -280,4 +387,3 @@ export default function GlobalSearch() {
     </div>
   );
 }
-

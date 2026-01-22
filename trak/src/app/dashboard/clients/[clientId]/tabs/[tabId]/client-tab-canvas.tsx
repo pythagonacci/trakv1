@@ -17,7 +17,13 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { type ClientTabBlock, deleteClientTabBlock, updateClientTabBlock, createClientTabBlock } from "@/app/actions/client-tab-block";
+import {
+  type ClientTabBlock,
+  type ClientTabBlockType,
+  deleteClientTabBlock,
+  updateClientTabBlock,
+  createClientTabBlock,
+} from "@/app/actions/client-tab-block";
 import EmptyCanvasState from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/empty-canvas-state";
 import ClientAddBlockButton from "./client-add-block-button";
 import ClientTabBlockRenderer from "./client-tab-block-renderer";
@@ -234,7 +240,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
     }
   };
 
-  const handleConvert = async (blockId: string, newType: "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "image" | "gallery" | "video" | "embed" | "section" | "doc_reference") => {
+  const handleConvert = async (blockId: string, newType: ClientTabBlockType) => {
     // Determine default content for the new type
     let newContent: Record<string, unknown> = {};
     if (newType === "text") {

@@ -1,0 +1,392 @@
+﻿Entity Search Functions - AI Data Access Layer
+Context & Purpose
+You are building the search layer for Trak's AI assistant (accessible via CMD+K). This is part of a larger AI-powered "prompt-to-action" system where users give natural language commands and the AI executes them.
+The Big Picture:
+User Command (natural language)
+    ↓
+AI parses intent
+    ↓
+**[YOU ARE HERE]** AI calls SEARCH functions to find entities
+    ↓
+AI calls existing ACTION functions to manipulate data
+    ↓
+Result returned to user
+What You're Building:
+Entity search functions that allow the AI to find ANY data in a workspace by various criteria. These functions are the bridge between natural language ("mark all high priority tasks assigned to John") and database IDs that action functions need.
+What You're NOT Building:
+* You are NOT building the action functions (those exist - updateTask, createBlock, etc.)
+* You are NOT building the AI prompt parsing layer (that comes later)
+* You are NOT building user-facing search UI (this is purely for AI consumption)
+________________
+
+
+Architecture Overview
+File Structure:
+Create a new file: app/actions/ai-search.ts
+This file will contain ~20 search functions, one for each major entity type in Trak:
+* Tasks (both task_items AND standalone_tasks)
+* Blocks (all types)
+* Docs
+* Projects
+* Clients
+* Tabs
+* Tables, Table Rows, Table Fields
+* Timeline Events
+* File Attachments
+* Comments
+* Entity Links
+* Workspace Members
+* And more...
+Design Principles:
+1. Flexible Compound Filtering
+   * Each search function accepts multiple optional filter parameters
+   * All filters are ANDed together (if assignee="John" AND priority="high")
+   * AI can call with any combination of filters
+2. Minimal but Complete Results
+   * Return only fields needed for: display, further filtering, and taking actions
+   * Include: IDs, titles/names, statuses, relationship IDs (parent_id, tab_id, project_id)
+   * Don't return: full content bodies, unnecessary metadata
+3. Performance First
+   * Always filter by workspace_id explicitly (even though RLS exists)
+   * Use direct table access where possible (e.g., task_items.workspace_id)
+   * Minimize joins - only join when necessary for workspace filtering
+4. Include Everything
+   * Include archived content by default (includeArchived defaults to true)
+   * Include soft-deleted content (check for is_archived, deleted_at columns)
+   * AI should see all data in workspace
+________________
+
+
+Standard Patterns to Follow
+1. Auth & Workspace Pattern
+Every search function must follow this pattern:
+typescript
+export async function searchTasks(params: {
+  // filter params here
+}) {
+  // 1. Get workspace from cookie
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) {
+    return { data: null, error: "No workspace selected" };
+  }
+
+
+  // 2. Get authenticated user
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return { data: null, error: "Unauthorized" };
+  }
+
+
+  // 3. Create Supabase client
+  const supabase = await createClient();
+
+
+  // 4. Execute query with explicit workspace filter
+  const { data, error } = await supabase
+    .from("task_items")
+    .select("...")
+    .eq("workspace_id", workspaceId) // Always include this
+    // ... other filters
+  
+  // 5. Return standard format
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  
+  return { data, error: null };
+}
+Reference these existing functions for auth patterns:
+* getCurrentWorkspaceId() from workspace.ts
+* getAuthenticatedUser() from auth-utils.ts
+2. Return Type Pattern
+All search functions return:
+typescript
+Promise<{
+  data: T[] | null;
+  error: string | null;
+}>
+Reference: See searchWorkspaceContent return type in the old search.ts (you'll delete this file later, but use it as a pattern reference)
+3. Workspace Filtering Patterns
+For entities with direct workspace_id:
+typescript
+// Tasks, Standalone Tasks, Projects, Clients, Docs, Timeline Events
+.eq("workspace_id", workspaceId)
+For blocks (require join):
+typescript
+.select(`
+  id,
+  type,
+  content,
+  tab:tabs!inner(
+    id,
+    project_id,
+    projects!inner(workspace_id)
+  )
+`)
+.eq("tabs.projects.workspace_id", workspaceId)
+Reference: See RLS policy sel_blocks in schema.sql and getTabMetadata in auth-utils.ts
+4. Handling Both Task Systems
+CRITICAL: Tasks exist in TWO places:
+1. task_items - block-scoped tasks (tied to task blocks)
+2. standalone_tasks - workspace-level tasks (used in /dashboard/tasks)
+Your task search must query BOTH:
+typescript
+export async function searchTasks(params: {...}) {
+  // Query task_items
+  const { data: blockTasks } = await supabase
+    .from("task_items")
+    .select("...")
+    .eq("workspace_id", workspaceId);
+  
+  // Query standalone_tasks
+  const { data: standaloneTasks } = await supabase
+    .from("standalone_tasks")
+    .select("...")
+    .eq("workspace_id", workspaceId);
+  
+  // Merge results with type indicator
+  const combined = [
+    ...(blockTasks || []).map(t => ({ ...t, taskType: "block" })),
+    ...(standaloneTasks || []).map(t => ({ ...t, taskType: "standalone" }))
+  ];
+  
+  return { data: combined, error: null };
+}
+5. Table Row Search Pattern
+Table rows have JSONB data with field IDs as keys:
+typescript
+// Example table_rows.data:
+{
+  "f1f2a3b4-...": "Italy",
+  "c9d0e1f2-...": 123,
+  "a1b2c3d4-...": "2025-01-15"
+}
+
+
+// Search pattern:
+.select("id, table_id, data")
+.eq("table_id", tableId)
+// For text search across all fields:
+.filter("data", "cs", JSON.stringify({ searchText })) // contains
+// OR use: .ilike("data::text", `%${searchText}%`)
+Reference: See updateCell in row-actions.ts for how field IDs are used
+6. Archived Content Handling
+Default to including archived content:
+typescript
+export async function searchProjects(params: {
+  searchText?: string;
+  clientId?: string;
+  includeArchived?: boolean; // defaults to true
+}) {
+  // ... auth setup ...
+  
+  let query = supabase
+    .from("projects")
+    .select("...")
+    .eq("workspace_id", workspaceId);
+  
+  // Only filter archived if explicitly requested
+  if (params.includeArchived === false) {
+    query = query.eq("is_archived", false);
+  }
+  
+  // ... rest of query ...
+}
+Check schema for these columns:
+* is_archived (boolean)
+* archived_at (timestamp)
+* deleted_at (timestamp)
+Different tables use different patterns - inspect and handle accordingly.
+________________
+
+
+Required Search Functions
+Build search functions for these entities (in this order):
+High Priority (Build First):
+1. searchTasks - Search both task_items AND standalone_tasks
+typescript
+  searchTasks(params: {
+     assignee?: string;           // assignee name (join task_assignees)
+     assigneeId?: string;          // exact assignee ID
+     status?: string | string[];   // "todo", "in-progress", "done", or array
+     priority?: string | string[]; // "low", "medium", "high", or array
+     tags?: string[];              // array of tag names (join task_tags)
+     searchText?: string;          // search in title
+     dueAfter?: string;            // ISO date
+     dueBefore?: string;           // ISO date
+     projectId?: string;           // filter by project
+     tabId?: string;               // filter by tab
+     includeArchived?: boolean;    // default true
+     limit?: number;               // default 100
+   })
+Returns: Combined results from both task_items and standalone_tasks with a taskType field to distinguish them
+2. searchBlocks - Search all block types
+typescript
+  searchBlocks(params: {
+     type?: BlockType | BlockType[]; // "text", "heading", "task", etc.
+     tabId?: string;                 // filter by tab
+     parentBlockId?: string;         // filter by parent
+     searchText?: string;            // search in content
+     includeArchived?: boolean;      // default true
+     limit?: number;                 // default 100
+   })
+Special handling: Blocks require join to tabs → projects for workspace filtering
+3. searchTableRows - Search rows in table(s)
+typescript
+  searchTableRows(params: {
+     tableId?: string;     // specific table, or search all if omitted
+     searchText?: string;  // search across all JSONB data fields
+     fieldFilters?: Record<string, any>; // filter by specific field values
+     limit?: number;       // default 100
+   })
+Note: data is JSONB with field IDs as keys. Search with data::text ILIKE '%value%'
+4. searchDocs - Search ProseMirror documents
+typescript
+  searchDocs(params: {
+     searchText?: string;      // search in title and content
+     includeArchived?: boolean; // default true
+     limit?: number;            // default 100
+   })
+Note: Content is ProseMirror JSON. Extract text or search content::text
+5. searchProjects
+typescript
+  searchProjects(params: {
+     searchText?: string;       // search in name
+     clientId?: string;         // filter by client
+     includeArchived?: boolean; // default true
+     limit?: number;            // default 100
+   })
+6. searchClients
+typescript
+  searchClients(params: {
+     searchText?: string;       // search in name
+     includeArchived?: boolean; // default true
+     limit?: number;            // default 100
+   })
+Medium Priority (Build Second):
+7. searchTabs - Search tabs within projects
+8. searchTables - Search table definitions
+9. searchTableFields - Search table columns/fields
+10. searchTimelineEvents - Search timeline entries
+11. searchFiles - Search file attachments
+12. searchComments - Search comments across entities
+13. searchWorkspaceMembers - Search users in workspace
+Lower Priority (Build Third):
+14. searchEntityLinks - Search entity-to-entity references
+15. searchEntityProperties - Search universal properties/tags
+16. searchBlockTemplates - Search saved block templates
+17. searchProjectTemplates - Search saved project templates
+18. searchPropertyDefinitions - Search custom field definitions
+________________
+
+
+Type Definitions
+Import Pattern:
+typescript
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { getAuthenticatedUser } from "@/lib/auth-utils";
+
+
+// Import existing types where available:
+import type { TaskItem } from "@/types/task";
+import { type Block } from "@/app/actions/block";
+import type { Table, TableField } from "@/types/table";
+
+
+// Define search-specific result types inline when needed
+Result Type Example:
+typescript
+interface TaskSearchResult {
+  id: string;
+  title: string;
+  status: string;
+  priority: string | null;
+  due_date: string | null;
+  task_block_id: string | null; // null for standalone tasks
+  tab_id: string | null;
+  project_id: string | null;
+  workspace_id: string;
+  assignees: Array<{ id: string; name: string }>;
+  tags: string[];
+  taskType: "block" | "standalone"; // distinguish between task types
+  created_at: string;
+  updated_at: string;
+}
+Key principle: Only include fields that will be useful for AI decision-making or action-taking
+________________
+
+
+Performance Considerations
+1. Limit Result Sets
+* Default limit: 100 per query
+* Allow override via params
+* For very large datasets, consider pagination (not required for v1)
+2. Index Usage
+Your schema has GIN indexes on:
+* blocks.content (JSONB)
+* table_rows.data (JSONB)
+Use JSONB operators efficiently:
+typescript
+// Good: Uses GIN index
+.contains('content', { status: 'active' })
+
+
+// Slower: Full scan
+.ilike('content::text', '%value%') // Use only when necessary
+3. Minimize Joins
+* Use direct workspace_id filtering when available
+* Only join for blocks (via tabs → projects)
+* For relationships (assignees, tags), consider separate queries if performance is poor
+4. Early Exit on Auth Failure
+* Check auth and workspace first
+* Return immediately if missing
+* Don't execute expensive queries for unauthorized requests
+________________
+
+
+Error Handling
+Standard Error Pattern:
+typescript
+try {
+  const { data, error } = await supabase.from("...").select("...");
+  
+  if (error) {
+    console.error("Search error:", error);
+    return { data: null, error: error.message };
+  }
+  
+  return { data, error: null };
+} catch (error) {
+  console.error("Unexpected error:", error);
+  return { 
+    data: null, 
+    error: error instanceof Error ? error.message : "Unknown error" 
+  };
+}
+Don't throw errors - always return { data, error } format
+________________
+
+
+Testing Checklist
+After implementing, verify:
+1. ✅ Auth pattern matches existing Server Actions
+2. ✅ All functions return { data, error } format
+3. ✅ Workspace filtering is explicit in every query
+4. ✅ Task search queries BOTH task_items AND standalone_tasks
+5. ✅ Block search includes proper join to tabs → projects
+6. ✅ Table row search handles JSONB data structure
+7. ✅ Archived content is included by default
+8. ✅ Type imports are correct and compile
+9. ✅ Default limits are set (recommend 100)
+10. ✅ Function names follow camelCase convention
+________________
+
+
+Next Steps After This Prompt
+Once you complete these search functions:
+1. We'll build "context getter" functions (getTaskWithContext, getProjectWithContext, etc.)
+2. We'll remove the old search.ts file
+3. We'll build the AI query parsing layer that calls these functions
+For now, focus solely on building these ~20 search functions following the patterns above.

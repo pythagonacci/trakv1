@@ -26,6 +26,7 @@ import type {
   TimelineBlockContent,
   TimelineEventStatus,
   TimelineItem,
+  ReferenceType,
 } from "@/types/timeline";
 import {
   Dialog,
@@ -65,7 +66,7 @@ interface TimelineEvent {
 }
 
 type TimelineEventPatch = Partial<TimelineEvent> & {
-  status?: TimelineEvent["status"] | null;
+  status?: TimelineEventStatus | null;
   notes?: string | null;
   color?: string | null;
 };
@@ -85,8 +86,8 @@ interface TimelineBlockProps {
 interface WorkspaceMember {
   id: string;
   user_id?: string | null;
-  name: string;
-  email: string;
+  name: string | null;
+  email: string | null;
   role: string;
 }
 
@@ -697,9 +698,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
     members.forEach((member) => {
-      map.set(member.id, member.name);
+      map.set(member.id, member.name ?? member.email ?? "Unknown");
       if (member.user_id) {
-        map.set(member.user_id, member.name);
+        map.set(member.user_id, member.name ?? member.email ?? "Unknown");
       }
     });
     return map;
@@ -1492,7 +1493,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
             const result = await createReference.mutateAsync({
               timelineBlockId: block.id,
               eventId: selectedEventId,
-              referenceType: item.referenceType,
+              referenceType: item.referenceType as ReferenceType,
               referenceId: item.id,
               tableId: null,
             });
@@ -1731,11 +1732,11 @@ function AddEventDialog({
                     >
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                          {member.name[0]?.toUpperCase() || "?"}
+                          {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm truncate">{member.name}</div>
-                          <div className="text-xs text-neutral-500 truncate">{member.email}</div>
+                          <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
+                          <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
                         </div>
                       </div>
                     </DropdownMenuItem>
@@ -1822,9 +1823,8 @@ function EventDetailsPanel({
     setIsColorDialogOpen(false);
   }, [event]);
 
-  const assigneeLabel =
-    (local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId)?.name : undefined) ||
-    "Unassigned";
+  const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
+  const assigneeLabel = selectedMember?.name ?? selectedMember?.email ?? "Unassigned";
 
   const handleStartChange = (value: string) => {
     if (!value) return;
@@ -1857,10 +1857,10 @@ function EventDetailsPanel({
   };
 
   const handleStatusChange = (value: string) => {
-    const nextStatus = value === "none" ? null : (value as TimelineEvent["status"]);
+    const nextStatus = value === "none" ? null : (value as TimelineEventStatus);
     setLocal((s) => ({ ...s, status: nextStatus }));
     if ((event.status ?? null) !== nextStatus) {
-      onUpdate({ status: nextStatus });
+      onUpdate({ status: nextStatus } as TimelineEventPatch);
     }
   };
 
@@ -1874,7 +1874,7 @@ function EventDetailsPanel({
   const handleColorChange = (color: string | null) => {
     setLocal((s) => ({ ...s, color }));
     if ((event.color ?? null) !== color) {
-      onUpdate({ color });
+      onUpdate({ color } as TimelineEventPatch);
     }
   };
 
@@ -1890,7 +1890,7 @@ function EventDetailsPanel({
     const nextNotes = local.notes.trim();
     const prevNotes = (event.notes ?? "").trim();
     if (nextNotes !== prevNotes) {
-      onUpdate({ notes: nextNotes.length > 0 ? nextNotes : null });
+      onUpdate({ notes: nextNotes.length > 0 ? nextNotes : null } as TimelineEventPatch);
     }
   };
 
@@ -1993,11 +1993,11 @@ function EventDetailsPanel({
                       >
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                            {member.name[0]?.toUpperCase() || "?"}
+                            {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm truncate">{member.name}</div>
-                            <div className="text-xs text-neutral-500 truncate">{member.email}</div>
+                            <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
+                            <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
                           </div>
                         </div>
                       </DropdownMenuItem>
@@ -2160,7 +2160,7 @@ function EditEventDialog({
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
     const member = findWorkspaceMember(workspaceMembers, assigneeId);
-    return member?.name || member?.email;
+    return member?.name ?? member?.email ?? undefined;
   };
 
   React.useEffect(() => {
@@ -2364,11 +2364,11 @@ function EditEventDialog({
                     >
                           <div className="flex items-center gap-2">
                             <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                              {member.name[0]?.toUpperCase() || "?"}
+                              {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="text-sm truncate">{member.name}</div>
-                              <div className="text-xs text-neutral-500 truncate">{member.email}</div>
+                              <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
+                              <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
                             </div>
                           </div>
                         </DropdownMenuItem>

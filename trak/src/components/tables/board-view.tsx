@@ -6,6 +6,7 @@ import type {
   GroupByConfig,
   PriorityFieldConfig,
   PriorityLevelConfig,
+  SelectFieldOption,
   SelectFieldConfig,
   StatusFieldConfig,
   TableField,
@@ -175,7 +176,10 @@ export function BoardView({
     );
   };
 
-  const resolveOption = (field: TableField | undefined, value: unknown) => {
+  const resolveOption = (
+    field: TableField | undefined,
+    value: unknown
+  ): SelectFieldOption | PriorityLevelConfig | null => {
     if (!field || value === null || value === undefined) return null;
     if (field.type === "priority") {
       const levels = ((field.config || {}) as PriorityFieldConfig).levels || [];
@@ -251,7 +255,9 @@ export function BoardView({
                 const status = resolveOption(statusField, statusValue);
                 const selection = resolveOption(selectField, selectValue);
                 const tags = Array.isArray(tagsValue)
-                  ? tagsValue.map((tag) => resolveOption(tagsField, tag)).filter(Boolean)
+                  ? tagsValue
+                      .map((tag) => resolveOption(tagsField, tag))
+                      .filter((tag): tag is SelectFieldOption => Boolean(tag))
                   : [];
 
                 const cardGroupId = group.groupId;
@@ -284,7 +290,7 @@ export function BoardView({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                      {dateField && dateValue && (
+                      {dateField && Boolean(dateValue) && (
                         <span className="text-xs text-gray-500">{toDateDisplay(dateValue)}</span>
                       )}
                       {personField && person && (
