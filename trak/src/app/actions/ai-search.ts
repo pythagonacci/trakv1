@@ -242,7 +242,7 @@ interface TagResult {
   name: string;
   color: string | null;
   workspace_id: string;
-  created_at: string;
+  created_at: string | null;
 }
 
 interface PropertyDefinitionResult {
@@ -2974,23 +2974,141 @@ export async function searchTags(params: {
   const limit = params.limit ?? 50;
 
   try {
-    let query = supabase
-      .from("task_tags")
-      .select("*")
-      .eq("workspace_id", workspaceId);
+    const { data: propDefs, error: propDefsError } = await supabase
+      .from("property_definitions")
+      .select("id, name, type, options")
+      .eq("workspace_id", workspaceId)
+      .ilike("name", "Tags");
 
-    if (params.searchText) {
-      query = query.ilike("name", `%${params.searchText}%`);
+    if (propDefsError) {
+      console.error("searchTags property definitions error:", propDefsError);
+      return { data: null, error: propDefsError.message };
     }
 
-    const { data, error } = await query.order("name").limit(limit);
+    const tagsPropDef = (propDefs ?? []).find((p) => p.name.toLowerCase() === "tags");
+
+    if (!tagsPropDef) {
+      // Fallback to legacy task_tags if property definition is missing
+      let query = supabase
+        .from("task_tags")
+        .select("*")
+        .eq("workspace_id", workspaceId);
+
+      if (params.searchText) {
+        query = query.ilike("name", `%${params.searchText}%`);
+      }
+
+      const { data, error } = await query.order("name").limit(limit);
+
+      if (error) {
+        console.error("searchTags error:", error);
+        return { data: null, error: error.message };
+      }
+
+      return { data: data as TagResult[], error: null };
+    }
+
+    // Aggregate tags from entity_properties (Tags multi_select) across entities
+    const { data, error } = await supabase
+      .from("entity_properties")
+      .select("entity_id, value")
+      .eq("workspace_id", workspaceId)
+      .eq("property_definition_id", tagsPropDef.id)
+      .in("entity_type", ["task", "block", "timeline_event"]);
 
     if (error) {
       console.error("searchTags error:", error);
       return { data: null, error: error.message };
     }
 
-    return { data: data as TagResult[], error: null };
+    const searchLower = params.searchText?.toLowerCase() ?? null;
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normalizedSearch = searchLower ? normalize(searchLower) : null;
+    const editDistance = (a: string, b: string): number => {
+      const aLen = a.length;
+      const bLen = b.length;
+      if (aLen === 0) return bLen;
+      if (bLen === 0) return aLen;
+
+      const dp = new Array(bLen + 1);
+      for (let j = 0; j <= bLen; j++) dp[j] = j;
+
+      for (let i = 1; i <= aLen; i++) {
+        let prev = dp[0];
+        dp[0] = i;
+        for (let j = 1; j <= bLen; j++) {
+          const temp = dp[j];
+          if (a[i - 1] === b[j - 1]) {
+            dp[j] = prev;
+          } else {
+            dp[j] = Math.min(prev + 1, dp[j] + 1, dp[j - 1] + 1);
+          }
+          prev = temp;
+        }
+      }
+      return dp[bLen];
+    };
+    const isFuzzyMatch = (name: string): boolean => {
+      if (!searchLower || !normalizedSearch) return true;
+      const nameLower = name.toLowerCase();
+      const normalizedName = normalize(name);
+      if (nameLower.includes(searchLower)) return true;
+      if (normalizedName.includes(normalizedSearch)) return true;
+
+      const maxEdits = normalizedSearch.length <= 4 ? 1 : normalizedSearch.length <= 7 ? 2 : 3;
+      return editDistance(normalizedName, normalizedSearch) <= maxEdits;
+    };
+    const tagMap = new Map<string, TagResult>();
+
+    for (const row of data ?? []) {
+      const value = row.value;
+      const tags = Array.isArray(value) ? value : value ? [value] : [];
+
+      for (const tag of tags) {
+        if (typeof tag === "string") {
+          const name = tag;
+          if (searchLower && !isFuzzyMatch(name)) {
+            continue;
+          }
+          if (!tagMap.has(tag)) {
+            tagMap.set(tag, {
+              id: tag,
+              name,
+              color: null,
+              workspace_id: workspaceId,
+              created_at: null,
+            });
+          }
+          continue;
+        }
+
+        const tagObj = tag as Record<string, unknown>;
+        const id = String(tagObj.id ?? "");
+        const label = String(tagObj.name ?? tagObj.label ?? "");
+        const name = label;
+        if (!id || !name) continue;
+
+        if (searchLower && !isFuzzyMatch(name)) {
+          continue;
+        }
+
+        if (!tagMap.has(id)) {
+          tagMap.set(id, {
+            id,
+            name,
+            color: (tagObj.color as string) ?? null,
+            workspace_id: workspaceId,
+            created_at: null,
+          });
+        }
+      }
+    }
+
+    const tags = Array.from(tagMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+
+    return { data: tags.slice(0, limit), error: null };
   } catch (err) {
     console.error("searchTags exception:", err);
     return { data: null, error: "Failed to search tags" };
