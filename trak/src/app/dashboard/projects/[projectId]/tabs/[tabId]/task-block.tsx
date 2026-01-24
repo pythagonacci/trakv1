@@ -381,7 +381,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     assigneeId ? workspaceMemberLookup.get(assigneeId) : undefined;
   const normalizeAssigneeId = (assigneeId?: string | null) => {
     const member = getWorkspaceMember(assigneeId);
-    return member?.id ?? assigneeId ?? null;
+    return member?.user_id ?? assigneeId ?? null;
   };
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1089,14 +1089,14 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       });
 
       workspaceMembers.forEach((member) => {
-        if (!assigneeIds.has(member.id)) return;
+        if (!member.user_id || !assigneeIds.has(member.user_id)) return;
         addColumn({
-          id: `assignee:${member.id}`,
+          id: `assignee:${member.user_id}`,
           label: member.name || member.email,
           taskIds: [],
           groupBy: "assignee",
-          value: member.id,
-          assigneeId: member.id,
+          value: member.user_id,
+          assigneeId: member.user_id,
         });
       });
 
@@ -1749,11 +1749,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           <DropdownMenuSeparator />
                           {workspaceMembers.map((m) => (
                             <DropdownMenuItem
-                              key={m.id}
+                              key={m.user_id}
                               onClick={() =>
                                 setTaskProperties.mutate({
                                   entityId: taskEntityId,
-                                  updates: { assignee_id: m.id },
+                                  updates: { assignee_id: m.user_id },
                                 })
                               }
                             >

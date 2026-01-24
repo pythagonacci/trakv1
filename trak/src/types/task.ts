@@ -11,6 +11,7 @@ export interface TaskItem {
   title: string;
   status: TaskStatus;
   priority: TaskPriority;
+  assignee_id: string | null;
   description: string | null;
   due_date: string | null;
   due_time: string | null;

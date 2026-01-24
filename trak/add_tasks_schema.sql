@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS task_items (
   title TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in-progress', 'done')),
   priority TEXT DEFAULT 'none' CHECK (priority IN ('urgent', 'high', 'medium', 'low', 'none')),
+  assignee_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
 
   description TEXT,
   due_date DATE,
@@ -47,6 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_task_items_workspace ON task_items(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_task_items_tab ON task_items(tab_id);
 CREATE INDEX IF NOT EXISTS idx_task_items_due ON task_items(due_date);
 CREATE INDEX IF NOT EXISTS idx_task_items_status ON task_items(status);
+CREATE INDEX IF NOT EXISTS idx_task_items_assignee ON task_items(assignee_id);
 
 ALTER TABLE task_items ENABLE ROW LEVEL SECURITY;
 

@@ -84,7 +84,7 @@ export function PropertyMenu({
     return map;
   }, [members]);
   const selectedAssigneeId = direct?.assignee_id
-    ? memberLookup.get(direct.assignee_id)?.id ?? "none"
+    ? memberLookup.get(direct.assignee_id)?.user_id ?? "none"
     : "none";
 
   const handleAddTag = () => {
@@ -212,7 +212,7 @@ export function PropertyMenu({
                     </span>
                   </SelectItem>
                   {members.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>
+                    <SelectItem key={member.user_id} value={member.user_id}>
                       <span className="flex items-center gap-2">
                         <User className="h-4 w-4" />
                         {member.name || member.email}

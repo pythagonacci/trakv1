@@ -14,7 +14,6 @@ export async function createTimelineEvent(input: {
   startDate: string;
   endDate: string;
   status?: TimelineEventStatus;
-  assigneeId?: string | null;
   progress?: number;
   notes?: string | null;
   color?: string | null;
@@ -54,7 +53,6 @@ export async function createTimelineEvent(input: {
       start_date: input.startDate,
       end_date: input.endDate,
       status: input.status ?? "planned",
-      assignee_id: input.assigneeId ?? null,
       progress: input.progress ?? 0,
       notes: input.notes ?? null,
       color: input.color ?? null,
@@ -82,7 +80,6 @@ export async function updateTimelineEvent(
     startDate: string;
     endDate: string;
     status: TimelineEventStatus;
-    assigneeId: string | null;
     progress: number;
     notes: string | null;
     color: string | null;
@@ -104,7 +101,7 @@ export async function updateTimelineEvent(
     if (!valid) return { error: message || "Invalid date range" };
   }
 
-  const { supabase, userId } = access;
+  const { supabase, userId, event } = access;
 
   const payload: Record<string, unknown> = {
     updated_by: userId,
@@ -114,7 +111,6 @@ export async function updateTimelineEvent(
   if (updates.startDate !== undefined) payload.start_date = updates.startDate;
   if (updates.endDate !== undefined) payload.end_date = updates.endDate;
   if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.assigneeId !== undefined) payload.assignee_id = updates.assigneeId;
   if (updates.progress !== undefined) payload.progress = updates.progress;
   if (updates.notes !== undefined) payload.notes = updates.notes;
   if (updates.color !== undefined) payload.color = updates.color;
@@ -130,8 +126,45 @@ export async function updateTimelineEvent(
     .select("*")
     .single();
 
-  if (error || !data) {
-    return { error: "Failed to update timeline event" };
+  if (error) {
+    console.error("Database error updating timeline event:", {
+      error,
+      eventId,
+      payload,
+      errorMessage: error.message,
+      errorCode: error.code,
+      errorDetails: error.details,
+      errorHint: error.hint,
+    });
+    
+    // Provide more specific error messages based on error code
+    if (error.code === "23503") {
+      // Foreign key violation
+      if (error.message?.includes("assignee_id") || error.message?.includes("timeline_events_assignee_id_fkey")) {
+        console.error("Foreign key violation for assignee_id:", {
+          assigneeId: payload.assignee_id,
+          eventId,
+          workspaceId: event?.workspace_id,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+        });
+        return { 
+          error: `Invalid assignee: The selected user ID does not exist in the authentication system. This may happen if the user account was deleted. Please select a different user.` 
+        };
+      }
+      return { error: `Database constraint violation: ${error.message || "Invalid reference"}` };
+    }
+    
+    if (error.code === "42501") {
+      return { error: "Permission denied: You don't have access to update this event" };
+    }
+    
+    return { error: `Failed to update timeline event: ${error.message || error.code || "Unknown error"}` };
+  }
+
+  if (!data) {
+    return { error: "Failed to update timeline event: No data returned" };
   }
 
   return { data: data as TimelineEvent };

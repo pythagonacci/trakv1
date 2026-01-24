@@ -9,7 +9,12 @@ import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { PropertyBadges, PropertyMenu } from "@/components/properties";
-import { useEntityPropertiesWithInheritance, useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
+import {
+  useEntitiesProperties,
+  useEntityPropertiesWithInheritance,
+  useSetEntityPropertiesForType,
+  useWorkspaceMembers,
+} from "@/lib/hooks/use-property-queries";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import {
   useTimelineItems,
@@ -585,6 +590,12 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [dragResizeEdge, setDragResizeEdge] = useState<"start" | "end" | null>(null);
 
   const { data: timelineItems = [] } = useTimelineItems(block.id);
+  const timelineEventIds = useMemo(() => timelineItems.map((item) => item.id), [timelineItems]);
+  const { data: timelinePropertiesById = {} } = useEntitiesProperties(
+    "timeline_event",
+    timelineEventIds,
+    workspaceId
+  );
   const createEvent = useCreateTimelineEvent(block.id);
   const createReference = useCreateTimelineReference(block.id);
   const updateEventMutation = useUpdateTimelineEvent(block.id);
@@ -592,6 +603,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const deleteReferenceMutation = useDeleteTimelineReference(block.id);
   const duplicateEventMutation = useDuplicateTimelineEvent(block.id);
   const setBaselineMutation = useSetTimelineEventBaseline(block.id);
+  const setTimelineProperties = useSetEntityPropertiesForType("timeline_event", workspaceId || "");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -707,22 +719,26 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   }, [members]);
 
   const events = useMemo<TimelineEvent[]>(() => {
-    return timelineItems.map((item) => ({
+    return timelineItems.map((item) => {
+      const props = timelinePropertiesById[item.id];
+      const assigneeId = props?.assignee_id ?? item.assignee_id ?? null;
+      return {
       id: item.id,
       title: item.title,
       start: item.start_date,
       end: item.end_date,
       color: item.color || undefined,
       status: item.status,
-      assignee: item.assignee_id ? memberMap.get(item.assignee_id) : undefined,
-      assigneeId: item.assignee_id,
+      assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+      assigneeId,
       progress: item.progress,
       notes: item.notes ?? undefined,
       isMilestone: item.is_milestone,
       baselineStart: item.baseline_start ?? undefined,
       baselineEnd: item.baseline_end ?? undefined,
-    }));
-  }, [timelineItems, memberMap]);
+      };
+    });
+  }, [timelineItems, timelinePropertiesById, memberMap]);
 
   // Filter events
   const filteredEvents = useMemo(() => {
@@ -835,7 +851,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       startDate: eventData.start,
       endDate: eventData.end,
       status: eventData.status,
-      assigneeId: eventData.assigneeId ?? null,
       notes: eventData.notes ?? null,
       progress: eventData.progress ?? 0,
       color: eventData.color ?? null,
@@ -844,6 +859,17 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     setIsAddDialogOpen(false);
     if ("error" in result) {
       console.error("Failed to save new event:", result.error);
+    } else if (workspaceId && eventData.assigneeId) {
+      const member = findWorkspaceMember(members, eventData.assigneeId);
+      const propertyAssigneeId = member?.user_id ?? eventData.assigneeId;
+      try {
+        await setTimelineProperties.mutateAsync({
+          entityId: result.data.id,
+          updates: { assignee_id: propertyAssigneeId },
+        });
+      } catch (error) {
+        console.error("Failed to set timeline assignee property:", error);
+      }
     }
   };
 
@@ -870,7 +896,20 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     if (patch.start !== undefined) updates.startDate = patch.start;
     if (patch.end !== undefined) updates.endDate = patch.end;
     if (patch.status !== undefined) updates.status = patch.status;
-    if (patch.assigneeId !== undefined) updates.assigneeId = patch.assigneeId ?? null;
+    if (patch.assigneeId !== undefined) {
+      const member = findWorkspaceMember(members, patch.assigneeId ?? null);
+      const propertyAssigneeId = member?.user_id ?? patch.assigneeId ?? null;
+      if (workspaceId) {
+        try {
+          await setTimelineProperties.mutateAsync({
+            entityId: id,
+            updates: { assignee_id: propertyAssigneeId },
+          });
+        } catch (error) {
+          console.error("Failed to update timeline assignee property:", error);
+        }
+      }
+    }
     if (patch.notes !== undefined) updates.notes = patch.notes;
     if (patch.progress !== undefined) updates.progress = patch.progress;
     if (patch.color !== undefined) updates.color = patch.color;
@@ -1989,7 +2028,7 @@ function EventDetailsPanel({
                     workspaceMembers.map((member) => (
                       <DropdownMenuItem
                         key={member.id}
-                        onClick={() => handleAssigneeChange(member.id)}
+                        onClick={() => handleAssigneeChange(member.user_id ?? member.id)}
                       >
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">

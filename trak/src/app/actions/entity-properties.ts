@@ -164,7 +164,14 @@ function buildEntityPropertiesFromRows(
         props.priority = typeof row.value === "string" ? (row.value as any) : null;
         break;
       case "assignee_id":
-        props.assignee_id = typeof row.value === "string" ? row.value : null;
+        // Handle both old format (string ID) and new format ({id, name})
+        if (typeof row.value === "string") {
+          props.assignee_id = row.value;
+        } else if (row.value && typeof row.value === "object") {
+          props.assignee_id = (row.value as { id: string }).id ?? null;
+        } else {
+          props.assignee_id = null;
+        }
         break;
       case "due_date":
         props.due_date = typeof row.value === "string" ? row.value : null;
@@ -584,6 +591,22 @@ export async function setEntityProperties(
     );
   }
   if (updates.assignee_id !== undefined) {
+    // For person properties, store {id, name} instead of just the ID
+    let assigneeValue: { id: string; name: string } | null = null;
+    if (updates.assignee_id) {
+      // Look up the user's name from profiles
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, name, email")
+        .eq("id", updates.assignee_id)
+        .maybeSingle();
+
+      assigneeValue = {
+        id: updates.assignee_id,
+        name: profile?.name || profile?.email || "Unknown",
+      };
+    }
+
     upsertPromises.push(
       upsertEntityPropertyValue(
         supabase,
@@ -591,7 +614,7 @@ export async function setEntityProperties(
         input.entity_type,
         input.entity_id,
         definitions.byKey.assignee_id,
-        updates.assignee_id
+        assigneeValue
       )
     );
   }
@@ -641,6 +664,7 @@ export async function setEntityProperties(
     const status = (data as any).status as string | null;
     const priority = (data as any).priority as string | null;
     const dueDate = (data as any).due_date as string | null;
+    const assigneeId = (data as any).assignee_id as string | null;
 
     const legacyStatus =
       status === "done"
@@ -656,13 +680,19 @@ export async function setEntityProperties(
         ? priority
         : "none";
 
+    const taskItemUpdates: Record<string, any> = {
+      status: legacyStatus,
+      priority: legacyPriority,
+      due_date: dueDate ?? null,
+    };
+
+    if (updates.assignee_id !== undefined) {
+      taskItemUpdates.assignee_id = assigneeId ?? null;
+    }
+
     await supabase
       .from("task_items")
-      .update({
-        status: legacyStatus,
-        priority: legacyPriority,
-        due_date: dueDate ?? null,
-      })
+      .update(taskItemUpdates)
       .eq("id", input.entity_id);
   }
 
