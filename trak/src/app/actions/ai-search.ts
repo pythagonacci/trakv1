@@ -264,6 +264,38 @@ interface EntityLinkResult {
   created_at: string;
 }
 
+interface EntityPropertyResult {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  property_definition_id: string;
+  property_name: string;
+  property_type: string;
+  value: unknown;
+  workspace_id: string;
+  created_at: string;
+}
+
+interface TableViewResult {
+  id: string;
+  name: string;
+  type: string;
+  table_id: string;
+  table_title: string | null;
+  config: Record<string, unknown>;
+  is_default: boolean;
+  created_at: string;
+}
+
+interface DocContentSearchResult {
+  id: string;
+  title: string;
+  snippets: string[];
+  match_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 type EntityType =
   | "task"
   | "project"
@@ -466,19 +498,22 @@ async function getEntitiesWithPropertyFilter(
         }
       }
     } else {
-      // Name-based fuzzy matching
-      const searchName = (filterValue as string).toLowerCase();
+      // Name-based fuzzy matching - support array of names (match any)
+      const searchNames = filterValues.map(v => v.toLowerCase());
       if (value && typeof value === "object") {
         if (Array.isArray(value)) {
-          // Multi-select: check if any item.name contains search
+          // Multi-select: check if any item.name matches any search name
           matches = value.some((item: any) =>
-            item?.name?.toLowerCase?.()?.includes?.(searchName)
+            searchNames.some(searchName =>
+              item?.name?.toLowerCase?.()?.includes?.(searchName)
+            )
           );
         } else {
-          // Single object: check if value.name contains search
+          // Single object: check if value.name matches any search name
           const valueObj = value as Record<string, unknown>;
           const name = valueObj.name as string | undefined;
-          matches = name?.toLowerCase?.()?.includes?.(searchName) ?? false;
+          const nameLower = name?.toLowerCase?.();
+          matches = nameLower ? searchNames.some(searchName => nameLower.includes(searchName)) : false;
         }
       }
     }
@@ -487,6 +522,55 @@ async function getEntitiesWithPropertyFilter(
       matchingIds.push(row.entity_id);
     }
   }
+
+  return [...new Set(matchingIds)];
+}
+
+/**
+ * Fetches entity IDs that match a date property filter.
+ * Applies DateFilter to property values (expected ISO date strings).
+ */
+async function getEntitiesWithDatePropertyFilter(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  entityType: "task" | "block" | "timeline_event",
+  propertyDefId: string,
+  filter: DateFilter
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("entity_properties")
+    .select("entity_id, value")
+    .eq("workspace_id", workspaceId)
+    .eq("entity_type", entityType)
+    .eq("property_definition_id", propertyDefId);
+
+  if (error) {
+    console.error("[getEntitiesWithDatePropertyFilter] Error:", error);
+    return [];
+  }
+
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  const matchesDateFilter = (value: unknown): boolean => {
+    const dateValue = typeof value === "string" ? value : null;
+
+    if (filter.isNull) {
+      return dateValue === null;
+    }
+
+    if (!dateValue) return false;
+
+    if (filter.eq && dateValue !== filter.eq) return false;
+    if (filter.gte && dateValue < filter.gte) return false;
+    if (filter.lte && dateValue > filter.lte) return false;
+    return true;
+  };
+
+  const matchingIds = data
+    .filter((row) => matchesDateFilter(row.value))
+    .map((row) => row.entity_id);
 
   return [...new Set(matchingIds)];
 }
@@ -598,14 +682,19 @@ function intersectIds(a: string[] | null, b: string[]): string[] {
  * Search for tasks in the current workspace.
  * Returns tasks with their assignees, tags, project name, and tab name.
  *
- * @param params.searchText - Fuzzy search on task title
+ * @param params.searchText - Fuzzy search on task title and description
  * @param params.status - Filter by status (todo, in-progress, done)
  * @param params.priority - Filter by priority (urgent, high, medium, low, none)
  * @param params.assigneeId - Filter by assignee user ID
+ * @param params.assigneeName - Search by assignee name via entity_properties
  * @param params.projectId - Filter by project ID
  * @param params.tabId - Filter by tab ID
  * @param params.tagId - Filter by tag ID
- * @param params.dueDate - Date filter for due_date
+ * @param params.tagName - Search by tag name via entity_properties
+ * @param params.dueDate - Date filter for due_date column or "Due Date" property
+ * @param params.startDate - Date filter for start_date
+ * @param params.createdAt - Date filter for created_at
+ * @param params.updatedAt - Date filter for updated_at
  * @param params.limit - Maximum results (default 50)
  */
 export async function searchTasks(params: {
@@ -619,6 +708,9 @@ export async function searchTasks(params: {
   tagId?: string | string[];
   tagName?: string; // Search by tag name via entity_properties
   dueDate?: DateFilter;
+  startDate?: DateFilter;
+  createdAt?: DateFilter;
+  updatedAt?: DateFilter;
   limit?: number;
 }): Promise<SearchResponse<TaskResult>> {
   const ctx = await getSearchContext();
@@ -641,6 +733,7 @@ export async function searchTasks(params: {
     );
 
     let matchingTaskIds: string[] | null = null;
+    let dueDatePropertyIds: string[] | null = null;
 
     // Pre-filter by entity_properties if property filters are specified
     if (hasPropertyFilters) {
@@ -717,13 +810,14 @@ export async function searchTasks(params: {
           const statusFilter = normalizeArrayFilter(params.status);
           if (statusFilter) {
             // For status, we match by name (e.g., "todo", "in_progress", "done")
+            // Pass all status values - matches any of them
             const taskIds = await getEntitiesWithPropertyFilter(
               supabase,
               workspaceId,
               "task",
               statusPropDef.id,
               "name",
-              statusFilter[0] // Take first status for now
+              statusFilter
             );
             matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
           }
@@ -736,13 +830,14 @@ export async function searchTasks(params: {
         if (priorityPropDef) {
           const priorityFilter = normalizeArrayFilter(params.priority);
           if (priorityFilter) {
+            // Pass all priority values - matches any of them
             const taskIds = await getEntitiesWithPropertyFilter(
               supabase,
               workspaceId,
               "task",
               priorityPropDef.id,
               "name",
-              priorityFilter[0] // Take first priority for now
+              priorityFilter
             );
             matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
           }
@@ -752,6 +847,23 @@ export async function searchTasks(params: {
       // If no tasks match the property filters, return empty result
       if (matchingTaskIds !== null && matchingTaskIds.length === 0) {
         return { data: [], error: null };
+      }
+    }
+
+    // Filter by due date property if requested (matches "Due Date" property)
+    if (params.dueDate) {
+      const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
+      const findPropDef = (name: string) =>
+        propDefs.get(name) || propDefs.get(name.toLowerCase()) || propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
+      const dueDatePropDef = findPropDef("Due Date");
+      if (dueDatePropDef) {
+        dueDatePropertyIds = await getEntitiesWithDatePropertyFilter(
+          supabase,
+          workspaceId,
+          "task",
+          dueDatePropDef.id,
+          params.dueDate
+        );
       }
     }
 
@@ -771,10 +883,17 @@ export async function searchTasks(params: {
       query = query.in("id", matchingTaskIds);
     }
 
-    // Apply text search filter
+    // Apply text search filter (search both title and description)
     if (params.searchText) {
-      query = query.ilike("title", `%${params.searchText}%`);
+      const text = params.searchText;
+      query = query.or(`title.ilike.%${text}%,description.ilike.%${text}%`);
     }
+
+    // Apply date filters (column-based)
+    query = applyDateFilter(query, "due_date", params.dueDate);
+    query = applyDateFilter(query, "start_date", params.startDate);
+    query = applyDateFilter(query, "created_at", params.createdAt);
+    query = applyDateFilter(query, "updated_at", params.updatedAt);
 
     // Apply project filter
     const projectFilter = normalizeArrayFilter(params.projectId);
@@ -788,15 +907,70 @@ export async function searchTasks(params: {
       query = query.in("tab_id", tabFilter);
     }
 
-    // Execute the query
-    const { data, error } = await query.order("updated_at", { ascending: false }).limit(limit);
+    // Execute the query (column-based due date filter)
+    const baseFetchLimit = dueDatePropertyIds && dueDatePropertyIds.length > 0 ? limit * 2 : limit;
+    const { data, error } = await query.order("updated_at", { ascending: false }).limit(baseFetchLimit);
 
     if (error) {
       console.error("searchTasks error:", error);
       return { data: null, error: error.message };
     }
 
-    const tasks = data ?? [];
+    let tasks = data ?? [];
+
+    // If due date property matches exist, fetch those too (OR logic with column filter)
+    if (dueDatePropertyIds && dueDatePropertyIds.length > 0) {
+      const dueDateMatchIds = matchingTaskIds
+        ? intersectIds(matchingTaskIds, dueDatePropertyIds)
+        : dueDatePropertyIds;
+
+      if (dueDateMatchIds.length > 0) {
+        let dueDateQuery = supabase
+          .from("task_items")
+          .select(`
+            id, title, description, due_date, start_date,
+            workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
+            projects(name),
+            tabs(name)
+          `)
+          .eq("workspace_id", workspaceId)
+          .in("id", dueDateMatchIds);
+
+        if (params.searchText) {
+          const text = params.searchText;
+          dueDateQuery = dueDateQuery.or(`title.ilike.%${text}%,description.ilike.%${text}%`);
+        }
+
+        const projectFilter = normalizeArrayFilter(params.projectId);
+        if (projectFilter) {
+          dueDateQuery = dueDateQuery.in("project_id", projectFilter);
+        }
+
+        const tabFilter = normalizeArrayFilter(params.tabId);
+        if (tabFilter) {
+          dueDateQuery = dueDateQuery.in("tab_id", tabFilter);
+        }
+
+        dueDateQuery = applyDateFilter(dueDateQuery, "start_date", params.startDate);
+        dueDateQuery = applyDateFilter(dueDateQuery, "created_at", params.createdAt);
+        dueDateQuery = applyDateFilter(dueDateQuery, "updated_at", params.updatedAt);
+
+        const { data: dueDateData } = await dueDateQuery
+          .order("updated_at", { ascending: false })
+          .limit(baseFetchLimit);
+
+        tasks = [...tasks, ...(dueDateData ?? [])];
+      }
+    }
+
+    // De-dupe and trim
+    const taskMap = new Map<string, Record<string, unknown>>();
+    for (const task of tasks) {
+      taskMap.set(task.id as string, task);
+    }
+    tasks = Array.from(taskMap.values())
+      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+      .slice(0, limit);
 
     // Enrich tasks with properties from entity_properties
     const taskIds = tasks.map((t: Record<string, unknown>) => t.id as string);
@@ -1593,6 +1767,108 @@ function extractTextFromContent(content: unknown): string {
 }
 
 /**
+ * Search across all documents' content in the workspace.
+ * Returns matching documents with their titles and content snippets.
+ *
+ * @param params.searchText - Text to search for within document content
+ * @param params.isArchived - Filter by archived status (default: false)
+ * @param params.snippetLength - Length of context around matches (default 100 chars)
+ * @param params.maxSnippetsPerDoc - Maximum snippets per document (default 3)
+ * @param params.limit - Maximum number of documents to return (default 20)
+ */
+export async function searchDocsContentAll(params: {
+  searchText: string;
+  isArchived?: boolean;
+  snippetLength?: number;
+  maxSnippetsPerDoc?: number;
+  limit?: number;
+}): Promise<SearchResponse<DocContentSearchResult>> {
+  const ctx = await getSearchContext();
+  if (ctx.error) return { data: null, error: ctx.error };
+
+  const { supabase, workspaceId } = ctx;
+  const snippetLength = params.snippetLength ?? 100;
+  const maxSnippetsPerDoc = params.maxSnippetsPerDoc ?? 3;
+  const limit = params.limit ?? 20;
+  const isArchived = params.isArchived ?? false;
+
+  try {
+    // Fetch all docs (with a reasonable limit for performance)
+    const { data: docs, error } = await supabase
+      .from("docs")
+      .select("id, title, content, created_at, updated_at")
+      .eq("workspace_id", workspaceId)
+      .eq("is_archived", isArchived)
+      .order("updated_at", { ascending: false })
+      .limit(limit * 10);
+
+    if (error) {
+      console.error("searchDocsContentAll error:", error);
+      return { data: null, error: error.message };
+    }
+
+    const searchLower = params.searchText.toLowerCase();
+    const results: DocContentSearchResult[] = [];
+
+    for (const doc of docs ?? []) {
+      // Extract text content from ProseMirror JSON
+      const contentText = extractTextFromContent(doc.content);
+      const contentLower = contentText.toLowerCase();
+
+      // Check if document contains the search text
+      if (!contentLower.includes(searchLower)) {
+        continue;
+      }
+
+      // Find all occurrences and extract snippets
+      const snippets: string[] = [];
+      let matchCount = 0;
+      let searchStart = 0;
+
+      while (true) {
+        const matchIndex = contentLower.indexOf(searchLower, searchStart);
+        if (matchIndex === -1) break;
+
+        matchCount++;
+
+        if (snippets.length < maxSnippetsPerDoc) {
+          const snippetStart = Math.max(0, matchIndex - snippetLength);
+          const snippetEnd = Math.min(contentText.length, matchIndex + params.searchText.length + snippetLength);
+
+          let snippet = contentText.slice(snippetStart, snippetEnd);
+          if (snippetStart > 0) snippet = "..." + snippet;
+          if (snippetEnd < contentText.length) snippet = snippet + "...";
+
+          snippets.push(snippet);
+        }
+
+        searchStart = matchIndex + 1;
+
+        // Stop counting after 100 matches for performance
+        if (matchCount >= 100) break;
+      }
+
+      results.push({
+        id: doc.id,
+        title: doc.title,
+        snippets,
+        match_count: matchCount,
+        created_at: doc.created_at,
+        updated_at: doc.updated_at,
+      });
+
+      // Stop once we have enough results
+      if (results.length >= limit) break;
+    }
+
+    return { data: results, error: null };
+  } catch (err) {
+    console.error("searchDocsContentAll exception:", err);
+    return { data: null, error: "Failed to search document content" };
+  }
+}
+
+/**
  * Search for tables in the current workspace.
  * Returns tables with their project name.
  *
@@ -1732,6 +2008,86 @@ export async function searchTableFields(params: {
 }
 
 /**
+ * Search for table views in the current workspace.
+ * Returns views with their table context.
+ *
+ * @param params.searchText - Fuzzy search on view name
+ * @param params.tableId - Filter by table ID
+ * @param params.type - Filter by view type (grid, kanban, calendar, etc.)
+ * @param params.limit - Maximum results (default 50)
+ */
+export async function searchTableViews(params: {
+  searchText?: string;
+  tableId?: string | string[];
+  type?: string | string[];
+  limit?: number;
+}): Promise<SearchResponse<TableViewResult>> {
+  const ctx = await getSearchContext();
+  if (ctx.error) return { data: null, error: ctx.error };
+
+  const { supabase, workspaceId } = ctx;
+  const limit = params.limit ?? 50;
+
+  try {
+    let query = supabase
+      .from("table_views")
+      .select(`
+        id, name, type, table_id, config, is_default, created_at,
+        tables!inner(workspace_id, title)
+      `)
+      .eq("tables.workspace_id", workspaceId);
+
+    if (params.searchText) {
+      query = query.ilike("name", `%${params.searchText}%`);
+    }
+
+    const tableFilter = normalizeArrayFilter(params.tableId);
+    if (tableFilter) {
+      query = query.in("table_id", tableFilter);
+    }
+
+    const typeFilter = normalizeArrayFilter(params.type);
+    if (typeFilter) {
+      query = query.in("type", typeFilter);
+    }
+
+    const { data, error } = await query.order("created_at").limit(limit);
+
+    if (error) {
+      console.error("searchTableViews error:", error);
+      return { data: null, error: error.message };
+    }
+
+    const mapped: TableViewResult[] = (data ?? []).map((v: Record<string, unknown>) => {
+      const tables = v.tables as { title: string } | null;
+      return {
+        id: v.id as string,
+        name: v.name as string,
+        type: v.type as string,
+        table_id: v.table_id as string,
+        table_title: tables?.title ?? null,
+        config: v.config as Record<string, unknown>,
+        is_default: v.is_default as boolean,
+        created_at: v.created_at as string,
+      };
+    });
+
+    return { data: mapped, error: null };
+  } catch (err) {
+    console.error("searchTableViews exception:", err);
+    return { data: null, error: "Failed to search table views" };
+  }
+}
+
+/**
+ * Field filter with operator support for searchTableRows.
+ */
+interface FieldFilter {
+  op: "eq" | "contains" | "gte" | "lte";
+  value: string | number;
+}
+
+/**
  * Search for table rows in the current workspace.
  * Searches across all text values in the JSONB data column.
  * Returns rows with table and project context.
@@ -1739,14 +2095,14 @@ export async function searchTableFields(params: {
  * @param params.searchText - Fuzzy search across row data values
  * @param params.tableId - Filter by table ID (recommended for efficient search)
  * @param params.projectId - Filter by project ID
- * @param params.fieldFilters - Filter by specific field values { fieldId: value }
+ * @param params.fieldFilters - Filter by specific field values with operators { fieldId: { op, value } }
  * @param params.limit - Maximum results (default 50)
  */
 export async function searchTableRows(params: {
   searchText?: string;
   tableId?: string | string[];
   projectId?: string | string[];
-  fieldFilters?: Record<string, string>; // Filter by field ID -> value
+  fieldFilters?: Record<string, FieldFilter | string>; // Filter by field ID -> { op, value } or simple string (legacy)
   limit?: number;
 }): Promise<SearchResponse<TableRowResult>> {
   const ctx = await getSearchContext();
@@ -1802,20 +2158,100 @@ export async function searchTableRows(params: {
     if (params.fieldFilters) {
       results = results.filter((r: Record<string, unknown>) => {
         const rowData = r.data as Record<string, unknown>;
-        for (const [fieldId, expectedValue] of Object.entries(params.fieldFilters!)) {
+        for (const [fieldId, filter] of Object.entries(params.fieldFilters!)) {
           const actualValue = rowData[fieldId];
-          // Handle different value types
-          if (typeof actualValue === "string") {
-            if (!actualValue.toLowerCase().includes(expectedValue.toLowerCase())) {
-              return false;
-            }
-          } else if (Array.isArray(actualValue)) {
-            // Handle multi-select or array fields
-            if (!actualValue.some((v) => String(v).toLowerCase().includes(expectedValue.toLowerCase()))) {
-              return false;
-            }
-          } else if (actualValue !== expectedValue && String(actualValue) !== expectedValue) {
+
+          // Normalize filter to { op, value } format
+          const normalizedFilter: FieldFilter =
+            typeof filter === "string"
+              ? { op: "contains", value: filter }
+              : filter;
+
+          const { op, value } = normalizedFilter;
+
+          // Handle null/undefined actual values
+          if (actualValue === null || actualValue === undefined) {
+            if (op === "eq" && value === "") continue; // Empty equals empty
             return false;
+          }
+
+          switch (op) {
+            case "eq": {
+              // Exact equality
+              if (typeof actualValue === "string" || typeof actualValue === "number") {
+                if (actualValue !== value && String(actualValue) !== String(value)) {
+                  return false;
+                }
+              } else if (Array.isArray(actualValue)) {
+                // For arrays, check if any element equals the value
+                if (!actualValue.some((v) => v === value || String(v) === String(value))) {
+                  return false;
+                }
+              } else if (typeof actualValue === "object") {
+                // For objects with name/id, check those properties
+                const obj = actualValue as Record<string, unknown>;
+                if (obj.name !== value && obj.id !== value) {
+                  return false;
+                }
+              } else {
+                return false;
+              }
+              break;
+            }
+
+            case "contains": {
+              // String contains (case-insensitive)
+              const searchValue = String(value).toLowerCase();
+              if (typeof actualValue === "string") {
+                if (!actualValue.toLowerCase().includes(searchValue)) {
+                  return false;
+                }
+              } else if (Array.isArray(actualValue)) {
+                if (!actualValue.some((v) => String(v).toLowerCase().includes(searchValue))) {
+                  return false;
+                }
+              } else if (typeof actualValue === "object") {
+                const obj = actualValue as Record<string, unknown>;
+                const name = obj.name as string | undefined;
+                if (!name?.toLowerCase().includes(searchValue)) {
+                  return false;
+                }
+              } else {
+                if (!String(actualValue).toLowerCase().includes(searchValue)) {
+                  return false;
+                }
+              }
+              break;
+            }
+
+            case "gte": {
+              // Greater than or equal (numeric/date comparison)
+              if (typeof actualValue === "number" && typeof value === "number") {
+                if (actualValue < value) return false;
+              } else if (typeof actualValue === "string") {
+                // String comparison works for ISO date strings
+                if (actualValue < String(value)) return false;
+              } else {
+                return false;
+              }
+              break;
+            }
+
+            case "lte": {
+              // Less than or equal (numeric/date comparison)
+              if (typeof actualValue === "number" && typeof value === "number") {
+                if (actualValue > value) return false;
+              } else if (typeof actualValue === "string") {
+                if (actualValue > String(value)) return false;
+              } else {
+                return false;
+              }
+              break;
+            }
+
+            default:
+              // Unknown operator, skip this filter
+              break;
           }
         }
         return true;
@@ -1934,13 +2370,14 @@ export async function searchTimelineEvents(params: {
         if (statusPropDef) {
           const statusFilter = normalizeArrayFilter(params.status);
           if (statusFilter) {
+            // Pass all status values - matches any of them
             const eventIds = await getEntitiesWithPropertyFilter(
               supabase,
               workspaceId,
               "timeline_event",
               statusPropDef.id,
               "name",
-              statusFilter[0]
+              statusFilter
             );
             matchingEventIds = intersectIds(matchingEventIds, eventIds);
           }
@@ -2068,6 +2505,10 @@ export async function searchTimelineEvents(params: {
  * @param params.projectId - Filter by project ID
  * @param params.fileType - Filter by file MIME type
  * @param params.uploadedBy - Filter by uploader user ID
+ * @param params.uploadedByName - Filter by uploader name (fuzzy match via profile lookup)
+ * @param params.bucket - Filter by storage bucket
+ * @param params.storagePath - Filter by storage path (contains match)
+ * @param params.createdAt - Date filter for created_at
  * @param params.limit - Maximum results (default 50)
  */
 export async function searchFiles(params: {
@@ -2075,6 +2516,10 @@ export async function searchFiles(params: {
   projectId?: string | string[];
   fileType?: string | string[];
   uploadedBy?: string;
+  uploadedByName?: string;
+  bucket?: string | string[];
+  storagePath?: string;
+  createdAt?: DateFilter;
   limit?: number;
 }): Promise<SearchResponse<FileResult>> {
   const ctx = await getSearchContext();
@@ -2082,6 +2527,10 @@ export async function searchFiles(params: {
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
+
+  // Determine if we need post-query filtering for uploadedByName
+  const hasPostFilters = !!params.uploadedByName;
+  const fetchLimit = hasPostFilters ? limit * 5 : limit;
 
   try {
     let query = supabase
@@ -2111,22 +2560,52 @@ export async function searchFiles(params: {
       query = query.eq("uploaded_by", params.uploadedBy);
     }
 
-    const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
+    // Filter by bucket
+    const bucketFilter = normalizeArrayFilter(params.bucket);
+    if (bucketFilter) {
+      query = query.in("bucket", bucketFilter);
+    }
+
+    // Filter by storage path (contains match)
+    if (params.storagePath) {
+      query = query.ilike("storage_path", `%${params.storagePath}%`);
+    }
+
+    // Apply date filter for created_at
+    query = applyDateFilter(query, "created_at", params.createdAt);
+
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(fetchLimit);
 
     if (error) {
       console.error("searchFiles error:", error);
       return { data: null, error: error.message };
     }
 
-    // Get uploader names
-    const uploaderIds = [...new Set((data ?? []).map((f) => f.uploaded_by))];
+    let results = data ?? [];
+
+    // Get uploader names (needed for both display and filtering)
+    const uploaderIds = [...new Set(results.map((f) => f.uploaded_by as string))];
     const { data: profiles } = uploaderIds.length > 0
       ? await supabase.from("profiles").select("id, name").in("id", uploaderIds)
       : { data: [] };
 
-    const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.name]));
+    const profileMap = new Map<string, string | null>(
+      (profiles ?? []).map((p: { id: string; name: string | null }) => [p.id, p.name])
+    );
 
-    const mapped: FileResult[] = (data ?? []).map((f: Record<string, unknown>) => {
+    // Filter by uploader name if specified
+    if (params.uploadedByName) {
+      const searchName = params.uploadedByName.toLowerCase();
+      results = results.filter((f) => {
+        const uploaderName = profileMap.get(f.uploaded_by as string);
+        return uploaderName?.toLowerCase().includes(searchName);
+      });
+    }
+
+    // Trim to requested limit after filtering
+    results = results.slice(0, limit);
+
+    const mapped: FileResult[] = results.map((f: Record<string, unknown>) => {
       const project = f.projects as { name: string } | null;
       return {
         id: f.id as string,
@@ -2203,11 +2682,18 @@ export async function searchComments(params: {
       return { data: null, error: error.message };
     }
 
-    // Filter to workspace-accessible comments by checking project targets
-    const projectComments = (data ?? []).filter((c) => c.target_type === "project");
-    const projectIds = projectComments.map((c) => c.target_id);
+    // Filter to workspace-accessible comments by validating all target types
+    // Note: comments target_type enum only supports: block, tab, project
+    const comments = data ?? [];
 
+    // Group comments by target type for efficient validation
+    const projectComments = comments.filter((c) => c.target_type === "project");
+    const blockComments = comments.filter((c) => c.target_type === "block");
+    const tabComments = comments.filter((c) => c.target_type === "tab");
+
+    // Validate project targets
     let validProjectIds = new Set<string>();
+    const projectIds = projectComments.map((c) => c.target_id);
     if (projectIds.length > 0) {
       const { data: projects } = await supabase
         .from("projects")
@@ -2217,11 +2703,43 @@ export async function searchComments(params: {
       validProjectIds = new Set((projects ?? []).map((p) => p.id));
     }
 
-    const filteredComments = (data ?? []).filter((c) => {
-      if (c.target_type === "project") {
-        return validProjectIds.has(c.target_id);
+    // Validate block targets (blocks belong to tabs -> projects -> workspace)
+    let validBlockIds = new Set<string>();
+    const blockIds = blockComments.map((c) => c.target_id);
+    if (blockIds.length > 0) {
+      const { data: blocks } = await supabase
+        .from("blocks")
+        .select("id, tabs!inner(project_id, projects!inner(workspace_id))")
+        .eq("tabs.projects.workspace_id", workspaceId)
+        .in("id", blockIds);
+      validBlockIds = new Set((blocks ?? []).map((b) => b.id));
+    }
+
+    // Validate tab targets (tabs belong to projects -> workspace)
+    let validTabIds = new Set<string>();
+    const tabIds = tabComments.map((c) => c.target_id);
+    if (tabIds.length > 0) {
+      const { data: tabs } = await supabase
+        .from("tabs")
+        .select("id, projects!inner(workspace_id)")
+        .eq("projects.workspace_id", workspaceId)
+        .in("id", tabIds);
+      validTabIds = new Set((tabs ?? []).map((t) => t.id));
+    }
+
+    // Filter comments to only those with valid targets in this workspace
+    const filteredComments = comments.filter((c) => {
+      switch (c.target_type) {
+        case "project":
+          return validProjectIds.has(c.target_id);
+        case "block":
+          return validBlockIds.has(c.target_id);
+        case "tab":
+          return validTabIds.has(c.target_id);
+        default:
+          // Unknown target types are excluded for safety
+          return false;
       }
-      return true;
     });
 
     // Get user names
@@ -2523,6 +3041,183 @@ export async function searchPropertyDefinitions(params: {
   } catch (err) {
     console.error("searchPropertyDefinitions exception:", err);
     return { data: null, error: "Failed to search property definitions" };
+  }
+}
+
+/**
+ * Search for entity properties generically across the workspace.
+ * Allows filtering by entity type, property definition, and value matching.
+ *
+ * @param params.entityType - Filter by entity type (task, block, timeline_event)
+ * @param params.propertyDefinitionId - Filter by specific property definition ID
+ * @param params.propertyName - Filter by property name (fuzzy match)
+ * @param params.propertyType - Filter by property type (text, number, date, select, multi_select, person)
+ * @param params.valueFilter - Filter by value with operator
+ * @param params.valueFilter.op - Operator: "contains", "eq", "gte", "lte"
+ * @param params.valueFilter.value - The value to compare against
+ * @param params.limit - Maximum results (default 50)
+ */
+export async function searchEntityProperties(params: {
+  entityType?: "task" | "block" | "timeline_event";
+  propertyDefinitionId?: string;
+  propertyName?: string;
+  propertyType?: string | string[];
+  valueFilter?: {
+    op: "contains" | "eq" | "gte" | "lte";
+    value: string | number;
+  };
+  limit?: number;
+}): Promise<SearchResponse<EntityPropertyResult>> {
+  const ctx = await getSearchContext();
+  if (ctx.error) return { data: null, error: ctx.error };
+
+  const { supabase, workspaceId } = ctx;
+  const limit = params.limit ?? 50;
+
+  try {
+    // First, get matching property definitions if filtering by name or type
+    let propertyDefIds: string[] | null = null;
+
+    if (params.propertyName || params.propertyType) {
+      let defQuery = supabase
+        .from("property_definitions")
+        .select("id, name, type")
+        .eq("workspace_id", workspaceId);
+
+      if (params.propertyName) {
+        defQuery = defQuery.ilike("name", `%${params.propertyName}%`);
+      }
+
+      const typeFilter = normalizeArrayFilter(params.propertyType);
+      if (typeFilter) {
+        defQuery = defQuery.in("type", typeFilter);
+      }
+
+      const { data: defs, error: defError } = await defQuery;
+      if (defError) {
+        return { data: null, error: defError.message };
+      }
+
+      propertyDefIds = (defs ?? []).map((d) => d.id);
+      if (propertyDefIds.length === 0) {
+        return { data: [], error: null };
+      }
+    }
+
+    // Build entity_properties query
+    let query = supabase
+      .from("entity_properties")
+      .select("*, property_definitions(name, type)")
+      .eq("workspace_id", workspaceId);
+
+    if (params.entityType) {
+      query = query.eq("entity_type", params.entityType);
+    }
+
+    if (params.propertyDefinitionId) {
+      query = query.eq("property_definition_id", params.propertyDefinitionId);
+    } else if (propertyDefIds) {
+      query = query.in("property_definition_id", propertyDefIds);
+    }
+
+    // Overfetch if we need to filter by value in JS
+    const fetchLimit = params.valueFilter ? limit * 10 : limit;
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(fetchLimit);
+
+    if (error) {
+      console.error("searchEntityProperties error:", error);
+      return { data: null, error: error.message };
+    }
+
+    let results = data ?? [];
+
+    // Filter by value in JavaScript if valueFilter is specified
+    if (params.valueFilter) {
+      const { op, value } = params.valueFilter;
+      results = results.filter((row) => {
+        const propValue = row.value;
+        if (propValue === null || propValue === undefined) return false;
+
+        switch (op) {
+          case "contains": {
+            // For string/text values, or object values with name property
+            if (typeof propValue === "string") {
+              return propValue.toLowerCase().includes(String(value).toLowerCase());
+            }
+            if (typeof propValue === "object" && !Array.isArray(propValue)) {
+              const v = propValue as Record<string, unknown>;
+              if (typeof v.name === "string") {
+                return v.name.toLowerCase().includes(String(value).toLowerCase());
+              }
+            }
+            if (Array.isArray(propValue)) {
+              return propValue.some((item: unknown) => {
+                if (typeof item === "string") {
+                  return item.toLowerCase().includes(String(value).toLowerCase());
+                }
+                if (typeof item === "object" && item !== null) {
+                  const i = item as Record<string, unknown>;
+                  return typeof i.name === "string" && i.name.toLowerCase().includes(String(value).toLowerCase());
+                }
+                return false;
+              });
+            }
+            return false;
+          }
+          case "eq": {
+            if (typeof propValue === "string" || typeof propValue === "number") {
+              return propValue === value;
+            }
+            if (typeof propValue === "object" && !Array.isArray(propValue)) {
+              const v = propValue as Record<string, unknown>;
+              return v.name === value || v.id === value;
+            }
+            return false;
+          }
+          case "gte": {
+            if (typeof propValue === "number" && typeof value === "number") {
+              return propValue >= value;
+            }
+            if (typeof propValue === "string" && typeof value === "string") {
+              return propValue >= value; // Works for date strings in ISO format
+            }
+            return false;
+          }
+          case "lte": {
+            if (typeof propValue === "number" && typeof value === "number") {
+              return propValue <= value;
+            }
+            if (typeof propValue === "string" && typeof value === "string") {
+              return propValue <= value;
+            }
+            return false;
+          }
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Map to result format
+    const mapped: EntityPropertyResult[] = results.slice(0, limit).map((row) => {
+      const def = row.property_definitions as { name: string; type: string } | null;
+      return {
+        id: row.id,
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+        property_definition_id: row.property_definition_id,
+        property_name: def?.name ?? "Unknown",
+        property_type: def?.type ?? "unknown",
+        value: row.value,
+        workspace_id: row.workspace_id,
+        created_at: row.created_at,
+      };
+    });
+
+    return { data: mapped, error: null };
+  } catch (err) {
+    console.error("searchEntityProperties exception:", err);
+    return { data: null, error: "Failed to search entity properties" };
   }
 }
 
@@ -3167,6 +3862,293 @@ export async function getEntityContext(params: {
     return { data: result, error: null };
   } catch (err) {
     console.error("getEntityContext exception:", err);
+    return { data: null, error: "Failed to get entity context" };
+  }
+}
+
+/**
+ * Retrieves full context for any entity type including properties, links, and parent/children relationships.
+ * Extended version of getEntityContext that works with all entity types.
+ *
+ * @param params.entityType - The type of entity to retrieve
+ * @param params.id - The entity ID
+ * @param params.includeProperties - Whether to include entity properties (default: true)
+ * @param params.includeLinks - Whether to include entity links (default: true)
+ * @param params.includeRelationships - Whether to include parent/children (default: true)
+ */
+export async function getEntityContextById(params: {
+  entityType: EntityType;
+  id: string;
+  includeProperties?: boolean;
+  includeLinks?: boolean;
+  includeRelationships?: boolean;
+}): Promise<{ data: EntityContextResult | null; error: string | null }> {
+  const ctx = await getSearchContext();
+  if (ctx.error) return { data: null, error: ctx.error };
+
+  const { supabase, workspaceId } = ctx;
+  const includeProperties = params.includeProperties ?? true;
+  const includeLinks = params.includeLinks ?? true;
+  const includeRelationships = params.includeRelationships ?? true;
+
+  try {
+    // Get base entity
+    const entityResult = await getEntityById({ entityType: params.entityType, id: params.id });
+    if (entityResult.error || !entityResult.data) {
+      return { data: null, error: entityResult.error ?? "Entity not found" };
+    }
+
+    const result: EntityContextResult = { ...entityResult.data };
+
+    // Get entity properties (only for entity types that support properties)
+    const propertyEntityTypes = ["task", "block", "timeline_event"];
+    if (includeProperties && propertyEntityTypes.includes(params.entityType)) {
+      const { data: properties } = await supabase
+        .from("entity_properties")
+        .select("*, property_definitions(name, type)")
+        .eq("entity_type", params.entityType)
+        .eq("entity_id", params.id)
+        .eq("workspace_id", workspaceId);
+
+      if (properties && properties.length > 0) {
+        result.properties = properties.map((p) => {
+          const def = p.property_definitions as { name: string; type: string } | null;
+          return {
+            id: p.property_definition_id,
+            name: def?.name ?? "Unknown",
+            type: def?.type ?? "unknown",
+            value: p.value,
+          };
+        });
+      }
+    }
+
+    // Get entity links (both directions)
+    if (includeLinks) {
+      const [outgoingResult, incomingResult] = await Promise.all([
+        supabase
+          .from("entity_links")
+          .select("*")
+          .eq("source_entity_type", params.entityType)
+          .eq("source_entity_id", params.id)
+          .eq("workspace_id", workspaceId),
+        supabase
+          .from("entity_links")
+          .select("*")
+          .eq("target_entity_type", params.entityType)
+          .eq("target_entity_id", params.id)
+          .eq("workspace_id", workspaceId),
+      ]);
+
+      const links: EntityContextResult["links"] = [];
+
+      for (const link of outgoingResult.data ?? []) {
+        links.push({
+          direction: "outgoing",
+          linked_entity_type: link.target_entity_type,
+          linked_entity_id: link.target_entity_id,
+        });
+      }
+
+      for (const link of incomingResult.data ?? []) {
+        links.push({
+          direction: "incoming",
+          linked_entity_type: link.source_entity_type,
+          linked_entity_id: link.source_entity_id,
+        });
+      }
+
+      if (links.length > 0) {
+        result.links = links;
+      }
+    }
+
+    // Get parent/children relationships based on entity type
+    if (includeRelationships) {
+      switch (params.entityType) {
+        case "tab": {
+          // Tabs can have parent tabs and child tabs
+          const entityData = entityResult.data.data as { parent_tab_id?: string };
+          if (entityData.parent_tab_id) {
+            const { data: parentTab } = await supabase
+              .from("tabs")
+              .select("id, name")
+              .eq("id", entityData.parent_tab_id)
+              .single();
+            if (parentTab) {
+              result.parent = { type: "tab", id: parentTab.id, name: parentTab.name };
+            }
+          }
+          // Get child tabs
+          const { data: childTabs } = await supabase
+            .from("tabs")
+            .select("id, name")
+            .eq("parent_tab_id", params.id)
+            .order("position");
+          if (childTabs && childTabs.length > 0) {
+            result.children = childTabs.map((t) => ({ type: "tab", id: t.id, name: t.name }));
+          }
+          break;
+        }
+
+        case "block": {
+          // Blocks can have parent blocks and child blocks
+          const entityData = entityResult.data.data as { parent_block_id?: string };
+          if (entityData.parent_block_id) {
+            const { data: parentBlock } = await supabase
+              .from("blocks")
+              .select("id, type, template_name")
+              .eq("id", entityData.parent_block_id)
+              .single();
+            if (parentBlock) {
+              result.parent = {
+                type: "block",
+                id: parentBlock.id,
+                name: parentBlock.template_name ?? `${parentBlock.type} block`,
+              };
+            }
+          }
+          // Get child blocks
+          const { data: childBlocks } = await supabase
+            .from("blocks")
+            .select("id, type, template_name")
+            .eq("parent_block_id", params.id)
+            .order("position");
+          if (childBlocks && childBlocks.length > 0) {
+            result.children = childBlocks.map((b) => ({
+              type: "block",
+              id: b.id,
+              name: b.template_name ?? `${b.type} block`,
+            }));
+          }
+          break;
+        }
+
+        case "project": {
+          // Projects have tabs as children
+          const { data: tabs } = await supabase
+            .from("tabs")
+            .select("id, name")
+            .eq("project_id", params.id)
+            .is("parent_tab_id", null)
+            .order("position");
+          if (tabs && tabs.length > 0) {
+            result.children = tabs.map((t) => ({ type: "tab", id: t.id, name: t.name }));
+          }
+          break;
+        }
+
+        case "table": {
+          // Tables have rows as children (limited)
+          const { data: rows } = await supabase
+            .from("table_rows")
+            .select("id, order")
+            .eq("table_id", params.id)
+            .order("order")
+            .limit(20);
+          if (rows && rows.length > 0) {
+            result.children = rows.map((r) => ({ type: "table_row", id: r.id, name: `Row ${r.order}` }));
+          }
+          break;
+        }
+
+        case "task": {
+          // Tasks belong to a task block (parent)
+          const entityData = entityResult.data.data as { task_block_id?: string };
+          if (entityData.task_block_id) {
+            const { data: taskBlock } = await supabase
+              .from("blocks")
+              .select("id, type, template_name")
+              .eq("id", entityData.task_block_id)
+              .single();
+            if (taskBlock) {
+              result.parent = {
+                type: "block",
+                id: taskBlock.id,
+                name: taskBlock.template_name ?? `${taskBlock.type} block`,
+              };
+            }
+          }
+          break;
+        }
+
+        case "table_row": {
+          // Table rows belong to a table (parent)
+          const entityData = entityResult.data.data as { table_id?: string };
+          if (entityData.table_id) {
+            const { data: table } = await supabase
+              .from("tables")
+              .select("id, title")
+              .eq("id", entityData.table_id)
+              .single();
+            if (table) {
+              result.parent = { type: "table", id: table.id, name: table.title };
+            }
+          }
+          break;
+        }
+
+        case "timeline_event": {
+          // Timeline events belong to a timeline block (parent)
+          const entityData = entityResult.data.data as { timeline_block_id?: string };
+          if (entityData.timeline_block_id) {
+            const { data: block } = await supabase
+              .from("blocks")
+              .select("id, type, template_name")
+              .eq("id", entityData.timeline_block_id)
+              .single();
+            if (block) {
+              result.parent = {
+                type: "block",
+                id: block.id,
+                name: block.template_name ?? `${block.type} block`,
+              };
+            }
+          }
+          break;
+        }
+
+        case "file": {
+          // Files belong to a project (parent)
+          const entityData = entityResult.data.data as { project_id?: string };
+          if (entityData.project_id) {
+            const { data: project } = await supabase
+              .from("projects")
+              .select("id, name")
+              .eq("id", entityData.project_id)
+              .single();
+            if (project) {
+              result.parent = { type: "project", id: project.id, name: project.name };
+            }
+          }
+          break;
+        }
+
+        case "payment": {
+          // Payments can belong to a project (parent)
+          const entityData = entityResult.data.data as { project_id?: string };
+          if (entityData.project_id) {
+            const { data: project } = await supabase
+              .from("projects")
+              .select("id, name")
+              .eq("id", entityData.project_id)
+              .single();
+            if (project) {
+              result.parent = { type: "project", id: project.id, name: project.name };
+            }
+          }
+          break;
+        }
+
+        // client, member, doc, tag don't have standard parent/child relationships
+        default:
+          break;
+      }
+    }
+
+    return { data: result, error: null };
+  } catch (err) {
+    console.error("getEntityContextById exception:", err);
     return { data: null, error: "Failed to get entity context" };
   }
 }
