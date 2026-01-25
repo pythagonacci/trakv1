@@ -5,10 +5,29 @@ import {
   searchAll,
   searchTasks,
   searchDocs,
+  searchDocContent,
+  searchDocsContentAll,
   searchProjects,
+  searchClients,
+  searchWorkspaceMembers,
+  searchTabs,
   searchBlocks,
   searchTables,
+  searchTableFields,
+  searchTableViews,
+  searchTableRows,
+  searchTimelineEvents,
+  searchFiles,
+  searchComments,
+  searchTaskComments,
+  searchPayments,
+  searchTags,
+  searchPropertyDefinitions,
+  searchEntityLinks,
+  searchEntityProperties,
   getEntityById,
+  getEntityContext,
+  getEntityContextById,
   getTableSchema,
   resolveTableFieldByName,
   queryTableRowsByFieldNames,
@@ -19,11 +38,30 @@ type TestFunction =
   | "searchAll"
   | "searchTasks"
   | "searchDocs"
+  | "searchDocContent"
+  | "searchDocsContentAll"
   | "searchProjects"
+  | "searchClients"
+  | "searchWorkspaceMembers"
+  | "searchTabs"
   | "searchBlocks"
   | "searchTables"
+  | "searchTableFields"
+  | "searchTableViews"
+  | "searchTableRows"
+  | "searchTimelineEvents"
+  | "searchFiles"
+  | "searchComments"
+  | "searchTaskComments"
+  | "searchPayments"
+  | "searchTags"
+  | "searchPropertyDefinitions"
+  | "searchEntityLinks"
+  | "searchEntityProperties"
   | "resolveEntityByName"
   | "getEntityById"
+  | "getEntityContext"
+  | "getEntityContextById"
   | "getTableSchema"
   | "resolveTableFieldByName"
   | "queryTableRowsByFieldNames";
@@ -39,11 +77,14 @@ export default function TestSearchPage() {
   const [entityType, setEntityType] = useState("task");
   const [entityId, setEntityId] = useState("");
   const [tableId, setTableId] = useState("");
+  const [docId, setDocId] = useState("");
   const [fieldName, setFieldName] = useState("");
   const [includeContent, setIncludeContent] = useState(false);
   const [assigneeName, setAssigneeName] = useState("");
   const [tagName, setTagName] = useState("");
   const [status, setStatus] = useState("");
+  const [limit, setLimit] = useState(20);
+  const [extraParams, setExtraParams] = useState("{}");
 
   const runTest = async () => {
     setLoading(true);
@@ -52,13 +93,28 @@ export default function TestSearchPage() {
 
     try {
       let result: any;
+      let parsedExtra: Record<string, unknown> = {};
+
+      if (extraParams.trim()) {
+        try {
+          parsedExtra = JSON.parse(extraParams);
+        } catch (err: any) {
+          throw new Error(`Invalid JSON in Extra Params: ${err.message}`);
+        }
+      }
+
+      const baseParams = {
+        searchText: searchText || undefined,
+        limit,
+      };
 
       switch (selectedTest) {
         case "searchAll":
           result = await searchAll({
             searchText,
             includeContent,
-            limit: 20,
+            limit,
+            ...parsedExtra,
           });
           break;
 
@@ -68,7 +124,8 @@ export default function TestSearchPage() {
             assigneeName: assigneeName || undefined,
             tagName: tagName || undefined,
             status: status || undefined,
-            limit: 20,
+            limit,
+            ...parsedExtra,
           });
           break;
 
@@ -76,28 +133,153 @@ export default function TestSearchPage() {
           result = await searchDocs({
             searchText: searchText || undefined,
             searchBoth: includeContent,
-            limit: 20,
+            limit,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchDocContent":
+          result = await searchDocContent({
+            docId,
+            searchText,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchDocsContentAll":
+          result = await searchDocsContentAll({
+            searchText,
+            limit,
+            ...parsedExtra,
           });
           break;
 
         case "searchProjects":
           result = await searchProjects({
-            searchText: searchText || undefined,
-            limit: 20,
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchClients":
+          result = await searchClients({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchWorkspaceMembers":
+          result = await searchWorkspaceMembers({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTabs":
+          result = await searchTabs({
+            ...baseParams,
+            ...parsedExtra,
           });
           break;
 
         case "searchBlocks":
           result = await searchBlocks({
-            searchText: searchText || undefined,
-            limit: 20,
+            ...baseParams,
+            ...parsedExtra,
           });
           break;
 
         case "searchTables":
           result = await searchTables({
-            searchText: searchText || undefined,
-            limit: 20,
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTableFields":
+          result = await searchTableFields({
+            ...baseParams,
+            tableId: tableId || undefined,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTableViews":
+          result = await searchTableViews({
+            ...baseParams,
+            tableId: tableId || undefined,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTableRows":
+          result = await searchTableRows({
+            ...baseParams,
+            tableId: tableId || undefined,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTimelineEvents":
+          result = await searchTimelineEvents({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchFiles":
+          result = await searchFiles({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchComments":
+          result = await searchComments({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTaskComments":
+          result = await searchTaskComments({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchPayments":
+          result = await searchPayments({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchTags":
+          result = await searchTags({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchPropertyDefinitions":
+          result = await searchPropertyDefinitions({
+            ...baseParams,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchEntityLinks":
+          result = await searchEntityLinks({
+            limit,
+            ...parsedExtra,
+          });
+          break;
+
+        case "searchEntityProperties":
+          result = await searchEntityProperties({
+            limit,
+            ...parsedExtra,
           });
           break;
 
@@ -106,6 +288,7 @@ export default function TestSearchPage() {
             entityType: entityType as any,
             name: searchText,
             limit: 10,
+            ...parsedExtra,
           });
           break;
 
@@ -113,12 +296,30 @@ export default function TestSearchPage() {
           result = await getEntityById({
             entityType: entityType as any,
             id: entityId,
+            ...parsedExtra,
+          });
+          break;
+
+        case "getEntityContext":
+          result = await getEntityContext({
+            entityType: entityType as any,
+            id: entityId,
+            ...parsedExtra,
+          });
+          break;
+
+        case "getEntityContextById":
+          result = await getEntityContextById({
+            entityType: entityType as any,
+            id: entityId,
+            ...parsedExtra,
           });
           break;
 
         case "getTableSchema":
           result = await getTableSchema({
             tableId,
+            ...parsedExtra,
           });
           break;
 
@@ -126,6 +327,7 @@ export default function TestSearchPage() {
           result = await resolveTableFieldByName({
             tableId,
             fieldName,
+            ...parsedExtra,
           });
           break;
 
@@ -133,7 +335,8 @@ export default function TestSearchPage() {
           result = await queryTableRowsByFieldNames({
             tableId,
             searchText: searchText || undefined,
-            limit: 20,
+            limit,
+            ...parsedExtra,
           });
           break;
 
@@ -227,15 +430,34 @@ export default function TestSearchPage() {
                 <option value="searchAll">searchAll (Universal Search)</option>
                 <option value="searchTasks">searchTasks</option>
                 <option value="searchDocs">searchDocs</option>
+                <option value="searchDocContent">searchDocContent</option>
+                <option value="searchDocsContentAll">searchDocsContentAll</option>
                 <option value="searchProjects">searchProjects</option>
+                <option value="searchClients">searchClients</option>
+                <option value="searchWorkspaceMembers">searchWorkspaceMembers</option>
+                <option value="searchTabs">searchTabs</option>
                 <option value="searchBlocks">searchBlocks</option>
                 <option value="searchTables">searchTables</option>
+                <option value="searchTableFields">searchTableFields</option>
+                <option value="searchTableViews">searchTableViews</option>
+                <option value="searchTableRows">searchTableRows</option>
+                <option value="searchTimelineEvents">searchTimelineEvents</option>
+                <option value="searchFiles">searchFiles</option>
+                <option value="searchComments">searchComments</option>
+                <option value="searchTaskComments">searchTaskComments</option>
+                <option value="searchPayments">searchPayments</option>
+                <option value="searchTags">searchTags</option>
+                <option value="searchPropertyDefinitions">searchPropertyDefinitions</option>
+                <option value="searchEntityLinks">searchEntityLinks</option>
+                <option value="searchEntityProperties">searchEntityProperties</option>
               </optgroup>
               <optgroup label="Resolution Functions">
                 <option value="resolveEntityByName">resolveEntityByName</option>
               </optgroup>
               <optgroup label="Entity Primitives">
                 <option value="getEntityById">getEntityById</option>
+                <option value="getEntityContext">getEntityContext</option>
+                <option value="getEntityContextById">getEntityContextById</option>
                 <option value="getTableSchema">getTableSchema</option>
                 <option value="resolveTableFieldByName">resolveTableFieldByName</option>
                 <option value="queryTableRowsByFieldNames">queryTableRowsByFieldNames</option>
@@ -250,9 +472,26 @@ export default function TestSearchPage() {
               "searchAll",
               "searchTasks",
               "searchDocs",
+              "searchDocContent",
+              "searchDocsContentAll",
               "searchProjects",
+              "searchClients",
+              "searchWorkspaceMembers",
+              "searchTabs",
               "searchBlocks",
               "searchTables",
+              "searchTableFields",
+              "searchTableViews",
+              "searchTableRows",
+              "searchTimelineEvents",
+              "searchFiles",
+              "searchComments",
+              "searchTaskComments",
+              "searchPayments",
+              "searchTags",
+              "searchPropertyDefinitions",
+              "searchEntityLinks",
+              "searchEntityProperties",
               "resolveEntityByName",
               "queryTableRowsByFieldNames",
             ].includes(selectedTest) && (
@@ -271,7 +510,7 @@ export default function TestSearchPage() {
             )}
 
             {/* Entity Type */}
-            {["resolveEntityByName", "getEntityById"].includes(selectedTest) && (
+            {["resolveEntityByName", "getEntityById", "getEntityContext", "getEntityContextById"].includes(selectedTest) && (
               <div>
                 <label className="block text-sm font-medium mb-2">
                   Entity Type
@@ -285,16 +524,21 @@ export default function TestSearchPage() {
                   <option value="project">Project</option>
                   <option value="client">Client</option>
                   <option value="member">Member</option>
-                  <option value="doc">Doc</option>
-                  <option value="table">Table</option>
                   <option value="tab">Tab</option>
                   <option value="block">Block</option>
+                  <option value="doc">Doc</option>
+                  <option value="table">Table</option>
+                  <option value="table_row">Table Row</option>
+                  <option value="timeline_event">Timeline Event</option>
+                  <option value="file">File</option>
+                  <option value="payment">Payment</option>
+                  <option value="tag">Tag</option>
                 </select>
               </div>
             )}
 
             {/* Entity ID */}
-            {selectedTest === "getEntityById" && (
+            {["getEntityById", "getEntityContext", "getEntityContextById"].includes(selectedTest) && (
               <div>
                 <label className="block text-sm font-medium mb-2">
                   Entity ID
@@ -314,6 +558,9 @@ export default function TestSearchPage() {
               "getTableSchema",
               "resolveTableFieldByName",
               "queryTableRowsByFieldNames",
+              "searchTableFields",
+              "searchTableViews",
+              "searchTableRows",
             ].includes(selectedTest) && (
               <div>
                 <label className="block text-sm font-medium mb-2">
@@ -324,6 +571,22 @@ export default function TestSearchPage() {
                   value={tableId}
                   onChange={(e) => setTableId(e.target.value)}
                   placeholder="Enter table ID..."
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+            )}
+
+            {/* Doc ID */}
+            {selectedTest === "searchDocContent" && (
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Doc ID
+                </label>
+                <input
+                  type="text"
+                  value={docId}
+                  onChange={(e) => setDocId(e.target.value)}
+                  placeholder="Enter doc ID..."
                   className="w-full border rounded px-3 py-2"
                 />
               </div>
@@ -390,6 +653,20 @@ export default function TestSearchPage() {
               </>
             )}
 
+            {/* Limit */}
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Limit
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value) || 1)}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
+
             {/* Include Content */}
             {["searchAll", "searchDocs"].includes(selectedTest) && (
               <div>
@@ -406,6 +683,19 @@ export default function TestSearchPage() {
                 </label>
               </div>
             )}
+
+            {/* Extra Params */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-2">
+                Extra Params (JSON)
+              </label>
+              <textarea
+                value={extraParams}
+                onChange={(e) => setExtraParams(e.target.value)}
+                className="w-full border rounded px-3 py-2 font-mono text-xs h-28"
+                placeholder='e.g. {"projectId":"...","status":["todo","done"]}'
+              />
+            </div>
           </div>
 
           {/* Run Button */}

@@ -3,6 +3,7 @@ import { WorkspaceProvider } from "./workspace-context";
 import { ThemeProvider } from "./theme-context";
 import { ReactQueryProvider } from "@/lib/react-query/providers";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { AIProvider, AICommandPalette } from "@/components/ai";
 
 /**
  * Optimized Dashboard Layout - No server-side data fetching
@@ -18,9 +19,12 @@ export default function DashboardLayout({
       <ThemeProvider>
         <ReactQueryProvider>
           <WorkspaceProvider>
-            <DashboardLayoutClient>
-              {children}
-            </DashboardLayoutClient>
+            <AIProvider>
+              <DashboardLayoutClient>
+                {children}
+              </DashboardLayoutClient>
+              <AICommandPalette />
+            </AIProvider>
           </WorkspaceProvider>
         </ReactQueryProvider>
       </ThemeProvider>

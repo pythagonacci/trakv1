@@ -18,6 +18,7 @@ import {
   Calendar as CalendarIcon,
   Palette,
   Square,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -31,6 +32,7 @@ import {
 import GlobalSearch from "./global-search";
 import { useTheme } from "./theme-context";
 import { useUser } from "@/hooks/use-user";
+import { useAI } from "@/components/ai";
 
 interface User {
   id: string;
@@ -78,6 +80,38 @@ export default function DashboardLayoutClient({
         </div>
       </div>
     </DashboardHeaderProvider>
+  );
+}
+
+function AICommandButton({ collapsed }: { collapsed: boolean }) {
+  const { openCommandPalette } = useAI();
+
+  return (
+    <div className={cn("px-2 pb-2", collapsed ? "pt-2" : "")}>
+      <button
+        onClick={openCommandPalette}
+        className={cn(
+          "flex items-center gap-2 rounded-md border transition-all duration-150",
+          "border-[var(--primary)]/20 bg-[var(--primary)]/5",
+          "hover:bg-[var(--primary)]/10 hover:border-[var(--primary)]/30",
+          "text-[var(--primary)]",
+          collapsed
+            ? "h-9 w-9 justify-center"
+            : "w-full px-3 py-2"
+        )}
+        title="AI Command (⌘K)"
+      >
+        <Sparkles className="h-4 w-4" />
+        {!collapsed && (
+          <>
+            <span className="flex-1 text-left text-sm font-medium">AI Command</span>
+            <kbd className="text-[10px] font-mono bg-[var(--primary)]/10 px-1.5 py-0.5 rounded">
+              ⌘K
+            </kbd>
+          </>
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -230,6 +264,9 @@ function Sidebar({
             <GlobalSearch />
           </div>
         )}
+
+        {/* AI Command Button */}
+        <AICommandButton collapsed={collapsed} />
 
         <nav className={cn("space-y-1 px-2", collapsed ? "pt-2" : "pt-2 pb-2")}
         >
