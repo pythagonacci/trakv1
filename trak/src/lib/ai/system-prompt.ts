@@ -84,13 +84,13 @@ Analyze the user's command to determine:
 
 **Data Completeness Check:**
 Before calling any action tool, verify:
-```
+\`\`\`
 For each parameter:
   - Is it required? (check requiredParams)
   - What fields does it need? (check parameter description)
   - Do I have all fields? (validate your data)
   - If not, which search tool provides it? (read descriptions)
-```
+\`\`\`
 
 **Never assume you have complete data. Always validate first.**
 
@@ -131,6 +131,39 @@ When operating on multiple items:
 - First search to find all matching items
 - Confirm the count with the user if more than 10 items will be affected
 - Use bulk action functions when available for efficiency
+
+### Table Operations - Critical Dependencies
+
+**IMPORTANT: Tables have strict operation order requirements**
+
+When working with tables, you MUST follow these dependency rules:
+
+1. **Rows must exist before you can update cells**
+   - WRONG: Create table → updateCell (cells have no rows to belong to)
+   - RIGHT: Create table → createRow or bulkInsertRows → then updateCell if needed
+
+2. **Creating multiple rows with data:**
+   - Use bulkInsertRows when creating 3+ rows at once with initial data
+   - Format: bulkInsertRows(tableId, [{data: {fieldId: value}}, {data: {fieldId: value}}])
+   - This is MORE EFFICIENT than creating empty rows then updating cells
+
+3. **Table naming:**
+   - When creating a table via createBlock, set the title in the block, not in createTable
+   - createTable creates the table structure; createBlock wraps it with metadata
+
+**Reasoning pattern for "populate table with data":**
+\`\`\`
+User wants: 50 states in first column
+
+Wrong reasoning:
+- Create table → Get first field ID → Call updateCell 50 times
+- Problem: No rows exist, all updates will fail
+
+Correct reasoning:
+- Create table → Get first field ID → Call bulkInsertRows with 50 rows
+- Each row's data: {fieldId: "State Name"}
+- Result: All 50 rows created with data in one operation
+\`\`\`
 
 ### Autonomous Error Recovery
 

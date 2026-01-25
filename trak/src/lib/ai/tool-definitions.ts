@@ -585,15 +585,15 @@ const blockActionTools: ToolDefinition[] = [
 const tableActionTools: ToolDefinition[] = [
   {
     name: "createTable",
-    description: "Create a new table. Usually done through createBlock with type='table'.",
+    description: "Create a new table with the specified name. The table will have 3 default columns (Name, Column 2, Column 3) and NO rows initially - use createRow or bulkInsertRows to add data.",
     category: "table",
     parameters: {
-      workspaceId: { type: "string", description: "The workspace ID" },
-      title: { type: "string", description: "Table title" },
-      description: { type: "string", description: "Table description" },
-      projectId: { type: "string", description: "Optional project to associate with" },
+      workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
+      title: { type: "string", description: "Table name/title. This is what the user sees. REQUIRED - always provide the name the user requested." },
+      description: { type: "string", description: "Optional table description" },
+      projectId: { type: "string", description: "Project to create table in. Get from searchProjects if user specifies a project name." },
     },
-    requiredParams: ["title"],
+    requiredParams: ["workspaceId", "title"],
   },
   {
     name: "createField",
@@ -634,11 +634,11 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "createRow",
-    description: "Create a new row in a table.",
+    description: "Create a single new row in a table. For creating multiple rows (3+), use bulkInsertRows instead for better efficiency. Can optionally include initial cell values via the data parameter.",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
-      data: { type: "object", description: "Row data as key-value pairs where key is field ID" },
+      data: { type: "object", description: "Optional: Row data as key-value pairs where key is field ID. Format: {fieldId1: 'value1', fieldId2: 'value2'}. Get field IDs from getTableSchema." },
     },
     requiredParams: ["tableId"],
   },
@@ -654,11 +654,11 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "updateCell",
-    description: "Update a single cell in a table row.",
+    description: "Update a single cell in a table row. CRITICAL: The row must already exist (created via createRow or bulkInsertRows). Use this for updating individual cells in existing rows, NOT for populating a new table with data - use bulkInsertRows for that.",
     category: "table",
     parameters: {
-      rowId: { type: "string", description: "The row ID" },
-      fieldId: { type: "string", description: "The field ID" },
+      rowId: { type: "string", description: "The row ID. Must be an existing row - get from searchTableRows or from the result of createRow/bulkInsertRows." },
+      fieldId: { type: "string", description: "The field ID. Get from getTableSchema." },
       value: { type: "string", description: "New value" },
     },
     requiredParams: ["rowId", "fieldId", "value"],
@@ -683,13 +683,13 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "bulkInsertRows",
-    description: "Insert multiple rows into a table at once.",
+    description: "Insert multiple rows into a table at once. CRITICAL: Use this when creating 3+ rows, especially when populating a table with initial data. Much more efficient than calling createRow multiple times. Each row can have initial cell values.",
     category: "table",
     parameters: {
-      tableId: { type: "string", description: "The table ID" },
+      tableId: { type: "string", description: "The table ID. Get this from createTable or searchTables." },
       rows: {
         type: "array",
-        description: "Array of row objects with data property",
+        description: "Array of row objects. Each object should have a 'data' property containing field-value pairs. Format: [{data: {fieldId1: 'value1', fieldId2: 'value2'}}, {data: {fieldId1: 'value3'}}]. Get field IDs from getTableSchema. If you want 50 rows with state names in first column, create 50 objects each with data: {firstFieldId: 'StateName'}.",
         items: { type: "object" },
       },
     },
