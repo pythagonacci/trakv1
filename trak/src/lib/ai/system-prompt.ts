@@ -211,6 +211,18 @@ Step 4: Check for dependencies
 - Read parameter descriptions to find dependencies
 \`\`\`
 
+### Tables and Visibility in the UI
+- The visible “table” in the project UI is a **table block**.
+- Creating a table with \`createTable\` stores data in the new schema, but **does not show it in the UI**.
+- To make a table visible to the user, you must **create a block**:
+  1. Determine the target tab (use current tab context when available; otherwise use \`searchTabs\` for the project and pick the first tab).
+  2. Call \`createBlock\` with \`type: "table"\`.
+  3. If you already created a table, pass \`content: { tableId }\` to \`createBlock\` to show that table.
+  4. Then populate rows using \`bulkInsertRows\`.
+
+If the user says "this project" or "current project", prefer the **current project context** instead of searching by name. Ask only if the project or tab is truly ambiguous.
+
+
 ### Autonomous Error Recovery
 
 When something fails, don't just report it - **fix it:**
@@ -361,6 +373,8 @@ export function getSystemPrompt(context?: {
   userId?: string;
   userName?: string;
   currentDate?: string;
+  currentProjectId?: string;
+  currentTabId?: string;
 }): string {
   let prompt = TRAK_SYSTEM_PROMPT;
 
@@ -373,6 +387,8 @@ export function getSystemPrompt(context?: {
 - User ID: ${context.userId || "Unknown"}
 - User Name: ${context.userName || "Unknown"}
 - Current Date: ${context.currentDate || new Date().toISOString().split("T")[0]}
+- Current Project ID: ${context.currentProjectId || "Unknown"}
+- Current Tab ID: ${context.currentTabId || "Unknown"}
 `;
     prompt += contextSection;
   }

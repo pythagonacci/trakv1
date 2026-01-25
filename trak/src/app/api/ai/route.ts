@@ -3,6 +3,7 @@ import { executeAICommand, type AIMessage } from "@/lib/ai";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
+import { aiDebug } from "@/lib/ai/debug";
 
 /**
  * POST /api/ai
@@ -29,6 +30,23 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function POST(request: NextRequest) {
   try {
+    const referer = request.headers.get("referer");
+    let currentProjectId: string | undefined;
+    let currentTabId: string | undefined;
+
+    if (referer) {
+      try {
+        const url = new URL(referer);
+        const match = url.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
+        if (match) {
+          currentProjectId = match[1];
+          currentTabId = match[2];
+        }
+      } catch {
+        // Ignore malformed referer
+      }
+    }
+
     // 1. Check authentication
     const user = await getAuthenticatedUser();
     if (!user) {
@@ -72,6 +90,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    aiDebug("api/ai:request", {
+      command,
+      workspaceId,
+      workspaceName,
+      userId: user.id,
+      userName,
+      currentProjectId,
+      currentTabId,
+      historyCount: conversationHistory?.length ?? 0,
+    });
+
     // 5. Execute the AI command
     const result = await executeAICommand(
       command,
@@ -80,13 +109,27 @@ export async function POST(request: NextRequest) {
         workspaceName,
         userId: user.id,
         userName,
+        currentProjectId,
+        currentTabId,
       },
       conversationHistory || []
     );
 
+    aiDebug("api/ai:response", {
+      success: result.success,
+      responseLength: result.response?.length ?? 0,
+      toolCalls: result.toolCallsMade?.map((t) => ({
+        tool: t.tool,
+        success: t.result.success,
+        error: t.result.error,
+      })),
+      error: result.error,
+    });
+
     // 6. Return the result
     return NextResponse.json(result);
   } catch (error) {
+    aiDebug("api/ai:error", error);
     console.error("[AI Route] Error:", error);
     return NextResponse.json(
       {

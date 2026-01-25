@@ -76,6 +76,7 @@ import {
 // ============================================================================
 // IMPORTS - Table Actions
 // ============================================================================
+import { createTable, getTable } from "@/app/actions/tables/table-actions";
 import {
   createField,
   updateField,
@@ -153,6 +154,7 @@ import {
 // IMPORTS - Workspace Context
 // ============================================================================
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { aiDebug } from "./debug";
 
 // ============================================================================
 // TYPES
@@ -183,6 +185,7 @@ export async function executeTool(
   const { name, arguments: args } = toolCall;
 
   try {
+    aiDebug("executeTool:start", { tool: name, arguments: args });
     // Get workspace ID for actions that need it
     const workspaceId = await getCurrentWorkspaceId();
 
@@ -422,6 +425,39 @@ export async function executeTool(
       // ==================================================================
       // TABLE ACTIONS
       // ==================================================================
+      case "createTable": {
+        const targetWorkspaceId = (args.workspaceId as string | undefined) || workspaceId;
+        if (!targetWorkspaceId) {
+          return { success: false, error: "Missing workspaceId for createTable" };
+        }
+        const tableResult = await createTable({
+          workspaceId: targetWorkspaceId,
+          projectId: args.projectId as string | undefined,
+          title: args.title as string | undefined,
+          description: args.description as string | null | undefined,
+          icon: args.icon as string | null | undefined,
+        });
+
+        if ("error" in tableResult) {
+          return { success: false, error: tableResult.error };
+        }
+
+        const tabId = args.tabId as string | undefined;
+        if (tabId) {
+          const blockResult = await createBlock({
+            tabId,
+            type: "table",
+            content: { tableId: tableResult.data.table.id },
+          });
+          if ("error" in blockResult) {
+            return { success: false, error: blockResult.error };
+          }
+          return { success: true, data: { ...tableResult.data, block: blockResult.data } };
+        }
+
+        return { success: true, data: tableResult.data };
+      }
+
       case "createField":
         return await wrapResult(
           createField({
@@ -475,12 +511,37 @@ export async function executeTool(
         return await wrapResult(deleteRows(args.rowIds as string[]));
 
       case "bulkInsertRows":
-        return await wrapResult(
-          bulkInsertRows({
-            tableId: args.tableId as string,
-            rows: args.rows as any[],
-          })
-        );
+        {
+          const rowsArg =
+            (args.rows as Array<{ data: Record<string, unknown>; order?: number | string | null }>) ??
+            undefined;
+          const legacyDataArg = args.data as Array<Record<string, unknown>> | undefined;
+          const normalizedRows =
+            rowsArg && Array.isArray(rowsArg)
+              ? rowsArg
+              : Array.isArray(legacyDataArg)
+                ? legacyDataArg.map((data) => ({ data }))
+                : undefined;
+
+          if (!normalizedRows) {
+            return {
+              success: false,
+              error: "Missing rows for bulkInsertRows. Expected { rows: [{ data: {...} }] }.",
+            };
+          }
+
+          const mappedRows = await mapRowDataToFieldIds(
+            args.tableId as string,
+            normalizedRows
+          );
+
+          return await wrapResult(
+            bulkInsertRows({
+              tableId: args.tableId as string,
+              rows: mappedRows,
+            })
+          );
+        }
 
       case "bulkUpdateRows":
         return await wrapResult(
@@ -706,6 +767,7 @@ export async function executeTool(
         };
     }
   } catch (error) {
+    aiDebug("executeTool:error", { tool: name, error });
     console.error(`[executeTool] Error executing ${name}:`, error);
     return {
       success: false,
@@ -783,6 +845,47 @@ async function resolveTaskAssignees(
   return resolved;
 }
 
+async function mapRowDataToFieldIds(
+  tableId: string,
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>
+): Promise<Array<{ data: Record<string, unknown>; order?: number | string | null }>> {
+  if (!tableId || rows.length === 0) return rows;
+
+  const tableResult = await getTable(tableId);
+  if ("error" in tableResult || !tableResult.data?.fields) return rows;
+
+  const fields = tableResult.data.fields;
+  const primaryField = fields.find((f) => f.is_primary) || fields[0];
+  const nameToId = new Map(
+    fields.map((f) => [String(f.name).trim().toLowerCase(), f.id])
+  );
+
+  return rows.map((row) => {
+    const data = row.data || {};
+    const mapped: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(data)) {
+      const normalizedKey = String(key).trim().toLowerCase();
+      const fieldId = nameToId.get(normalizedKey);
+      if (fieldId) {
+        mapped[fieldId] = value;
+      } else if (primaryField && (normalizedKey === "name" || normalizedKey === "title")) {
+        mapped[primaryField.id] = value;
+      } else if (fields.some((f) => f.id === key)) {
+        mapped[key] = value;
+      }
+    }
+
+    // If nothing mapped but there's a single value-like key, fallback to primary.
+    if (Object.keys(mapped).length === 0 && primaryField && Object.keys(data).length === 1) {
+      const onlyValue = Object.values(data)[0];
+      mapped[primaryField.id] = onlyValue;
+    }
+
+    return { ...row, data: mapped };
+  });
+}
+
 /**
  * Wrap an action result into the standard ToolCallResult format.
  */
@@ -796,27 +899,39 @@ async function wrapResult(
     if (result && typeof result === "object" && "error" in result) {
       const actionResult = result as { data?: unknown; error?: string | null };
       if (actionResult.error) {
-        return { success: false, error: actionResult.error };
+        const wrapped = { success: false, error: actionResult.error };
+        aiDebug("executeTool:result", wrapped);
+        return wrapped;
       }
-      return { success: true, data: actionResult.data };
+      const wrapped = { success: true, data: actionResult.data };
+      aiDebug("executeTool:result", wrapped);
+      return wrapped;
     }
 
     // Handle SearchResponse pattern { data, error }
     if (result && typeof result === "object" && "data" in result) {
       const searchResult = result as { data?: unknown; error?: string | null };
       if (searchResult.error) {
-        return { success: false, error: searchResult.error };
+        const wrapped = { success: false, error: searchResult.error };
+        aiDebug("executeTool:result", wrapped);
+        return wrapped;
       }
-      return { success: true, data: searchResult.data };
+      const wrapped = { success: true, data: searchResult.data };
+      aiDebug("executeTool:result", wrapped);
+      return wrapped;
     }
 
     // Direct result
-    return { success: true, data: result };
+    const wrapped = { success: true, data: result };
+    aiDebug("executeTool:result", wrapped);
+    return wrapped;
   } catch (error) {
-    return {
+    const wrapped = {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
     };
+    aiDebug("executeTool:result", wrapped);
+    return wrapped;
   }
 }
 

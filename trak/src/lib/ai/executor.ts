@@ -11,6 +11,7 @@
 import { allTools, toOpenAIFormat } from "./tool-definitions";
 import { getSystemPrompt } from "./system-prompt";
 import { executeTool, type ToolCall, type ToolCallResult } from "./tool-executor";
+import { aiDebug } from "./debug";
 
 // ============================================================================
 // TYPES
@@ -49,6 +50,8 @@ export interface ExecutionContext {
   workspaceName?: string;
   userId: string;
   userName?: string;
+  currentProjectId?: string;
+  currentTabId?: string;
 }
 
 interface ChatCompletionResponse {
@@ -116,6 +119,8 @@ export async function executeAICommand(
     userId: context.userId,
     userName: context.userName,
     currentDate: new Date().toISOString().split("T")[0],
+    currentProjectId: context.currentProjectId,
+    currentTabId: context.currentTabId,
   });
 
   // Initialize messages
@@ -127,6 +132,16 @@ export async function executeAICommand(
 
   // Get tools in OpenAI format (compatible with Deepseek)
   const tools = toOpenAIFormat(allTools);
+  aiDebug("executeAICommand:start", {
+    command: userCommand,
+    workspaceId: context.workspaceId,
+    userId: context.userId,
+    currentProjectId: context.currentProjectId,
+    currentTabId: context.currentTabId,
+    historyCount: conversationHistory.length,
+    toolCount: tools.length,
+    provider: openAIKey ? "openai" : "deepseek",
+  });
 
   // Track all tool calls made
   const allToolCallsMade: ExecutionResult["toolCallsMade"] = [];
@@ -139,6 +154,7 @@ export async function executeAICommand(
     iterations++;
 
     try {
+      aiDebug("executeAICommand:iteration", { iterations });
       // Call the AI
       const response = openAIKey
         ? await callOpenAI(openAIKey, messages, tools)
@@ -155,6 +171,11 @@ export async function executeAICommand(
 
       const choice = response.choices[0];
       const assistantMessage = choice.message;
+      aiDebug("executeAICommand:assistant", {
+        contentLength: assistantMessage.content?.length ?? 0,
+        toolCalls: assistantMessage.tool_calls?.map((tc) => tc.function.name) ?? [],
+        finishReason: choice.finish_reason,
+      });
 
       // Add assistant message to history
       messages.push({
@@ -175,11 +196,24 @@ export async function executeAICommand(
           } catch (e) {
             toolArgs = {};
           }
+          if (
+            toolName === "createTable" &&
+            !("tabId" in toolArgs) &&
+            context.currentTabId
+          ) {
+            toolArgs.tabId = context.currentTabId;
+          }
+          aiDebug("executeAICommand:toolCall", { tool: toolName, arguments: toolArgs });
 
           // Execute the tool
           const result = await executeTool({
             name: toolName,
             arguments: toolArgs,
+          });
+          aiDebug("executeAICommand:toolResult", {
+            tool: toolName,
+            success: result.success,
+            error: result.error,
           });
 
           // Track the tool call
@@ -203,6 +237,10 @@ export async function executeAICommand(
             toolName.startsWith("resolve");
 
           if (!isSearchLike && lastToolRepeatCount >= TOOL_REPEAT_THRESHOLD) {
+            aiDebug("executeAICommand:repeatStop", {
+              tool: toolName,
+              repeatCount: lastToolRepeatCount,
+            });
             return result.success
               ? {
                   success: true,
@@ -238,6 +276,7 @@ export async function executeAICommand(
         toolCallsMade: allToolCallsMade,
       };
     } catch (error) {
+      aiDebug("executeAICommand:error", error);
       console.error("[executeAICommand] Error:", error);
       return {
         success: false,
@@ -265,6 +304,11 @@ async function callDeepseek(
   messages: AIMessage[],
   tools: ReturnType<typeof toOpenAIFormat>
 ): Promise<ChatCompletionResponse> {
+  aiDebug("callDeepseek:request", {
+    messageCount: messages.length,
+    toolCount: tools.length,
+    model: DEEPSEEK_MODEL,
+  });
   const response = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
     headers: {
@@ -305,6 +349,11 @@ async function callOpenAI(
   tools: ReturnType<typeof toOpenAIFormat>
 ): Promise<ChatCompletionResponse> {
   const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL;
+  aiDebug("callOpenAI:request", {
+    messageCount: messages.length,
+    toolCount: tools.length,
+    model,
+  });
   const response = await fetch(OPENAI_API_URL, {
     method: "POST",
     headers: {

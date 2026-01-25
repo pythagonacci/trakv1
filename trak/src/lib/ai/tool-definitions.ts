@@ -592,6 +592,7 @@ const tableActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Table name/title that appears in the UI. ALWAYS set this to the name the user requested, don't leave it as 'Untitled'." },
       description: { type: "string", description: "Optional table description" },
       projectId: { type: "string", description: "Project to create table in. Get from searchProjects if user specifies a project name." },
+      tabId: { type: "string", description: "Optional tab ID. If provided, a table block will be created in this tab so the table is visible in the UI." },
     },
     requiredParams: ["workspaceId", "title"],
   },
