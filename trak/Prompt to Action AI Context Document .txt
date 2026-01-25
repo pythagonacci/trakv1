@@ -1,0 +1,36 @@
+﻿We are building Prompt to Action AI for our software. Our software is a project management software. A key feature that we are implementing is the ability for an AI to carry out natural language commands, as prompted by the user. This means the AI should be able to do things as simple as marking a task as completed, or creating complex tables as directed by the user. The idea is if it can be done by the user, it can be done by the AI. 
+
+
+How Prompt to Action works: 
+1. User types natural language command in CMD+K
+   Example: "Mark all high priority tasks assigned to John as done"
+
+
+2. AI (Deepseek API) understands the command
+   Understands: Need to find tasks where priority=high AND assignee=John
+   Action needed: Update status to "done"
+
+
+3. AI calls search functions (ai-search.ts) to find the data it needs. In this case it would be finding the tasks that are assigned to john and are high priority. 
+
+
+4. AI calls the existing server action functions to carry out the command. In this case it would find the server action function that would update the tasks it found in step 3, the search, and call those with the parameters the function needs to be carried out successfully. 
+
+
+5. The result is returned to the user. 
+
+
+In the case where the AI needs more information, as in there may be conflicting information, or unclear information, it asks the user. The AI can also carry out multi-step actions, by carrying out the first necessary action, looking at the result, and then continuing. OR, if it is a simpler action that does not require on prior outputs to continue, it can one shot it, by calling all the actions simutaneously. 
+
+
+Critical Principle:
+The AI must be able to find ANY data that exists in the workspace and execute ANY action a user could manually perform. 
+
+
+What needs to be successful:
+        -A strong set of search functions. These are the functions that the AI chooses to call when they need data to proceed with a task. The search functions must be comprehensive to the point where ALL data within the workspace should be able to be found, alongside any data that is relevant towards it. For example, seeing the properties assigned or linked with a piece of data, is relevant context towards the AI. For example, a task can have an assignee, a due date, priority, status, and any other tags. 
+        -A comprehensive list of EVERY action that can be taken in the software. This means EVERY SINGLE action, whether it be from creating a table, to deleting a table row, to updating tasks, etc. In order for the AI to carry out the prompts, it must be able to access every single action, and have a robust list of server actions to choose from. 
+        -A system prompt. This system prompt provides context, instructions, and specific nuances for the AI to follow. 
+        -An execution layer. This is where the AI calls the search functions if necessary, calls the server actions, and completes its actions, whether it be one action or multi-step action. 
+        -Response to the user. The AI tells the user what it has done, or provides an error if it was unable to carry out the task successfully. 
+        -UI interface. The UI interface and connection for the user to type out commands and receive feedback from the AI.

@@ -585,11 +585,11 @@ const blockActionTools: ToolDefinition[] = [
 const tableActionTools: ToolDefinition[] = [
   {
     name: "createTable",
-    description: "Create a new table with the specified name. The table will have 3 default columns (Name, Column 2, Column 3) and NO rows initially - use createRow or bulkInsertRows to add data.",
+    description: "Create a new empty table structure with the specified name. Creates table with 3 default columns (Name, Column 2, Column 3) but ZERO rows. The table is empty after creation - you must use bulkInsertRows to populate it with data. Returns the tableId needed for subsequent operations.",
     category: "table",
     parameters: {
       workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
-      title: { type: "string", description: "Table name/title. This is what the user sees. REQUIRED - always provide the name the user requested." },
+      title: { type: "string", description: "Table name/title that appears in the UI. ALWAYS set this to the name the user requested, don't leave it as 'Untitled'." },
       description: { type: "string", description: "Optional table description" },
       projectId: { type: "string", description: "Project to create table in. Get from searchProjects if user specifies a project name." },
     },
@@ -634,7 +634,7 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "createRow",
-    description: "Create a single new row in a table. For creating multiple rows (3+), use bulkInsertRows instead for better efficiency. Can optionally include initial cell values via the data parameter.",
+    description: "Create ONE row in a table. Use this for creating 1-2 rows only. For 3+ rows, you MUST use bulkInsertRows instead (it's much more efficient and prevents rate limiting). Can optionally include initial cell values via the data parameter.",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
@@ -654,10 +654,10 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "updateCell",
-    description: "Update a single cell in a table row. CRITICAL: The row must already exist (created via createRow or bulkInsertRows). Use this for updating individual cells in existing rows, NOT for populating a new table with data - use bulkInsertRows for that.",
+    description: "Update ONE cell in ONE existing row. PREREQUISITE: The row must already exist. This is for editing existing data, NOT for adding new data to a table. If you're populating a table with data, use bulkInsertRows to create rows with data in one step - don't create empty rows and then call updateCell for each cell.",
     category: "table",
     parameters: {
-      rowId: { type: "string", description: "The row ID. Must be an existing row - get from searchTableRows or from the result of createRow/bulkInsertRows." },
+      rowId: { type: "string", description: "The row ID. Must be an existing row - get from searchTableRows or from the result of createRow/bulkInsertRows. If you don't have a rowId yet, the row doesn't exist - create it first." },
       fieldId: { type: "string", description: "The field ID. Get from getTableSchema." },
       value: { type: "string", description: "New value" },
     },
@@ -683,13 +683,13 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "bulkInsertRows",
-    description: "Insert multiple rows into a table at once. CRITICAL: Use this when creating 3+ rows, especially when populating a table with initial data. Much more efficient than calling createRow multiple times. Each row can have initial cell values.",
+    description: "Insert 3 or more rows into a table in a single operation. Use this for ANY scenario where you need to create multiple rows (like populating a table with data, importing a list, etc). This is the PRIMARY way to populate tables with data - don't use createRow or updateCell for multiple items.",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID. Get this from createTable or searchTables." },
       rows: {
         type: "array",
-        description: "Array of row objects. Each object should have a 'data' property containing field-value pairs. Format: [{data: {fieldId1: 'value1', fieldId2: 'value2'}}, {data: {fieldId1: 'value3'}}]. Get field IDs from getTableSchema. If you want 50 rows with state names in first column, create 50 objects each with data: {firstFieldId: 'StateName'}.",
+        description: "Array of row objects, one per row you want to create. Each object MUST have a 'data' property containing the cell values as field-value pairs. Format: [{data: {fieldId: 'value'}}, {data: {fieldId: 'value'}}]. To populate 50 rows with data: create array of 50 objects, each with data: {fieldId: 'value for that row'}. Get field IDs from getTableSchema - the first field is usually the primary field.",
         items: { type: "object" },
       },
     },
