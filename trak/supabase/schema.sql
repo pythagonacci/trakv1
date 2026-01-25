@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict NlpIhhZvgxLJHQH8U7fNl0GcQY4zSTwbCHtEWSYc4pT8L12IEdaWqgscsRuw59p
+\restrict fDoqNd6imQSCYknFDSBD0nMLQPf3Jce0oxwfEC5r1yflz6P5cZtkKOIzhlo0Ha0
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.7 (Homebrew)
@@ -969,6 +969,25 @@ CREATE TABLE public.entity_properties (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     entity_type text NOT NULL,
     entity_id uuid NOT NULL,
+    property_definition_id uuid NOT NULL,
+    value jsonb,
+    workspace_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT entity_properties_entity_type_check1 CHECK ((entity_type = ANY (ARRAY['block'::text, 'task'::text, 'timeline_event'::text, 'table_row'::text])))
+);
+
+
+ALTER TABLE public.entity_properties OWNER TO postgres;
+
+--
+-- Name: entity_properties_legacy; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.entity_properties_legacy (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid NOT NULL,
     workspace_id uuid NOT NULL,
     status text,
     priority text,
@@ -983,7 +1002,7 @@ CREATE TABLE public.entity_properties (
 );
 
 
-ALTER TABLE public.entity_properties OWNER TO postgres;
+ALTER TABLE public.entity_properties_legacy OWNER TO postgres;
 
 --
 -- Name: file_attachments; Type: TABLE; Schema: public; Owner: postgres
@@ -1079,6 +1098,24 @@ CREATE TABLE public.profiles (
 
 
 ALTER TABLE public.profiles OWNER TO postgres;
+
+--
+-- Name: property_definitions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.property_definitions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    workspace_id uuid NOT NULL,
+    name text NOT NULL,
+    type text NOT NULL,
+    options jsonb DEFAULT '[]'::jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT property_definitions_type_check CHECK ((type = ANY (ARRAY['text'::text, 'number'::text, 'date'::text, 'select'::text, 'multi_select'::text, 'person'::text, 'checkbox'::text])))
+);
+
+
+ALTER TABLE public.property_definitions OWNER TO postgres;
 
 --
 -- Name: tab_shares; Type: TABLE; Schema: public; Owner: postgres
@@ -1299,6 +1336,7 @@ CREATE TABLE public.task_items (
     updated_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    assignee_id uuid,
     CONSTRAINT task_items_priority_check CHECK ((priority = ANY (ARRAY['urgent'::text, 'high'::text, 'medium'::text, 'low'::text, 'none'::text]))),
     CONSTRAINT task_items_recurring_frequency_check CHECK ((recurring_frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text]))),
     CONSTRAINT task_items_status_check CHECK ((status = ANY (ARRAY['todo'::text, 'in-progress'::text, 'done'::text])))
@@ -1616,18 +1654,34 @@ ALTER TABLE ONLY public.entity_links
 
 
 --
--- Name: entity_properties entity_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: entity_properties entity_properties_entity_property_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.entity_properties
+    ADD CONSTRAINT entity_properties_entity_property_unique UNIQUE (entity_type, entity_id, property_definition_id);
+
+
+--
+-- Name: entity_properties_legacy entity_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.entity_properties_legacy
     ADD CONSTRAINT entity_properties_pkey PRIMARY KEY (id);
 
 
 --
--- Name: entity_properties entity_properties_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: entity_properties entity_properties_pkey1; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.entity_properties
+    ADD CONSTRAINT entity_properties_pkey1 PRIMARY KEY (id);
+
+
+--
+-- Name: entity_properties_legacy entity_properties_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.entity_properties_legacy
     ADD CONSTRAINT entity_properties_unique UNIQUE (entity_type, entity_id);
 
 
@@ -1693,6 +1747,22 @@ ALTER TABLE ONLY public.projects
 
 ALTER TABLE ONLY public.projects
     ADD CONSTRAINT projects_public_token_key UNIQUE (public_token);
+
+
+--
+-- Name: property_definitions property_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.property_definitions
+    ADD CONSTRAINT property_definitions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: property_definitions property_definitions_workspace_name_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.property_definitions
+    ADD CONSTRAINT property_definitions_workspace_name_unique UNIQUE (workspace_id, name);
 
 
 --
@@ -2148,49 +2218,63 @@ CREATE INDEX idx_entity_links_workspace ON public.entity_links USING btree (work
 -- Name: idx_entity_properties_assignee; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_assignee ON public.entity_properties USING btree (assignee_id) WHERE (assignee_id IS NOT NULL);
+CREATE INDEX idx_entity_properties_assignee ON public.entity_properties_legacy USING btree (assignee_id) WHERE (assignee_id IS NOT NULL);
 
 
 --
 -- Name: idx_entity_properties_due_date; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_due_date ON public.entity_properties USING btree (workspace_id, due_date) WHERE (due_date IS NOT NULL);
+CREATE INDEX idx_entity_properties_due_date ON public.entity_properties_legacy USING btree (workspace_id, due_date) WHERE (due_date IS NOT NULL);
 
 
 --
 -- Name: idx_entity_properties_entity; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_entity ON public.entity_properties USING btree (entity_type, entity_id);
+CREATE INDEX idx_entity_properties_entity ON public.entity_properties_legacy USING btree (entity_type, entity_id);
 
 
 --
 -- Name: idx_entity_properties_priority; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_priority ON public.entity_properties USING btree (workspace_id, priority) WHERE (priority IS NOT NULL);
+CREATE INDEX idx_entity_properties_priority ON public.entity_properties_legacy USING btree (workspace_id, priority) WHERE (priority IS NOT NULL);
+
+
+--
+-- Name: idx_entity_properties_property_definition; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_entity_properties_property_definition ON public.entity_properties USING btree (property_definition_id);
 
 
 --
 -- Name: idx_entity_properties_status; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_status ON public.entity_properties USING btree (workspace_id, status) WHERE (status IS NOT NULL);
+CREATE INDEX idx_entity_properties_status ON public.entity_properties_legacy USING btree (workspace_id, status) WHERE (status IS NOT NULL);
 
 
 --
 -- Name: idx_entity_properties_tags; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_tags ON public.entity_properties USING gin (tags);
+CREATE INDEX idx_entity_properties_tags ON public.entity_properties_legacy USING gin (tags);
+
+
+--
+-- Name: idx_entity_properties_value_gin; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_entity_properties_value_gin ON public.entity_properties USING gin (value);
 
 
 --
 -- Name: idx_entity_properties_workspace; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_entity_properties_workspace ON public.entity_properties USING btree (workspace_id);
+CREATE INDEX idx_entity_properties_workspace ON public.entity_properties_legacy USING btree (workspace_id);
 
 
 --
@@ -2380,6 +2464,13 @@ CREATE INDEX idx_projects_workspace_type_status ON public.projects USING btree (
 --
 
 CREATE INDEX idx_projects_ws ON public.projects USING btree (workspace_id);
+
+
+--
+-- Name: idx_property_definitions_workspace; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_property_definitions_workspace ON public.property_definitions USING btree (workspace_id);
 
 
 --
@@ -2583,6 +2674,13 @@ CREATE INDEX idx_task_assignees_task ON public.task_assignees USING btree (task_
 --
 
 CREATE INDEX idx_task_comments_task ON public.task_comments USING btree (task_id);
+
+
+--
+-- Name: idx_task_items_assignee; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_task_items_assignee ON public.task_items USING btree (assignee_id);
 
 
 --
@@ -2831,6 +2929,13 @@ CREATE TRIGGER docs_updated_at BEFORE UPDATE ON public.docs FOR EACH ROW EXECUTE
 
 
 --
+-- Name: entity_properties entity_properties_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER entity_properties_set_updated_at BEFORE UPDATE ON public.entity_properties FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: payments payment_number_trigger; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -2842,6 +2947,13 @@ CREATE TRIGGER payment_number_trigger BEFORE INSERT ON public.payments FOR EACH 
 --
 
 CREATE TRIGGER payment_updated_at_trigger BEFORE UPDATE ON public.payments FOR EACH ROW EXECUTE FUNCTION public.update_payment_timestamp();
+
+
+--
+-- Name: property_definitions property_definitions_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER property_definitions_set_updated_at BEFORE UPDATE ON public.property_definitions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -2985,10 +3097,10 @@ CREATE TRIGGER trg_workspaces_updated BEFORE UPDATE ON public.workspaces FOR EAC
 
 
 --
--- Name: entity_properties update_entity_properties_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: entity_properties_legacy update_entity_properties_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER update_entity_properties_updated_at BEFORE UPDATE ON public.entity_properties FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER update_entity_properties_updated_at BEFORE UPDATE ON public.entity_properties_legacy FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -3112,19 +3224,35 @@ ALTER TABLE ONLY public.entity_links
 
 
 --
--- Name: entity_properties entity_properties_assignee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: entity_properties_legacy entity_properties_assignee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.entity_properties
+ALTER TABLE ONLY public.entity_properties_legacy
     ADD CONSTRAINT entity_properties_assignee_id_fkey FOREIGN KEY (assignee_id) REFERENCES public.workspace_members(id) ON DELETE SET NULL;
 
 
 --
--- Name: entity_properties entity_properties_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: entity_properties entity_properties_property_definition_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.entity_properties
+    ADD CONSTRAINT entity_properties_property_definition_id_fkey FOREIGN KEY (property_definition_id) REFERENCES public.property_definitions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: entity_properties_legacy entity_properties_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.entity_properties_legacy
     ADD CONSTRAINT entity_properties_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+
+--
+-- Name: entity_properties entity_properties_workspace_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.entity_properties
+    ADD CONSTRAINT entity_properties_workspace_id_fkey1 FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
 
 
 --
@@ -3237,6 +3365,14 @@ ALTER TABLE ONLY public.projects
 
 ALTER TABLE ONLY public.projects
     ADD CONSTRAINT projects_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+
+--
+-- Name: property_definitions property_definitions_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.property_definitions
+    ADD CONSTRAINT property_definitions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
 
 
 --
@@ -3437,6 +3573,14 @@ ALTER TABLE ONLY public.task_comments
 
 ALTER TABLE ONLY public.task_comments
     ADD CONSTRAINT task_comments_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.task_items(id) ON DELETE CASCADE;
+
+
+--
+-- Name: task_items task_items_assignee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.task_items
+    ADD CONSTRAINT task_items_assignee_id_fkey FOREIGN KEY (assignee_id) REFERENCES auth.users(id) ON DELETE SET NULL;
 
 
 --
@@ -3721,6 +3865,50 @@ CREATE POLICY "Anyone can track client page views" ON public.client_page_views F
 
 
 --
+-- Name: entity_inherited_display Entity inherited display deletable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity inherited display deletable by workspace members" ON public.entity_inherited_display FOR DELETE USING ((property_definition_id IN ( SELECT property_definitions.id
+   FROM public.property_definitions
+  WHERE (property_definitions.workspace_id IN ( SELECT workspace_members.workspace_id
+           FROM public.workspace_members
+          WHERE (workspace_members.user_id = auth.uid()))))));
+
+
+--
+-- Name: entity_inherited_display Entity inherited display insertable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity inherited display insertable by workspace members" ON public.entity_inherited_display FOR INSERT WITH CHECK ((property_definition_id IN ( SELECT property_definitions.id
+   FROM public.property_definitions
+  WHERE (property_definitions.workspace_id IN ( SELECT workspace_members.workspace_id
+           FROM public.workspace_members
+          WHERE (workspace_members.user_id = auth.uid()))))));
+
+
+--
+-- Name: entity_inherited_display Entity inherited display updatable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity inherited display updatable by workspace members" ON public.entity_inherited_display FOR UPDATE USING ((property_definition_id IN ( SELECT property_definitions.id
+   FROM public.property_definitions
+  WHERE (property_definitions.workspace_id IN ( SELECT workspace_members.workspace_id
+           FROM public.workspace_members
+          WHERE (workspace_members.user_id = auth.uid()))))));
+
+
+--
+-- Name: entity_inherited_display Entity inherited display visible to workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity inherited display visible to workspace members" ON public.entity_inherited_display FOR SELECT USING ((property_definition_id IN ( SELECT property_definitions.id
+   FROM public.property_definitions
+  WHERE (property_definitions.workspace_id IN ( SELECT workspace_members.workspace_id
+           FROM public.workspace_members
+          WHERE (workspace_members.user_id = auth.uid()))))));
+
+
+--
 -- Name: entity_links Entity links deletable by workspace members; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -3743,6 +3931,78 @@ CREATE POLICY "Entity links insertable by workspace members" ON public.entity_li
 --
 
 CREATE POLICY "Entity links visible to workspace members" ON public.entity_links FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: entity_properties Entity properties deletable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity properties deletable by workspace members" ON public.entity_properties FOR DELETE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: entity_properties Entity properties insertable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity properties insertable by workspace members" ON public.entity_properties FOR INSERT WITH CHECK ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: entity_properties Entity properties updatable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity properties updatable by workspace members" ON public.entity_properties FOR UPDATE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: entity_properties Entity properties visible to workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Entity properties visible to workspace members" ON public.entity_properties FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: property_definitions Property definitions deletable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Property definitions deletable by workspace members" ON public.property_definitions FOR DELETE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: property_definitions Property definitions insertable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Property definitions insertable by workspace members" ON public.property_definitions FOR INSERT WITH CHECK ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: property_definitions Property definitions updatable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Property definitions updatable by workspace members" ON public.property_definitions FOR UPDATE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: property_definitions Property definitions visible to workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Property definitions visible to workspace members" ON public.property_definitions FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
    FROM public.workspace_members
   WHERE (workspace_members.user_id = auth.uid()))));
 
@@ -4508,28 +4768,28 @@ CREATE POLICY "Users can view docs in their workspace" ON public.docs FOR SELECT
 
 
 --
--- Name: entity_properties Workspace members can delete entity properties; Type: POLICY; Schema: public; Owner: postgres
+-- Name: entity_properties_legacy Workspace members can delete entity properties; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Workspace members can delete entity properties" ON public.entity_properties FOR DELETE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+CREATE POLICY "Workspace members can delete entity properties" ON public.entity_properties_legacy FOR DELETE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
    FROM public.workspace_members
   WHERE (workspace_members.user_id = auth.uid()))));
 
 
 --
--- Name: entity_properties Workspace members can insert entity properties; Type: POLICY; Schema: public; Owner: postgres
+-- Name: entity_properties_legacy Workspace members can insert entity properties; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Workspace members can insert entity properties" ON public.entity_properties FOR INSERT WITH CHECK ((workspace_id IN ( SELECT workspace_members.workspace_id
+CREATE POLICY "Workspace members can insert entity properties" ON public.entity_properties_legacy FOR INSERT WITH CHECK ((workspace_id IN ( SELECT workspace_members.workspace_id
    FROM public.workspace_members
   WHERE (workspace_members.user_id = auth.uid()))));
 
 
 --
--- Name: entity_properties Workspace members can update entity properties; Type: POLICY; Schema: public; Owner: postgres
+-- Name: entity_properties_legacy Workspace members can update entity properties; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Workspace members can update entity properties" ON public.entity_properties FOR UPDATE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+CREATE POLICY "Workspace members can update entity properties" ON public.entity_properties_legacy FOR UPDATE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
    FROM public.workspace_members
   WHERE (workspace_members.user_id = auth.uid()))));
 
@@ -4545,10 +4805,10 @@ CREATE POLICY "Workspace members can view client page analytics" ON public.clien
 
 
 --
--- Name: entity_properties Workspace members can view entity properties; Type: POLICY; Schema: public; Owner: postgres
+-- Name: entity_properties_legacy Workspace members can view entity properties; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Workspace members can view entity properties" ON public.entity_properties FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+CREATE POLICY "Workspace members can view entity properties" ON public.entity_properties_legacy FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
    FROM public.workspace_members
   WHERE (workspace_members.user_id = auth.uid()))));
 
@@ -4688,6 +4948,12 @@ ALTER TABLE public.entity_links ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.entity_properties ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entity_properties_legacy; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.entity_properties_legacy ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: file_attachments; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -4835,6 +5101,12 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: property_definitions; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.property_definitions ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: block_highlights sel_block_highlights; Type: POLICY; Schema: public; Owner: postgres
@@ -5399,6 +5671,15 @@ GRANT ALL ON TABLE public.entity_properties TO service_role;
 
 
 --
+-- Name: TABLE entity_properties_legacy; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.entity_properties_legacy TO anon;
+GRANT ALL ON TABLE public.entity_properties_legacy TO authenticated;
+GRANT ALL ON TABLE public.entity_properties_legacy TO service_role;
+
+
+--
 -- Name: TABLE file_attachments; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -5441,6 +5722,15 @@ GRANT ALL ON TABLE public.payments TO service_role;
 GRANT ALL ON TABLE public.profiles TO anon;
 GRANT ALL ON TABLE public.profiles TO authenticated;
 GRANT ALL ON TABLE public.profiles TO service_role;
+
+
+--
+-- Name: TABLE property_definitions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.property_definitions TO anon;
+GRANT ALL ON TABLE public.property_definitions TO authenticated;
+GRANT ALL ON TABLE public.property_definitions TO service_role;
 
 
 --
@@ -5705,5 +5995,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict NlpIhhZvgxLJHQH8U7fNl0GcQY4zSTwbCHtEWSYc4pT8L12IEdaWqgscsRuw59p
+\unrestrict fDoqNd6imQSCYknFDSBD0nMLQPf3Jce0oxwfEC5r1yflz6P5cZtkKOIzhlo0Ha0
 

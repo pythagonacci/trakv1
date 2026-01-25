@@ -113,9 +113,10 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchWorkspaceMembers",
-    description: "Search for workspace members by name, email, or role.",
+    description: "Search for workspace members by name, email, or role. Returns member details including user_id, name, and email. Use this whenever you need complete user information for tools like setTaskAssignees.",
     category: "search",
     parameters: {
+      searchText: { type: "string", description: "Search by member name or email" },
       name: { type: "string", description: "Search by member name" },
       email: { type: "string", description: "Search by email" },
       role: { type: "string", description: "Filter by role", enum: ["owner", "admin", "teammate"] },
@@ -383,13 +384,16 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "setTaskAssignees",
-    description: "Set assignees for a task. Replaces all current assignees. For workspace members, prefer user_id values from searchWorkspaceMembers.",
+    description: "Set assignees for a task. Replaces all current assignees with the provided list.",
     category: "task",
     parameters: {
-      taskId: { type: "string", description: "The task ID" },
+      taskId: {
+        type: "string",
+        description: "The task ID. Get this from searchTasks if you only have the task name."
+      },
       assignees: {
         type: "array",
-        description: "Array of assignee objects with id (user ID) or name (for external)",
+        description: "Array of assignee objects. For workspace members, each object requires BOTH 'id' (string, user UUID) AND 'name' (string, display name). Get both fields from searchWorkspaceMembers - it returns {user_id, name, email}. Extract user_id as 'id' and name as 'name'. For external assignees not in workspace, provide {name: 'External Name'} only. Example: [{id: 'uuid-from-search', name: 'John Doe'}]",
         items: { type: "object" },
       },
     },

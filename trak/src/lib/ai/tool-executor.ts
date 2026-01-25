@@ -284,7 +284,17 @@ export async function executeTool(
         if (!args.taskId || !Array.isArray(args.assignees)) {
           return {
             success: false,
-            error: "Missing taskId or assignees array for setTaskAssignees",
+            error: "Missing taskId or assignees array for setTaskAssignees. Required format: setTaskAssignees(taskId, [{id: 'user-uuid', name: 'User Name'}]). Always search for workspace members first using searchWorkspaceMembers to get both id and name.",
+          };
+        }
+        // Validate assignees have proper structure
+        const invalidAssignees = (args.assignees as any[]).filter(
+          (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
+        );
+        if (invalidAssignees.length > 0) {
+          return {
+            success: false,
+            error: "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
           };
         }
         return await wrapResult(
@@ -717,10 +727,24 @@ async function resolveTaskAssignees(
       (assignee.user_id as string | undefined);
 
     if (userId) {
-      resolved.push({
-        id: userId,
-        name: (assignee.name as string | undefined) ?? null,
-      });
+      // If we have a userId but no name, try to fetch the name
+      const existingName = assignee.name as string | undefined;
+      if (existingName) {
+        resolved.push({
+          id: userId,
+          name: existingName,
+        });
+      } else {
+        // Try to fetch the name from workspace members
+        const search = await searchWorkspaceMembers({
+          searchText: userId,
+          limit: 1,
+        });
+        resolved.push({
+          id: userId,
+          name: search.data?.[0]?.name ?? null,
+        });
+      }
       continue;
     }
 
@@ -736,6 +760,7 @@ async function resolveTaskAssignees(
           name: search.data[0].name ?? name,
         });
       } else {
+        // Multiple or no matches - create external assignee with name only
         resolved.push({ name });
       }
       continue;
@@ -743,7 +768,15 @@ async function resolveTaskAssignees(
 
     const id = assignee.id as string | undefined;
     if (id) {
-      resolved.push({ id });
+      // Try to fetch the name from workspace members
+      const search = await searchWorkspaceMembers({
+        searchText: id,
+        limit: 1,
+      });
+      resolved.push({
+        id,
+        name: search.data?.[0]?.name ?? null,
+      });
     }
   }
 
