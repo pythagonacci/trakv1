@@ -23,7 +23,6 @@ import {
   searchTableRows,
   searchTimelineEvents,
   searchFiles,
-  searchPayments,
   searchTags,
   searchAll,
   resolveEntityByName,
@@ -40,6 +39,8 @@ import {
   updateTaskItem,
   deleteTaskItem,
   reorderTaskItems,
+  bulkMoveTaskItems,
+  duplicateTasksToBlock,
 } from "@/app/actions/tasks/item-actions";
 import { setTaskAssignees } from "@/app/actions/tasks/assignee-actions";
 import { setTaskTags } from "@/app/actions/tasks/tag-actions";
@@ -71,12 +72,13 @@ import {
   createBlock,
   updateBlock,
   deleteBlock,
+  getTabBlocks,
 } from "@/app/actions/block";
 
 // ============================================================================
 // IMPORTS - Table Actions
 // ============================================================================
-import { createTable, getTable } from "@/app/actions/tables/table-actions";
+import { createTable, getTable, deleteTable } from "@/app/actions/tables/table-actions";
 import {
   createField,
   updateField,
@@ -93,6 +95,7 @@ import {
   bulkInsertRows,
   bulkUpdateRows,
 } from "@/app/actions/tables/bulk-actions";
+import { getTableRows } from "@/app/actions/tables/query-actions";
 
 // ============================================================================
 // IMPORTS - Timeline Actions
@@ -147,13 +150,10 @@ import {
   deleteComment as deleteTableComment,
 } from "@/app/actions/tables/comment-actions";
 
-// Note: Payment actions use updatePaymentStatus, not generic CRUD
-// Payments are handled differently in this codebase
-
 // ============================================================================
 // IMPORTS - Workspace Context
 // ============================================================================
-import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { getCurrentWorkspaceId, setTestContext, clearTestContext } from "@/app/actions/workspace";
 import { aiDebug } from "./debug";
 
 // ============================================================================
@@ -164,11 +164,19 @@ export interface ToolCallResult {
   success: boolean;
   data?: unknown;
   error?: string;
+  warnings?: string[];
+  hint?: string;
 }
 
 export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
+}
+
+export interface ToolExecutionContext {
+  workspaceId: string;
+  userId?: string;
+  contextTableId?: string;
 }
 
 // ============================================================================
@@ -180,14 +188,21 @@ export interface ToolCall {
  * This function maps tool names to their corresponding server actions.
  */
 export async function executeTool(
-  toolCall: ToolCall
+  toolCall: ToolCall,
+  context?: ToolExecutionContext
 ): Promise<ToolCallResult> {
   const { name, arguments: args } = toolCall;
 
   try {
     aiDebug("executeTool:start", { tool: name, arguments: args });
-    // Get workspace ID for actions that need it
-    const workspaceId = await getCurrentWorkspaceId();
+
+    // If context is provided (test mode), set it globally for server actions to use
+    if (context?.workspaceId && context?.userId) {
+      await setTestContext(context.workspaceId, context.userId);
+    }
+
+    // Get workspace ID from context or from cookies (for backward compatibility)
+    const workspaceId = context?.workspaceId || await getCurrentWorkspaceId();
 
     switch (name) {
       // ==================================================================
@@ -218,6 +233,72 @@ export async function executeTool(
         return await wrapResult(searchDocContent(args as any));
 
       case "searchTables":
+        if (context?.contextTableId) {
+          const schema = await getTableSchema({ tableId: context.contextTableId });
+          if (!schema.error && schema.data) {
+            return {
+              success: true,
+              data: [
+                {
+                  id: schema.data.id,
+                  title: schema.data.title,
+                  description: schema.data.description ?? null,
+                  icon: null,
+                  workspace_id: workspaceId,
+                  project_id: schema.data.project_id,
+                  project_name: schema.data.project_name ?? null,
+                  created_at: null,
+                  updated_at: null,
+                },
+              ],
+            };
+          }
+        }
+        if (context?.currentTabId) {
+          const tabBlocks = await getTabBlocks(context.currentTabId);
+          const tableIds = (tabBlocks.data ?? [])
+            .filter((block) => block.type === "table")
+            .map((block) => String((block.content as Record<string, unknown> | undefined)?.tableId || ""))
+            .filter((tableId) => tableId.length > 0);
+
+          if (tableIds.length > 0) {
+            const schemas = await Promise.all(
+              Array.from(new Set(tableIds)).map(async (tableId) => ({
+                tableId,
+                schema: await getTableSchema({ tableId }),
+              }))
+            );
+
+            const mapped = schemas
+              .filter((entry) => !entry.schema.error && entry.schema.data)
+              .map((entry) => {
+                const schema = entry.schema.data!;
+                return {
+                  id: schema.id,
+                  title: schema.title,
+                  description: schema.description ?? null,
+                  icon: null,
+                  workspace_id: workspaceId,
+                  project_id: schema.project_id,
+                  project_name: schema.project_name ?? null,
+                  created_at: null,
+                  updated_at: null,
+                };
+              });
+
+            const searchText = String((args as Record<string, unknown>)?.searchText || "").trim().toLowerCase();
+            if (searchText.length > 0) {
+              const filtered = mapped.filter((table) =>
+                table.title.toLowerCase().includes(searchText)
+              );
+              if (filtered.length > 0) {
+                return { success: true, data: filtered };
+              }
+            } else if (mapped.length > 0) {
+              return { success: true, data: mapped };
+            }
+          }
+        }
         return await wrapResult(searchTables(args as any));
 
       case "searchTableRows":
@@ -228,9 +309,6 @@ export async function executeTool(
 
       case "searchFiles":
         return await wrapResult(searchFiles(args as any));
-
-      case "searchPayments":
-        return await wrapResult(searchPayments(args as any));
 
       case "searchTags":
         return await wrapResult(searchTags(args as any));
@@ -254,9 +332,10 @@ export async function executeTool(
       // TASK ACTIONS
       // ==================================================================
       case "createTaskItem":
-        return await wrapResult(
-          createTaskItem({
-            taskBlockId: args.taskBlockId as string,
+        {
+          const taskBlockId = args.taskBlockId as string;
+          const payload = {
+            taskBlockId,
             title: args.title as string,
             status: args.status as any,
             priority: args.priority as any,
@@ -264,8 +343,106 @@ export async function executeTool(
             dueDate: args.dueDate as string | undefined,
             dueTime: args.dueTime as string | undefined,
             startDate: args.startDate as string | undefined,
-          })
-        );
+          };
+
+          const directResult = await createTaskItem(payload);
+          if (!("error" in directResult)) {
+            return { success: true, data: directResult.data };
+          }
+
+          if (directResult.error === "Task block not found") {
+            const tabResult = await getEntityById({
+              entityType: "tab",
+              id: taskBlockId,
+            });
+
+            if (!tabResult.error && tabResult.data) {
+              // Reuse existing task block in this tab if available
+              const existingBlocks = await searchBlocks({
+                type: "task",
+                tabId: taskBlockId,
+                limit: 1,
+              });
+              const existingBlockId = existingBlocks.data?.[0]?.id;
+
+              if (!existingBlockId) {
+                const blockResult = await createBlock({
+                  tabId: taskBlockId,
+                  type: "task",
+                  content: undefined,
+                });
+                if ("error" in blockResult) {
+                  return { success: false, error: blockResult.error ?? "Failed to create task block" };
+                }
+
+                const retryResult = await createTaskItem({
+                  ...payload,
+                  taskBlockId: blockResult.data.id,
+                });
+
+                if (!("error" in retryResult)) {
+                  return { success: true, data: retryResult.data };
+                }
+
+                return { success: false, error: retryResult.error ?? "Failed to create task" };
+              }
+
+              const retryResult = await createTaskItem({
+                ...payload,
+                taskBlockId: existingBlockId,
+              });
+
+              if (!("error" in retryResult)) {
+                return { success: true, data: retryResult.data };
+              }
+
+              return { success: false, error: retryResult.error ?? "Failed to create task" };
+            }
+          }
+
+          if (directResult.error === "Block is not a task block") {
+            const blockResult = await getEntityById({
+              entityType: "block",
+              id: taskBlockId,
+            });
+
+            const tabId = blockResult.data?.context?.tab_id;
+            if (tabId) {
+              const existingBlocks = await searchBlocks({
+                type: "task",
+                tabId,
+                limit: 1,
+              });
+              const existingBlockId = existingBlocks.data?.[0]?.id;
+              let taskBlockIdToUse = existingBlockId;
+
+              if (!taskBlockIdToUse) {
+                const blockResult = await createBlock({
+                  tabId,
+                  type: "task",
+                  content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+                });
+                if ("error" in blockResult) {
+                  return { success: false, error: blockResult.error ?? "Failed to create task block" };
+                }
+                taskBlockIdToUse = blockResult.data?.id;
+              }
+
+              if (taskBlockIdToUse) {
+                const retryResult = await createTaskItem({
+                  ...payload,
+                  taskBlockId: taskBlockIdToUse,
+                });
+                if (!("error" in retryResult)) {
+                  return { success: true, data: retryResult.data };
+                }
+                return { success: false, error: retryResult.error ?? "Failed to create task" };
+              }
+            }
+          }
+
+          return { success: false, error: directResult.error ?? "Failed to create task" };
+        }
 
       case "updateTaskItem":
         return await wrapResult(
@@ -283,6 +460,91 @@ export async function executeTool(
       case "deleteTaskItem":
         return await wrapResult(deleteTaskItem(args.taskId as string));
 
+      case "bulkMoveTaskItems":
+        return await wrapResult(
+          bulkMoveTaskItems({
+            taskIds: args.taskIds as string[],
+            targetBlockId: args.targetBlockId as string,
+          })
+        );
+
+      case "duplicateTasksToBlock":
+        return await wrapResult(duplicateTasksToBlock(args as any));
+
+      case "createTaskBoardFromTasks":
+        {
+          let taskIds = Array.isArray(args.taskIds) ? (args.taskIds as string[]) : [];
+          const tabId = (args.tabId as string | undefined) || context?.currentTabId;
+          if (!tabId) {
+            return { success: false, error: "Missing tabId for createTaskBoardFromTasks." };
+          }
+
+          const assigneeId = args.assigneeId as string | undefined;
+          const assigneeName = args.assigneeName as string | undefined;
+          const sourceProjectId = args.sourceProjectId as string | undefined;
+          const sourceTabId = args.sourceTabId as string | undefined;
+          const searchLimit = typeof args.limit === "number" ? args.limit : 500;
+
+          if (assigneeId || assigneeName || sourceProjectId || sourceTabId) {
+            const searchResult = await searchTasks({
+              assigneeId,
+              assigneeName,
+              projectId: sourceProjectId,
+              tabId: sourceTabId,
+              limit: searchLimit,
+            });
+
+            if (!searchResult.error && searchResult.data) {
+              const fromSearch = searchResult.data.map((task) => task.id);
+              taskIds = Array.from(new Set([...taskIds, ...fromSearch]));
+            }
+          }
+
+          if (taskIds.length === 0) {
+            return { success: false, error: "No tasks found for createTaskBoardFromTasks." };
+          }
+
+          const blockTitle = (args.title as string | undefined) || "Task Board";
+          const viewMode = (args.viewMode as string | undefined) || "board";
+          const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
+
+          const createBlockResult = await createBlock({
+            tabId,
+            type: "task",
+            content: { title: blockTitle, hideIcons: false, viewMode, boardGroupBy },
+          });
+
+          if ("error" in createBlockResult) {
+            return { success: false, error: createBlockResult.error ?? "Failed to create task block" };
+          }
+
+          const taskBlockId = createBlockResult.data?.id;
+          if (!taskBlockId) {
+            return { success: false, error: "Failed to create task block." };
+          }
+
+          const dupResult = await duplicateTasksToBlock({
+            targetBlockId: taskBlockId,
+            taskIds,
+            includeAssignees: args.includeAssignees as boolean | undefined,
+            includeTags: args.includeTags as boolean | undefined,
+          });
+
+          if ("error" in dupResult) {
+            return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
+          }
+
+          return {
+            success: true,
+            data: {
+              taskBlockId,
+              createdCount: dupResult.data.createdCount,
+              createdTaskIds: dupResult.data.createdTaskIds,
+              skipped: dupResult.data.skipped,
+            },
+          };
+        }
+
       case "setTaskAssignees":
         if (!args.taskId || !Array.isArray(args.assignees)) {
           return {
@@ -291,7 +553,8 @@ export async function executeTool(
           };
         }
         // Validate assignees have proper structure
-        const invalidAssignees = (args.assignees as any[]).filter(
+        const assigneesArray = args.assignees as Array<Record<string, unknown>>;
+        const invalidAssignees = assigneesArray.filter(
           (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
         );
         if (invalidAssignees.length > 0) {
@@ -300,12 +563,96 @@ export async function executeTool(
             error: "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
           };
         }
+
+        // CRITICAL FIX: Check for ambiguous assignees before proceeding
+        const assigneeResult = await resolveTaskAssignees(assigneesArray);
+
+        if (assigneeResult.ambiguities.length > 0) {
+          // Build detailed error message with all matches
+          const ambiguityDetails = assigneeResult.ambiguities
+            .map((amb) => {
+              const matchList = amb.matches
+                .map((m) => `  - ${m.name} (${m.email})`)
+                .join("\n");
+              return `"${amb.input}" matches multiple workspace members:\n${matchList}`;
+            })
+            .join("\n\n");
+
+          return {
+            success: false,
+            error: `Ambiguous assignees found. Please specify which person you meant:\n\n${ambiguityDetails}\n\nTip: Use searchWorkspaceMembers to get the exact user ID, or provide a more specific name.`,
+          };
+        }
+
         return await wrapResult(
           setTaskAssignees(
             args.taskId as string,
-            await resolveTaskAssignees(args.assignees as any[])
+            assigneeResult.resolved
           )
         );
+
+      case "bulkSetTaskAssignees":
+        if (!Array.isArray(args.taskIds) || args.taskIds.length === 0 || !Array.isArray(args.assignees)) {
+          return {
+            success: false,
+            error:
+              "Missing taskIds or assignees array for bulkSetTaskAssignees. Required format: bulkSetTaskAssignees({ taskIds: [...], assignees: [{id: 'user-uuid', name: 'User Name'}] }).",
+          };
+        }
+        {
+          const taskIds = (args.taskIds as Array<string>).filter(Boolean);
+          if (taskIds.length === 0) {
+            return { success: false, error: "bulkSetTaskAssignees requires at least one taskId." };
+          }
+
+          const assigneesArray = args.assignees as Array<Record<string, unknown>>;
+          const invalidAssignees = assigneesArray.filter(
+            (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
+          );
+          if (invalidAssignees.length > 0) {
+            return {
+              success: false,
+              error:
+                "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
+            };
+          }
+
+          const assigneeResult = await resolveTaskAssignees(assigneesArray);
+
+          if (assigneeResult.ambiguities.length > 0) {
+            const ambiguityDetails = assigneeResult.ambiguities
+              .map((amb) => {
+                const matchList = amb.matches
+                  .map((m) => `  - ${m.name} (${m.email})`)
+                  .join("\n");
+                return `"${amb.input}" matches multiple workspace members:\n${matchList}`;
+              })
+              .join("\n\n");
+
+            return {
+              success: false,
+              error: `Ambiguous assignees found. Please specify which person you meant:\n\n${ambiguityDetails}\n\nTip: Use searchWorkspaceMembers to get the exact user ID, or provide a more specific name.`,
+            };
+          }
+
+          const failures: Array<{ taskId: string; error: string }> = [];
+          for (const taskId of taskIds) {
+            const result = await setTaskAssignees(taskId, assigneeResult.resolved);
+            if ("error" in result) {
+              failures.push({ taskId, error: result.error });
+            }
+          }
+
+          if (failures.length > 0) {
+            return {
+              success: false,
+              error: `Failed to update ${failures.length} task(s).`,
+              data: { updatedCount: taskIds.length - failures.length, failures },
+            };
+          }
+
+          return { success: true, data: { updatedCount: taskIds.length } };
+        }
 
       case "setTaskTags":
         return await wrapResult(
@@ -430,6 +777,10 @@ export async function executeTool(
         if (!targetWorkspaceId) {
           return { success: false, error: "Missing workspaceId for createTable" };
         }
+
+        const tabId = args.tabId as string | undefined;
+
+        // Create the table
         const tableResult = await createTable({
           workspaceId: targetWorkspaceId,
           projectId: args.projectId as string | undefined,
@@ -442,32 +793,65 @@ export async function executeTool(
           return { success: false, error: tableResult.error };
         }
 
-        const tabId = args.tabId as string | undefined;
+        // If tabId provided, create block to show table in UI
         if (tabId) {
           const blockResult = await createBlock({
             tabId,
             type: "table",
             content: { tableId: tableResult.data.table.id },
           });
+
           if ("error" in blockResult) {
-            return { success: false, error: blockResult.error };
+            // CRITICAL FIX: Table was created but block creation failed
+            // Clean up the orphaned table to maintain data consistency
+            await deleteTable(tableResult.data.table.id);
+
+            return {
+              success: false,
+              error: `Failed to add table to tab: ${blockResult.error}. Table creation rolled back.`,
+            };
           }
+
           return { success: true, data: { ...tableResult.data, block: blockResult.data } };
         }
 
+        // No tabId - table created but not visible in UI
         return { success: true, data: tableResult.data };
       }
 
       case "createField":
-        return await wrapResult(
-          createField({
-            tableId: args.tableId as string,
-            name: args.name as string,
-            type: args.type as any,
-            config: args.config as any,
-            isPrimary: args.isPrimary as boolean | undefined,
-          })
-        );
+        {
+          const tableId = args.tableId as string;
+          const name = args.name as string;
+          const type = args.type as string;
+          const config = args.config as Record<string, unknown> | undefined;
+          const isPrimary = args.isPrimary as boolean | undefined;
+
+          const existing = await findFieldByName(tableId, name);
+          if (existing) {
+            return { success: true, data: existing };
+          }
+
+          const reused = await maybeReuseDefaultField({
+            tableId,
+            name,
+            type,
+            config,
+            isPrimary,
+          });
+
+          if (reused) return reused;
+
+          return await wrapResult(
+            createField({
+              tableId,
+              name,
+              type: type as any,
+              config: config as any,
+              isPrimary,
+            })
+          );
+        }
 
       case "updateField":
         return await wrapResult(
@@ -496,12 +880,20 @@ export async function executeTool(
         );
 
       case "updateCell":
+        if (!isUuid(args.rowId as string)) {
+          return {
+            success: false,
+            error: "updateCell requires a rowId UUID. If you only have field names/labels, use updateTableRowsByFieldNames.",
+          };
+        }
+        if (!isUuid(args.fieldId as string)) {
+          return {
+            success: false,
+            error: "updateCell requires a fieldId UUID. If you only have field names/labels, use updateTableRowsByFieldNames.",
+          };
+        }
         return await wrapResult(
-          updateCell(
-            args.rowId as string,
-            args.fieldId as string,
-            args.value
-          )
+          updateCell(args.rowId as string, args.fieldId as string, args.value)
         );
 
       case "deleteRow":
@@ -520,7 +912,21 @@ export async function executeTool(
             rowsArg && Array.isArray(rowsArg)
               ? rowsArg
               : Array.isArray(legacyDataArg)
-                ? legacyDataArg.map((data) => ({ data }))
+                ? (() => {
+                    const looksLikeRows = legacyDataArg.every((entry) => {
+                      if (!entry || typeof entry !== "object") return false;
+                      const keys = Object.keys(entry);
+                      if (!keys.includes("data")) return false;
+                      return keys.every((key) => key === "data" || key === "order");
+                    });
+
+                    return looksLikeRows
+                      ? (legacyDataArg as Array<{
+                          data: Record<string, unknown>;
+                          order?: number | string | null;
+                        }>)
+                      : legacyDataArg.map((data) => ({ data }));
+                  })()
                 : undefined;
 
           if (!normalizedRows) {
@@ -530,20 +936,89 @@ export async function executeTool(
             };
           }
 
-          const mappedRows = await mapRowDataToFieldIds(
+          await maybeEnsureFieldsForRows(args.tableId as string, normalizedRows);
+          await maybeRemoveDefaultRows(args.tableId as string);
+
+          const mappingResult = await mapRowDataToFieldIds(
             args.tableId as string,
             normalizedRows
           );
 
-          return await wrapResult(
+          if (mappingResult.warnings.length > 0) {
+            return {
+              success: false,
+              error: mappingResult.warnings[0],
+            };
+          }
+
+          if (await shouldSkipDuplicateInsert(args.tableId as string, mappingResult.rows)) {
+            return {
+              success: true,
+              data: { insertedIds: [] },
+            };
+          }
+
+          const result = await wrapResult(
             bulkInsertRows({
               tableId: args.tableId as string,
-              rows: mappedRows,
+              rows: mappingResult.rows,
             })
           );
+
+          // Attach warnings if any fields were unmatched
+          if (mappingResult.warnings.length > 0) {
+            result.warnings = mappingResult.warnings;
+          }
+
+          return result;
         }
 
       case "bulkUpdateRows":
+        if (!Array.isArray(args.rowIds) || args.rowIds.some((id) => !isUuid(id as string))) {
+          return {
+            success: false,
+            error: "bulkUpdateRows requires rowIds as UUIDs. If you need to match rows by field names/values, use updateTableRowsByFieldNames.",
+          };
+        }
+        if (
+          !args.updates ||
+          typeof args.updates !== "object" ||
+          Object.keys(args.updates as Record<string, unknown>).some((key) => !isUuid(key))
+        ) {
+          return {
+            success: false,
+            error: "bulkUpdateRows requires updates with fieldId UUID keys. If you only have field names/labels, use updateTableRowsByFieldNames.",
+          };
+        }
+        {
+          const schemaResult = await getTableSchema({ tableId: args.tableId as string });
+          if (schemaResult.error || !schemaResult.data) {
+            return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
+          }
+          const fieldById = new Map(schemaResult.data.fields.map((f) => [f.id, f]));
+          for (const [fieldId, rawValue] of Object.entries(args.updates as Record<string, unknown>)) {
+            const field = fieldById.get(fieldId);
+            if (!field) continue;
+            if (!isSelectLike(field.type)) continue;
+
+            const { kind, options } = getOptionEntries(field);
+            const optionIds = new Set(options.map((opt) => opt.id));
+            const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+            const allValid = values.every((value) => optionIds.has(String(value)));
+            if (!allValid) {
+              return {
+                success: false,
+                error: `bulkUpdateRows: "${field.name}" expects option IDs, but provided values were not found. Use updateTableRowsByFieldNames to update by labels.`,
+              };
+            }
+            if ((kind === "options" || kind === "levels") && optionIds.size === 0) {
+              return {
+                success: false,
+                error: `bulkUpdateRows: "${field.name}" has no options configured. Use updateTableRowsByFieldNames to create options and update rows.`,
+              };
+            }
+          }
+        }
         return await wrapResult(
           bulkUpdateRows({
             tableId: args.tableId as string,
@@ -551,6 +1026,102 @@ export async function executeTool(
             updates: args.updates as Record<string, unknown>,
           })
         );
+
+      case "updateTableRowsByFieldNames": {
+        const tableId = args.tableId as string | undefined;
+        const filters = args.filters as Record<string, unknown> | undefined;
+        const updates = args.updates as Record<string, unknown> | undefined;
+        const limit = typeof args.limit === "number" ? args.limit : 500;
+
+        if (!tableId) {
+          return { success: false, error: "Missing tableId for updateTableRowsByFieldNames." };
+        }
+        if (!updates || Object.keys(updates).length === 0) {
+          return { success: false, error: "updates are required for updateTableRowsByFieldNames." };
+        }
+
+        const schemaResult = await getTableSchema({ tableId });
+        if (schemaResult.error || !schemaResult.data) {
+          return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
+        }
+
+        const fields = schemaResult.data.fields;
+        const fieldMap = new Map(fields.map((f) => [normalizeFieldKey(f.name), f]));
+        const fieldIdMap = new Map(fields.map((f) => [f.id, f]));
+
+        const resolveField = (key: string) => {
+          const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
+          if (direct) return direct;
+
+          const normalized = normalizeFieldKey(key);
+          const startsWith = fields.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
+          if (startsWith) return startsWith;
+          const includes = fields.find((f) => normalizeFieldKey(f.name).includes(normalized));
+          if (includes) return includes;
+          return undefined;
+        };
+
+        // Prepare update payload (by fieldId) and optionally extend options.
+        const updatesByFieldId: Record<string, unknown> = {};
+        const pendingConfigUpdates = new Map<string, Record<string, unknown>>();
+
+        for (const [fieldKey, rawValue] of Object.entries(updates)) {
+          const field = resolveField(fieldKey);
+          if (!field) {
+            return { success: false, error: `Unknown field "${fieldKey}" in updates.` };
+          }
+          const resolved = resolveUpdateValue(field, rawValue, true);
+          updatesByFieldId[field.id] = resolved.value;
+          if (resolved.updatedConfig) {
+            pendingConfigUpdates.set(field.id, resolved.updatedConfig);
+          }
+        }
+
+        // Persist any new options before updating rows.
+        for (const [fieldId, config] of pendingConfigUpdates.entries()) {
+          const updateResult = await updateField(fieldId, { config });
+          if ("error" in updateResult) {
+            return { success: false, error: updateResult.error ?? "Failed to update field options." };
+          }
+        }
+
+        const rowsResult = await searchTableRows({ tableId, limit });
+        if (rowsResult.error || !rowsResult.data) {
+          return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
+        }
+
+        const applyAllRows = !filters || Object.keys(filters).length === 0;
+        const matchedRowIds = applyAllRows
+          ? rowsResult.data.map((row) => row.id)
+          : rowsResult.data
+              .filter((row) => matchesRowFilters(row.data, filters, resolveField))
+              .map((row) => row.id);
+
+        if (matchedRowIds.length === 0) {
+          // Provide detailed context when no rows match
+          const filterSummary = filters
+            ? Object.entries(filters)
+                .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+                .join(", ")
+            : "";
+
+          return {
+            success: true,
+            data: { updated: 0, rowIds: [], totalRowsScanned: rowsResult.data.length },
+            hint: applyAllRows
+              ? `No rows found to update. Scanned ${rowsResult.data.length} rows.`
+              : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map(f => f.name).join(", ")}`,
+          };
+        }
+
+        return await wrapResult(
+          bulkUpdateRows({
+            tableId,
+            rowIds: matchedRowIds,
+            updates: updatesByFieldId,
+          })
+        );
+      }
 
       // ==================================================================
       // TIMELINE ACTIONS
@@ -721,7 +1292,7 @@ export async function executeTool(
         // Table row comments
         return await wrapResult(
           createTableComment({
-            rowId: args.targetId as string,
+            rowId: args.rowId as string,
             content: args.text as string,
             parentId: undefined,
           })
@@ -734,28 +1305,6 @@ export async function executeTool(
 
       case "deleteComment":
         return await wrapResult(deleteTableComment(args.commentId as string));
-
-      // ==================================================================
-      // PAYMENT ACTIONS
-      // Note: Payment CRUD is limited in this codebase. These are placeholder handlers.
-      // ==================================================================
-      case "createPayment":
-        return {
-          success: false,
-          error: "Payment creation is not available through AI commands. Please use the payment interface.",
-        };
-
-      case "updatePayment":
-        return {
-          success: false,
-          error: "Payment updates are not available through AI commands. Please use the payment interface.",
-        };
-
-      case "deletePayment":
-        return {
-          success: false,
-          error: "Payment deletion is not available through AI commands. Please use the payment interface.",
-        };
 
       // ==================================================================
       // UNKNOWN TOOL
@@ -773,13 +1322,24 @@ export async function executeTool(
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
+  } finally {
+    // Clear test context if it was set
+    if (context?.workspaceId && context?.userId) {
+      await clearTestContext();
+    }
   }
+}
+
+interface ResolveAssigneesResult {
+  resolved: Array<{ id?: string | null; name?: string | null }>;
+  ambiguities: Array<{ input: string; matches: Array<{ id: string; name: string; email: string }> }>;
 }
 
 async function resolveTaskAssignees(
   assignees: Array<Record<string, unknown>>
-): Promise<Array<{ id?: string | null; name?: string | null }>> {
+): Promise<ResolveAssigneesResult> {
   const resolved: Array<{ id?: string | null; name?: string | null }> = [];
+  const ambiguities: Array<{ input: string; matches: Array<{ id: string; name: string; email: string }> }> = [];
 
   for (const assignee of assignees) {
     if (!assignee || typeof assignee !== "object") continue;
@@ -814,15 +1374,27 @@ async function resolveTaskAssignees(
     if (name) {
       const search = await searchWorkspaceMembers({
         searchText: name,
-        limit: 2,
+        limit: 5, // Increased from 2 to show more options
       });
+
       if (search.data && search.data.length === 1) {
+        // Exact match - use it
         resolved.push({
           id: search.data[0].user_id,
           name: search.data[0].name ?? name,
         });
+      } else if (search.data && search.data.length > 1) {
+        // CRITICAL FIX: Multiple matches - report ambiguity instead of creating external assignee
+        ambiguities.push({
+          input: name,
+          matches: search.data.map((m) => ({
+            id: m.user_id,
+            name: m.name ?? "",
+            email: m.email,
+          })),
+        });
       } else {
-        // Multiple or no matches - create external assignee with name only
+        // No matches - create external assignee with name only
         resolved.push({ name });
       }
       continue;
@@ -842,17 +1414,295 @@ async function resolveTaskAssignees(
     }
   }
 
-  return resolved;
+  return { resolved, ambiguities };
+}
+
+const DEFAULT_FIELD_NAMES = new Set(["column 2", "column 3"]);
+const CONFIG_REQUIRED_TYPES = new Set(["formula", "rollup", "relation"]);
+const PRIMARY_FIELD_ALIASES = new Set(["name", "title", "state", "state name", "state_name"]);
+
+function normalizeFieldName(value?: string | null): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isDefaultFieldName(value?: string | null): boolean {
+  return DEFAULT_FIELD_NAMES.has(normalizeFieldName(value));
+}
+
+function applyDefaultFieldConfig(
+  type: string,
+  config?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  if (type === "priority") {
+    const levels = (config as any)?.levels;
+    if (!Array.isArray(levels) || levels.length === 0) {
+      return {
+        ...(config || {}),
+        levels: [
+          { id: crypto.randomUUID(), label: "Critical", color: "#ef4444", order: 4 },
+          { id: crypto.randomUUID(), label: "High", color: "#f97316", order: 3 },
+          { id: crypto.randomUUID(), label: "Medium", color: "#3b82f6", order: 2 },
+          { id: crypto.randomUUID(), label: "Low", color: "#6b7280", order: 1 },
+        ],
+      };
+    }
+  }
+
+  if (type === "status") {
+    const options = (config as any)?.options;
+    if (!Array.isArray(options) || options.length === 0) {
+      return {
+        ...(config || {}),
+        options: [
+          { id: crypto.randomUUID(), label: "Not Started", color: "#6b7280" },
+          { id: crypto.randomUUID(), label: "In Progress", color: "#3b82f6" },
+          { id: crypto.randomUUID(), label: "Complete", color: "#10b981" },
+        ],
+      };
+    }
+  }
+
+  return config;
+}
+
+async function isNewEmptyTable(tableId: string): Promise<boolean> {
+  const rowsResult = await getTableRows(tableId, { limit: 5, offset: 0 });
+  if ("error" in rowsResult || !rowsResult.data) return false;
+
+  const { rows, total } = rowsResult.data;
+  const totalRows = total ?? rows.length;
+  if (totalRows > 3) return false;
+
+  const hasData = rows.some((row) => row.data && Object.keys(row.data).length > 0);
+  return !hasData;
+}
+
+function looksLikeNumber(value: unknown): boolean {
+  if (typeof value === "number" && Number.isFinite(value)) return true;
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^-?\d+(\.\d+)?$/.test(trimmed);
+}
+
+function inferFieldType(values: unknown[]): "number" | "text" {
+  const nonNull = values.filter((value) => value !== null && value !== undefined);
+  if (nonNull.length === 0) return "text";
+  const allNumbers = nonNull.every((value) => looksLikeNumber(value));
+  return allNumbers ? "number" : "text";
+}
+
+function collectFieldValues(
+  rows: Array<{ data: Record<string, unknown> }>
+): Map<string, { original: string; values: unknown[] }> {
+  const fieldValues = new Map<string, { original: string; values: unknown[] }>();
+  for (const row of rows) {
+    const data = row.data || {};
+    for (const [key, value] of Object.entries(data)) {
+      const normalized = normalizeFieldName(key);
+      const entry = fieldValues.get(normalized);
+      if (entry) {
+        entry.values.push(value);
+      } else {
+        fieldValues.set(normalized, { original: key, values: [value] });
+      }
+    }
+  }
+  return fieldValues;
+}
+
+async function maybeEnsureFieldsForRows(
+  tableId: string,
+  rows: Array<{ data: Record<string, unknown> }>
+): Promise<void> {
+  if (!tableId || rows.length === 0) return;
+
+  const tableResult = await getTable(tableId);
+  if ("error" in tableResult || !tableResult.data?.fields) return;
+
+  const fields = tableResult.data.fields;
+  const nameToField = new Map(
+    fields.map((field) => [normalizeFieldName(field.name), field])
+  );
+  const primaryField = fields.find((field) => field.is_primary) || fields[0];
+
+  const fieldValues = collectFieldValues(rows);
+  const missing = new Map<string, { original: string; values: unknown[] }>();
+
+  for (const [normalized, entry] of fieldValues.entries()) {
+    if (PRIMARY_FIELD_ALIASES.has(normalized)) continue;
+    if (nameToField.has(normalized)) continue;
+    if (fields.some((field) => field.id === entry.original)) continue;
+    missing.set(normalized, entry);
+  }
+
+  if (missing.size === 0) return;
+
+  const isEmpty = await isNewEmptyTable(tableId);
+  const defaultFields = fields.filter(
+    (field) => !field.is_primary && isDefaultFieldName(field.name)
+  );
+
+  const defaultQueue = isEmpty ? [...defaultFields] : [];
+
+  for (const entry of missing.values()) {
+    const type = inferFieldType(entry.values);
+    const config = applyDefaultFieldConfig(type, undefined);
+    const field = defaultQueue.shift();
+
+    if (field) {
+      await updateField(field.id, {
+        name: entry.original,
+        type,
+        config,
+      });
+    } else {
+      await createField({
+        tableId,
+        name: entry.original,
+        type: type as any,
+        config: config as any,
+      });
+    }
+  }
+}
+
+function normalizeComparableValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value).trim().toLowerCase();
+}
+
+async function shouldSkipDuplicateInsert(
+  tableId: string,
+  rows: Array<{ data: Record<string, unknown> }>
+): Promise<boolean> {
+  if (!tableId || rows.length === 0) return false;
+
+  const tableResult = await getTable(tableId);
+  if ("error" in tableResult || !tableResult.data?.fields) return false;
+
+  const primaryField =
+    tableResult.data.fields.find((field) => field.is_primary) ||
+    tableResult.data.fields[0];
+  if (!primaryField) return false;
+
+  const incomingValues = new Set<string>();
+  for (const row of rows) {
+    const value = row.data?.[primaryField.id];
+    const normalized = normalizeComparableValue(value);
+    if (normalized) incomingValues.add(normalized);
+  }
+
+  if (incomingValues.size === 0) return false;
+
+  const fetchLimit = Math.max(incomingValues.size, 200);
+  const rowsResult = await getTableRows(tableId, { limit: fetchLimit, offset: 0 });
+  if ("error" in rowsResult || !rowsResult.data) return false;
+
+  const { rows: existingRows, total } = rowsResult.data;
+  if (!existingRows.length || (total ?? 0) === 0) return false;
+  if (total !== null && total > existingRows.length) return false;
+
+  const existingValues = new Set(
+    existingRows
+      .map((row) => normalizeComparableValue(row.data?.[primaryField.id]))
+      .filter(Boolean)
+  );
+
+  if (existingValues.size === 0) return false;
+
+  for (const value of incomingValues) {
+    if (!existingValues.has(value)) return false;
+  }
+
+  return true;
+}
+
+async function maybeRemoveDefaultRows(tableId: string): Promise<void> {
+  const rowsResult = await getTableRows(tableId, { limit: 5, offset: 0 });
+  if ("error" in rowsResult || !rowsResult.data) return;
+
+  const { rows, total } = rowsResult.data;
+  const totalRows = total ?? rows.length;
+  if (totalRows === 0 || totalRows > 3) return;
+
+  const hasData = rows.some((row) => row.data && Object.keys(row.data).length > 0);
+  if (hasData) return;
+
+  const rowIds = rows.map((row) => row.id).filter(Boolean);
+  if (rowIds.length === 0) return;
+
+  await deleteRows(rowIds);
+}
+
+async function maybeReuseDefaultField(input: {
+  tableId: string;
+  name: string;
+  type: string;
+  config?: Record<string, unknown>;
+  isPrimary?: boolean;
+}): Promise<{ success: boolean; data?: unknown; error?: string } | null> {
+  if (!input.tableId || !input.name || !input.type) return null;
+  if (input.isPrimary) return null;
+
+  const normalizedType = String(input.type);
+  if (CONFIG_REQUIRED_TYPES.has(normalizedType) && !input.config) return null;
+
+  const isEmpty = await isNewEmptyTable(input.tableId);
+  if (!isEmpty) return null;
+
+  const tableResult = await getTable(input.tableId);
+  if ("error" in tableResult || !tableResult.data?.fields) return null;
+
+  const fields = tableResult.data.fields;
+  const candidates = fields.filter((field) => !field.is_primary && isDefaultFieldName(field.name));
+  if (candidates.length === 0) return null;
+
+  const byName = new Map(candidates.map((field) => [normalizeFieldName(field.name), field]));
+  const preferred = normalizedType === "text" ? ["column 2", "column 3"] : ["column 3", "column 2"];
+  const candidate =
+    preferred.map((name) => byName.get(name)).find(Boolean) ?? candidates[0];
+
+  if (!candidate) return null;
+
+  const nextConfig = applyDefaultFieldConfig(normalizedType, input.config);
+  const updatePayload: Record<string, unknown> = {
+    name: input.name,
+    type: normalizedType,
+  };
+  if (nextConfig !== undefined) {
+    updatePayload.config = nextConfig;
+  }
+
+  return await wrapResult(updateField(candidate.id, updatePayload));
+}
+
+async function findFieldByName(
+  tableId: string,
+  name: string
+): Promise<Record<string, unknown> | null> {
+  const tableResult = await getTable(tableId);
+  if ("error" in tableResult || !tableResult.data?.fields) return null;
+
+  const normalized = normalizeFieldName(name);
+  const match = tableResult.data.fields.find(
+    (field) => normalizeFieldName(field.name) === normalized
+  );
+
+  return match ? (match as Record<string, unknown>) : null;
 }
 
 async function mapRowDataToFieldIds(
   tableId: string,
   rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>
-): Promise<Array<{ data: Record<string, unknown>; order?: number | string | null }>> {
-  if (!tableId || rows.length === 0) return rows;
+): Promise<{
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>;
+  warnings: string[];
+}> {
+  if (!tableId || rows.length === 0) return { rows, warnings: [] };
 
   const tableResult = await getTable(tableId);
-  if ("error" in tableResult || !tableResult.data?.fields) return rows;
+  if ("error" in tableResult || !tableResult.data?.fields) return { rows, warnings: [] };
 
   const fields = tableResult.data.fields;
   const primaryField = fields.find((f) => f.is_primary) || fields[0];
@@ -860,19 +1710,27 @@ async function mapRowDataToFieldIds(
     fields.map((f) => [String(f.name).trim().toLowerCase(), f.id])
   );
 
-  return rows.map((row) => {
+  // CRITICAL FIX: Track unmatched fields to prevent silent data loss
+  const allUnmatchedFields = new Map<string, number>(); // field name -> count of occurrences
+
+  const mappedRows = rows.map((row, rowIndex) => {
     const data = row.data || {};
     const mapped: Record<string, unknown> = {};
+    const unmatchedKeys: string[] = [];
 
     for (const [key, value] of Object.entries(data)) {
       const normalizedKey = String(key).trim().toLowerCase();
       const fieldId = nameToId.get(normalizedKey);
       if (fieldId) {
         mapped[fieldId] = value;
-      } else if (primaryField && (normalizedKey === "name" || normalizedKey === "title")) {
+      } else if (primaryField && PRIMARY_FIELD_ALIASES.has(normalizedKey)) {
         mapped[primaryField.id] = value;
       } else if (fields.some((f) => f.id === key)) {
         mapped[key] = value;
+      } else {
+        // Field doesn't match any table field - track it
+        unmatchedKeys.push(key);
+        allUnmatchedFields.set(key, (allUnmatchedFields.get(key) || 0) + 1);
       }
     }
 
@@ -884,6 +1742,267 @@ async function mapRowDataToFieldIds(
 
     return { ...row, data: mapped };
   });
+
+  // Build warnings about unmatched fields (potential data loss)
+  const warnings: string[] = [];
+  if (allUnmatchedFields.size > 0) {
+    const availableFields = fields.map(f => f.name).join(", ");
+    const unmatchedSummary = Array.from(allUnmatchedFields.entries())
+      .map(([field, count]) => `"${field}" (${count} rows)`)
+      .join(", ");
+
+    const warningMessage = `Fields not found in table schema: ${unmatchedSummary}. Data for these fields was dropped. Available fields: ${availableFields}`;
+    warnings.push(warningMessage);
+
+    console.warn(
+      `[mapRowDataToFieldIds] WARNING: Some field names did not match table schema.`,
+      `\nTable ID: ${tableId}`,
+      `\nUnmatched fields: ${unmatchedSummary}`,
+      `\nAvailable fields: ${availableFields}`,
+      `\nThis may indicate typos in field names or missing fields in the table.`,
+      `\nData for unmatched fields will be silently dropped.`
+    );
+
+    // Also log to aiDebug for visibility in AI execution traces
+    aiDebug("mapRowDataToFieldIds:unmatchedFields", {
+      tableId,
+      unmatchedFields: Array.from(allUnmatchedFields.entries()).map(([field, count]) => ({
+        fieldName: field,
+        occurrences: count,
+      })),
+      availableFields: fields.map(f => f.name),
+      totalRows: rows.length,
+    });
+  }
+
+  return { rows: mappedRows, warnings };
+}
+
+function normalizeFieldKey(value: string): string {
+  return String(value).trim().toLowerCase();
+}
+
+function isSelectLike(fieldType?: string | null): boolean {
+  return ["select", "multi_select", "status", "priority"].includes(String(fieldType));
+}
+
+function getOptionEntries(field: { type: string; config: Record<string, unknown> }): {
+  kind: "options" | "levels" | null;
+  options: Array<{ id: string; label: string; color?: string; order?: number }>;
+} {
+  if (field.type === "priority") {
+    const levels =
+      (field.config?.levels as Array<{ id: string; label: string; color?: string; order?: number }>) ?? [];
+    return { kind: "levels", options: Array.isArray(levels) ? levels : [] };
+  }
+  if (field.type === "status" || field.type === "select" || field.type === "multi_select") {
+    const options = (field.config?.options as Array<{ id: string; label: string; color?: string }>) ?? [];
+    return { kind: "options", options: Array.isArray(options) ? options : [] };
+  }
+  return { kind: null, options: [] };
+}
+
+function generateOptionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `opt_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function resolveSelectValues(
+  field: { type: string; config: Record<string, unknown> },
+  rawValue: unknown,
+  allowCreate: boolean
+): { ids: string[]; updatedConfig?: Record<string, unknown>; missing: boolean } {
+  if (rawValue === null || rawValue === undefined) {
+    return { ids: [], missing: false };
+  }
+  const { kind, options } = getOptionEntries(field);
+  if (!kind) {
+    return { ids: [], missing: true };
+  }
+
+  const inputValues = Array.isArray(rawValue) ? rawValue : [rawValue];
+  const normalizedOptions = new Map(options.map((opt) => [normalizeFieldKey(opt.label), opt]));
+
+  const resolvedIds: string[] = [];
+  const newOptions: Array<{ id: string; label: string; color?: string; order?: number }> = [...options];
+  let added = false;
+
+  for (const value of inputValues) {
+    if (value && typeof value === "object") {
+      const asObj = value as Record<string, unknown>;
+      const id = typeof asObj.id === "string" ? asObj.id : undefined;
+      if (id) {
+        resolvedIds.push(id);
+        continue;
+      }
+    }
+
+    const label = normalizeFieldKey(String(value ?? ""));
+    const existing = normalizedOptions.get(label);
+    if (existing) {
+      resolvedIds.push(existing.id);
+      continue;
+    }
+
+    if (!allowCreate) {
+      return { ids: [], missing: true };
+    }
+
+    const next = {
+      id: generateOptionId(),
+      label: String(value ?? "").trim() || "Option",
+      color: "gray",
+      order: newOptions.length + 1,
+    };
+    newOptions.push(next);
+    normalizedOptions.set(label, next);
+    resolvedIds.push(next.id);
+    added = true;
+  }
+
+  if (added) {
+    if (kind === "levels") {
+      return { ids: resolvedIds, updatedConfig: { ...field.config, levels: newOptions }, missing: false };
+    }
+    return { ids: resolvedIds, updatedConfig: { ...field.config, options: newOptions }, missing: false };
+  }
+
+  return { ids: resolvedIds, missing: false };
+}
+
+function resolveUpdateValue(
+  field: { id: string; type: string; config: Record<string, unknown> },
+  rawValue: unknown,
+  allowCreateOptions: boolean
+): { value: unknown; updatedConfig?: Record<string, unknown> } {
+  if (isSelectLike(field.type)) {
+    if (rawValue === null || rawValue === undefined) {
+      return { value: null };
+    }
+    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions);
+    const value = field.type === "multi_select" ? resolved.ids : resolved.ids[0] ?? null;
+    return { value, updatedConfig: resolved.updatedConfig };
+  }
+
+  if (field.type === "checkbox" && typeof rawValue === "string") {
+    const normalized = rawValue.toLowerCase().trim();
+    if (normalized === "true") return { value: true };
+    if (normalized === "false") return { value: false };
+  }
+
+  return { value: rawValue };
+}
+
+function matchesRowFilters(
+  rowData: Record<string, unknown>,
+  filters: Record<string, unknown>,
+  resolveField: (key: string) => { id: string; type: string; config: Record<string, unknown> } | undefined
+): boolean {
+  for (const [fieldKey, rawFilter] of Object.entries(filters)) {
+    const field = resolveField(fieldKey);
+    if (!field) return false;
+
+    const normalized =
+      rawFilter && typeof rawFilter === "object" && "op" in (rawFilter as Record<string, unknown>)
+        ? (rawFilter as { op?: string; value?: unknown })
+        : { op: "eq", value: rawFilter };
+
+    const op = normalized.op ?? "eq";
+    const filterValue = normalized.value;
+    const actualValue = rowData[field.id];
+
+    if (isSelectLike(field.type)) {
+      const resolved = resolveSelectValues(field, filterValue, false);
+      if (resolved.missing) return false;
+      const ids = resolved.ids;
+
+      if (Array.isArray(actualValue)) {
+        if (!actualValue.some((v) => ids.includes(String(v)))) return false;
+      } else if (typeof actualValue === "string") {
+        if (!ids.includes(actualValue)) return false;
+      } else {
+        return false;
+      }
+      continue;
+    }
+
+    if (actualValue === null || actualValue === undefined) return false;
+
+    const actualString = typeof actualValue === "string" ? actualValue.toLowerCase() : null;
+    const filterString = typeof filterValue === "string" ? filterValue.toLowerCase() : null;
+
+    switch (op) {
+      case "contains": {
+        if (Array.isArray(actualValue)) {
+          if (!actualValue.some((v) => String(v).toLowerCase().includes(filterString ?? String(filterValue)))) {
+            return false;
+          }
+        } else if (typeof actualValue === "object") {
+          const obj = actualValue as Record<string, unknown>;
+          const name = typeof obj.name === "string" ? obj.name.toLowerCase() : "";
+          if (!name.includes(filterString ?? "")) return false;
+        } else {
+          if (!String(actualValue).toLowerCase().includes(filterString ?? String(filterValue))) return false;
+        }
+        break;
+      }
+      case "gte": {
+        if (typeof actualValue === "number" && typeof filterValue === "number") {
+          if (actualValue < filterValue) return false;
+        } else if (typeof actualValue === "string" && typeof filterValue === "string") {
+          if (actualValue < filterValue) return false;
+        } else {
+          return false;
+        }
+        break;
+      }
+      case "lte": {
+        if (typeof actualValue === "number" && typeof filterValue === "number") {
+          if (actualValue > filterValue) return false;
+        } else if (typeof actualValue === "string" && typeof filterValue === "string") {
+          if (actualValue > filterValue) return false;
+        } else {
+          return false;
+        }
+        break;
+      }
+      case "eq":
+      default: {
+        if (Array.isArray(actualValue)) {
+          if (!actualValue.some((v) => String(v).toLowerCase() === (filterString ?? String(filterValue).toLowerCase()))) {
+            return false;
+          }
+        } else if (typeof actualValue === "object") {
+          const obj = actualValue as Record<string, unknown>;
+          const id = obj.id as string | undefined;
+          const name = obj.name as string | undefined;
+          if (
+            (filterValue && id && String(filterValue) === id) ||
+            (filterString && name && name.toLowerCase() === filterString)
+          ) {
+            break;
+          }
+          return false;
+        } else {
+          if (actualString !== null && filterString !== null) {
+            if (actualString !== filterString) return false;
+          } else if (String(actualValue) !== String(filterValue)) {
+            return false;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  return true;
+}
+
+function isUuid(value: string | undefined | null): boolean {
+  if (!value || typeof value !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 /**

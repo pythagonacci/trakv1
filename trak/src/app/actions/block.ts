@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { getCurrentWorkspaceId, safeRevalidatePath } from "@/app/actions/workspace";
 import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
@@ -96,11 +96,8 @@ export async function getChildBlocks(parentBlockId: string) {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -169,11 +166,8 @@ export async function createBlock(data: {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -402,7 +396,7 @@ export async function createBlock(data: {
     }
 
     // Revalidate the tab page path
-    revalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${data.tabId}`);
+    await safeRevalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${data.tabId}`);
     await revalidateClientPages(tab.project_id, data.tabId, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
@@ -430,11 +424,8 @@ export async function updateBlock(data: {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -577,7 +568,7 @@ export async function updateBlock(data: {
     }
 
     // 8. Revalidate the tab page path
-    revalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+    await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
     await revalidateClientPages(projectId, block.tab_id, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
@@ -599,11 +590,8 @@ export async function deleteBlock(blockId: string) {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -666,7 +654,7 @@ export async function deleteBlock(blockId: string) {
     }
 
     // 7. Revalidate the tab page path
-    revalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+    await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
     await revalidateClientPages(projectId, block.tab_id, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
@@ -693,11 +681,8 @@ export async function moveBlock(data: {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -796,13 +781,13 @@ export async function moveBlock(data: {
     }
 
     // 11. Revalidate both source and target tab paths (if different)
-    revalidatePath(`/dashboard/projects/${sourceTab.project_id}/tabs/${sourceBlock.tab_id}`);
+    await safeRevalidatePath(`/dashboard/projects/${sourceTab.project_id}/tabs/${sourceBlock.tab_id}`);
     await revalidateClientPages(sourceTab.project_id, sourceBlock.tab_id, {
       publicToken: sourceProject.public_token ?? undefined,
       clientPageEnabled: sourceProject.client_page_enabled ?? undefined,
     });
     if (data.targetTabId !== sourceBlock.tab_id) {
-      revalidatePath(`/dashboard/projects/${targetTab.project_id}/tabs/${data.targetTabId}`);
+      await safeRevalidatePath(`/dashboard/projects/${targetTab.project_id}/tabs/${data.targetTabId}`);
       await revalidateClientPages(targetTab.project_id, data.targetTabId, {
         publicToken: targetProject.public_token ?? undefined,
         clientPageEnabled: targetProject.client_page_enabled ?? undefined,
@@ -825,11 +810,8 @@ export async function duplicateBlock(blockId: string) {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -928,7 +910,7 @@ export async function duplicateBlock(blockId: string) {
     }
 
     // 9. Revalidate the tab page path
-    revalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${sourceBlock.tab_id}`);
+    await safeRevalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${sourceBlock.tab_id}`);
     await revalidateClientPages(tab.project_id, sourceBlock.tab_id, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,

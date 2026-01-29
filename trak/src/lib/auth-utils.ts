@@ -2,6 +2,20 @@
 
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
+
+// Test context for running outside of Next.js request scope
+let testUserContext: { userId: string } | null = null;
+
+// Set test user context (used by test harness)
+export async function setTestUserContext(userId: string) {
+  testUserContext = { userId };
+}
+
+// Clear test user context
+export async function clearTestUserContext() {
+  testUserContext = null;
+}
 
 /**
  * 🚀 Cached auth utilities - run once per request
@@ -9,10 +23,31 @@ import { createClient } from '@/lib/supabase/server';
  */
 
 export const getAuthenticatedUser = cache(async () => {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
-  return user;
+  // Check if running in test context first (only in test/dev environments)
+  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  if (testUserContext && isTestEnvironment) {
+    // In test mode, create a service client to fetch user data
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (supabaseUrl && supabaseKey) {
+      const serviceClient = createServiceClient(supabaseUrl, supabaseKey);
+      const { data: { user }, error } = await serviceClient.auth.admin.getUserById(testUserContext.userId);
+      if (error || !user) return null;
+      return user;
+    }
+  }
+
+  // Normal Next.js request flow
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) return null;
+    return user;
+  } catch (error) {
+    // If createClient fails (not in request context), return null
+    return null;
+  }
 });
 
 export const checkWorkspaceMembership = cache(async (workspaceId: string, userId: string) => {

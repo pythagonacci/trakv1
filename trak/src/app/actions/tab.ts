@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } from "@/lib/auth-utils";
+import { safeRevalidatePath } from "@/app/actions/workspace";
 import { revalidatePath } from "next/cache";
 
 // Limits to prevent unbounded queries
@@ -37,11 +38,8 @@ export async function createTab(data: {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -117,8 +115,8 @@ export async function createTab(data: {
     }
 
     // Revalidate paths to ensure UI updates immediately
-    revalidatePath(`/dashboard/projects/${data.projectId}`);
-    revalidatePath(`/dashboard/projects/${data.projectId}/tabs/${newTab.id}`);
+    await safeRevalidatePath(`/dashboard/projects/${data.projectId}`);
+    await safeRevalidatePath(`/dashboard/projects/${data.projectId}/tabs/${newTab.id}`);
 
     return { data: newTab };
   } catch (error) {
@@ -223,11 +221,8 @@ export async function updateTab(data: {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -350,11 +345,8 @@ export async function reorderTabs(data: {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -434,11 +426,8 @@ export async function deleteTab(tabId: string) {
     const supabase = await createClient();
 
     // 1. Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return { error: "Unauthorized" };
     }
 
@@ -522,7 +511,7 @@ export async function deleteTab(tabId: string) {
     }
 
     // Revalidate paths to ensure UI updates immediately
-    revalidatePath(`/dashboard/projects/${tab.project_id}`);
+    await safeRevalidatePath(`/dashboard/projects/${tab.project_id}`);
     // Revalidate all tab pages for this project (since we don't know which ones exist)
     // The project page revalidation will ensure the tab bar updates
 

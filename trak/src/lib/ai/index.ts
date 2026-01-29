@@ -10,6 +10,7 @@
 export {
   allTools,
   toolsByCategory,
+  toolsByEntityType,
   toOpenAIFormat,
   toAnthropicFormat,
   getToolByName,
@@ -17,6 +18,7 @@ export {
   type ToolDefinition,
   type ToolParameter,
   type ToolCategory,
+  type EntityToolGroup,
 } from "./tool-definitions";
 
 // System prompt

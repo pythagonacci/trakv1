@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getServerUser } from '@/lib/auth/get-server-user'
+import { safeRevalidatePath } from './workspace'
 import { createTab } from './tab'
 import type { BlockType } from './block';
 
@@ -354,7 +355,7 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
     console.error("Failed to create default tab:", tabResult.error);
   }
 
-  revalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard')
   return { data: project }
 }
 
@@ -431,7 +432,7 @@ export async function getOrCreateFilesSpace(workspaceId: string) {
     // Still return the space even if tab creation fails
   }
 
-  revalidatePath('/dashboard/internal');
+  await safeRevalidatePath('/dashboard/internal');
   return { data: newSpace };
 }
 
@@ -790,7 +791,7 @@ export async function updateProject(projectId: string, updates: Partial<ProjectD
     return { error: updateError.message }
   }
 
-  revalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard')
   return { data: updatedProject }
 }
 
@@ -844,6 +845,6 @@ export async function deleteProject(projectId: string) {
     return { error: deleteError.message }
   }
 
-  revalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard')
   return { data: { success: true, message: 'Project deleted successfully' } }
 }

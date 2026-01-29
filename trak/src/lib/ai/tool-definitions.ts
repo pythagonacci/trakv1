@@ -49,17 +49,17 @@ export type ToolCategory =
 const searchTools: ToolDefinition[] = [
   {
     name: "searchTasks",
-    description: "Search for tasks in the workspace. Can filter by title, status, priority, assignee, tags, due date, project, and more. Use this to find tasks matching specific criteria.",
+    description: "SEARCH for task items (read-only). Use this when you need to FIND or VIEW tasks, not modify them. Filters: title, status, priority, assignee, tags, due date, project. Returns: Array of task objects with IDs, titles, and all properties. Use task IDs from results for subsequent update/delete operations.",
     category: "search",
     parameters: {
-      title: { type: "string", description: "Search tasks by title (partial match)" },
+      searchText: { type: "string", description: "Search tasks by text (matches title)" },
       status: { type: "string", description: "Filter by status", enum: ["todo", "in-progress", "done"] },
       priority: { type: "string", description: "Filter by priority", enum: ["low", "medium", "high", "urgent"] },
       assigneeId: { type: "string", description: "Filter by assignee user ID" },
       assigneeName: { type: "string", description: "Filter by assignee name (partial match)" },
-      tagNames: { type: "array", description: "Filter by tag names", items: { type: "string" } },
+      tagId: { type: "string", description: "Filter by tag ID" },
+      tagName: { type: "string", description: "Filter by tag name (partial match)" },
       projectId: { type: "string", description: "Filter by project ID" },
-      projectName: { type: "string", description: "Filter by project name (partial match)" },
       tabId: { type: "string", description: "Filter by tab ID" },
       dueDate: {
         type: "object",
@@ -77,14 +77,13 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchProjects",
-    description: "Search for projects in the workspace. Can filter by name, status, client, project type, and due date.",
+    description: "SEARCH for projects (read-only). Use to FIND or VIEW projects. Filters: name, status (not_started/in_progress/complete), client, project type. Returns: Array of project objects with IDs and metadata. Extract project IDs for use in other operations.",
     category: "search",
     parameters: {
-      name: { type: "string", description: "Search by project name (partial match)" },
-      status: { type: "string", description: "Filter by status", enum: ["active", "completed", "archived", "on-hold"] },
-      projectType: { type: "string", description: "Filter by type", enum: ["project", "template"] },
+      searchText: { type: "string", description: "Search by text (matches project name)" },
+      status: { type: "string", description: "Filter by status", enum: ["not_started", "in_progress", "complete"] },
+      projectType: { type: "string", description: "Filter by type", enum: ["project", "internal"] },
       clientId: { type: "string", description: "Filter by client ID" },
-      clientName: { type: "string", description: "Filter by client name (partial match)" },
       dueDate: {
         type: "object",
         description: "Filter by due date",
@@ -100,11 +99,35 @@ const searchTools: ToolDefinition[] = [
     requiredParams: [],
   },
   {
-    name: "searchClients",
-    description: "Search for clients in the workspace by name, email, or company.",
+    name: "searchTabs",
+    description: "SEARCH for tabs within projects (read-only). Use to FIND tabs by name or project. Returns: Array of tab objects with IDs. Use tab IDs when creating blocks or other tab content.",
     category: "search",
     parameters: {
-      name: { type: "string", description: "Search by client name" },
+      searchText: {
+        type: "string",
+        description: "Search by tab name (partial match)"
+      },
+      projectId: {
+        type: "string",
+        description: "Filter by project ID"
+      },
+      isClientVisible: {
+        type: "boolean",
+        description: "Filter by client visibility"
+      },
+      limit: {
+        type: "number",
+        description: "Maximum number of results (default 50)"
+      }
+    },
+    requiredParams: []
+  },
+  {
+    name: "searchClients",
+    description: "SEARCH for clients (read-only). Use to FIND clients by name, email, or company. Returns: Array of client objects with IDs and contact information. Extract client IDs for project association.",
+    category: "search",
+    parameters: {
+      searchText: { type: "string", description: "Search by text (matches name, email, or company)" },
       email: { type: "string", description: "Search by email" },
       company: { type: "string", description: "Search by company name" },
       limit: { type: "number", description: "Maximum number of results" },
@@ -113,12 +136,10 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchWorkspaceMembers",
-    description: "Search for workspace members by name, email, or role. Returns member details including user_id, name, and email. Use this whenever you need complete user information for tools like setTaskAssignees.",
+    description: "SEARCH for workspace members (read-only). ⚠️ CRITICAL: Use this BEFORE calling setTaskAssignees to get BOTH user_id AND name fields. Returns: {user_id, name, email, role}. When assigning tasks, you MUST have both user_id and name - this tool provides both. Search by name, email, or role.",
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search by member name or email" },
-      name: { type: "string", description: "Search by member name" },
-      email: { type: "string", description: "Search by email" },
       role: { type: "string", description: "Filter by role", enum: ["owner", "admin", "teammate"] },
       limit: { type: "number", description: "Maximum number of results" },
     },
@@ -126,10 +147,10 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchTables",
-    description: "Search for tables in the workspace by title or project.",
+    description: "SEARCH for tables (read-only). Use to FIND tables by title or project. Returns: Array of table objects with IDs. Use table IDs for row operations or schema inspection.",
     category: "search",
     parameters: {
-      title: { type: "string", description: "Search by table title" },
+      searchText: { type: "string", description: "Search by text (matches table title)" },
       projectId: { type: "string", description: "Filter by project ID" },
       limit: { type: "number", description: "Maximum number of results" },
     },
@@ -137,11 +158,11 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchTableRows",
-    description: "Search for rows within a specific table. Can search across all fields or filter by specific field values.",
+    description: "SEARCH for rows within a table (read-only). Use to FIND existing rows before updating. Returns: Array of row objects with row IDs and field data. Extract row IDs for update/delete operations.",
     category: "search",
     parameters: {
       tableId: { type: "string", description: "The table ID to search in" },
-      query: { type: "string", description: "Search text to find in any field" },
+      searchText: { type: "string", description: "Search text to find in any field" },
       fieldFilters: {
         type: "object",
         description: "Field-specific filters as key-value pairs where key is field ID and value is the filter value",
@@ -152,12 +173,12 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchTimelineEvents",
-    description: "Search for timeline events in the workspace. Can filter by title, date range, status, and more.",
+    description: "SEARCH for timeline/Gantt events (read-only). Use to FIND events by title, date range, status, or milestone. Returns: Array of event objects with IDs, dates, and properties.",
     category: "search",
     parameters: {
-      title: { type: "string", description: "Search by event title" },
-      timelineBlockId: { type: "string", description: "Filter by timeline block" },
-      projectId: { type: "string", description: "Filter by project" },
+      searchText: { type: "string", description: "Search by text (matches event title)" },
+      projectId: { type: "string", description: "Filter by project ID" },
+      projectName: { type: "string", description: "Filter by project name (partial match)" },
       assigneeId: { type: "string", description: "Filter by assignee ID" },
       assigneeName: { type: "string", description: "Filter by assignee name" },
       status: { type: "string", description: "Filter by status" },
@@ -184,45 +205,54 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchBlocks",
-    description: "Search for blocks in the workspace. Can filter by type, project, tab, and content.",
+    description: "SEARCH for content blocks (read-only). Use to FIND blocks by type (text/task/table/timeline/etc), project, or tab. Returns: Array of block objects with IDs and content. Use block IDs for updates.",
     category: "search",
     parameters: {
+      searchText: { type: "string", description: "Search by block content" },
       type: { type: "string", description: "Filter by block type", enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "doc_reference"] },
       projectId: { type: "string", description: "Filter by project ID" },
+      projectName: { type: "string", description: "Filter by project name (partial match)" },
       tabId: { type: "string", description: "Filter by tab ID" },
       isTemplate: { type: "boolean", description: "Filter for template blocks only" },
+      assigneeId: { type: "string", description: "Filter by assignee ID (for task blocks)" },
+      assigneeName: { type: "string", description: "Filter by assignee name (partial match)" },
+      tagId: { type: "string", description: "Filter by tag ID" },
+      tagName: { type: "string", description: "Filter by tag name (partial match)" },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],
   },
   {
     name: "searchDocs",
-    description: "Search for documents in the workspace by title.",
+    description: "SEARCH for documents (read-only). Use to FIND docs by title or content. Returns: Array of document objects with IDs and metadata. Use doc IDs for content operations.",
     category: "search",
     parameters: {
-      title: { type: "string", description: "Search by document title" },
+      searchText: { type: "string", description: "Search by document title" },
+      contentSearch: { type: "string", description: "Search within document content" },
+      searchBoth: { type: "boolean", description: "Search both title and content using searchText" },
       isArchived: { type: "boolean", description: "Include archived docs" },
+      createdBy: { type: "string", description: "Filter by creator user ID" },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],
   },
   {
     name: "searchDocContent",
-    description: "Search within document content for specific text.",
+    description: "SEARCH within a specific document's content (read-only). Use to FIND text within one known document. Returns: Text snippets matching the search query.",
     category: "search",
     parameters: {
-      query: { type: "string", description: "Text to search for within documents" },
-      docId: { type: "string", description: "Optional: limit to a specific document" },
-      limit: { type: "number", description: "Maximum number of results" },
+      docId: { type: "string", description: "The document ID to search within" },
+      searchText: { type: "string", description: "Text to search for within the document" },
+      snippetLength: { type: "number", description: "Length of text snippets to return (default 100)" },
     },
-    requiredParams: ["query"],
+    requiredParams: ["docId", "searchText"],
   },
   {
     name: "searchFiles",
-    description: "Search for files uploaded to the workspace.",
+    description: "SEARCH for uploaded files (read-only). Use to FIND files by name, type, or project. Returns: Array of file objects with IDs, names, and URLs.",
     category: "search",
     parameters: {
-      fileName: { type: "string", description: "Search by file name" },
+      searchText: { type: "string", description: "Search by text (matches file name)" },
       fileType: { type: "string", description: "Filter by file MIME type" },
       projectId: { type: "string", description: "Filter by project ID" },
       limit: { type: "number", description: "Maximum number of results" },
@@ -230,53 +260,36 @@ const searchTools: ToolDefinition[] = [
     requiredParams: [],
   },
   {
-    name: "searchPayments",
-    description: "Search for payments in the workspace.",
-    category: "search",
-    parameters: {
-      status: { type: "string", description: "Filter by status", enum: ["pending", "paid", "overdue", "cancelled"] },
-      clientId: { type: "string", description: "Filter by client ID" },
-      projectId: { type: "string", description: "Filter by project ID" },
-      dueDate: {
-        type: "object",
-        description: "Filter by due date",
-        properties: {
-          gte: { type: "string", description: "On or after date" },
-          lte: { type: "string", description: "On or before date" },
-        },
-      },
-      limit: { type: "number", description: "Maximum number of results" },
-    },
-    requiredParams: [],
-  },
-  {
     name: "searchTags",
-    description: "Search for task tags in the workspace.",
+    description: "SEARCH for task tags (read-only). Use to FIND existing tags by name. Returns: Array of tag objects with IDs and names. Use tag names for setTaskTags.",
     category: "search",
     parameters: {
-      name: { type: "string", description: "Search by tag name" },
+      searchText: { type: "string", description: "Search by tag name" },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],
   },
   {
     name: "searchAll",
-    description: "Search across all entity types in the workspace. Good for broad searches when you don't know which entity type contains what you're looking for.",
+    description: "SEARCH across ALL entity types at once (read-only). Use when you don't know which entity type to search or need to search multiple types. Returns: Object with results grouped by entity type. Good for exploratory searches.",
     category: "search",
     parameters: {
-      query: { type: "string", description: "Search text" },
+      searchText: { type: "string", description: "Search text" },
+      projectId: { type: "string", description: "Optional: Filter results to specific project" },
       entityTypes: {
         type: "array",
         description: "Entity types to search",
         items: { type: "string" },
       },
-      limit: { type: "number", description: "Maximum results per entity type" },
+      includeContent: { type: "boolean", description: "Include content in search (default false)" },
+      limit: { type: "number", description: "Maximum results per entity type (default 10)" },
+      offset: { type: "number", description: "Offset for pagination (default 0)" },
     },
-    requiredParams: ["query"],
+    requiredParams: ["searchText"],
   },
   {
     name: "resolveEntityByName",
-    description: "Resolve an entity (task, project, client, member, etc.) by its name to get its ID. Use this when you have a name and need to find the corresponding entity.",
+    description: "RESOLVE name → ID (read-only). Use when you have an entity name but need its ID. Example: User says 'Website project' - use this to get project ID. Returns: Array of matching entities with IDs. Useful for name-based lookups.",
     category: "search",
     parameters: {
       entityType: {
@@ -285,21 +298,14 @@ const searchTools: ToolDefinition[] = [
         enum: ["task", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
       },
       name: { type: "string", description: "Name to search for" },
-      context: {
-        type: "object",
-        description: "Optional context to narrow down results",
-        properties: {
-          projectId: { type: "string", description: "Limit to specific project" },
-          projectName: { type: "string", description: "Limit to project by name" },
-          tableId: { type: "string", description: "For table rows, specify the table" },
-        },
-      },
+      projectId: { type: "string", description: "Optional: Limit search to specific project" },
+      limit: { type: "number", description: "Maximum number of results (default 5)" },
     },
     requiredParams: ["entityType", "name"],
   },
   {
     name: "getEntityById",
-    description: "Get detailed information about an entity by its ID.",
+    description: "GET entity details by ID (read-only). Use when you have an ID and need full entity information. Returns: Complete entity object with all properties and metadata.",
     category: "search",
     parameters: {
       entityType: {
@@ -307,27 +313,36 @@ const searchTools: ToolDefinition[] = [
         description: "Type of entity",
         enum: ["task", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
       },
-      entityId: { type: "string", description: "The entity ID" },
+      id: { type: "string", description: "The entity ID" },
     },
-    requiredParams: ["entityType", "entityId"],
+    requiredParams: ["entityType", "id"],
   },
   {
     name: "getEntityContext",
-    description: "Get full context for an entity including related data. For tasks: includes assignees, tags, project info. For projects: includes tabs, task summary, timeline events.",
+    description: "GET entity with full related data (read-only). Use when you need not just the entity, but its relationships. For tasks: returns assignees, tags, project. For blocks/events/rows: returns parent context. More comprehensive than getEntityById.",
     category: "search",
     parameters: {
       entityType: {
         type: "string",
         description: "Type of entity",
-        enum: ["task", "project", "table", "timeline_event"],
+        enum: ["block", "task", "timeline_event", "table_row"],
       },
-      entityId: { type: "string", description: "The entity ID" },
+      id: { type: "string", description: "The entity ID" },
     },
-    requiredParams: ["entityType", "entityId"],
+    requiredParams: ["entityType", "id"],
   },
   {
     name: "getTableSchema",
-    description: "Get the schema (fields) of a table, useful before creating or updating rows.",
+    description:
+      "Get the schema (fields) of a table.\n\n" +
+      "When to use:\n" +
+      "- Understanding table structure\n" +
+      "- Getting field types and configurations\n" +
+      "- Reading metadata\n\n" +
+      "When NOT to use:\n" +
+      "- Before updateTableRowsByFieldNames (it resolves names automatically)\n" +
+      "- Before bulkInsertRows with field names (it resolves names automatically)\n\n" +
+      "Tip: If you're updating rows and have field names/labels, use updateTableRowsByFieldNames directly instead of getTableSchema + bulkUpdateRows.",
     category: "search",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
@@ -343,10 +358,16 @@ const searchTools: ToolDefinition[] = [
 const taskActionTools: ToolDefinition[] = [
   {
     name: "createTaskItem",
-    description: "Create a new task in a task block. Requires the task block ID where the task should be created.",
+    description:
+      "CREATE a new task item. Use to add a task to a TASK BLOCK (not a tab).\n\n" +
+      "Required: taskBlockId (from searchBlocks with type='task') and title.\n\n" +
+      "IMPORTANT:\n" +
+      "- taskBlockId must be a block ID of type 'task'\n" +
+      "- If you only have a tabId, first create a task block with createBlock(type: 'task', tabId), then use its id here.\n\n" +
+      "Returns: New task object with ID. Use this for creating individual tasks.",
     category: "task",
     parameters: {
-      taskBlockId: { type: "string", description: "The task block ID to create the task in" },
+      taskBlockId: { type: "string", description: "The task block ID (block type 'task'). If you only have a tabId, create a task block first and use its id." },
       title: { type: "string", description: "Task title" },
       status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "done"] },
       priority: { type: "string", description: "Task priority", enum: ["low", "medium", "high", "urgent"] },
@@ -359,7 +380,7 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "updateTaskItem",
-    description: "Update an existing task. Can update title, status, priority, description, dates, etc.",
+    description: "UPDATE an existing task's properties. Use to modify task title, status (todo/in-progress/done), priority (low/medium/high/urgent), description, or dates. Required: taskId (from searchTasks). Returns: Updated task object.",
     category: "task",
     parameters: {
       taskId: { type: "string", description: "The task ID to update" },
@@ -374,8 +395,64 @@ const taskActionTools: ToolDefinition[] = [
     requiredParams: ["taskId"],
   },
   {
+    name: "bulkMoveTaskItems",
+    description:
+      "MOVE multiple tasks to a single task block. Use to consolidate tasks into one block (e.g., all tasks in a tab into a single list). Requires taskIds array and targetBlockId (task block id). Updates task_block_id, tab_id, project_id, and order in the destination block.",
+    category: "task",
+    parameters: {
+      taskIds: { type: "array", description: "Array of task IDs to move", items: { type: "string" } },
+      targetBlockId: { type: "string", description: "The destination task block ID (block type 'task')" },
+    },
+    requiredParams: ["taskIds", "targetBlockId"],
+  },
+  {
+    name: "duplicateTasksToBlock",
+    description:
+      "DUPLICATE tasks into another task block WITHOUT moving originals. Use to create a new task list/board while keeping the originals in place. Copies title, status, priority, description, dates, and optionally assignees/tags.\n\n" +
+      "Inputs:\n" +
+      "- taskIds: array of task IDs to duplicate (from searchTasks)\n" +
+      "- targetBlockId: destination task block id\n" +
+      "- includeAssignees/includeTags: optional booleans (default true)\n\n" +
+      "Returns: createdCount, createdTaskIds, skipped.",
+    category: "task",
+    parameters: {
+      taskIds: { type: "array", description: "Array of task IDs to duplicate", items: { type: "string" } },
+      targetBlockId: { type: "string", description: "Destination task block ID (block type 'task')" },
+      includeAssignees: { type: "boolean", description: "Copy assignees to duplicated tasks (default true)" },
+      includeTags: { type: "boolean", description: "Copy tags to duplicated tasks (default true)" },
+    },
+    requiredParams: ["taskIds", "targetBlockId"],
+  },
+  {
+    name: "createTaskBoardFromTasks",
+    description:
+      "CREATE a new TASK BOARD from existing tasks. This creates a NEW task block in a tab, duplicates the provided tasks into it (leaving originals untouched), and sets the block to board view.\n\n" +
+      "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.\n\n" +
+      "Defaults: viewMode=board, boardGroupBy=status.",
+    category: "task",
+    parameters: {
+      tabId: { type: "string", description: "Tab to create the task board in (defaults to current tab if omitted)" },
+      title: { type: "string", description: "New task board title" },
+      taskIds: { type: "array", description: "Task IDs to duplicate into the new board", items: { type: "string" } },
+      assigneeId: { type: "string", description: "If provided, auto-include ALL tasks assigned to this user ID" },
+      assigneeName: { type: "string", description: "If provided, auto-include ALL tasks assigned to this name" },
+      sourceProjectId: { type: "string", description: "Optional project scope for source tasks" },
+      sourceTabId: { type: "string", description: "Optional tab scope for source tasks" },
+      limit: { type: "number", description: "Max tasks to include when using assignee filters (default 500)" },
+      viewMode: { type: "string", enum: ["board", "list"], description: "Task block view mode (default board)" },
+      boardGroupBy: {
+        type: "string",
+        enum: ["status", "priority", "assignee", "dueDate", "tags"],
+        description: "Board grouping (default status)",
+      },
+      includeAssignees: { type: "boolean", description: "Copy assignees to duplicated tasks (default true)" },
+      includeTags: { type: "boolean", description: "Copy tags to duplicated tasks (default true)" },
+    },
+    requiredParams: ["taskIds"],
+  },
+  {
     name: "deleteTaskItem",
-    description: "Delete a task permanently.",
+    description: "DELETE a task permanently. Use to remove a task. Required: taskId. ⚠️ Cannot be undone. Returns: Success confirmation.",
     category: "task",
     parameters: {
       taskId: { type: "string", description: "The task ID to delete" },
@@ -384,7 +461,9 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "setTaskAssignees",
-    description: "Set assignees for a task. Replaces all current assignees with the provided list.",
+    description:
+      "SET/REPLACE task assignees. ⚠️ CRITICAL WORKFLOW: 1) Call searchWorkspaceMembers to get {user_id, name, email}. 2) Use user_id as 'id' and name as 'name'. 3) Call this with [{id: user_id, name: name}]. BOTH fields required for workspace members! For external assignees: [{name: 'External'}] only. Replaces ALL current assignees.\n\n" +
+      "For many tasks, prefer bulkSetTaskAssignees to avoid one call per task.",
     category: "task",
     parameters: {
       taskId: {
@@ -400,18 +479,39 @@ const taskActionTools: ToolDefinition[] = [
     requiredParams: ["taskId", "assignees"],
   },
   {
-    name: "setTaskTags",
-    description: "Set tags for a task. Replaces all current tags. Creates new tags if they don't exist.",
+    name: "bulkSetTaskAssignees",
+    description:
+      "SET/REPLACE assignees for MANY tasks in one call. Use when assigning the same assignee(s) to multiple tasks. Requires taskIds array and assignees array (same format as setTaskAssignees). Replaces ALL current assignees for each task.\n\n" +
+      "Workflow: 1) searchTasks to get taskIds, 2) searchWorkspaceMembers to get {user_id, name}, 3) bulkSetTaskAssignees({ taskIds, assignees: [{id: user_id, name}] }).",
     category: "task",
     parameters: {
-      taskId: { type: "string", description: "The task ID" },
+      taskIds: {
+        type: "array",
+        description: "Array of task IDs to update",
+        items: { type: "string" },
+      },
+      assignees: {
+        type: "array",
+        description:
+          "Array of assignee objects. For workspace members, each object requires BOTH 'id' (string, user UUID) AND 'name' (string, display name). Get both fields from searchWorkspaceMembers. Example: [{id: 'uuid-from-search', name: 'John Doe'}]",
+        items: { type: "object" },
+      },
+    },
+    requiredParams: ["taskIds", "assignees"],
+  },
+  {
+    name: "setTaskTags",
+    description: "Set tags for a TASK ONLY (NOT for table rows!). Tags are a task-specific feature. For table rows, use updateCell or bulkUpdateRows to update field values instead. Replaces all current tags. Creates new tags if they don't exist.",
+    category: "task",
+    parameters: {
+      taskId: { type: "string", description: "The task ID (NOT a table row ID! Tasks and table rows are different entities)" },
       tagNames: { type: "array", description: "Array of tag names", items: { type: "string" } },
     },
     requiredParams: ["taskId", "tagNames"],
   },
   {
     name: "createTaskSubtask",
-    description: "Create a subtask within a task.",
+    description: "CREATE a subtask/checklist item within a task. Use to add checklist items to tasks. Required: taskId and title. Returns: New subtask object with ID.",
     category: "task",
     parameters: {
       taskId: { type: "string", description: "The parent task ID" },
@@ -422,7 +522,7 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "updateTaskSubtask",
-    description: "Update a subtask (title, completed status).",
+    description: "UPDATE a subtask's title or completion status. Use to modify existing subtasks. Required: subtaskId. Returns: Updated subtask object.",
     category: "task",
     parameters: {
       subtaskId: { type: "string", description: "The subtask ID" },
@@ -433,7 +533,7 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "deleteTaskSubtask",
-    description: "Delete a subtask.",
+    description: "DELETE a subtask. Use to remove a checklist item. Required: subtaskId. Returns: Success confirmation.",
     category: "task",
     parameters: {
       subtaskId: { type: "string", description: "The subtask ID to delete" },
@@ -442,7 +542,7 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "createTaskComment",
-    description: "Add a comment to a task.",
+    description: "ADD a comment to a task. Use to add discussion/notes to tasks. Required: taskId and text. Returns: New comment object.",
     category: "task",
     parameters: {
       taskId: { type: "string", description: "The task ID" },
@@ -459,25 +559,25 @@ const taskActionTools: ToolDefinition[] = [
 const projectActionTools: ToolDefinition[] = [
   {
     name: "createProject",
-    description: "Create a new project in the workspace.",
+    description: "CREATE a new project. Use to add projects. Required: name. Optional: clientId (from searchClients), status (not_started/in_progress/complete), dueDate. Returns: Project object with projectId.",
     category: "project",
     parameters: {
       name: { type: "string", description: "Project name" },
       clientId: { type: "string", description: "Optional client ID to associate" },
-      status: { type: "string", description: "Project status", enum: ["active", "completed", "archived", "on-hold"] },
+      status: { type: "string", description: "Project status. MUST be exactly one of: 'not_started', 'in_progress', or 'complete' (NOT 'completed'!)", enum: ["not_started", "in_progress", "complete"] },
       dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
-      projectType: { type: "string", description: "Project type", enum: ["project", "template"] },
+      projectType: { type: "string", description: "Project type", enum: ["project", "internal"] },
     },
     requiredParams: ["name"],
   },
   {
     name: "updateProject",
-    description: "Update a project's properties.",
+    description: "UPDATE project properties (name, status, client, due date). Use to modify existing projects. Required: projectId. Returns: Updated project object.",
     category: "project",
     parameters: {
       projectId: { type: "string", description: "The project ID to update" },
       name: { type: "string", description: "New name" },
-      status: { type: "string", description: "New status", enum: ["active", "completed", "archived", "on-hold"] },
+      status: { type: "string", description: "New status. MUST be exactly one of: 'not_started', 'in_progress', or 'complete' (NOT 'completed' or 'active'!)", enum: ["not_started", "in_progress", "complete"] },
       clientId: { type: "string", description: "New client ID (null to remove)" },
       dueDate: { type: "string", description: "New due date (YYYY-MM-DD)" },
     },
@@ -539,7 +639,11 @@ const tabActionTools: ToolDefinition[] = [
 const blockActionTools: ToolDefinition[] = [
   {
     name: "createBlock",
-    description: "Create a new block in a tab. Block type determines what content to provide.",
+    description:
+      "Create a new block in a tab. Block type determines what content to provide.\n\n" +
+      "Important:\n" +
+      "- Tasks live inside a TASK BLOCK, not directly in a tab.\n" +
+      "- If you need to create tasks in a tab and no task block exists, create one with type: \"task\" first, then use its id as taskBlockId for createTaskItem.",
     category: "block",
     parameters: {
       tabId: { type: "string", description: "The tab ID to create the block in" },
@@ -585,7 +689,7 @@ const blockActionTools: ToolDefinition[] = [
 const tableActionTools: ToolDefinition[] = [
   {
     name: "createTable",
-    description: "Create a new empty table structure with the specified name. Creates table with 3 default columns (Name, Column 2, Column 3) but ZERO rows. The table is empty after creation - you must use bulkInsertRows to populate it with data. Returns the tableId needed for subsequent operations.",
+    description: "CREATE a new table. Use when user wants to create a table. Creates table with 3 default columns and 3 blank rows. Required: workspaceId, title. Optional: tabId (makes table visible in tab UI). Returns: tableId. ⚠️ Use bulkInsertRows to add data. Workflow: createTable → createField (for custom columns) → bulkInsertRows (for data).",
     category: "table",
     parameters: {
       workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
@@ -598,24 +702,38 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "createField",
-    description: "Create a new field (column) in a table.",
+    description:
+      "Create a new field (column) in a table.\n\n" +
+      "⚠️  CRITICAL: Use the CORRECT field TYPE\n\n" +
+      "Field Type Rules:\n" +
+      "- Priority field (Critical/High/Medium/Low)? → type: \"priority\" (NOT \"select\" named \"Priority\")\n" +
+      "- Status field (Not Started/In Progress/Complete)? → type: \"status\" (NOT \"select\" named \"Status\")\n" +
+      "- Custom dropdown? → type: \"select\" (only for truly custom options)\n\n" +
+      "WHY THIS MATTERS:\n" +
+      "- Priority/status fields have special UI rendering (badges, colors, proper ordering)\n" +
+      "- They use config.levels (priority) or config.options (status) with specific structure\n" +
+      "- Select fields don't have the same visual treatment\n" +
+      "- Using the wrong type BREAKS the UI\n\n" +
+      "Default values:\n" +
+      "- Priority fields auto-populate with Critical/High/Medium/Low if config not provided\n" +
+      "- Status fields auto-populate with Not Started/In Progress/Complete if config not provided",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
       name: { type: "string", description: "Field name" },
       type: {
         type: "string",
-        description: "Field type",
-        enum: ["text", "number", "select", "multi_select", "date", "checkbox", "url", "email", "phone", "currency", "percent", "rating", "formula", "relation", "rollup", "file", "person", "created_time", "last_edited_time", "created_by", "last_edited_by"],
+        description: "Field type. Use 'priority' for priority fields, 'status' for status fields. Do NOT use 'select' and name it 'Priority' - use the actual 'priority' type.",
+        enum: ["text", "long_text", "number", "select", "multi_select", "status", "priority", "date", "checkbox", "url", "email", "phone", "currency", "percent", "rating", "formula", "relation", "rollup", "files", "person", "created_time", "last_edited_time", "created_by", "last_edited_by"],
       },
-      config: { type: "object", description: "Field configuration (for select options, formulas, etc.)" },
+      config: { type: "object", description: "Optional field configuration. For priority fields, config.levels should contain priority level definitions with id, label, color, and order. For status fields, config.options should contain status option definitions. If not provided, default values will be auto-generated." },
       isPrimary: { type: "boolean", description: "Whether this is the primary field" },
     },
     requiredParams: ["tableId", "name", "type"],
   },
   {
     name: "updateField",
-    description: "Update a table field's properties.",
+    description: "UPDATE a table field/column's name or configuration. Use to rename columns or modify field config (like adding dropdown options). Required: fieldId. Returns: Updated field object.",
     category: "table",
     parameters: {
       fieldId: { type: "string", description: "The field ID" },
@@ -626,7 +744,7 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "deleteField",
-    description: "Delete a table field.",
+    description: "DELETE a table field/column. ⚠️ Deletes ALL data in that column. Required: fieldId. Returns: Success confirmation.",
     category: "table",
     parameters: {
       fieldId: { type: "string", description: "The field ID to delete" },
@@ -635,7 +753,7 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "createRow",
-    description: "Create ONE row in a table. Use this for creating 1-2 rows only. For 3+ rows, you MUST use bulkInsertRows instead (it's much more efficient and prevents rate limiting). Can optionally include initial cell values via the data parameter.",
+    description: "CREATE ONE table row. Use for creating 1-2 rows ONLY. ⚠️ For 3+ rows, you MUST use bulkInsertRows (required, more efficient). Required: tableId. Optional: data (initial cell values). Returns: Row object with rowId.",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
@@ -645,7 +763,7 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "updateRow",
-    description: "Update a table row's data.",
+    description: "UPDATE multiple cells in one existing row. Use when you have rowId and need to update several fields. ⚠️ Use updateTableRowsByFieldNames if you don't have rowId. Required: rowId, data. Returns: Updated row object.",
     category: "table",
     parameters: {
       rowId: { type: "string", description: "The row ID" },
@@ -655,18 +773,18 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "updateCell",
-    description: "Update ONE cell in ONE existing row. PREREQUISITE: The row must already exist. This is for editing existing data, NOT for adding new data to a table. If you're populating a table with data, use bulkInsertRows to create rows with data in one step - don't create empty rows and then call updateCell for each cell.",
+    description: "UPDATE ONE cell in ONE existing row. ⚠️ Row must exist. For select/status/priority fields, value must be option ID (not label) - get from getTableSchema. ⚠️ If populating table, use bulkInsertRows, NOT this. Use for: Editing individual cells in existing rows. Required: rowId, fieldId (both UUIDs), value.",
     category: "table",
     parameters: {
       rowId: { type: "string", description: "The row ID. Must be an existing row - get from searchTableRows or from the result of createRow/bulkInsertRows. If you don't have a rowId yet, the row doesn't exist - create it first." },
-      fieldId: { type: "string", description: "The field ID. Get from getTableSchema." },
-      value: { type: "string", description: "New value" },
+      fieldId: { type: "string", description: "The field ID (NOT field name). Get from getTableSchema." },
+      value: { type: "string", description: "New value. For text/number/date fields: the actual value. For select/priority/status fields: the option ID from field config (not the label!)." },
     },
     requiredParams: ["rowId", "fieldId", "value"],
   },
   {
     name: "deleteRow",
-    description: "Delete a table row.",
+    description: "DELETE one table row. ⚠️ Cannot be undone. Required: rowId. Returns: Success confirmation.",
     category: "table",
     parameters: {
       rowId: { type: "string", description: "The row ID to delete" },
@@ -675,7 +793,7 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "deleteRows",
-    description: "Delete multiple table rows at once.",
+    description: "DELETE multiple table rows at once. ⚠️ Cannot be undone. Use for bulk deletions. Required: rowIds array. Returns: Deletion count.",
     category: "table",
     parameters: {
       rowIds: { type: "array", description: "Array of row IDs to delete", items: { type: "string" } },
@@ -684,13 +802,19 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "bulkInsertRows",
-    description: "Insert 3 or more rows into a table in a single operation. Use this for ANY scenario where you need to create multiple rows (like populating a table with data, importing a list, etc). This is the PRIMARY way to populate tables with data - don't use createRow or updateCell for multiple items.",
+    description:
+      "INSERT 3+ rows efficiently in ONE call. ⚠️ REQUIRED for 3+ rows. DO NOT call createRow multiple times.\n\n" +
+      "Use for: Populating tables with data (50 states → ONE call, not 50)\n" +
+      "Format: [{ data: { 'FieldName': 'value' } }, ...]\n" +
+      "⚠️ Use field NAMES (not IDs) - system resolves automatically\n\n" +
+      "Example: [{ data: { 'State': 'Alabama', 'Capital': 'Montgomery' } }, { data: { 'State': 'Alaska', 'Capital': 'Juneau' } }, ...])\n\n" +
+      "Returns: Array of created row objects with rowIds.",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID. Get this from createTable or searchTables." },
       rows: {
         type: "array",
-        description: "Array of row objects, one per row you want to create. Each object MUST have a 'data' property containing the cell values as field-value pairs. Format: [{data: {fieldId: 'value'}}, {data: {fieldId: 'value'}}]. To populate 50 rows with data: create array of 50 objects, each with data: {fieldId: 'value for that row'}. Get field IDs from getTableSchema - the first field is usually the primary field.",
+        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' } }, ...]",
         items: { type: "object" },
       },
     },
@@ -698,14 +822,52 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "bulkUpdateRows",
-    description: "Update multiple rows with the same values.",
+    description:
+      "⚠️  PREFER updateTableRowsByFieldNames INSTEAD\n\n" +
+      "Update multiple table rows with the same field values. ONLY use this if you already have field IDs and option IDs as UUIDs.\n\n" +
+      "IMPORTANT: The updates parameter must be an object with field IDs as keys (NOT field names). For select/multi_select/status/priority field types, values must be option IDs (NOT labels).\n\n" +
+      "If you only have field names and option labels (e.g., 'Priority' = 'High'), use updateTableRowsByFieldNames instead - it's much easier and handles the resolution automatically.\n\n" +
+      "This tool requires:\n" +
+      "- Field IDs (UUIDs) as keys\n" +
+      "- Option IDs (UUIDs) as values for select-like fields\n" +
+      "- Row IDs (UUIDs) to update",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
-      rowIds: { type: "array", description: "Array of row IDs to update", items: { type: "string" } },
-      updates: { type: "object", description: "Updates to apply to all rows" },
+      rowIds: { type: "array", description: "Array of row IDs (UUIDs) to update", items: { type: "string" } },
+      updates: { type: "object", description: "Field updates as { [fieldId]: value }. Keys must be field IDs (UUIDs), not field names. For select/priority/status fields, values must be option IDs from field config, not labels." },
     },
     requiredParams: ["tableId", "rowIds", "updates"],
+  },
+  {
+    name: "updateTableRowsByFieldNames",
+    description:
+      "★ PRIMARY TOOL FOR TABLE UPDATES ★ UPDATE rows using field names and labels (NOT IDs).\n\n" +
+      "Auto-resolves:\n" +
+      "✓ Field names → field IDs\n" +
+      "✓ Option labels ('High', 'Republican') → option IDs\n" +
+      "✓ Filters rows + updates them in ONE call\n\n" +
+      "Example: Mark all Republican states as High priority:\n" +
+      "{ tableId: 'xxx', filters: { 'Party': 'Republican' }, updates: { 'Priority': 'High' } }\n\n" +
+      "To update ALL rows, omit filters or pass an empty object: { tableId, updates }.\n\n" +
+      "⚠️ USE THIS instead of getTableSchema + bulkUpdateRows.\n" +
+      "Returns: Updated row count and IDs.",
+    category: "table",
+    parameters: {
+      tableId: { type: "string", description: "The table ID" },
+      filters: {
+        type: "object",
+        description:
+          "Row filters as { FieldName: value }. Values can be a single value, an array of values, or { op, value }.",
+      },
+      updates: {
+        type: "object",
+        description:
+          "Field updates as { FieldName: value }. For select/status/priority, you can use labels (e.g., 'High', 'Complete') and they will be resolved to option IDs automatically.",
+      },
+      limit: { type: "number", description: "Max rows to scan when matching filters (default 500)" },
+    },
+    requiredParams: ["tableId", "updates"],
   },
 ];
 
@@ -761,13 +923,13 @@ const timelineActionTools: ToolDefinition[] = [
   },
   {
     name: "createTimelineDependency",
-    description: "Create a dependency between two timeline events.",
+    description: "Create a dependency between two timeline events. Most common type is 'finish-to-start' which means the target event can only start after the source event finishes.",
     category: "timeline",
     parameters: {
       timelineBlockId: { type: "string", description: "Timeline block ID that owns the events" },
-      fromEventId: { type: "string", description: "Source event ID" },
-      toEventId: { type: "string", description: "Target event ID" },
-      dependencyType: { type: "string", description: "Type of dependency", enum: ["finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"] },
+      fromEventId: { type: "string", description: "Source event ID (the event that must happen first)" },
+      toEventId: { type: "string", description: "Target event ID (the event that depends on the source)" },
+      dependencyType: { type: "string", description: "Type of dependency. Use 'finish-to-start' for standard dependencies.", enum: ["finish-to-start", "start-to-start", "finish-to-finish", "start-to-finish"] },
     },
     requiredParams: ["timelineBlockId", "fromEventId", "toEventId"],
   },
@@ -909,7 +1071,6 @@ const docActionTools: ToolDefinition[] = [
     category: "doc",
     parameters: {
       title: { type: "string", description: "Document title" },
-      content: { type: "object", description: "Initial content (TipTap JSON format)" },
     },
     requiredParams: ["title"],
   },
@@ -951,14 +1112,13 @@ const docActionTools: ToolDefinition[] = [
 const commentActionTools: ToolDefinition[] = [
   {
     name: "createComment",
-    description: "Create a comment on any entity.",
+    description: "Create a comment on a table row.",
     category: "comment",
     parameters: {
-      targetType: { type: "string", description: "Target type (block, table_row, etc.)" },
-      targetId: { type: "string", description: "The target entity ID" },
+      rowId: { type: "string", description: "The table row ID" },
       text: { type: "string", description: "Comment text" },
     },
-    requiredParams: ["targetType", "targetId", "text"],
+    requiredParams: ["rowId", "text"],
   },
   {
     name: "updateComment",
@@ -981,50 +1141,6 @@ const commentActionTools: ToolDefinition[] = [
   },
 ];
 
-// ============================================================================
-// PAYMENT ACTION TOOLS
-// ============================================================================
-
-const paymentActionTools: ToolDefinition[] = [
-  {
-    name: "createPayment",
-    description: "Create a new payment record.",
-    category: "payment",
-    parameters: {
-      amount: { type: "number", description: "Payment amount" },
-      currency: { type: "string", description: "Currency code (e.g., USD)" },
-      status: { type: "string", description: "Payment status", enum: ["pending", "paid", "overdue", "cancelled"] },
-      description: { type: "string", description: "Payment description" },
-      dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
-      projectId: { type: "string", description: "Associated project ID" },
-      clientId: { type: "string", description: "Associated client ID" },
-    },
-    requiredParams: ["amount", "currency"],
-  },
-  {
-    name: "updatePayment",
-    description: "Update a payment record.",
-    category: "payment",
-    parameters: {
-      paymentId: { type: "string", description: "The payment ID" },
-      amount: { type: "number", description: "New amount" },
-      status: { type: "string", description: "New status" },
-      description: { type: "string", description: "New description" },
-      dueDate: { type: "string", description: "New due date" },
-      paidAt: { type: "string", description: "Paid timestamp" },
-    },
-    requiredParams: ["paymentId"],
-  },
-  {
-    name: "deletePayment",
-    description: "Delete a payment record.",
-    category: "payment",
-    parameters: {
-      paymentId: { type: "string", description: "The payment ID to delete" },
-    },
-    requiredParams: ["paymentId"],
-  },
-];
 
 // ============================================================================
 // EXPORT ALL TOOLS
@@ -1042,8 +1158,8 @@ export const allTools: ToolDefinition[] = [
   ...clientActionTools,
   ...docActionTools,
   ...commentActionTools,
-  ...paymentActionTools,
 ];
+
 
 export const toolsByCategory: Record<ToolCategory, ToolDefinition[]> = {
   search: searchTools,
@@ -1059,8 +1175,127 @@ export const toolsByCategory: Record<ToolCategory, ToolDefinition[]> = {
   comment: commentActionTools,
   workspace: [], // Workspace actions are typically not exposed to AI
   file: [], // File actions require special handling
-  payment: paymentActionTools,
+  payment: [],
 };
+
+// Group tools by the primary entity they operate on.
+export type EntityToolGroup =
+  | "task"
+  | "project"
+  | "tab"
+  | "block"
+  | "table"
+  | "timeline"
+  | "doc"
+  | "client"
+  | "property"
+  | "file"
+  | "member"
+  | "tag"
+  | "cross_entity"
+  | "workspace";
+
+const toolLookup = new Map(allTools.map((tool) => [tool.name, tool]));
+
+const pickTools = (names: string[]): ToolDefinition[] =>
+  names.map((name) => toolLookup.get(name)).filter(Boolean) as ToolDefinition[];
+
+export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
+  task: pickTools([
+    "searchTasks",
+    "createTaskItem",
+    "updateTaskItem",
+    "deleteTaskItem",
+    "bulkMoveTaskItems",
+    "duplicateTasksToBlock",
+    "createTaskBoardFromTasks",
+    "setTaskAssignees",
+    "bulkSetTaskAssignees",
+    "setTaskTags",
+    "createTaskSubtask",
+    "updateTaskSubtask",
+    "deleteTaskSubtask",
+    "createTaskComment",
+  ]),
+  project: pickTools(["searchProjects", "createProject", "updateProject", "deleteProject"]),
+  tab: pickTools(["searchTabs", "createTab", "updateTab", "deleteTab"]),
+  block: pickTools(["searchBlocks", "createBlock", "updateBlock", "deleteBlock"]),
+  table: pickTools([
+    "searchTables",
+    "searchTableRows",
+    "getTableSchema",
+    "createTable",
+    "createField",
+    "updateField",
+    "deleteField",
+    "createRow",
+    "updateRow",
+    "updateCell",
+    "deleteRow",
+    "deleteRows",
+    "bulkInsertRows",
+    "bulkUpdateRows",
+    "updateTableRowsByFieldNames",
+    "createComment",
+    "updateComment",
+    "deleteComment",
+  ]),
+  timeline: pickTools([
+    "searchTimelineEvents",
+    "createTimelineEvent",
+    "updateTimelineEvent",
+    "deleteTimelineEvent",
+    "createTimelineDependency",
+    "deleteTimelineDependency",
+  ]),
+  doc: pickTools(["searchDocs", "searchDocContent", "createDoc", "updateDoc", "archiveDoc", "deleteDoc"]),
+  client: pickTools(["searchClients", "createClient", "updateClient", "deleteClient"]),
+  property: pickTools([
+    "createPropertyDefinition",
+    "updatePropertyDefinition",
+    "deletePropertyDefinition",
+    "setEntityProperty",
+    "removeEntityProperty",
+  ]),
+  file: pickTools(["searchFiles"]),
+  member: pickTools(["searchWorkspaceMembers"]),
+  tag: pickTools(["searchTags"]),
+  cross_entity: pickTools(["searchAll", "resolveEntityByName", "getEntityById", "getEntityContext"]),
+  workspace: [],
+};
+
+// ============================================================================
+// CORE TOOLS - Always Included
+// ============================================================================
+
+/**
+ * Core tools that are always included regardless of intent.
+ * These are essential search and resolution tools needed for basic operations.
+ */
+export const coreTools: ToolDefinition[] = pickTools([
+  // Cross-entity search and resolution
+  "searchAll",
+  "resolveEntityByName",
+  "getEntityById",
+  "getEntityContext",
+
+  // Entity-specific searches (read-only, always useful)
+  "searchTasks",
+  "searchProjects",
+  "searchTabs",
+  "searchWorkspaceMembers",
+  "searchClients",
+  "searchTables",
+  "searchBlocks",
+  "searchDocs",
+  "searchFiles",
+  "searchTimelineEvents",
+  "searchTableRows",
+  "searchTags",
+
+  // Table schema (read-only, needed for understanding table structure)
+  "getTableSchema",
+]);
 
 // ============================================================================
 // FORMAT CONVERTERS
@@ -1152,4 +1387,107 @@ export function getToolByName(name: string): ToolDefinition | undefined {
  */
 export function getToolNames(): string[] {
   return allTools.map((tool) => tool.name);
+}
+
+// ============================================================================
+// SMART TOOL LOADING - Get tools by group
+// ============================================================================
+
+export type ToolGroup =
+  | "core"
+  | "task"
+  | "project"
+  | "table"
+  | "timeline"
+  | "block"
+  | "tab"
+  | "doc"
+  | "client"
+  | "property"
+  | "comment";
+
+/**
+ * Get tools for specific groups.
+ * Always includes core tools, plus any additional groups specified.
+ */
+export function getToolsByGroups(groups: ToolGroup[]): ToolDefinition[] {
+  const toolSet = new Set<ToolDefinition>();
+
+  // Always include core tools
+  coreTools.forEach((tool) => toolSet.add(tool));
+
+  // Add tools for each requested group
+  for (const group of groups) {
+    if (group === "core") {
+      continue; // Already added
+    }
+
+    const groupTools = getToolsForGroup(group);
+    groupTools.forEach((tool) => toolSet.add(tool));
+  }
+
+  return Array.from(toolSet);
+}
+
+/**
+ * Get tools for a specific group (excluding core tools)
+ */
+function getToolsForGroup(group: ToolGroup): ToolDefinition[] {
+  switch (group) {
+    case "core":
+      return coreTools;
+
+    case "task":
+      return taskActionTools;
+
+    case "project":
+      return projectActionTools;
+
+    case "table":
+      return tableActionTools;
+
+    case "timeline":
+      return timelineActionTools;
+
+    case "block":
+      return blockActionTools;
+
+    case "tab":
+      return tabActionTools;
+
+    case "doc":
+      return docActionTools;
+
+    case "client":
+      return clientActionTools;
+
+    case "property":
+      return propertyActionTools;
+
+    case "comment":
+      return commentActionTools;
+
+    default:
+      return [];
+  }
+}
+
+/**
+ * Get a summary of tool counts by group (for debugging)
+ */
+export function getToolCountsByGroup(): Record<ToolGroup | "total", number> {
+  return {
+    core: coreTools.length,
+    task: taskActionTools.length,
+    project: projectActionTools.length,
+    table: tableActionTools.length,
+    timeline: timelineActionTools.length,
+    block: blockActionTools.length,
+    tab: tabActionTools.length,
+    doc: docActionTools.length,
+    client: clientActionTools.length,
+    property: propertyActionTools.length,
+    comment: commentActionTools.length,
+    total: allTools.length,
+  };
 }

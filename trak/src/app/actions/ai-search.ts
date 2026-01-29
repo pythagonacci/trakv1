@@ -864,6 +864,15 @@ export async function searchTasks(params: {
           dueDatePropDef.id,
           params.dueDate
         );
+
+        // CRITICAL FIX: Intersect with other property filters to maintain AND semantics
+        // Without this, due date filter uses OR logic, returning tasks that match
+        // due date OR other filters, instead of due date AND other filters
+        if (matchingTaskIds !== null) {
+          dueDatePropertyIds = intersectIds(matchingTaskIds, dueDatePropertyIds);
+          // Update matchingTaskIds to include the due date filter
+          matchingTaskIds = dueDatePropertyIds;
+        }
       }
     }
 
@@ -2113,7 +2122,7 @@ export async function searchTableRows(params: {
 
   // Determine if we need post-query filtering
   const projectFilter = normalizeArrayFilter(params.projectId);
-  const hasPostFilters = !!(projectFilter || params.fieldFilters);
+  const hasPostFilters = !!(projectFilter || params.fieldFilters || params.searchText);
 
   // Overfetch when post-filtering is needed
   const fetchLimit = hasPostFilters ? limit * 10 : limit;
@@ -2130,11 +2139,6 @@ export async function searchTableRows(params: {
     const tableFilter = normalizeArrayFilter(params.tableId);
     if (tableFilter) {
       query = query.in("table_id", tableFilter);
-    }
-
-    // Text search on JSONB data
-    if (params.searchText) {
-      query = query.ilike("data::text", `%${params.searchText}%`);
     }
 
     const { data, error } = await query.order("order").limit(fetchLimit);
@@ -2255,6 +2259,31 @@ export async function searchTableRows(params: {
           }
         }
         return true;
+      });
+    }
+
+    // Filter by search text across row data (post-query)
+    if (params.searchText) {
+      const searchLower = params.searchText.toLowerCase();
+      results = results.filter((r: Record<string, unknown>) => {
+        const rowData = r.data as Record<string, unknown>;
+        return Object.values(rowData).some((value) => {
+          if (value === null || value === undefined) return false;
+          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            return String(value).toLowerCase().includes(searchLower);
+          }
+          if (Array.isArray(value)) {
+            return value.some((v) => String(v).toLowerCase().includes(searchLower));
+          }
+          if (typeof value === "object") {
+            try {
+              return JSON.stringify(value).toLowerCase().includes(searchLower);
+            } catch {
+              return false;
+            }
+          }
+          return false;
+        });
       });
     }
 

@@ -8,10 +8,11 @@
  * 4. Returns the final response
  */
 
-import { allTools, toOpenAIFormat } from "./tool-definitions";
+import { allTools, toOpenAIFormat, getToolsByGroups } from "./tool-definitions";
 import { getSystemPrompt } from "./system-prompt";
 import { executeTool, type ToolCall, type ToolCallResult } from "./tool-executor";
 import { aiDebug } from "./debug";
+import { classifyIntent } from "./intent-classifier";
 
 // ============================================================================
 // TYPES
@@ -52,6 +53,7 @@ export interface ExecutionContext {
   userName?: string;
   currentProjectId?: string;
   currentTabId?: string;
+  contextTableId?: string;
 }
 
 interface ChatCompletionResponse {
@@ -82,8 +84,8 @@ interface ChatCompletionResponse {
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-chat";
-const MAX_TOOL_ITERATIONS = 10; // Prevent infinite loops
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+const MAX_TOOL_ITERATIONS = 25; // Prevent infinite loops
 const TOOL_REPEAT_THRESHOLD = 2;
 
 // ============================================================================
@@ -101,6 +103,7 @@ export async function executeAICommand(
 ): Promise<ExecutionResult> {
   const openAIKey = process.env.OPENAI_API_KEY;
   const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const providerPref = (process.env.AI_PROVIDER || "").toLowerCase();
 
   if (!openAIKey && !deepseekKey) {
     return {
@@ -130,8 +133,28 @@ export async function executeAICommand(
     { role: "user", content: userCommand },
   ];
 
+  // Classify intent to determine which tools are needed
+  const intent = classifyIntent(userCommand);
+  const relevantTools = getToolsByGroups(intent.toolGroups);
+
   // Get tools in OpenAI format (compatible with Deepseek)
-  const tools = toOpenAIFormat(allTools);
+  const tools = toOpenAIFormat(relevantTools);
+  const provider =
+    providerPref === "deepseek"
+      ? deepseekKey
+        ? "deepseek"
+        : openAIKey
+          ? "openai"
+          : "deepseek"
+      : providerPref === "openai"
+        ? openAIKey
+          ? "openai"
+          : deepseekKey
+            ? "deepseek"
+            : "openai"
+        : openAIKey
+          ? "openai"
+          : "deepseek";
   aiDebug("executeAICommand:start", {
     command: userCommand,
     workspaceId: context.workspaceId,
@@ -139,14 +162,40 @@ export async function executeAICommand(
     currentProjectId: context.currentProjectId,
     currentTabId: context.currentTabId,
     historyCount: conversationHistory.length,
+    intent: {
+      toolGroups: intent.toolGroups,
+      confidence: intent.confidence,
+      reasoning: intent.reasoning,
+    },
     toolCount: tools.length,
-    provider: openAIKey ? "openai" : "deepseek",
+    toolCountReduction: `${allTools.length} → ${relevantTools.length} (${Math.round((1 - relevantTools.length / allTools.length) * 100)}% reduction)`,
+    provider,
   });
 
   // Track all tool calls made
   const allToolCallsMade: ExecutionResult["toolCallsMade"] = [];
   let lastToolSignature: string | null = null;
   let lastToolRepeatCount = 0;
+  let lastToolName: string | null = null;
+  let lastSearchTaskIds: string[] | null = null;
+  const contextTableId = context.contextTableId;
+  const tableIdTools = new Set([
+    "getTableSchema",
+    "searchTableRows",
+    "createField",
+    "updateField",
+    "deleteField",
+    "createRow",
+    "updateRow",
+    "updateCell",
+    "deleteRow",
+    "deleteRows",
+    "bulkInsertRows",
+    "bulkUpdateRows",
+    "bulkDeleteRows",
+    "bulkDuplicateRows",
+    "updateTableRowsByFieldNames",
+  ]);
 
   // Iterate until we get a final response or hit max iterations
   let iterations = 0;
@@ -156,9 +205,10 @@ export async function executeAICommand(
     try {
       aiDebug("executeAICommand:iteration", { iterations });
       // Call the AI
-      const response = openAIKey
-        ? await callOpenAI(openAIKey, messages, tools)
-        : await callDeepseek(deepseekKey as string, messages, tools);
+      const response =
+        provider === "openai"
+          ? await callOpenAI(openAIKey as string, messages, tools)
+          : await callDeepseek(deepseekKey as string, messages, tools);
 
       if (!response.choices || response.choices.length === 0) {
         return {
@@ -196,6 +246,9 @@ export async function executeAICommand(
           } catch (e) {
             toolArgs = {};
           }
+          if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
+            toolArgs.tableId = contextTableId;
+          }
           if (
             toolName === "createTable" &&
             !("tabId" in toolArgs) &&
@@ -203,12 +256,25 @@ export async function executeAICommand(
           ) {
             toolArgs.tabId = context.currentTabId;
           }
+          if (
+            toolName === "createTaskBoardFromTasks" &&
+            lastToolName === "searchTasks" &&
+            Array.isArray(lastSearchTaskIds) &&
+            lastSearchTaskIds.length > 0
+          ) {
+            const existing = Array.isArray(toolArgs.taskIds) ? (toolArgs.taskIds as string[]) : [];
+            toolArgs.taskIds = Array.from(new Set([...existing, ...lastSearchTaskIds]));
+          }
           aiDebug("executeAICommand:toolCall", { tool: toolName, arguments: toolArgs });
 
           // Execute the tool
           const result = await executeTool({
             name: toolName,
             arguments: toolArgs,
+          }, {
+            workspaceId: context.workspaceId,
+            userId: context.userId,
+            contextTableId,
           });
           aiDebug("executeAICommand:toolResult", {
             tool: toolName,
@@ -222,6 +288,11 @@ export async function executeAICommand(
             arguments: toolArgs,
             result,
           });
+
+          lastToolName = toolName;
+          if (toolName === "searchTasks" && result.success && Array.isArray(result.data)) {
+            lastSearchTaskIds = result.data.map((task: any) => task.id).filter(Boolean);
+          }
 
           const toolSignature = `${toolName}:${JSON.stringify(toolArgs)}`;
           if (toolSignature === lastToolSignature) {
@@ -317,13 +388,22 @@ async function callDeepseek(
     },
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,
-      messages: messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.tool_calls && { tool_calls: m.tool_calls }),
-        ...(m.tool_call_id && { tool_call_id: m.tool_call_id }),
-        ...(m.name && { name: m.name }),
-      })),
+      messages: messages.map((m) => {
+        const base: Record<string, unknown> = {
+          role: m.role,
+          content: m.content,
+          ...(m.tool_calls && { tool_calls: m.tool_calls }),
+          ...(m.tool_call_id && { tool_call_id: m.tool_call_id }),
+          ...(m.name && { name: m.name }),
+        };
+
+        if (m.role === "assistant") {
+          const reasoning = (m as any).reasoning_content;
+          base.reasoning_content = typeof reasoning === "string" ? reasoning : "";
+        }
+
+        return base;
+      }),
       tools,
       tool_choice: "auto",
       temperature: 0.1, // Low temperature for more deterministic responses
@@ -429,7 +509,10 @@ export async function* executeAICommandStream(
     { role: "user", content: userCommand },
   ];
 
-  const tools = toOpenAIFormat(allTools);
+  // Classify intent to determine which tools are needed
+  const intent = classifyIntent(userCommand);
+  const relevantTools = getToolsByGroups(intent.toolGroups);
+  const tools = toOpenAIFormat(relevantTools);
   let iterations = 0;
 
   while (iterations < MAX_TOOL_ITERATIONS) {
@@ -471,6 +554,9 @@ export async function* executeAICommandStream(
           const result = await executeTool({
             name: toolName,
             arguments: toolArgs,
+          }, {
+            workspaceId: context.workspaceId,
+            userId: context.userId,
           });
 
           yield {
