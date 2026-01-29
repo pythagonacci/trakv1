@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getServerUser } from '@/lib/auth/get-server-user'
+import { safeRevalidatePath } from './workspace'
 
 // Type for client data
 type ClientData = {
@@ -50,7 +51,7 @@ export async function createClient(workspaceId: string, clientData: ClientData) 
     return { error: createError.message }
   }
 
-  revalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard')
   return { data: client }
 }
 
@@ -197,7 +198,7 @@ export async function updateClient(clientId: string, updates: Partial<ClientData
     return { error: updateError.message }
   }
 
-  revalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard')
   return { data: updatedClient }
 }
 
@@ -264,7 +265,7 @@ export async function deleteClient(clientId: string) {
     return { error: deleteError.message }
   }
 
-  revalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard')
   return { data: { success: true, message: 'Client deleted successfully' } }
 }
 

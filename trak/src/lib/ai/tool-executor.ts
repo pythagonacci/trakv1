@@ -39,6 +39,8 @@ import {
   updateTaskItem,
   deleteTaskItem,
   reorderTaskItems,
+  bulkMoveTaskItems,
+  duplicateTasksToBlock,
 } from "@/app/actions/tasks/item-actions";
 import { setTaskAssignees } from "@/app/actions/tasks/assignee-actions";
 import { setTaskTags } from "@/app/actions/tasks/tag-actions";
@@ -70,6 +72,7 @@ import {
   createBlock,
   updateBlock,
   deleteBlock,
+  getTabBlocks,
 } from "@/app/actions/block";
 
 // ============================================================================
@@ -173,6 +176,7 @@ export interface ToolCall {
 export interface ToolExecutionContext {
   workspaceId: string;
   userId?: string;
+  contextTableId?: string;
 }
 
 // ============================================================================
@@ -229,6 +233,72 @@ export async function executeTool(
         return await wrapResult(searchDocContent(args as any));
 
       case "searchTables":
+        if (context?.contextTableId) {
+          const schema = await getTableSchema({ tableId: context.contextTableId });
+          if (!schema.error && schema.data) {
+            return {
+              success: true,
+              data: [
+                {
+                  id: schema.data.id,
+                  title: schema.data.title,
+                  description: schema.data.description ?? null,
+                  icon: null,
+                  workspace_id: workspaceId,
+                  project_id: schema.data.project_id,
+                  project_name: schema.data.project_name ?? null,
+                  created_at: null,
+                  updated_at: null,
+                },
+              ],
+            };
+          }
+        }
+        if (context?.currentTabId) {
+          const tabBlocks = await getTabBlocks(context.currentTabId);
+          const tableIds = (tabBlocks.data ?? [])
+            .filter((block) => block.type === "table")
+            .map((block) => String((block.content as Record<string, unknown> | undefined)?.tableId || ""))
+            .filter((tableId) => tableId.length > 0);
+
+          if (tableIds.length > 0) {
+            const schemas = await Promise.all(
+              Array.from(new Set(tableIds)).map(async (tableId) => ({
+                tableId,
+                schema: await getTableSchema({ tableId }),
+              }))
+            );
+
+            const mapped = schemas
+              .filter((entry) => !entry.schema.error && entry.schema.data)
+              .map((entry) => {
+                const schema = entry.schema.data!;
+                return {
+                  id: schema.id,
+                  title: schema.title,
+                  description: schema.description ?? null,
+                  icon: null,
+                  workspace_id: workspaceId,
+                  project_id: schema.project_id,
+                  project_name: schema.project_name ?? null,
+                  created_at: null,
+                  updated_at: null,
+                };
+              });
+
+            const searchText = String((args as Record<string, unknown>)?.searchText || "").trim().toLowerCase();
+            if (searchText.length > 0) {
+              const filtered = mapped.filter((table) =>
+                table.title.toLowerCase().includes(searchText)
+              );
+              if (filtered.length > 0) {
+                return { success: true, data: filtered };
+              }
+            } else if (mapped.length > 0) {
+              return { success: true, data: mapped };
+            }
+          }
+        }
         return await wrapResult(searchTables(args as any));
 
       case "searchTableRows":
@@ -262,9 +332,10 @@ export async function executeTool(
       // TASK ACTIONS
       // ==================================================================
       case "createTaskItem":
-        return await wrapResult(
-          createTaskItem({
-            taskBlockId: args.taskBlockId as string,
+        {
+          const taskBlockId = args.taskBlockId as string;
+          const payload = {
+            taskBlockId,
             title: args.title as string,
             status: args.status as any,
             priority: args.priority as any,
@@ -272,8 +343,106 @@ export async function executeTool(
             dueDate: args.dueDate as string | undefined,
             dueTime: args.dueTime as string | undefined,
             startDate: args.startDate as string | undefined,
-          })
-        );
+          };
+
+          const directResult = await createTaskItem(payload);
+          if (!("error" in directResult)) {
+            return { success: true, data: directResult.data };
+          }
+
+          if (directResult.error === "Task block not found") {
+            const tabResult = await getEntityById({
+              entityType: "tab",
+              id: taskBlockId,
+            });
+
+            if (!tabResult.error && tabResult.data) {
+              // Reuse existing task block in this tab if available
+              const existingBlocks = await searchBlocks({
+                type: "task",
+                tabId: taskBlockId,
+                limit: 1,
+              });
+              const existingBlockId = existingBlocks.data?.[0]?.id;
+
+              if (!existingBlockId) {
+                const blockResult = await createBlock({
+                  tabId: taskBlockId,
+                  type: "task",
+                  content: undefined,
+                });
+                if ("error" in blockResult) {
+                  return { success: false, error: blockResult.error ?? "Failed to create task block" };
+                }
+
+                const retryResult = await createTaskItem({
+                  ...payload,
+                  taskBlockId: blockResult.data.id,
+                });
+
+                if (!("error" in retryResult)) {
+                  return { success: true, data: retryResult.data };
+                }
+
+                return { success: false, error: retryResult.error ?? "Failed to create task" };
+              }
+
+              const retryResult = await createTaskItem({
+                ...payload,
+                taskBlockId: existingBlockId,
+              });
+
+              if (!("error" in retryResult)) {
+                return { success: true, data: retryResult.data };
+              }
+
+              return { success: false, error: retryResult.error ?? "Failed to create task" };
+            }
+          }
+
+          if (directResult.error === "Block is not a task block") {
+            const blockResult = await getEntityById({
+              entityType: "block",
+              id: taskBlockId,
+            });
+
+            const tabId = blockResult.data?.context?.tab_id;
+            if (tabId) {
+              const existingBlocks = await searchBlocks({
+                type: "task",
+                tabId,
+                limit: 1,
+              });
+              const existingBlockId = existingBlocks.data?.[0]?.id;
+              let taskBlockIdToUse = existingBlockId;
+
+              if (!taskBlockIdToUse) {
+                const blockResult = await createBlock({
+                  tabId,
+                  type: "task",
+                  content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+                });
+                if ("error" in blockResult) {
+                  return { success: false, error: blockResult.error ?? "Failed to create task block" };
+                }
+                taskBlockIdToUse = blockResult.data?.id;
+              }
+
+              if (taskBlockIdToUse) {
+                const retryResult = await createTaskItem({
+                  ...payload,
+                  taskBlockId: taskBlockIdToUse,
+                });
+                if (!("error" in retryResult)) {
+                  return { success: true, data: retryResult.data };
+                }
+                return { success: false, error: retryResult.error ?? "Failed to create task" };
+              }
+            }
+          }
+
+          return { success: false, error: directResult.error ?? "Failed to create task" };
+        }
 
       case "updateTaskItem":
         return await wrapResult(
@@ -290,6 +459,91 @@ export async function executeTool(
 
       case "deleteTaskItem":
         return await wrapResult(deleteTaskItem(args.taskId as string));
+
+      case "bulkMoveTaskItems":
+        return await wrapResult(
+          bulkMoveTaskItems({
+            taskIds: args.taskIds as string[],
+            targetBlockId: args.targetBlockId as string,
+          })
+        );
+
+      case "duplicateTasksToBlock":
+        return await wrapResult(duplicateTasksToBlock(args as any));
+
+      case "createTaskBoardFromTasks":
+        {
+          let taskIds = Array.isArray(args.taskIds) ? (args.taskIds as string[]) : [];
+          const tabId = (args.tabId as string | undefined) || context?.currentTabId;
+          if (!tabId) {
+            return { success: false, error: "Missing tabId for createTaskBoardFromTasks." };
+          }
+
+          const assigneeId = args.assigneeId as string | undefined;
+          const assigneeName = args.assigneeName as string | undefined;
+          const sourceProjectId = args.sourceProjectId as string | undefined;
+          const sourceTabId = args.sourceTabId as string | undefined;
+          const searchLimit = typeof args.limit === "number" ? args.limit : 500;
+
+          if (assigneeId || assigneeName || sourceProjectId || sourceTabId) {
+            const searchResult = await searchTasks({
+              assigneeId,
+              assigneeName,
+              projectId: sourceProjectId,
+              tabId: sourceTabId,
+              limit: searchLimit,
+            });
+
+            if (!searchResult.error && searchResult.data) {
+              const fromSearch = searchResult.data.map((task) => task.id);
+              taskIds = Array.from(new Set([...taskIds, ...fromSearch]));
+            }
+          }
+
+          if (taskIds.length === 0) {
+            return { success: false, error: "No tasks found for createTaskBoardFromTasks." };
+          }
+
+          const blockTitle = (args.title as string | undefined) || "Task Board";
+          const viewMode = (args.viewMode as string | undefined) || "board";
+          const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
+
+          const createBlockResult = await createBlock({
+            tabId,
+            type: "task",
+            content: { title: blockTitle, hideIcons: false, viewMode, boardGroupBy },
+          });
+
+          if ("error" in createBlockResult) {
+            return { success: false, error: createBlockResult.error ?? "Failed to create task block" };
+          }
+
+          const taskBlockId = createBlockResult.data?.id;
+          if (!taskBlockId) {
+            return { success: false, error: "Failed to create task block." };
+          }
+
+          const dupResult = await duplicateTasksToBlock({
+            targetBlockId: taskBlockId,
+            taskIds,
+            includeAssignees: args.includeAssignees as boolean | undefined,
+            includeTags: args.includeTags as boolean | undefined,
+          });
+
+          if ("error" in dupResult) {
+            return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
+          }
+
+          return {
+            success: true,
+            data: {
+              taskBlockId,
+              createdCount: dupResult.data.createdCount,
+              createdTaskIds: dupResult.data.createdTaskIds,
+              skipped: dupResult.data.skipped,
+            },
+          };
+        }
 
       case "setTaskAssignees":
         if (!args.taskId || !Array.isArray(args.assignees)) {
@@ -336,6 +590,69 @@ export async function executeTool(
             assigneeResult.resolved
           )
         );
+
+      case "bulkSetTaskAssignees":
+        if (!Array.isArray(args.taskIds) || args.taskIds.length === 0 || !Array.isArray(args.assignees)) {
+          return {
+            success: false,
+            error:
+              "Missing taskIds or assignees array for bulkSetTaskAssignees. Required format: bulkSetTaskAssignees({ taskIds: [...], assignees: [{id: 'user-uuid', name: 'User Name'}] }).",
+          };
+        }
+        {
+          const taskIds = (args.taskIds as Array<string>).filter(Boolean);
+          if (taskIds.length === 0) {
+            return { success: false, error: "bulkSetTaskAssignees requires at least one taskId." };
+          }
+
+          const assigneesArray = args.assignees as Array<Record<string, unknown>>;
+          const invalidAssignees = assigneesArray.filter(
+            (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
+          );
+          if (invalidAssignees.length > 0) {
+            return {
+              success: false,
+              error:
+                "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
+            };
+          }
+
+          const assigneeResult = await resolveTaskAssignees(assigneesArray);
+
+          if (assigneeResult.ambiguities.length > 0) {
+            const ambiguityDetails = assigneeResult.ambiguities
+              .map((amb) => {
+                const matchList = amb.matches
+                  .map((m) => `  - ${m.name} (${m.email})`)
+                  .join("\n");
+                return `"${amb.input}" matches multiple workspace members:\n${matchList}`;
+              })
+              .join("\n\n");
+
+            return {
+              success: false,
+              error: `Ambiguous assignees found. Please specify which person you meant:\n\n${ambiguityDetails}\n\nTip: Use searchWorkspaceMembers to get the exact user ID, or provide a more specific name.`,
+            };
+          }
+
+          const failures: Array<{ taskId: string; error: string }> = [];
+          for (const taskId of taskIds) {
+            const result = await setTaskAssignees(taskId, assigneeResult.resolved);
+            if ("error" in result) {
+              failures.push({ taskId, error: result.error });
+            }
+          }
+
+          if (failures.length > 0) {
+            return {
+              success: false,
+              error: `Failed to update ${failures.length} task(s).`,
+              data: { updatedCount: taskIds.length - failures.length, failures },
+            };
+          }
+
+          return { success: true, data: { updatedCount: taskIds.length } };
+        }
 
       case "setTaskTags":
         return await wrapResult(
@@ -719,9 +1036,6 @@ export async function executeTool(
         if (!tableId) {
           return { success: false, error: "Missing tableId for updateTableRowsByFieldNames." };
         }
-        if (!filters || Object.keys(filters).length === 0) {
-          return { success: false, error: "filters are required to match rows for updateTableRowsByFieldNames." };
-        }
         if (!updates || Object.keys(updates).length === 0) {
           return { success: false, error: "updates are required for updateTableRowsByFieldNames." };
         }
@@ -776,20 +1090,27 @@ export async function executeTool(
           return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
         }
 
-        const matchedRowIds = rowsResult.data
-          .filter((row) => matchesRowFilters(row.data, filters, resolveField))
-          .map((row) => row.id);
+        const applyAllRows = !filters || Object.keys(filters).length === 0;
+        const matchedRowIds = applyAllRows
+          ? rowsResult.data.map((row) => row.id)
+          : rowsResult.data
+              .filter((row) => matchesRowFilters(row.data, filters, resolveField))
+              .map((row) => row.id);
 
         if (matchedRowIds.length === 0) {
           // Provide detailed context when no rows match
-          const filterSummary = Object.entries(filters)
-            .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-            .join(", ");
+          const filterSummary = filters
+            ? Object.entries(filters)
+                .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+                .join(", ")
+            : "";
 
           return {
             success: true,
             data: { updated: 0, rowIds: [], totalRowsScanned: rowsResult.data.length },
-            hint: `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map(f => f.name).join(", ")}`,
+            hint: applyAllRows
+              ? `No rows found to update. Scanned ${rowsResult.data.length} rows.`
+              : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map(f => f.name).join(", ")}`,
           };
         }
 

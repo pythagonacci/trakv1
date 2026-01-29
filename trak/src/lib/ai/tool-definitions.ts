@@ -358,10 +358,16 @@ const searchTools: ToolDefinition[] = [
 const taskActionTools: ToolDefinition[] = [
   {
     name: "createTaskItem",
-    description: "CREATE a new task item. Use to add a task to a task block. Required: taskBlockId (from searchBlocks with type='task') and title. Returns: New task object with ID. Use this for creating individual tasks.",
+    description:
+      "CREATE a new task item. Use to add a task to a TASK BLOCK (not a tab).\n\n" +
+      "Required: taskBlockId (from searchBlocks with type='task') and title.\n\n" +
+      "IMPORTANT:\n" +
+      "- taskBlockId must be a block ID of type 'task'\n" +
+      "- If you only have a tabId, first create a task block with createBlock(type: 'task', tabId), then use its id here.\n\n" +
+      "Returns: New task object with ID. Use this for creating individual tasks.",
     category: "task",
     parameters: {
-      taskBlockId: { type: "string", description: "The task block ID to create the task in" },
+      taskBlockId: { type: "string", description: "The task block ID (block type 'task'). If you only have a tabId, create a task block first and use its id." },
       title: { type: "string", description: "Task title" },
       status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "done"] },
       priority: { type: "string", description: "Task priority", enum: ["low", "medium", "high", "urgent"] },
@@ -389,6 +395,62 @@ const taskActionTools: ToolDefinition[] = [
     requiredParams: ["taskId"],
   },
   {
+    name: "bulkMoveTaskItems",
+    description:
+      "MOVE multiple tasks to a single task block. Use to consolidate tasks into one block (e.g., all tasks in a tab into a single list). Requires taskIds array and targetBlockId (task block id). Updates task_block_id, tab_id, project_id, and order in the destination block.",
+    category: "task",
+    parameters: {
+      taskIds: { type: "array", description: "Array of task IDs to move", items: { type: "string" } },
+      targetBlockId: { type: "string", description: "The destination task block ID (block type 'task')" },
+    },
+    requiredParams: ["taskIds", "targetBlockId"],
+  },
+  {
+    name: "duplicateTasksToBlock",
+    description:
+      "DUPLICATE tasks into another task block WITHOUT moving originals. Use to create a new task list/board while keeping the originals in place. Copies title, status, priority, description, dates, and optionally assignees/tags.\n\n" +
+      "Inputs:\n" +
+      "- taskIds: array of task IDs to duplicate (from searchTasks)\n" +
+      "- targetBlockId: destination task block id\n" +
+      "- includeAssignees/includeTags: optional booleans (default true)\n\n" +
+      "Returns: createdCount, createdTaskIds, skipped.",
+    category: "task",
+    parameters: {
+      taskIds: { type: "array", description: "Array of task IDs to duplicate", items: { type: "string" } },
+      targetBlockId: { type: "string", description: "Destination task block ID (block type 'task')" },
+      includeAssignees: { type: "boolean", description: "Copy assignees to duplicated tasks (default true)" },
+      includeTags: { type: "boolean", description: "Copy tags to duplicated tasks (default true)" },
+    },
+    requiredParams: ["taskIds", "targetBlockId"],
+  },
+  {
+    name: "createTaskBoardFromTasks",
+    description:
+      "CREATE a new TASK BOARD from existing tasks. This creates a NEW task block in a tab, duplicates the provided tasks into it (leaving originals untouched), and sets the block to board view.\n\n" +
+      "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.\n\n" +
+      "Defaults: viewMode=board, boardGroupBy=status.",
+    category: "task",
+    parameters: {
+      tabId: { type: "string", description: "Tab to create the task board in (defaults to current tab if omitted)" },
+      title: { type: "string", description: "New task board title" },
+      taskIds: { type: "array", description: "Task IDs to duplicate into the new board", items: { type: "string" } },
+      assigneeId: { type: "string", description: "If provided, auto-include ALL tasks assigned to this user ID" },
+      assigneeName: { type: "string", description: "If provided, auto-include ALL tasks assigned to this name" },
+      sourceProjectId: { type: "string", description: "Optional project scope for source tasks" },
+      sourceTabId: { type: "string", description: "Optional tab scope for source tasks" },
+      limit: { type: "number", description: "Max tasks to include when using assignee filters (default 500)" },
+      viewMode: { type: "string", enum: ["board", "list"], description: "Task block view mode (default board)" },
+      boardGroupBy: {
+        type: "string",
+        enum: ["status", "priority", "assignee", "dueDate", "tags"],
+        description: "Board grouping (default status)",
+      },
+      includeAssignees: { type: "boolean", description: "Copy assignees to duplicated tasks (default true)" },
+      includeTags: { type: "boolean", description: "Copy tags to duplicated tasks (default true)" },
+    },
+    requiredParams: ["taskIds"],
+  },
+  {
     name: "deleteTaskItem",
     description: "DELETE a task permanently. Use to remove a task. Required: taskId. ⚠️ Cannot be undone. Returns: Success confirmation.",
     category: "task",
@@ -399,7 +461,9 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "setTaskAssignees",
-    description: "SET/REPLACE task assignees. ⚠️ CRITICAL WORKFLOW: 1) Call searchWorkspaceMembers to get {user_id, name, email}. 2) Use user_id as 'id' and name as 'name'. 3) Call this with [{id: user_id, name: name}]. BOTH fields required for workspace members! For external assignees: [{name: 'External'}] only. Replaces ALL current assignees.",
+    description:
+      "SET/REPLACE task assignees. ⚠️ CRITICAL WORKFLOW: 1) Call searchWorkspaceMembers to get {user_id, name, email}. 2) Use user_id as 'id' and name as 'name'. 3) Call this with [{id: user_id, name: name}]. BOTH fields required for workspace members! For external assignees: [{name: 'External'}] only. Replaces ALL current assignees.\n\n" +
+      "For many tasks, prefer bulkSetTaskAssignees to avoid one call per task.",
     category: "task",
     parameters: {
       taskId: {
@@ -413,6 +477,27 @@ const taskActionTools: ToolDefinition[] = [
       },
     },
     requiredParams: ["taskId", "assignees"],
+  },
+  {
+    name: "bulkSetTaskAssignees",
+    description:
+      "SET/REPLACE assignees for MANY tasks in one call. Use when assigning the same assignee(s) to multiple tasks. Requires taskIds array and assignees array (same format as setTaskAssignees). Replaces ALL current assignees for each task.\n\n" +
+      "Workflow: 1) searchTasks to get taskIds, 2) searchWorkspaceMembers to get {user_id, name}, 3) bulkSetTaskAssignees({ taskIds, assignees: [{id: user_id, name}] }).",
+    category: "task",
+    parameters: {
+      taskIds: {
+        type: "array",
+        description: "Array of task IDs to update",
+        items: { type: "string" },
+      },
+      assignees: {
+        type: "array",
+        description:
+          "Array of assignee objects. For workspace members, each object requires BOTH 'id' (string, user UUID) AND 'name' (string, display name). Get both fields from searchWorkspaceMembers. Example: [{id: 'uuid-from-search', name: 'John Doe'}]",
+        items: { type: "object" },
+      },
+    },
+    requiredParams: ["taskIds", "assignees"],
   },
   {
     name: "setTaskTags",
@@ -554,7 +639,11 @@ const tabActionTools: ToolDefinition[] = [
 const blockActionTools: ToolDefinition[] = [
   {
     name: "createBlock",
-    description: "Create a new block in a tab. Block type determines what content to provide.",
+    description:
+      "Create a new block in a tab. Block type determines what content to provide.\n\n" +
+      "Important:\n" +
+      "- Tasks live inside a TASK BLOCK, not directly in a tab.\n" +
+      "- If you need to create tasks in a tab and no task block exists, create one with type: \"task\" first, then use its id as taskBlockId for createTaskItem.",
     category: "block",
     parameters: {
       tabId: { type: "string", description: "The tab ID to create the block in" },
@@ -760,6 +849,7 @@ const tableActionTools: ToolDefinition[] = [
       "✓ Filters rows + updates them in ONE call\n\n" +
       "Example: Mark all Republican states as High priority:\n" +
       "{ tableId: 'xxx', filters: { 'Party': 'Republican' }, updates: { 'Priority': 'High' } }\n\n" +
+      "To update ALL rows, omit filters or pass an empty object: { tableId, updates }.\n\n" +
       "⚠️ USE THIS instead of getTableSchema + bulkUpdateRows.\n" +
       "Returns: Updated row count and IDs.",
     category: "table",
@@ -777,7 +867,7 @@ const tableActionTools: ToolDefinition[] = [
       },
       limit: { type: "number", description: "Max rows to scan when matching filters (default 500)" },
     },
-    requiredParams: ["tableId", "filters", "updates"],
+    requiredParams: ["tableId", "updates"],
   },
 ];
 
@@ -1116,7 +1206,11 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
     "createTaskItem",
     "updateTaskItem",
     "deleteTaskItem",
+    "bulkMoveTaskItems",
+    "duplicateTasksToBlock",
+    "createTaskBoardFromTasks",
     "setTaskAssignees",
+    "bulkSetTaskAssignees",
     "setTaskTags",
     "createTaskSubtask",
     "updateTaskSubtask",

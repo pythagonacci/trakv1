@@ -21,6 +21,8 @@ interface AIContextValue {
   isLoading: boolean;
   executeCommand: (command: string) => Promise<void>;
   clearMessages: () => void;
+  contextBlock: AIBlockContext | null;
+  setContextBlock: (context: AIBlockContext | null) => void;
 }
 
 const AIContext = createContext<AIContextValue | null>(null);
@@ -37,10 +39,17 @@ interface AIProviderProps {
   children: React.ReactNode;
 }
 
+export interface AIBlockContext {
+  blockId: string;
+  type: string;
+  label: string;
+}
+
 export function AIProvider({ children }: AIProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [contextBlock, setContextBlock] = useState<AIBlockContext | null>(null);
 
   const openCommandPalette = useCallback(() => setIsOpen(true), []);
   const closeCommandPalette = useCallback(() => setIsOpen(false), []);
@@ -64,7 +73,7 @@ export function AIProvider({ children }: AIProviderProps) {
       const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify({ command, contextBlockId: contextBlock?.blockId || null }),
       });
 
       const result = await response.json();
@@ -90,7 +99,7 @@ export function AIProvider({ children }: AIProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [contextBlock]);
 
   // Global keyboard shortcut for CMD+K
   useEffect(() => {
@@ -121,6 +130,8 @@ export function AIProvider({ children }: AIProviderProps) {
         isLoading,
         executeCommand,
         clearMessages,
+        contextBlock,
+        setContextBlock,
       }}
     >
       {children}

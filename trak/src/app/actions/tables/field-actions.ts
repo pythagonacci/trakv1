@@ -27,13 +27,41 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  // Auto-populate default config for priority and status fields
+  let config = input.config || {};
+
+  if (input.type === "priority" && (!config || !("levels" in config) || !(config.levels as any)?.length)) {
+    // Generate default priority levels if not provided
+    config = {
+      ...config,
+      levels: [
+        { id: crypto.randomUUID(), label: "Critical", color: "#ef4444", order: 4 },
+        { id: crypto.randomUUID(), label: "High", color: "#f97316", order: 3 },
+        { id: crypto.randomUUID(), label: "Medium", color: "#3b82f6", order: 2 },
+        { id: crypto.randomUUID(), label: "Low", color: "#6b7280", order: 1 },
+      ],
+    };
+  }
+
+  if (input.type === "status" && (!config || !("options" in config) || !(config.options as any)?.length)) {
+    // Generate default status options if not provided
+    config = {
+      ...config,
+      options: [
+        { id: crypto.randomUUID(), label: "Not Started", color: "#6b7280" },
+        { id: crypto.randomUUID(), label: "In Progress", color: "#3b82f6" },
+        { id: crypto.randomUUID(), label: "Complete", color: "#10b981" },
+      ],
+    };
+  }
+
   const { data, error } = await supabase
     .from("table_fields")
     .insert({
       table_id: input.tableId,
       name: input.name || "Untitled Field",
       type: input.type,
-      config: input.config || {},
+      config,
       order: input.order ?? null,
       is_primary: input.isPrimary ?? false,
       width: input.width ?? null,

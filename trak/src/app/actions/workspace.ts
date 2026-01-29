@@ -3,15 +3,65 @@
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
-import { getServerUser } from '@/lib/auth/get-server-user'
+import { getServerUser, setTestUserContext as setServerUserTestContext, clearTestUserContext as clearServerUserTestContext } from '@/lib/auth/get-server-user'
 import { logger } from '@/lib/logger'
+import { setTestUserContext, clearTestUserContext } from '@/lib/auth-utils'
+import { enableTestMode, disableTestMode } from '@/lib/supabase/server'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
-// Get current workspace ID from cookie
+// Test context for running outside of Next.js request scope
+let testWorkspaceContext: { workspaceId: string; userId: string } | null = null;
+
+// Set test context (used by test harness)
+export async function setTestContext(workspaceId: string, userId: string) {
+  testWorkspaceContext = { workspaceId, userId };
+  await setTestUserContext(userId); // For auth-utils.ts
+  setServerUserTestContext(userId); // For get-server-user.ts
+  enableTestMode();
+}
+
+// Clear test context
+export async function clearTestContext() {
+  testWorkspaceContext = null;
+  await clearTestUserContext(); // For auth-utils.ts
+  clearServerUserTestContext(); // For get-server-user.ts
+  disableTestMode();
+}
+
+// Safe revalidation that works in both normal and test contexts
+export async function safeRevalidatePath(path: string) {
+  // Skip revalidation in test mode (only in test/dev environments)
+  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  if (testWorkspaceContext && isTestEnvironment) {
+    return;
+  }
+
+  // In normal Next.js request context, revalidate
+  try {
+    revalidatePath(path);
+  } catch (error) {
+    // Silently fail if revalidatePath can't be called
+    // (e.g., static generation store not available)
+  }
+}
+
+// Get current workspace ID from cookie (or test context if set)
 export async function getCurrentWorkspaceId(): Promise<string | null> {
-  const cookieStore = await cookies();
-  return cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value || null;
+  // Check if running in test context first (only in test/dev environments)
+  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  if (testWorkspaceContext && isTestEnvironment) {
+    return testWorkspaceContext.workspaceId;
+  }
+
+  // Try to get from cookies (normal Next.js request)
+  try {
+    const cookieStore = await cookies();
+    return cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value || null;
+  } catch (error) {
+    // If cookies() fails (not in request context), return null
+    return null;
+  }
 }
 
 // Update current workspace cookie

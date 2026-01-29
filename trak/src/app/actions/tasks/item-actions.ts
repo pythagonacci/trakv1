@@ -111,6 +111,250 @@ export async function updateTaskItem(
   return { data: data as TaskItem };
 }
 
+export async function bulkMoveTaskItems(input: {
+  taskIds: string[];
+  targetBlockId: string;
+}): Promise<ActionResult<{ movedCount: number; skipped: string[] }>> {
+  const access = await requireTaskBlockAccess(input.targetBlockId);
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, userId, block } = access;
+
+  const taskIds = Array.from(new Set((input.taskIds || []).filter(Boolean)));
+  if (taskIds.length === 0) return { data: { movedCount: 0, skipped: [] } };
+
+  const { data: tasks, error: tasksError } = await supabase
+    .from("task_items")
+    .select("id")
+    .in("id", taskIds)
+    .eq("workspace_id", block.workspace_id);
+
+  if (tasksError) return { error: "Failed to load tasks" };
+
+  const validTaskIds = new Set((tasks || []).map((t: any) => t.id));
+  const skipped = taskIds.filter((id) => !validTaskIds.has(id));
+  const toMove = taskIds.filter((id) => validTaskIds.has(id));
+
+  if (toMove.length === 0) return { data: { movedCount: 0, skipped } };
+
+  const { data: maxOrder } = await supabase
+    .from("task_items")
+    .select("display_order")
+    .eq("task_block_id", block.id)
+    .order("display_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const startOrder = maxOrder?.display_order ?? -1;
+  const updates = toMove.map((taskId, index) => ({
+    id: taskId,
+    task_block_id: block.id,
+    tab_id: block.tab_id,
+    project_id: block.project_id,
+    workspace_id: block.workspace_id,
+    display_order: startOrder + index + 1,
+    updated_by: userId,
+  }));
+
+  const { error: updateError } = await supabase
+    .from("task_items")
+    .upsert(updates, { onConflict: "id" });
+
+  if (updateError) return { error: "Failed to move tasks" };
+
+  return { data: { movedCount: toMove.length, skipped } };
+}
+
+export async function duplicateTasksToBlock(input: {
+  taskIds: string[];
+  targetBlockId: string;
+  includeAssignees?: boolean;
+  includeTags?: boolean;
+}): Promise<ActionResult<{ createdCount: number; createdTaskIds: string[]; skipped: string[] }>> {
+  const access = await requireTaskBlockAccess(input.targetBlockId);
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, userId, block } = access;
+
+  const taskIds = Array.from(new Set((input.taskIds || []).filter(Boolean)));
+  if (taskIds.length === 0) return { data: { createdCount: 0, createdTaskIds: [], skipped: [] } };
+
+  const { data: tasks, error: tasksError } = await supabase
+    .from("task_items")
+    .select(
+      "id, title, status, priority, description, due_date, due_time, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval"
+    )
+    .in("id", taskIds)
+    .eq("workspace_id", block.workspace_id);
+
+  if (tasksError) return { error: "Failed to load tasks" };
+
+  const taskMap = new Map<string, any>();
+  (tasks || []).forEach((task: any) => taskMap.set(task.id, task));
+
+  const orderedTasks = taskIds
+    .map((id) => taskMap.get(id))
+    .filter(Boolean);
+  const skipped = taskIds.filter((id) => !taskMap.has(id));
+
+  if (orderedTasks.length === 0) {
+    return { data: { createdCount: 0, createdTaskIds: [], skipped } };
+  }
+
+  const includeAssignees = input.includeAssignees !== false;
+  const includeTags = input.includeTags !== false;
+
+  let assigneeMap = new Map<string, Array<{ assignee_id: string | null; assignee_name: string | null }>>();
+  let assigneePropertyId: string | null = null;
+
+  if (includeAssignees) {
+    const { data: assignees } = await supabase
+      .from("task_assignees")
+      .select("task_id, assignee_id, assignee_name")
+      .in("task_id", orderedTasks.map((t: any) => t.id));
+
+    (assignees || []).forEach((row: any) => {
+      const list = assigneeMap.get(row.task_id) || [];
+      list.push({ assignee_id: row.assignee_id ?? null, assignee_name: row.assignee_name ?? null });
+      assigneeMap.set(row.task_id, list);
+    });
+
+    const { data: assigneeDef } = await supabase
+      .from("property_definitions")
+      .select("id")
+      .eq("workspace_id", block.workspace_id)
+      .eq("name", "Assignee")
+      .eq("type", "person")
+      .maybeSingle();
+
+    assigneePropertyId = assigneeDef?.id ?? null;
+
+    if (assigneePropertyId) {
+      const missingAssigneeTaskIds = orderedTasks
+        .map((t: any) => t.id)
+        .filter((taskId: string) => !assigneeMap.has(taskId));
+
+      if (missingAssigneeTaskIds.length > 0) {
+        const { data: assigneeProps } = await supabase
+          .from("entity_properties")
+          .select("entity_id, value")
+          .eq("workspace_id", block.workspace_id)
+          .eq("entity_type", "task")
+          .eq("property_definition_id", assigneePropertyId)
+          .in("entity_id", missingAssigneeTaskIds);
+
+        (assigneeProps || []).forEach((row: any) => {
+          const value = row.value as { id?: string | null; name?: string | null } | null;
+          if (value?.id || value?.name) {
+            assigneeMap.set(row.entity_id, [
+              {
+                assignee_id: value?.id ?? null,
+                assignee_name: value?.name ?? value?.id ?? null,
+              },
+            ]);
+          }
+        });
+      }
+    }
+  }
+
+  let tagMap = new Map<string, string[]>();
+  if (includeTags) {
+    const { data: tagLinks } = await supabase
+      .from("task_tag_links")
+      .select("task_id, tag_id")
+      .in("task_id", orderedTasks.map((t: any) => t.id));
+
+    (tagLinks || []).forEach((row: any) => {
+      const list = tagMap.get(row.task_id) || [];
+      list.push(row.tag_id);
+      tagMap.set(row.task_id, list);
+    });
+  }
+
+  const { data: maxOrder } = await supabase
+    .from("task_items")
+    .select("display_order")
+    .eq("task_block_id", block.id)
+    .order("display_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let nextOrder = maxOrder?.display_order ?? -1;
+  const createdTaskIds: string[] = [];
+
+  for (const task of orderedTasks) {
+    nextOrder += 1;
+    const { data: created, error: createError } = await supabase
+      .from("task_items")
+      .insert({
+        task_block_id: block.id,
+        workspace_id: block.workspace_id,
+        project_id: block.project_id,
+        tab_id: block.tab_id,
+        title: task.title,
+        status: task.status ?? "todo",
+        priority: task.priority ?? "none",
+        description: task.description ?? null,
+        due_date: task.due_date ?? null,
+        due_time: task.due_time ?? null,
+        start_date: task.start_date ?? null,
+        hide_icons: task.hide_icons ?? false,
+        display_order: nextOrder,
+        recurring_enabled: task.recurring_enabled ?? false,
+        recurring_frequency: task.recurring_frequency ?? null,
+        recurring_interval: task.recurring_interval ?? null,
+        created_by: userId,
+        updated_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (createError || !created) {
+      skipped.push(task.id);
+      continue;
+    }
+
+    createdTaskIds.push(created.id);
+
+    if (includeAssignees) {
+      const assignees = assigneeMap.get(task.id) || [];
+      if (assignees.length > 0) {
+        const payload = assignees.map((assignee) => ({
+          task_id: created.id,
+          assignee_id: assignee.assignee_id,
+          assignee_name: assignee.assignee_name || assignee.assignee_id || "Unknown",
+        }));
+        const { error: assigneeError } = await supabase.from("task_assignees").insert(payload);
+        if (assigneeError) return { error: "Failed to copy assignees" };
+
+        if (assigneePropertyId) {
+          const primary = assignees[0];
+          await supabase.from("entity_properties").insert({
+            workspace_id: block.workspace_id,
+            entity_type: "task",
+            entity_id: created.id,
+            property_definition_id: assigneePropertyId,
+            value: {
+              id: primary.assignee_id,
+              name: primary.assignee_name || primary.assignee_id || "Unknown",
+            },
+          });
+        }
+      }
+    }
+
+    if (includeTags) {
+      const tagIds = tagMap.get(task.id) || [];
+      if (tagIds.length > 0) {
+        const payload = tagIds.map((tagId) => ({ task_id: created.id, tag_id: tagId }));
+        const { error: tagError } = await supabase.from("task_tag_links").insert(payload);
+        if (tagError) return { error: "Failed to copy tags" };
+      }
+    }
+  }
+
+  return { data: { createdCount: createdTaskIds.length, createdTaskIds, skipped } };
+}
+
 export async function deleteTaskItem(taskId: string): Promise<ActionResult<null>> {
   const access = await requireTaskItemAccess(taskId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };

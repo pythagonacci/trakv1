@@ -13,6 +13,8 @@ export function AICommandPalette() {
     isLoading,
     executeCommand,
     clearMessages,
+    contextBlock,
+    setContextBlock,
   } = useAI();
 
   const [input, setInput] = useState("");
@@ -149,6 +151,20 @@ export function AICommandPalette() {
 
         {/* Input Area */}
         <form onSubmit={handleSubmit} className="p-4 border-t border-[var(--border)]">
+          {contextBlock && (
+            <div className="mb-3 flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2 text-xs text-[var(--foreground)]">
+              <span className="truncate">
+                Context: {contextBlock.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => setContextBlock(null)}
+                className="ml-3 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <div className="flex-1 relative">
               <input

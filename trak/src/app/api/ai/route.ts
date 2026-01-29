@@ -4,6 +4,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { aiDebug } from "@/lib/ai/debug";
+import { getBlockWithContext } from "@/app/actions/ai-context";
 
 /**
  * POST /api/ai
@@ -78,9 +79,10 @@ export async function POST(request: NextRequest) {
 
     // 4. Parse request body
     const body = await request.json();
-    const { command, conversationHistory } = body as {
+    const { command, conversationHistory, contextBlockId } = body as {
       command: string;
       conversationHistory?: AIMessage[];
+      contextBlockId?: string | null;
     };
 
     if (!command || typeof command !== "string") {
@@ -101,6 +103,49 @@ export async function POST(request: NextRequest) {
       historyCount: conversationHistory?.length ?? 0,
     });
 
+    let history: AIMessage[] = conversationHistory || [];
+    let contextTableId: string | undefined;
+
+    if (contextBlockId) {
+      const blockContext = await getBlockWithContext({ blockId: contextBlockId });
+      if (blockContext.data) {
+      const ctx = blockContext.data as any;
+      const block = ctx.block as { id: string; type: string; content?: Record<string, unknown> };
+      const blockType = block.type;
+      const tabName = ctx.tab?.name || "unknown tab";
+      const projectName = ctx.project?.name || "unknown project";
+      const content = (block.content || {}) as Record<string, unknown>;
+      const tableId = blockType === "table" ? String(content.tableId || "") : "";
+      const textSnippet =
+        blockType === "text"
+          ? String((content.text as string | undefined) || "").trim().slice(0, 300)
+          : "";
+
+        const contextLines = [
+          "Context: user selected a block. Use this as the target unless the user says otherwise.",
+          `- Block ID: ${block.id}`,
+          `- Block type: ${blockType}`,
+          `- Tab: ${tabName}`,
+          `- Project: ${projectName}`,
+        ];
+        if (tableId) {
+          contextLines.push(`- Table ID: ${tableId}`);
+          contextTableId = tableId;
+        }
+        if (textSnippet) {
+          contextLines.push(`- Text preview: ${textSnippet}`);
+        }
+
+        history = [
+          {
+            role: "system",
+            content: contextLines.join("\n"),
+          },
+          ...history,
+        ];
+      }
+    }
+
     // 5. Execute the AI command
     const result = await executeAICommand(
       command,
@@ -111,8 +156,9 @@ export async function POST(request: NextRequest) {
         userName,
         currentProjectId,
         currentTabId,
+        contextTableId,
       },
-      conversationHistory || []
+      history
     );
 
     aiDebug("api/ai:response", {

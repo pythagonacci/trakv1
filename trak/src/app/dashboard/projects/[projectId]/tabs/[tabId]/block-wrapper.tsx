@@ -20,6 +20,7 @@ import {
   Copy,
   Plus,
   Tags,
+  Sparkles,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -43,6 +44,7 @@ import {
   useEntityPropertiesWithInheritance,
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
+import { useAI } from "@/components/ai";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -74,6 +76,7 @@ export default function BlockWrapper({
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const { contextBlock, setContextBlock, openCommandPalette } = useAI();
 
   // Fetch properties for this block
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
@@ -112,6 +115,28 @@ export default function BlockWrapper({
     transition,
     opacity: isDragging ? 0.6 : 1,
   };
+
+  const contextLabel = (() => {
+    if (block.type === "text") {
+      const text = String((block.content as any)?.text || "").trim();
+      const preview = text ? text.slice(0, 60) : "Text block";
+      return `Text: ${preview}`;
+    }
+    if (block.type === "table") return "Table block";
+    if (block.type === "task") return "Task list";
+    if (block.type === "timeline") return "Timeline block";
+    if (block.type === "file") return "File block";
+    if (block.type === "image") return "Image block";
+    if (block.type === "video") return "Video block";
+    if (block.type === "gallery") return "Gallery block";
+    if (block.type === "embed") return "Embed block";
+    if (block.type === "section") return "Section block";
+    if (block.type === "link") return "Link block";
+    if (block.type === "pdf") return "PDF block";
+    return `${block.type} block`;
+  })();
+
+  const isContextBlock = contextBlock?.blockId === block.id;
 
   if (block.type === "divider") {
     return <div ref={setNodeRef} style={style}>{children}</div>;
@@ -190,6 +215,28 @@ export default function BlockWrapper({
           <div className="absolute -top-3 right-3 flex items-center gap-2 z-[60]">
             {!readOnly && (
               <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setContextBlock({
+                      blockId: block.id,
+                      type: block.type,
+                      label: contextLabel,
+                    });
+                    openCommandPalette();
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className={cn(
+                    "inline-flex items-center justify-center rounded-md border p-1.5 transition-colors",
+                    isContextBlock
+                      ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                  )}
+                  title={isContextBlock ? "AI context selected" : "Use as AI context"}
+                  aria-pressed={isContextBlock}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
