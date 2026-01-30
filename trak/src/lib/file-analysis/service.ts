@@ -8,6 +8,7 @@ import {
   MAX_INLINE_PAGES,
   MAX_INLINE_ROWS,
   MAX_INLINE_TOKENS,
+  OPENAI_EMBEDDING_DIM,
   RETRIEVAL_TOP_K,
 } from "./constants";
 import { getEmbedding } from "./embeddings";
@@ -169,12 +170,24 @@ export async function ensureFileChunks(
 ) {
   const { data: existing } = await supabase
     .from("file_analysis_chunks")
-    .select("id")
+    .select("id, embedding")
     .eq("artifact_id", artifact.id)
     .limit(1);
 
   if (existing && existing.length > 0) {
-    return;
+    const existingEmbedding = (existing[0] as { embedding?: number[] | null })?.embedding || null;
+    if (existingEmbedding && existingEmbedding.length === OPENAI_EMBEDDING_DIM) {
+      return;
+    }
+
+    const { error: deleteError } = await supabase
+      .from("file_analysis_chunks")
+      .delete()
+      .eq("artifact_id", artifact.id);
+    if (deleteError) {
+      logger.error("ensureFileChunks delete error:", deleteError);
+      return;
+    }
   }
 
   const chunks: { content: string; tokenCount: number }[] = [];

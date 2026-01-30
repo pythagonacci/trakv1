@@ -429,7 +429,10 @@ export async function saveFileAnalysisAsComment(params: {
   }
 
   const content = message.content as FileAnalysisMessageContent;
-  const text = content.text || "";
+  const text = formatMessageForBlock(content);
+  if (!text.trim()) {
+    return { error: "Nothing to save as a comment" };
+  }
 
   const { data: comment, error } = await supabase
     .from("file_comments")
@@ -475,4 +478,92 @@ export async function getFileAnalysisContextFiles(params: {
   });
 
   return { data: Array.from(unique.values()) };
+}
+
+export async function getFileAnalysisComments(params: {
+  fileIds: string[];
+}): Promise<ActionResult<Array<{ id: string; file_id: string; text: string; created_at: string; user_id: string | null }>>> {
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const fileIds = Array.from(new Set((params.fileIds || []).filter(Boolean)));
+  if (fileIds.length === 0) return { data: [] };
+
+  const { data: files, error: filesError } = await supabase
+    .from("files")
+    .select("id, workspace_id")
+    .in("id", fileIds);
+
+  if (filesError) {
+    return { error: "Failed to load files" };
+  }
+
+  const workspaceIds = Array.from(new Set((files || []).map((file: any) => file.workspace_id)));
+  for (const workspaceId of workspaceIds) {
+    const membership = await checkWorkspaceMembership(workspaceId, user.id);
+    if (!membership) {
+      return { error: "Not a member of this workspace" };
+    }
+  }
+
+  const { data: comments, error } = await supabase
+    .from("file_comments")
+    .select("id, file_id, text, created_at, user_id")
+    .in("file_id", fileIds)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { error: "Failed to load file comments" };
+  }
+
+  return { data: (comments || []) as Array<{ id: string; file_id: string; text: string; created_at: string; user_id: string | null }> };
+}
+
+export async function deleteFileAnalysisComment(params: {
+  commentId: string;
+}): Promise<ActionResult<{ deletedId: string }>> {
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: comment, error: commentError } = await supabase
+    .from("file_comments")
+    .select("id, file_id, user_id")
+    .eq("id", params.commentId)
+    .single();
+
+  if (commentError || !comment) {
+    return { error: "Comment not found" };
+  }
+
+  if (comment.user_id !== user.id) {
+    return { error: "Not allowed to delete this comment" };
+  }
+
+  const { data: file, error: fileError } = await supabase
+    .from("files")
+    .select("workspace_id")
+    .eq("id", comment.file_id)
+    .single();
+
+  if (fileError || !file) {
+    return { error: "File not found" };
+  }
+
+  const membership = await checkWorkspaceMembership(file.workspace_id, user.id);
+  if (!membership) {
+    return { error: "Not a member of this workspace" };
+  }
+
+  const { error } = await supabase
+    .from("file_comments")
+    .delete()
+    .eq("id", comment.id);
+
+  if (error) {
+    return { error: "Failed to delete comment" };
+  }
+
+  return { data: { deletedId: comment.id } };
 }

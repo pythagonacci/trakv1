@@ -5,6 +5,7 @@ export const DEFAULT_DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v3
 export const DEFAULT_DEEPSEEK_EMBEDDINGS_MODEL = process.env.DEEPSEEK_EMBEDDINGS_MODEL || "deepseek-embedding";
 
 export const DEFAULT_OPENAI_EMBEDDINGS_MODEL = process.env.OPENAI_EMBEDDINGS_MODEL || "text-embedding-3-small";
+export const OPENAI_EMBEDDING_DIM = 1536;
 
 // Heuristic thresholds for small vs RAG
 export const MAX_INLINE_TOKENS = 8000;

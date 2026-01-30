@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { type Block } from "@/app/actions/block";
 import { getBatchFileUrls, getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
+import { deleteFileAnalysisComment, getFileAnalysisComments } from "@/app/actions/file-analysis";
+import { getCurrentUser } from "@/app/actions/auth";
 import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,6 +29,14 @@ interface BlockFile {
     storage_path: string;
     created_at: string;
   };
+}
+
+interface FileComment {
+  id: string;
+  file_id: string;
+  text: string;
+  created_at: string;
+  user_id: string | null;
 }
 
 const getFileIcon = (fileType: string) => {
@@ -65,9 +75,29 @@ interface PdfAttachmentProps {
   onDownload: (fileId: string, fileName: string) => void;
   onDelete: (attachmentId: string) => void;
   onAnalyze: (fileId: string) => void;
+  comments?: FileComment[];
+  commentsExpanded?: boolean;
+  onToggleComments?: () => void;
+  currentUserId?: string | null;
+  deletingCommentIds?: Set<string>;
+  onDeleteComment?: (commentId: string, fileId: string) => void;
 }
 
-function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDownload, onDelete, onAnalyze }: PdfAttachmentProps) {
+function PdfAttachment({
+  attachmentId,
+  file,
+  pdfUrl,
+  isLoadingUrl = false,
+  onDownload,
+  onDelete,
+  onAnalyze,
+  comments = [],
+  commentsExpanded = false,
+  onToggleComments,
+  currentUserId,
+  deletingCommentIds,
+  onDeleteComment,
+}: PdfAttachmentProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
@@ -108,6 +138,47 @@ function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDow
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-[var(--foreground)]">{file.file_name}</p>
           <p className="text-xs text-[var(--tertiary-foreground)]">{formatFileSize(file.file_size)}</p>
+          {comments.length > 0 && (
+            <div className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+              <button
+                type="button"
+                onClick={onToggleComments}
+                className="hover:text-[var(--foreground)]"
+              >
+                {commentsExpanded ? "Hide comments" : `Comments (${comments.length})`}
+              </button>
+              {commentsExpanded && (
+                <div className="mt-1 space-y-1">
+                  {comments.map((comment) => (
+                    <div
+                      key={comment.id}
+                      className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1"
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1">
+                          <p className="text-[11px] leading-snug whitespace-pre-wrap">{comment.text}</p>
+                          <p className="text-[10px] text-[var(--tertiary-foreground)]">
+                            {new Date(comment.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        {currentUserId && comment.user_id === currentUserId && onDeleteComment && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteComment(comment.id, file.id)}
+                            className="text-[10px] text-red-600 hover:text-red-700"
+                            title="Delete comment"
+                            disabled={Boolean(deletingCommentIds?.has(comment.id))}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -257,10 +328,70 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   const [showUploadZone, setShowUploadZone] = useState(false);
   const [resolvedFileUrls, setResolvedFileUrls] = useState<Record<string, string>>({});
   const [loadingFileIds, setLoadingFileIds] = useState<Set<string>>(new Set());
+  const [fileComments, setFileComments] = useState<Record<string, FileComment[]>>({});
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [deletingCommentIds, setDeletingCommentIds] = useState<Set<string>>(new Set());
+
+  const loadComments = useCallback(async (fileIds: string[]) => {
+    const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+    const commentsResult = await getFileAnalysisComments({ fileIds: uniqueIds });
+    if ("data" in commentsResult) {
+      const grouped: Record<string, FileComment[]> = {};
+      commentsResult.data.forEach((comment) => {
+        if (!grouped[comment.file_id]) grouped[comment.file_id] = [];
+        grouped[comment.file_id].push(comment);
+      });
+      setFileComments((prev) => {
+        const next = { ...prev };
+        uniqueIds.forEach((id) => {
+          next[id] = grouped[id] || [];
+        });
+        return next;
+      });
+    }
+  }, []);
 
   useEffect(() => {
     loadFiles();
   }, [block.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    getCurrentUser().then((result) => {
+      if (!isMounted) return;
+      if ("data" in result) {
+        setCurrentUserId(result.data.id);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleCommentSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
+      if (!detail?.fileId) return;
+      const hasFile = files.some((item) => item.file?.id === detail.fileId);
+      if (!hasFile) return;
+      loadComments([detail.fileId]);
+    };
+    const handleCommentDeleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
+      if (!detail?.fileId) return;
+      const hasFile = files.some((item) => item.file?.id === detail.fileId);
+      if (!hasFile) return;
+      loadComments([detail.fileId]);
+    };
+    window.addEventListener("file-analysis-comment-saved", handleCommentSaved as EventListener);
+    window.addEventListener("file-analysis-comment-deleted", handleCommentDeleted as EventListener);
+    return () => {
+      window.removeEventListener("file-analysis-comment-saved", handleCommentSaved as EventListener);
+      window.removeEventListener("file-analysis-comment-deleted", handleCommentDeleted as EventListener);
+    };
+  }, [files, loadComments]);
 
   const ensureFileUrls = async (blockFiles: BlockFile[]) => {
     const combinedUrls = { ...fileUrls, ...resolvedFileUrls };
@@ -312,6 +443,11 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
       setFiles(normalizedFiles);
       // URLs are already loaded from context - no need to fetch them
       await ensureFileUrls(normalizedFiles);
+
+      const fileIds = normalizedFiles
+        .map((item) => item.file?.id)
+        .filter((id): id is string => Boolean(id));
+      await loadComments(fileIds);
     }
     setLoading(false);
   };
@@ -350,6 +486,29 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     setShowUploadZone(false);
     loadFiles();
     onUpdate?.();
+  };
+
+  const toggleComments = (fileId: string) => {
+    setExpandedComments((prev) => ({ ...prev, [fileId]: !prev[fileId] }));
+  };
+
+  const handleDeleteComment = async (commentId: string, fileId: string) => {
+    if (deletingCommentIds.has(commentId)) return;
+    setDeletingCommentIds((prev) => new Set(prev).add(commentId));
+    const result = await deleteFileAnalysisComment({ commentId });
+    if ("data" in result) {
+      await loadComments([fileId]);
+      window.dispatchEvent(
+        new CustomEvent("file-analysis-comment-deleted", { detail: { fileId } })
+      );
+    } else {
+      console.error("Failed to delete comment:", result.error);
+    }
+    setDeletingCommentIds((prev) => {
+      const next = new Set(prev);
+      next.delete(commentId);
+      return next;
+    });
   };
 
   if (loading) {
@@ -406,6 +565,12 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
                   onDownload={handleDownloadFile}
                   onDelete={handleDeleteFile}
                   onAnalyze={handleAnalyzeFile}
+                  comments={fileComments[file.id] || []}
+                  commentsExpanded={Boolean(expandedComments[file.id])}
+                  onToggleComments={() => toggleComments(file.id)}
+                  currentUserId={currentUserId}
+                  deletingCommentIds={deletingCommentIds}
+                  onDeleteComment={handleDeleteComment}
                 />
             );
           })}
@@ -452,11 +617,52 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-xs font-medium text-[var(--foreground)]">{file.file_name}</p>
                     <p className="text-[11px] text-[var(--tertiary-foreground)]">{formatFileSize(file.file_size)}</p>
+                    {fileComments[file.id]?.length ? (
+                      <div className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+                        <button
+                          type="button"
+                          onClick={() => toggleComments(file.id)}
+                          className="hover:text-[var(--foreground)]"
+                        >
+                          {expandedComments[file.id] ? "Hide comments" : `Comments (${fileComments[file.id].length})`}
+                        </button>
+                        {expandedComments[file.id] && (
+                          <div className="mt-1 space-y-1">
+                            {fileComments[file.id].map((comment) => (
+                              <div
+                                key={comment.id}
+                                className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1"
+                              >
+                                <div className="flex items-start gap-2">
+                                  <div className="flex-1">
+                                    <p className="text-[11px] leading-snug whitespace-pre-wrap">{comment.text}</p>
+                                    <p className="text-[10px] text-[var(--tertiary-foreground)]">
+                                      {new Date(comment.created_at).toLocaleString()}
+                                    </p>
+                                  </div>
+                                  {currentUserId && comment.user_id === currentUserId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteComment(comment.id, file.id)}
+                                      className="text-[10px] text-red-600 hover:text-red-700"
+                                      title="Delete comment"
+                                      disabled={deletingCommentIds.has(comment.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
  
                 {/* Hover Actions */}
-                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute right-2 top-2 z-10 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     onClick={() => handleAnalyzeFile(file.id)}
                     className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"
