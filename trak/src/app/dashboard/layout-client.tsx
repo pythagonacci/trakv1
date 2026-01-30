@@ -99,12 +99,12 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
             ? "h-9 w-9 justify-center"
             : "w-full px-3 py-2"
         )}
-        title="AI Command (⌘K)"
+        title="File Analysis (⌘K)"
       >
         <Sparkles className="h-4 w-4" />
         {!collapsed && (
           <>
-            <span className="flex-1 text-left text-sm font-medium">AI Command</span>
+            <span className="flex-1 text-left text-sm font-medium">File Analysis</span>
             <kbd className="text-[10px] font-mono bg-[var(--primary)]/10 px-1.5 py-0.5 rounded">
               ⌘K
             </kbd>

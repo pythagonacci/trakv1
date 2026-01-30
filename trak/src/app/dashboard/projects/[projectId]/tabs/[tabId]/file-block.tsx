@@ -4,9 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { type Block } from "@/app/actions/block";
 import { getBatchFileUrls, getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
-import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
+import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import FileUploadZone from "./file-upload-zone";
+import { useAI } from "@/components/ai";
 
 interface FileBlockProps {
   block: Block;
@@ -63,9 +64,10 @@ interface PdfAttachmentProps {
   isLoadingUrl?: boolean;
   onDownload: (fileId: string, fileName: string) => void;
   onDelete: (attachmentId: string) => void;
+  onAnalyze: (fileId: string) => void;
 }
 
-function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDownload, onDelete }: PdfAttachmentProps) {
+function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDownload, onDelete, onAnalyze }: PdfAttachmentProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
@@ -108,6 +110,13 @@ function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDow
           <p className="text-xs text-[var(--tertiary-foreground)]">{formatFileSize(file.file_size)}</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => onAnalyze(file.id)}
+            className="rounded-[4px] border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            title="Analyze file"
+          >
+            Analyze
+          </button>
           {!isExpanded && (
             <button
               onClick={() => onDownload(file.id, file.file_name)}
@@ -238,6 +247,7 @@ function PdfAttachment({ attachmentId, file, pdfUrl, isLoadingUrl = false, onDow
 }
 
 export default function FileBlock({ block, workspaceId, projectId, onUpdate }: FileBlockProps) {
+  const { openCommandPalette, queueFileIds } = useAI();
   // Get file URLs from context (prefetched at page level)
   const fileUrls = useFileUrls();
   
@@ -327,6 +337,11 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     }
   };
 
+  const handleAnalyzeFile = (fileId: string) => {
+    queueFileIds([fileId]);
+    openCommandPalette();
+  };
+
   const handleImageError = (fileId: string) => {
     setImageErrors((prev) => ({ ...prev, [fileId]: true }));
   };
@@ -382,15 +397,16 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
             const pdfUrl = mergedFileUrls[file.id];
             const isLoadingUrl = loadingFileIds.has(file.id);
             return (
-              <PdfAttachment
-                key={blockFile.id}
-                attachmentId={blockFile.id}
-                file={file}
-                pdfUrl={pdfUrl}
-                isLoadingUrl={isLoadingUrl}
-                onDownload={handleDownloadFile}
-                onDelete={handleDeleteFile}
-              />
+                <PdfAttachment
+                  key={blockFile.id}
+                  attachmentId={blockFile.id}
+                  file={file}
+                  pdfUrl={pdfUrl}
+                  isLoadingUrl={isLoadingUrl}
+                  onDownload={handleDownloadFile}
+                  onDelete={handleDeleteFile}
+                  onAnalyze={handleAnalyzeFile}
+                />
             );
           })}
         </div>
@@ -441,6 +457,13 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
  
                 {/* Hover Actions */}
                 <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    onClick={() => handleAnalyzeFile(file.id)}
+                    className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"
+                    title="Analyze"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </button>
                   <button
                     onClick={() => handleDownloadFile(file.id, file.file_name)}
                     className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"

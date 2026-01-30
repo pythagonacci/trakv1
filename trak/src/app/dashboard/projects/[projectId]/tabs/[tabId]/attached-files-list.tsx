@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
-import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronDown } from "lucide-react";
+import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronDown, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAI } from "@/components/ai";
 
 interface BlockFile {
   id: string;
@@ -44,6 +45,7 @@ const formatFileSize = (bytes: number): string => {
 export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesListProps) {
   // Get file URLs from context (prefetched at page level)
   const fileUrls = useFileUrls();
+  const { openCommandPalette, queueFileIds } = useAI();
   
   const [files, setFiles] = useState<BlockFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -187,6 +189,11 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     }
   };
 
+  const handleAnalyzeFile = (fileId: string) => {
+    queueFileIds([fileId]);
+    openCommandPalette();
+  };
+
   if (loading) {
     return null;
   }
@@ -284,6 +291,13 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
                 {/* Hover Actions */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <button
+                    onClick={() => handleAnalyzeFile(file.id)}
+                    className="p-2 bg-white/90 rounded hover:bg-white transition-colors"
+                    title="Analyze file"
+                  >
+                    <Sparkles className="w-4 h-4 text-neutral-700" />
+                  </button>
+                  <button
                     onClick={() => handleDownloadFile(file.id, file.file_name)}
                     className="p-2 bg-white/90 rounded hover:bg-white transition-colors"
                     title="Download"
@@ -306,4 +320,3 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     </div>
   );
 }
-
