@@ -107,7 +107,12 @@ type ToolFormatCacheEntry = {
 const toolFormatCache = new Map<string, ToolFormatCacheEntry>();
 
 function isSearchLikeToolName(name: string) {
-  return name.startsWith("search") || name.startsWith("get") || name.startsWith("resolve");
+  return (
+    name.startsWith("search") ||
+    name.startsWith("get") ||
+    name.startsWith("resolve") ||
+    name === "requestToolGroups"
+  );
 }
 
 function shouldUseFastPrompt(
@@ -124,6 +129,78 @@ function shouldUseFastPrompt(
   const lowered = userCommand.toLowerCase();
   if (/(explain|why|summarize|analysis|report|reasoning)/i.test(lowered)) return false;
   return true;
+}
+
+const TOOL_GROUP_NAMES = new Set([
+  "task",
+  "project",
+  "table",
+  "timeline",
+  "block",
+  "tab",
+  "doc",
+  "client",
+  "property",
+  "comment",
+]);
+
+const TOOL_ACCESS_SIGNAL =
+  /(need(?:ed)? access|do(?:\s+)?not have access|don't have access|lack(?:ing)? access|missing tools?|tools? (?:are|aren't|is|isn't|not) available|current tool set|toolset|cannot|can't|unable to)\b/i;
+
+function extractToolGroupsFromToolMentions(text: string) {
+  const lower = text.toLowerCase();
+  const groups = new Set<string>();
+  for (const tool of allTools) {
+    if (!tool?.name) continue;
+    if (!lower.includes(tool.name.toLowerCase())) continue;
+    const category = (tool as { category?: string }).category;
+    if (category && TOOL_GROUP_NAMES.has(category)) {
+      groups.add(category);
+    }
+  }
+  return Array.from(groups);
+}
+
+function extractToolGroupsFromKeywords(text: string) {
+  const lower = text.toLowerCase();
+  const groups = new Set<string>();
+  if (/(table|row|rows|column|columns|cell|cells|spreadsheet)/i.test(lower)) {
+    groups.add("table");
+  }
+  if (/\btask(?:s)?\b/i.test(lower)) {
+    groups.add("task");
+  }
+  if (/\bproject(?:s)?\b/i.test(lower)) {
+    groups.add("project");
+  }
+  if (/\btimeline(?:s)?\b/i.test(lower)) {
+    groups.add("timeline");
+  }
+  if (/\bblock(?:s)?\b/i.test(lower)) {
+    groups.add("block");
+  }
+  if (/\btab(?:s)?\b/i.test(lower)) {
+    groups.add("tab");
+  }
+  if (/\bdoc(?:s|ument)?(?:s)?\b/i.test(lower)) {
+    groups.add("doc");
+  }
+  if (/\bclient(?:s)?\b/i.test(lower)) {
+    groups.add("client");
+  }
+  return Array.from(groups);
+}
+
+function detectToolGroupUpgrade(message: string | null, currentGroups: string[]) {
+  if (!message) return [];
+  const hasAccessSignal = TOOL_ACCESS_SIGNAL.test(message);
+  const fromMentions = extractToolGroupsFromToolMentions(message);
+  const fromKeywords = extractToolGroupsFromKeywords(message);
+  if (!hasAccessSignal && fromMentions.length === 0) return [];
+  const merged = new Set<string>([...fromMentions, ...fromKeywords]);
+  return Array.from(merged).filter(
+    (group) => TOOL_GROUP_NAMES.has(group) && !currentGroups.includes(group)
+  );
 }
 
 function trimToolsForIntent(
@@ -376,21 +453,28 @@ export async function executeAICommand(
     { role: "user", content: userCommand },
   ];
 
-  const relevantTools = trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, userCommand);
+  let activeIntent = intent;
+  let toolUpgradeAttempted = false;
+  let relevantTools = trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand);
 
   // Get tools in OpenAI format (compatible with Deepseek) with caching
-  const toolCacheKey = relevantTools.map((tool) => tool.name).join("|");
-  const cachedTools = toolFormatCache.get(toolCacheKey);
-  let tools: ReturnType<typeof toOpenAIFormat>;
-  if (cachedTools) {
-    tools = cachedTools.tools;
-    if (timing) timing.tools_json_chars = cachedTools.jsonChars;
-  } else {
-    tools = toOpenAIFormat(relevantTools);
-    const jsonChars = timingEnabled ? JSON.stringify(tools).length : 0;
-    toolFormatCache.set(toolCacheKey, { tools, jsonChars });
-    if (timing) timing.tools_json_chars = jsonChars;
-  }
+  const getCachedTools = (toolsForIntent: typeof relevantTools) => {
+    const toolCacheKey = toolsForIntent.map((tool) => tool.name).join("|");
+    const cachedTools = toolFormatCache.get(toolCacheKey);
+    let tools: ReturnType<typeof toOpenAIFormat>;
+    if (cachedTools) {
+      tools = cachedTools.tools;
+      if (timing) timing.tools_json_chars = cachedTools.jsonChars;
+    } else {
+      tools = toOpenAIFormat(toolsForIntent);
+      const jsonChars = timingEnabled ? JSON.stringify(tools).length : 0;
+      toolFormatCache.set(toolCacheKey, { tools, jsonChars });
+      if (timing) timing.tools_json_chars = jsonChars;
+    }
+    return tools;
+  };
+
+  let tools = getCachedTools(relevantTools);
   const provider =
     providerPref === "deepseek"
       ? deepseekKey
@@ -433,6 +517,10 @@ export async function executeAICommand(
   let lastSearchTaskIds: string[] | null = null;
   let llmCallIndex = 0;
   const contextTableId = context.contextTableId;
+  
+  // Track search results and updates to detect incomplete batch operations
+  const searchResults = new Map<string, { count: number; itemIds: string[] }>();
+  const updatedItemIds = new Set<string>();
   const tableIdTools = new Set([
     "getTableSchema",
     "searchTableRows",
@@ -446,6 +534,7 @@ export async function executeAICommand(
     "deleteRows",
     "bulkInsertRows",
     "bulkUpdateRows",
+    "bulkUpdateRowsByFieldNames",
     "bulkDeleteRows",
     "bulkDuplicateRows",
     "updateTableRowsByFieldNames",
@@ -508,6 +597,7 @@ export async function executeAICommand(
         let allToolCallsSuccessful = true;
         const toolNamesThisRound: string[] = [];
         const toolCallsThisRound: Array<{ tool: string; result: ToolCallResult }> = [];
+        let pendingToolUpgradePrompt: string | null = null;
         // Process each tool call
         for (const toolCall of assistantMessage.tool_calls) {
           const toolName = toolCall.function.name;
@@ -577,9 +667,48 @@ export async function executeAICommand(
             allToolCallsSuccessful = false;
           }
 
+          if (toolName === "requestToolGroups" && result.success) {
+            const requestedGroups = Array.isArray(toolArgs.toolGroups)
+              ? (toolArgs.toolGroups as string[])
+              : [];
+            const validGroups = requestedGroups.filter(
+              (group) => TOOL_GROUP_NAMES.has(group) && !activeIntent.toolGroups.includes(group)
+            );
+            if (validGroups.length > 0) {
+              activeIntent = {
+                ...activeIntent,
+                toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...validGroups])),
+              };
+              relevantTools = trimToolsForIntent(
+                getToolsByGroups(activeIntent.toolGroups),
+                activeIntent,
+                userCommand
+              );
+              tools = getCachedTools(relevantTools);
+              toolUpgradeAttempted = true;
+              aiDebug("executeAICommand:toolUpgrade", {
+                from: intent.toolGroups,
+                to: activeIntent.toolGroups,
+                added: validGroups,
+                toolCount: tools.length,
+              });
+              pendingToolUpgradePrompt =
+                "You now have access to the additional tools you requested. Continue and complete the task using them.";
+            }
+          }
+
           lastToolName = toolName;
           if (toolName === "searchTasks" && result.success && Array.isArray(result.data)) {
             lastSearchTaskIds = result.data.map((task: any) => task.id).filter(Boolean);
+            // Track search results for batch operation detection
+            if (lastSearchTaskIds.length > 1) {
+              searchResults.set("tasks", { count: lastSearchTaskIds.length, itemIds: lastSearchTaskIds });
+            }
+          }
+          
+          // Track which tasks/items have been updated
+          if (toolName === "updateTaskItem" && result.success && toolArgs.taskId) {
+            updatedItemIds.add(toolArgs.taskId as string);
           }
 
           const toolSignature = `${toolName}:${JSON.stringify(toolArgs)}`;
@@ -627,6 +756,14 @@ export async function executeAICommand(
           });
         }
 
+        if (pendingToolUpgradePrompt) {
+          messages.push({
+            role: "user",
+            content: pendingToolUpgradePrompt,
+          });
+          continue;
+        }
+
         const writeToolsThisRound = toolNamesThisRound.filter(
           (name) => !isSearchLikeToolName(name)
         );
@@ -650,7 +787,55 @@ export async function executeAICommand(
         continue;
       }
 
+      // Check if we have incomplete batch operations before returning final response
+      const tasksSearch = searchResults.get("tasks");
+      if (tasksSearch && tasksSearch.count > 1) {
+        const updatedTasks = tasksSearch.itemIds.filter((id) => updatedItemIds.has(id));
+        const remainingTasks = tasksSearch.itemIds.filter((id) => !updatedItemIds.has(id));
+        
+        // If we found multiple tasks but only updated some (or none), prompt AI to continue
+        if (remainingTasks.length > 0 && updatedTasks.length < tasksSearch.count) {
+          aiDebug("executeAICommand:incompleteBatch", {
+            totalTasks: tasksSearch.count,
+            updated: updatedTasks.length,
+            remaining: remainingTasks.length,
+          });
+          
+          // Inject a message prompting the AI to continue updating remaining tasks
+          messages.push({
+            role: "user",
+            content: `IMPORTANT: You found ${tasksSearch.count} tasks but only updated ${updatedTasks.length} of them. The user asked to update ALL tasks. Please continue updating the remaining ${remainingTasks.length} task(s). Task IDs that still need updating: ${remainingTasks.slice(0, 10).join(", ")}${remainingTasks.length > 10 ? ` (and ${remainingTasks.length - 10} more)` : ""}.`,
+          });
+          
+          // Continue the loop to let AI process this prompt
+          continue;
+        }
+      }
+      
       // No more tool calls - we have a final response
+      const upgradeGroups = detectToolGroupUpgrade(assistantMessage.content, activeIntent.toolGroups);
+      if (!toolUpgradeAttempted && upgradeGroups.length > 0) {
+        toolUpgradeAttempted = true;
+        activeIntent = {
+          ...activeIntent,
+          toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...upgradeGroups])),
+        };
+        relevantTools = trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand);
+        tools = getCachedTools(relevantTools);
+        aiDebug("executeAICommand:toolUpgrade", {
+          from: intent.toolGroups,
+          to: activeIntent.toolGroups,
+          added: upgradeGroups,
+          toolCount: tools.length,
+        });
+        messages.push({
+          role: "user",
+          content:
+            "You now have access to the additional tools you requested. Continue and complete the task using them.",
+        });
+        continue;
+      }
+
       return withTiming({
         success: true,
         response: assistantMessage.content || "Command executed successfully.",

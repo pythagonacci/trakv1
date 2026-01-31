@@ -111,6 +111,71 @@ export async function updateTaskItem(
   return { data: data as TaskItem };
 }
 
+export async function bulkUpdateTaskItems(input: {
+  taskIds: string[];
+  updates: Partial<{
+    title: string;
+    status: TaskStatus;
+    priority: TaskPriority;
+    description: string | null;
+    dueDate: string | null;
+    dueTime: string | null;
+    startDate: string | null;
+    hideIcons: boolean;
+    recurringEnabled: boolean;
+    recurringFrequency: "daily" | "weekly" | "monthly" | null;
+    recurringInterval: number | null;
+  }>;
+}): Promise<ActionResult<{ updatedCount: number; skipped: string[] }>> {
+  const taskIds = Array.from(new Set((input.taskIds || []).filter(Boolean)));
+  if (taskIds.length === 0) return { data: { updatedCount: 0, skipped: [] } };
+
+  // Get access from first task to verify workspace access
+  const firstTaskAccess = await requireTaskItemAccess(taskIds[0]);
+  if ("error" in firstTaskAccess) return { error: firstTaskAccess.error ?? "Unknown error" };
+  const { supabase, userId, task: firstTask } = firstTaskAccess;
+  const workspaceId = firstTask.workspace_id;
+
+  // Verify all tasks exist and belong to the same workspace
+  const { data: tasks, error: tasksError } = await supabase
+    .from("task_items")
+    .select("id, workspace_id")
+    .in("id", taskIds)
+    .eq("workspace_id", workspaceId);
+
+  if (tasksError) return { error: "Failed to load tasks" };
+
+  const validTaskIds = new Set((tasks || []).map((t: any) => t.id));
+  const skipped = taskIds.filter((id) => !validTaskIds.has(id));
+  const toUpdate = taskIds.filter((id) => validTaskIds.has(id));
+
+  if (toUpdate.length === 0) return { data: { updatedCount: 0, skipped } };
+
+  const payload: Record<string, any> = {
+    updated_by: userId,
+  };
+
+  if (input.updates.title !== undefined) payload.title = input.updates.title;
+  if (input.updates.status !== undefined) payload.status = input.updates.status;
+  if (input.updates.priority !== undefined) payload.priority = input.updates.priority;
+  if (input.updates.description !== undefined) payload.description = input.updates.description;
+  if (input.updates.dueDate !== undefined) payload.due_date = input.updates.dueDate;
+  if (input.updates.dueTime !== undefined) payload.due_time = input.updates.dueTime;
+  if (input.updates.startDate !== undefined) payload.start_date = input.updates.startDate;
+  if (input.updates.hideIcons !== undefined) payload.hide_icons = input.updates.hideIcons;
+  if (input.updates.recurringEnabled !== undefined) payload.recurring_enabled = input.updates.recurringEnabled;
+  if (input.updates.recurringFrequency !== undefined) payload.recurring_frequency = input.updates.recurringFrequency;
+  if (input.updates.recurringInterval !== undefined) payload.recurring_interval = input.updates.recurringInterval;
+
+  const { error: updateError } = await supabase
+    .from("task_items")
+    .update(payload)
+    .in("id", toUpdate);
+
+  if (updateError) return { error: "Failed to update tasks" };
+  return { data: { updatedCount: toUpdate.length, skipped } };
+}
+
 export async function bulkMoveTaskItems(input: {
   taskIds: string[];
   targetBlockId: string;

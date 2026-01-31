@@ -40,6 +40,7 @@ import {
   deleteTaskItem,
   reorderTaskItems,
   bulkMoveTaskItems,
+  bulkUpdateTaskItems,
   duplicateTasksToBlock,
 } from "@/app/actions/tasks/item-actions";
 import { setTaskAssignees } from "@/app/actions/tasks/assignee-actions";
@@ -248,6 +249,22 @@ export async function executeTool(
     const workspaceId = context?.workspaceId || await getCurrentWorkspaceId();
 
     switch (name) {
+      // ==================================================================
+      // CONTROL TOOLS
+      // ==================================================================
+      case "requestToolGroups": {
+        const toolGroups = Array.isArray((args as any)?.toolGroups)
+          ? ((args as any).toolGroups as unknown[])
+              .map((group) => String(group))
+              .filter((group) => group.length > 0)
+          : [];
+        const reason = typeof (args as any)?.reason === "string" ? ((args as any).reason as string) : undefined;
+        return {
+          success: true,
+          data: { toolGroups, reason },
+        };
+      }
+
       // ==================================================================
       // SEARCH TOOLS
       // ==================================================================
@@ -497,6 +514,29 @@ export async function executeTool(
             dueDate: args.dueDate as string | null | undefined,
             dueTime: args.dueTime as string | null | undefined,
             startDate: args.startDate as string | null | undefined,
+          })
+        );
+
+      case "bulkUpdateTaskItems":
+        if (!Array.isArray(args.taskIds) || args.taskIds.length === 0) {
+          return {
+            success: false,
+            error: "bulkUpdateTaskItems requires a non-empty taskIds array.",
+          };
+        }
+        const updatesArg = args.updates as Record<string, unknown> | undefined;
+        return await wrapResult(
+          bulkUpdateTaskItems({
+            taskIds: args.taskIds as string[],
+            updates: {
+              title: updatesArg?.title as string | undefined,
+              status: updatesArg?.status as any,
+              priority: updatesArg?.priority as any,
+              description: updatesArg?.description as string | null | undefined,
+              dueDate: updatesArg?.dueDate as string | null | undefined,
+              dueTime: updatesArg?.dueTime as string | null | undefined,
+              startDate: updatesArg?.startDate as string | null | undefined,
+            },
           })
         );
 
@@ -1164,6 +1204,118 @@ export async function executeTool(
             updates: updatesByFieldId,
           })
         );
+      }
+
+      case "bulkUpdateRowsByFieldNames": {
+        const tableId = args.tableId as string | undefined;
+        const rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : undefined;
+        const limit = typeof args.limit === "number" ? args.limit : 500;
+
+        if (!tableId) {
+          return { success: false, error: "Missing tableId for bulkUpdateRowsByFieldNames." };
+        }
+        if (!rows || rows.length === 0) {
+          return { success: false, error: "rows are required for bulkUpdateRowsByFieldNames." };
+        }
+
+        const schemaResult = await getTableSchema({ tableId });
+        if (schemaResult.error || !schemaResult.data) {
+          return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
+        }
+
+        const fields = schemaResult.data.fields;
+        const fieldMap = new Map(fields.map((f) => [normalizeFieldKey(f.name), f]));
+        const fieldIdMap = new Map(fields.map((f) => [f.id, f]));
+
+        const resolveField = (key: string) => {
+          const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
+          if (direct) return direct;
+
+          const normalized = normalizeFieldKey(key);
+          const startsWith = fields.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
+          if (startsWith) return startsWith;
+          const includes = fields.find((f) => normalizeFieldKey(f.name).includes(normalized));
+          if (includes) return includes;
+          return undefined;
+        };
+
+        const rowsResult = await searchTableRows({ tableId, limit });
+        if (rowsResult.error || !rowsResult.data) {
+          return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
+        }
+
+        const results: Array<{
+          index: number;
+          updated: number;
+          rowIds: string[];
+          filters?: Record<string, unknown>;
+        }> = [];
+        const allUpdatedRowIds: string[] = [];
+
+        for (let index = 0; index < rows.length; index += 1) {
+          const entry = rows[index] ?? {};
+          const filters = (entry as Record<string, unknown>).filters as Record<string, unknown> | undefined;
+          const updates = (entry as Record<string, unknown>).updates as Record<string, unknown> | undefined;
+
+          if (!updates || Object.keys(updates).length === 0) {
+            return { success: false, error: `Missing updates for row entry at index ${index}.` };
+          }
+
+          const updatesByFieldId: Record<string, unknown> = {};
+
+          for (const [fieldKey, rawValue] of Object.entries(updates)) {
+            const field = resolveField(fieldKey);
+            if (!field) {
+              return { success: false, error: `Unknown field "${fieldKey}" in updates.` };
+            }
+            const resolved = resolveUpdateValue(field, rawValue, true);
+            updatesByFieldId[field.id] = resolved.value;
+            if (resolved.updatedConfig) {
+              const updateResult = await updateField(field.id, { config: resolved.updatedConfig });
+              if ("error" in updateResult) {
+                return { success: false, error: updateResult.error ?? "Failed to update field options." };
+              }
+              field.config = resolved.updatedConfig;
+            }
+          }
+
+          const applyAllRows = !filters || Object.keys(filters).length === 0;
+          const matchedRowIds = applyAllRows
+            ? rowsResult.data.map((row) => row.id)
+            : rowsResult.data
+                .filter((row) => matchesRowFilters(row.data, filters, resolveField))
+                .map((row) => row.id);
+
+          if (matchedRowIds.length === 0) {
+            results.push({ index, updated: 0, rowIds: [], filters });
+            continue;
+          }
+
+          const updateResult = await wrapResult(
+            bulkUpdateRows({
+              tableId,
+              rowIds: matchedRowIds,
+              updates: updatesByFieldId,
+            })
+          );
+
+          if (!updateResult.success) {
+            return updateResult;
+          }
+
+          allUpdatedRowIds.push(...matchedRowIds);
+          results.push({ index, updated: matchedRowIds.length, rowIds: matchedRowIds, filters });
+        }
+
+        return {
+          success: true,
+          data: {
+            updated: allUpdatedRowIds.length,
+            rowIds: allUpdatedRowIds,
+            results,
+            totalRowsScanned: rowsResult.data.length,
+          },
+        };
       }
 
       // ==================================================================

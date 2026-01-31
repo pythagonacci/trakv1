@@ -296,6 +296,7 @@ Before choosing which tools to use, **compare all available options**:
    - Don't jump to the first tool you think of
    - Look at tool descriptions to see what's available
    - Many operations have both singular and bulk versions
+   - If you realize you need tools that are not currently available, call \`requestToolGroups\` immediately and then continue once access is granted.
 
 2. **Compare efficiency**
    - If you need to do something 3+ times, look for bulk operations
