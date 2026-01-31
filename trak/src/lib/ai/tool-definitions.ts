@@ -59,7 +59,7 @@ const controlTools: ToolDefinition[] = [
       toolGroups: {
         type: "array",
         description:
-          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, client, property, comment.",
+          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, file, client, property, comment.",
         items: { type: "string" },
       },
       reason: {
@@ -1182,6 +1182,24 @@ const docActionTools: ToolDefinition[] = [
 ];
 
 // ============================================================================
+// FILE ACTION TOOLS
+// ============================================================================
+
+const fileActionTools: ToolDefinition[] = [
+  {
+    name: "renameFile",
+    description:
+      "Rename a file (display name only). Does not change storage path or contents. Required: fileId, fileName.",
+    category: "file",
+    parameters: {
+      fileId: { type: "string", description: "The file ID to rename" },
+      fileName: { type: "string", description: "New file name" },
+    },
+    requiredParams: ["fileId", "fileName"],
+  },
+];
+
+// ============================================================================
 // COMMENT ACTION TOOLS
 // ============================================================================
 
@@ -1234,6 +1252,7 @@ export const allTools: ToolDefinition[] = [
   ...propertyActionTools,
   ...clientActionTools,
   ...docActionTools,
+  ...fileActionTools,
   ...commentActionTools,
 ];
 
@@ -1250,9 +1269,9 @@ export const toolsByCategory: Record<ToolCategory, ToolDefinition[]> = {
   property: propertyActionTools,
   client: clientActionTools,
   doc: docActionTools,
+  file: fileActionTools,
   comment: commentActionTools,
   workspace: [], // Workspace actions are typically not exposed to AI
-  file: [], // File actions require special handling
   payment: [],
 };
 
@@ -1336,7 +1355,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
     "setEntityProperty",
     "removeEntityProperty",
   ]),
-  file: pickTools(["searchFiles"]),
+  file: pickTools(["searchFiles", "renameFile"]),
   member: pickTools(["searchWorkspaceMembers"]),
   tag: pickTools(["searchTags"]),
   cross_entity: pickTools(["searchAll", "resolveEntityByName", "getEntityById", "getEntityContext"]),
@@ -1482,6 +1501,7 @@ export type ToolGroup =
   | "block"
   | "tab"
   | "doc"
+  | "file"
   | "client"
   | "property"
   | "comment";
@@ -1538,6 +1558,9 @@ function getToolsForGroup(group: ToolGroup): ToolDefinition[] {
     case "doc":
       return docActionTools;
 
+    case "file":
+      return fileActionTools;
+
     case "client":
       return clientActionTools;
 
@@ -1565,6 +1588,7 @@ export function getToolCountsByGroup(): Record<ToolGroup | "total", number> {
     block: blockActionTools.length,
     tab: tabActionTools.length,
     doc: docActionTools.length,
+    file: fileActionTools.length,
     client: clientActionTools.length,
     property: propertyActionTools.length,
     comment: commentActionTools.length,

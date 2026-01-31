@@ -77,6 +77,11 @@ import {
 } from "@/app/actions/block";
 
 // ============================================================================
+// IMPORTS - File Actions
+// ============================================================================
+import { renameFile } from "@/app/actions/file";
+
+// ============================================================================
 // IMPORTS - Table Actions
 // ============================================================================
 import { createTable, getTable, deleteTable } from "@/app/actions/tables/table-actions";
@@ -255,8 +260,8 @@ export async function executeTool(
       case "requestToolGroups": {
         const toolGroups = Array.isArray((args as any)?.toolGroups)
           ? ((args as any).toolGroups as unknown[])
-              .map((group) => String(group))
-              .filter((group) => group.length > 0)
+            .map((group) => String(group))
+            .filter((group) => group.length > 0)
           : [];
         const reason = typeof (args as any)?.reason === "string" ? ((args as any).reason as string) : undefined;
         return {
@@ -996,20 +1001,20 @@ export async function executeTool(
               ? rowsArg
               : Array.isArray(legacyDataArg)
                 ? (() => {
-                    const looksLikeRows = legacyDataArg.every((entry) => {
-                      if (!entry || typeof entry !== "object") return false;
-                      const keys = Object.keys(entry);
-                      if (!keys.includes("data")) return false;
-                      return keys.every((key) => key === "data" || key === "order");
-                    });
+                  const looksLikeRows = legacyDataArg.every((entry) => {
+                    if (!entry || typeof entry !== "object") return false;
+                    const keys = Object.keys(entry);
+                    if (!keys.includes("data")) return false;
+                    return keys.every((key) => key === "data" || key === "order");
+                  });
 
-                    return looksLikeRows
-                      ? (legacyDataArg as Array<{
-                          data: Record<string, unknown>;
-                          order?: number | string | null;
-                        }>)
-                      : legacyDataArg.map((data) => ({ data }));
-                  })()
+                  return looksLikeRows
+                    ? (legacyDataArg as Array<{
+                      data: Record<string, unknown>;
+                      order?: number | string | null;
+                    }>)
+                    : legacyDataArg.map((data) => ({ data }));
+                })()
                 : undefined;
 
           if (!normalizedRows) {
@@ -1177,14 +1182,14 @@ export async function executeTool(
         const matchedRowIds = applyAllRows
           ? rowsResult.data.map((row) => row.id)
           : rowsResult.data
-              .filter((row) => matchesRowFilters(row.data, filters, resolveField))
-              .map((row) => row.id);
+            .filter((row) => matchesRowFilters(row.data, filters, resolveField))
+            .map((row) => row.id);
 
         if (matchedRowIds.length === 0) {
           const filterSummary = filters
             ? Object.entries(filters)
-                .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-                .join(", ")
+              .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+              .join(", ")
             : "";
 
           return {
@@ -1287,14 +1292,14 @@ export async function executeTool(
           const matchedRowIds = applyAllRows
             ? rowsResult.data.map((row) => row.id)
             : rowsResult.data
-                .filter((row) => matchesRowFilters(row.data, filters, resolveField))
-                .map((row) => row.id);
+              .filter((row) => matchesRowFilters(row.data, filters, resolveField))
+              .map((row) => row.id);
 
           if (matchedRowIds.length === 0) {
             const filterSummary = filters
               ? Object.entries(filters)
-                  .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-                  .join(", ")
+                .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+                .join(", ")
               : "";
             return {
               success: false,
@@ -1490,6 +1495,14 @@ export async function executeTool(
 
       case "deleteDoc":
         return await wrapResult(deleteDoc(args.docId as string));
+
+      // ==================================================================
+      // FILE ACTIONS
+      // ==================================================================
+      case "renameFile":
+        return await wrapResult(
+          renameFile(args.fileId as string, args.fileName as string)
+        );
 
       // ==================================================================
       // COMMENT ACTIONS (for table rows)
@@ -2109,13 +2122,14 @@ function parseNumericValue(value: unknown): number | null {
   if (!raw) return null;
 
   const normalized = raw.replace(/[, ]+/g, "").replace(/\$/g, "").toLowerCase();
-  const suffixMatch = normalized.match(/^(?<num>-?\d+(\.\d+)?)(?<suffix>[a-z]+)?$/);
-  if (!suffixMatch || !suffixMatch.groups) return null;
+  const suffixMatch = normalized.match(/^(-?\d+(\.\d+)?)([a-z]+)?$/);
+  if (!suffixMatch) return null;
 
-  const num = Number(suffixMatch.groups.num);
+  const num = Number(suffixMatch[1]);
+  const suffix = suffixMatch[3]; // group 1 is num, group 2 is optional decimal, group 3 is suffix
   if (!Number.isFinite(num)) return null;
 
-  const suffix = suffixMatch.groups.suffix ?? "";
+  // const suffix = suffixMatch.groups.suffix ?? ""; // Removed duplicate
   const multipliers: Record<string, number> = {
     k: 1e3,
     thousand: 1e3,

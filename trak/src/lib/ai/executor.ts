@@ -139,6 +139,7 @@ const TOOL_GROUP_NAMES = new Set([
   "block",
   "tab",
   "doc",
+  "file",
   "client",
   "property",
   "comment",
@@ -184,6 +185,9 @@ function extractToolGroupsFromKeywords(text: string) {
   }
   if (/\bdoc(?:s|ument)?(?:s)?\b/i.test(lower)) {
     groups.add("doc");
+  }
+  if (/\bfile(?:s)?\b/i.test(lower)) {
+    groups.add("file");
   }
   if (/\bclient(?:s)?\b/i.test(lower)) {
     groups.add("client");
@@ -373,16 +377,16 @@ export async function executeAICommand(
   const timingStart = timingEnabled ? Date.now() : 0;
   const timing = timingEnabled
     ? {
-        t_intent_ms: 0,
-        t_llm1_ms: 0,
-        t_llm2_ms: 0,
-        t_llm_extra_ms: 0,
-        t_tools_total_ms: 0,
-        tool_result_chars_total: 0,
-        system_prompt_chars: 0,
-        tools_json_chars: 0,
-        tool_timings_ms: {} as Record<string, number>,
-      }
+      t_intent_ms: 0,
+      t_llm1_ms: 0,
+      t_llm2_ms: 0,
+      t_llm_extra_ms: 0,
+      t_tools_total_ms: 0,
+      tool_result_chars_total: 0,
+      system_prompt_chars: 0,
+      tools_json_chars: 0,
+      tool_timings_ms: {} as Record<string, number>,
+    }
     : null;
   let timingLogged = false;
   const logTiming = () => {
@@ -517,7 +521,7 @@ export async function executeAICommand(
   let lastSearchTaskIds: string[] | null = null;
   let llmCallIndex = 0;
   const contextTableId = context.contextTableId;
-  
+
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   const updatedItemIds = new Set<string>();
@@ -598,8 +602,9 @@ export async function executeAICommand(
         const toolNamesThisRound: string[] = [];
         const toolCallsThisRound: Array<{ tool: string; result: ToolCallResult }> = [];
         let pendingToolUpgradePrompt: string | null = null;
-        // Process each tool call
-        for (const toolCall of assistantMessage.tool_calls) {
+        // Process each tool call - PARALLEL EXECUTION
+        // First, prepare and execute all tools in parallel
+        const toolExecutionPromises = assistantMessage.tool_calls.map(async (toolCall) => {
           const toolName = toolCall.function.name;
           let toolArgs: Record<string, unknown>;
 
@@ -627,7 +632,7 @@ export async function executeAICommand(
             const existing = Array.isArray(toolArgs.taskIds) ? (toolArgs.taskIds as string[]) : [];
             toolArgs.taskIds = Array.from(new Set([...existing, ...lastSearchTaskIds]));
           }
-          toolNamesThisRound.push(toolName);
+
           aiDebug("executeAICommand:toolCall", {
             tool: toolName,
             argCount: Object.keys(toolArgs).length,
@@ -645,6 +650,16 @@ export async function executeAICommand(
             contextTableId,
           });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
+
+          return { toolCall, toolName, toolArgs, result, toolDuration };
+        });
+
+        // Wait for all tools to complete in parallel
+        const toolExecutionResults = await Promise.all(toolExecutionPromises);
+
+        // Process results sequentially to maintain message order and state consistency
+        for (const { toolCall, toolName, toolArgs, result, toolDuration } of toolExecutionResults) {
+          toolNamesThisRound.push(toolName);
           if (timing) {
             timing.t_tools_total_ms += toolDuration;
             timing.tool_timings_ms[toolName] =
@@ -672,12 +687,12 @@ export async function executeAICommand(
               ? (toolArgs.toolGroups as string[])
               : [];
             const validGroups = requestedGroups.filter(
-              (group) => TOOL_GROUP_NAMES.has(group) && !activeIntent.toolGroups.includes(group)
+              (group) => TOOL_GROUP_NAMES.has(group as any) && !activeIntent.toolGroups.includes(group as any)
             );
             if (validGroups.length > 0) {
               activeIntent = {
                 ...activeIntent,
-                toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...validGroups])),
+                toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(validGroups as any[])])),
               };
               relevantTools = trimToolsForIntent(
                 getToolsByGroups(activeIntent.toolGroups),
@@ -705,7 +720,7 @@ export async function executeAICommand(
               searchResults.set("tasks", { count: lastSearchTaskIds.length, itemIds: lastSearchTaskIds });
             }
           }
-          
+
           // Track which tasks/items have been updated
           if (toolName === "updateTaskItem" && result.success && toolArgs.taskId) {
             updatedItemIds.add(toolArgs.taskId as string);
@@ -728,17 +743,17 @@ export async function executeAICommand(
             });
             return result.success
               ? withTiming({
-                  success: true,
-                  response:
-                    "Action completed. I stopped repeating the same tool call to prevent duplicates.",
-                  toolCallsMade: allToolCallsMade,
-                })
+                success: true,
+                response:
+                  "Action completed. I stopped repeating the same tool call to prevent duplicates.",
+                toolCallsMade: allToolCallsMade,
+              })
               : withTiming({
-                  success: false,
-                  response: "An error occurred while executing the command.",
-                  toolCallsMade: allToolCallsMade,
-                  error: result.error || "Tool failed",
-                });
+                success: false,
+                response: "An error occurred while executing the command.",
+                toolCallsMade: allToolCallsMade,
+                error: result.error || "Tool failed",
+              });
           }
 
           // Add tool result to messages
@@ -770,12 +785,24 @@ export async function executeAICommand(
         const hasNonCreateWrite = writeToolsThisRound.some(
           (name) => !name.startsWith("create")
         );
+
+        // Optimistic early exit for writes (updates/deletes)
         if (
           EARLY_EXIT_WRITES &&
           SKIP_SECOND_LLM &&
           allToolCallsSuccessful &&
           hasNonCreateWrite
         ) {
+          return withTiming({
+            success: true,
+            response: buildToolSummary(toolCallsThisRound),
+            toolCallsMade: allToolCallsMade,
+          });
+        }
+
+        // NEW: Optimistic early exit for searches - skip the 2nd LLM call
+        const onlySearchOps = toolNamesThisRound.every(isSearchLikeToolName);
+        if (SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps) {
           return withTiming({
             success: true,
             response: buildToolSummary(toolCallsThisRound),
@@ -792,7 +819,7 @@ export async function executeAICommand(
       if (tasksSearch && tasksSearch.count > 1) {
         const updatedTasks = tasksSearch.itemIds.filter((id) => updatedItemIds.has(id));
         const remainingTasks = tasksSearch.itemIds.filter((id) => !updatedItemIds.has(id));
-        
+
         // If we found multiple tasks but only updated some (or none), prompt AI to continue
         if (remainingTasks.length > 0 && updatedTasks.length < tasksSearch.count) {
           aiDebug("executeAICommand:incompleteBatch", {
@@ -800,25 +827,25 @@ export async function executeAICommand(
             updated: updatedTasks.length,
             remaining: remainingTasks.length,
           });
-          
+
           // Inject a message prompting the AI to continue updating remaining tasks
           messages.push({
             role: "user",
             content: `IMPORTANT: You found ${tasksSearch.count} tasks but only updated ${updatedTasks.length} of them. The user asked to update ALL tasks. Please continue updating the remaining ${remainingTasks.length} task(s). Task IDs that still need updating: ${remainingTasks.slice(0, 10).join(", ")}${remainingTasks.length > 10 ? ` (and ${remainingTasks.length - 10} more)` : ""}.`,
           });
-          
+
           // Continue the loop to let AI process this prompt
           continue;
         }
       }
-      
+
       // No more tool calls - we have a final response
       const upgradeGroups = detectToolGroupUpgrade(assistantMessage.content, activeIntent.toolGroups);
       if (!toolUpgradeAttempted && upgradeGroups.length > 0) {
         toolUpgradeAttempted = true;
         activeIntent = {
           ...activeIntent,
-          toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...upgradeGroups])),
+          toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(upgradeGroups as any[])])),
         };
         relevantTools = trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand);
         tools = getCachedTools(relevantTools);
@@ -903,6 +930,7 @@ async function callDeepseek(
       }),
       tools,
       tool_choice: "auto",
+      parallel_tool_calls: true, // Enable multiple tool calls per turn for efficiency
       temperature: 0.1, // Low temperature for more deterministic responses
       max_tokens: resolvedMaxTokens,
     }),
@@ -950,6 +978,7 @@ async function callOpenAI(
       })),
       tools,
       tool_choice: "auto",
+      parallel_tool_calls: true, // Enable multiple tool calls per turn for efficiency
       temperature: 0.1,
       max_tokens: resolvedMaxTokens,
     }),

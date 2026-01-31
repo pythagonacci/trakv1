@@ -213,7 +213,16 @@ Minimize tool calls to reduce latency and improve user experience:
    - updateTableRowsByFieldNames > getTableSchema + bulkUpdateRows
    - One smart tool > multiple manual steps
 
-3. **Don't Fetch What You Have**: Use context values directly
+3. **Call Independent Tools in Parallel**: When a request involves multiple independent actions, CALL ALL RELEVANT TOOLS IN THE SAME TURN.
+   - Example: "Create a project AND a separate task" -> call createProject and createTaskItem in ONE tool_calls array.
+   - Do not wait for the result of one to call the other unless there is a direct data dependency.
+
+4. **Do Not Over-Index**: Perform ONLY the actions explicitly requested by the user.
+   - If the user asks for a table, create the table.
+   - Do NOT voluntarily add fields, rows, or blocks unless specifically asked or strictly necessary for the requested structure.
+   - Each extra action adds significant latency.
+
+5. **Don't Fetch What You Have**: Use context values directly
    - If currentProjectId is provided, USE IT
    - Don't search for projects you already know about
 
@@ -600,14 +609,14 @@ Remember: Every tool parameter description tells you where to get the data. Read
  */
 export function getSystemPrompt(
   context?: {
-  workspaceId?: string;
-  workspaceName?: string;
-  userId?: string;
-  userName?: string;
-  currentDate?: string;
-  currentProjectId?: string;
-  currentTabId?: string;
-},
+    workspaceId?: string;
+    workspaceName?: string;
+    userId?: string;
+    userName?: string;
+    currentDate?: string;
+    currentProjectId?: string;
+    currentTabId?: string;
+  },
   mode: "full" | "fast" = "full"
 ): string {
   let prompt = mode === "fast" ? TRAK_FAST_ACTION_PROMPT : TRAK_SYSTEM_PROMPT;

@@ -20,6 +20,7 @@ export type ToolGroup =
   | "block" // Block operations
   | "tab" // Tab operations
   | "doc" // Document operations
+  | "file" // File operations
   | "client" // Client operations
   | "property" // Property operations
   | "comment"; // Comment operations
@@ -87,6 +88,11 @@ const ENTITY_PATTERNS: Record<string, RegExp[]> = {
     /\bdoc(?:s|ument)?(?:s)?\b/i,
     /\bnote(?:s)?\b/i,
   ],
+  file: [
+    /\bfile(?:s)?\b/i,
+    /\battachment(?:s)?\b/i,
+    /\bupload(?:s|ed|ing)?\b/i,
+  ],
   client: [
     /\bclient(?:s)?\b/i,
     /\bcompany(?:ies)?\b/i,
@@ -127,6 +133,7 @@ const ACTION_PATTERNS: Record<string, RegExp[]> = {
     /\bedit(?:ing)?\b/i,
     /\bmodif(?:y|ying)\b/i,
     /\bchange(?:ing)?\b/i,
+    /\brename(?:ing)?\b/i,
     /\bset(?:ting)?\b/i,
     /\balter(?:ing)?\b/i,
     /\bmark(?:ing)?\b/i,
@@ -331,6 +338,7 @@ function mapEntityToToolGroup(entity: string): ToolGroup | null {
     block: "block",
     tab: "tab",
     doc: "doc",
+    file: "file",
     client: "client",
   };
 
