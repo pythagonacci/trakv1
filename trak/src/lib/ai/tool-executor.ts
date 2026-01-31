@@ -109,6 +109,7 @@ import {
   createTimelineDependency,
   deleteTimelineDependency,
 } from "@/app/actions/timelines/dependency-actions";
+import type { TimelineEventStatus } from "@/types/timeline";
 
 // ============================================================================
 // IMPORTS - Property Actions
@@ -118,6 +119,7 @@ import {
   updatePropertyDefinition,
   deletePropertyDefinition,
 } from "@/app/actions/properties/definition-actions";
+import type { PropertyValue } from "@/types/properties";
 import {
   setEntityProperty,
   removeEntityProperty,
@@ -177,6 +179,47 @@ export interface ToolExecutionContext {
   workspaceId: string;
   userId?: string;
   contextTableId?: string;
+  currentTabId?: string;
+}
+
+const shouldUseTestContext =
+  process.env.NODE_ENV === "test" || process.env.ENABLE_TEST_MODE === "true";
+
+function summarizeToolArgs(args: Record<string, unknown>) {
+  const keys = Object.keys(args || {});
+  return {
+    argCount: keys.length,
+    argKeys: keys.slice(0, 10),
+    truncatedKeys: Math.max(0, keys.length - 10),
+  };
+}
+
+function summarizeToolResult(result: ToolCallResult) {
+  const data = result.data;
+  let dataType = "undefined";
+  let dataCount: number | null = null;
+  let dataKeys: number | null = null;
+
+  if (Array.isArray(data)) {
+    dataType = "array";
+    dataCount = data.length;
+  } else if (data && typeof data === "object") {
+    dataType = "object";
+    dataKeys = Object.keys(data as Record<string, unknown>).length;
+  } else if (data === null) {
+    dataType = "null";
+  } else if (typeof data !== "undefined") {
+    dataType = typeof data;
+  }
+
+  return {
+    success: result.success,
+    hasError: Boolean(result.error),
+    dataType,
+    dataCount,
+    dataKeys,
+    warningsCount: Array.isArray(result.warnings) ? result.warnings.length : 0,
+  };
 }
 
 // ============================================================================
@@ -194,10 +237,10 @@ export async function executeTool(
   const { name, arguments: args } = toolCall;
 
   try {
-    aiDebug("executeTool:start", { tool: name, arguments: args });
+    aiDebug("executeTool:start", { tool: name, ...summarizeToolArgs(args) });
 
     // If context is provided (test mode), set it globally for server actions to use
-    if (context?.workspaceId && context?.userId) {
+    if (shouldUseTestContext && context?.workspaceId && context?.userId) {
       await setTestContext(context.workspaceId, context.userId);
     }
 
@@ -1133,12 +1176,11 @@ export async function executeTool(
             title: args.title as string,
             startDate: args.startDate as string,
             endDate: args.endDate as string,
-            status: args.status as string | undefined,
+            status: args.status as TimelineEventStatus | undefined,
             progress: args.progress as number | undefined,
             notes: args.notes as string | undefined,
             color: args.color as string | undefined,
             isMilestone: args.isMilestone as boolean | undefined,
-            assigneeId: args.assigneeId as string | undefined,
           })
         );
 
@@ -1148,12 +1190,11 @@ export async function executeTool(
             title: args.title as string | undefined,
             startDate: args.startDate as string | undefined,
             endDate: args.endDate as string | undefined,
-            status: args.status as string | undefined,
+            status: args.status as TimelineEventStatus | undefined,
             progress: args.progress as number | undefined,
             notes: args.notes as string | undefined,
             color: args.color as string | undefined,
             isMilestone: args.isMilestone as boolean | undefined,
-            assigneeId: args.assigneeId as string | undefined,
           })
         );
 
@@ -1210,7 +1251,7 @@ export async function executeTool(
             entity_type: args.entityType as any,
             entity_id: args.entityId as string,
             property_definition_id: args.propertyDefinitionId as string,
-            value: args.value,
+            value: args.value as PropertyValue,
           })
         );
 
@@ -1279,7 +1320,7 @@ export async function executeTool(
 
       case "archiveDoc":
         return await wrapResult(
-          updateDoc(args.docId as string, { isArchived: true })
+          updateDoc(args.docId as string, { is_archived: true })
         );
 
       case "deleteDoc":
@@ -1324,7 +1365,7 @@ export async function executeTool(
     };
   } finally {
     // Clear test context if it was set
-    if (context?.workspaceId && context?.userId) {
+    if (shouldUseTestContext && context?.workspaceId && context?.userId) {
       await clearTestContext();
     }
   }
@@ -1689,7 +1730,7 @@ async function findFieldByName(
     (field) => normalizeFieldName(field.name) === normalized
   );
 
-  return match ? (match as Record<string, unknown>) : null;
+  return match ? (match as unknown as Record<string, unknown>) : null;
 }
 
 async function mapRowDataToFieldIds(
@@ -2019,11 +2060,11 @@ async function wrapResult(
       const actionResult = result as { data?: unknown; error?: string | null };
       if (actionResult.error) {
         const wrapped = { success: false, error: actionResult.error };
-        aiDebug("executeTool:result", wrapped);
+        aiDebug("executeTool:result", summarizeToolResult(wrapped));
         return wrapped;
       }
       const wrapped = { success: true, data: actionResult.data };
-      aiDebug("executeTool:result", wrapped);
+      aiDebug("executeTool:result", summarizeToolResult(wrapped));
       return wrapped;
     }
 
@@ -2032,24 +2073,24 @@ async function wrapResult(
       const searchResult = result as { data?: unknown; error?: string | null };
       if (searchResult.error) {
         const wrapped = { success: false, error: searchResult.error };
-        aiDebug("executeTool:result", wrapped);
+        aiDebug("executeTool:result", summarizeToolResult(wrapped));
         return wrapped;
       }
       const wrapped = { success: true, data: searchResult.data };
-      aiDebug("executeTool:result", wrapped);
+      aiDebug("executeTool:result", summarizeToolResult(wrapped));
       return wrapped;
     }
 
     // Direct result
     const wrapped = { success: true, data: result };
-    aiDebug("executeTool:result", wrapped);
+    aiDebug("executeTool:result", summarizeToolResult(wrapped));
     return wrapped;
   } catch (error) {
     const wrapped = {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
     };
-    aiDebug("executeTool:result", wrapped);
+    aiDebug("executeTool:result", summarizeToolResult(wrapped));
     return wrapped;
   }
 }

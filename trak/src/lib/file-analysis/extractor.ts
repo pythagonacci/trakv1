@@ -107,7 +107,7 @@ export async function extractFileContent(params: {
       };
     }
     case "pdf": {
-      const parsed = await pdfParse(new Uint8Array(buffer));
+      const parsed = await pdfParse(Buffer.from(buffer));
       const text = parsed.text || "";
       return {
         text,

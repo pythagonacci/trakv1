@@ -234,7 +234,7 @@ export async function saveFileAnalysisAsBlock(params: {
       content: { text: textPayload },
     });
     if ("error" in textResult) {
-      return { error: textResult.error };
+      return { error: textResult.error ?? "Failed to create analysis text block" };
     }
     createdBlockIds.push(textResult.data.id);
   }
@@ -246,7 +246,7 @@ export async function saveFileAnalysisAsBlock(params: {
         type: "table",
       });
       if ("error" in tableResult) {
-        return { error: tableResult.error };
+        return { error: tableResult.error ?? "Failed to create table block" };
       }
 
       const tableId = (tableResult.data.content as { tableId?: string } | null)?.tableId;

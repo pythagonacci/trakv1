@@ -362,6 +362,14 @@ function normalizeArrayFilter<T>(value?: T | T[]): T[] | null {
   return Array.isArray(value) ? value : [value];
 }
 
+function coerceRelation<T>(value: unknown): T | null {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    return (value[0] as T) ?? null;
+  }
+  return value as T;
+}
+
 /**
  * Applies date filters to a Supabase query.
  */
@@ -607,7 +615,11 @@ async function enrichEntitiesWithProperties(
   const result = new Map<string, EnrichedProperty[]>();
 
   for (const row of data ?? []) {
-    const def = row.property_definitions as { name: string; type: string } | null;
+    const rawDef = row.property_definitions as
+      | { name: string; type: string }
+      | Array<{ name: string; type: string }>
+      | null;
+    const def = Array.isArray(rawDef) ? rawDef[0] ?? null : rawDef;
     const prop: EnrichedProperty = {
       id: row.property_definition_id,
       name: def?.name ?? "Unknown",
@@ -714,7 +726,7 @@ export async function searchTasks(params: {
   limit?: number;
 }): Promise<SearchResponse<TaskResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
   const supabase = ctx.supabase!;
@@ -925,7 +937,7 @@ export async function searchTasks(params: {
       return { data: null, error: error.message };
     }
 
-    let tasks = data ?? [];
+    let tasks: Array<Record<string, unknown>> = (data ?? []) as Array<Record<string, unknown>>;
 
     // If due date property matches exist, fetch those too (OR logic with column filter)
     if (dueDatePropertyIds && dueDatePropertyIds.length > 0) {
@@ -968,7 +980,7 @@ export async function searchTasks(params: {
           .order("updated_at", { ascending: false })
           .limit(baseFetchLimit);
 
-        tasks = [...tasks, ...(dueDateData ?? [])];
+        tasks = [...tasks, ...((dueDateData ?? []) as Array<Record<string, unknown>>)];
       }
     }
 
@@ -987,8 +999,8 @@ export async function searchTasks(params: {
 
     // Map to clean results with properties from entity_properties
     const mapped: TaskResult[] = tasks.map((task: Record<string, unknown>) => {
-      const project = task.projects as { name: string } | null;
-      const tab = task.tabs as { name: string } | null;
+      const project = coerceRelation<{ name: string }>(task.projects);
+      const tab = coerceRelation<{ name: string }>(task.tabs);
       const props = propertiesMap.get(task.id as string) ?? [];
 
       // Extract properties by name
@@ -1071,7 +1083,7 @@ export async function searchProjects(params: {
   limit?: number;
 }): Promise<SearchResponse<ProjectResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -1115,7 +1127,7 @@ export async function searchProjects(params: {
     }
 
     const mapped: ProjectResult[] = (data ?? []).map((p: Record<string, unknown>) => {
-      const client = p.clients as { name: string } | null;
+      const client = coerceRelation<{ name: string }>(p.clients);
       return {
         id: p.id as string,
         name: p.name as string,
@@ -1149,7 +1161,7 @@ export async function searchClients(params: {
   limit?: number;
 }): Promise<SearchResponse<ClientResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -1193,7 +1205,7 @@ export async function searchWorkspaceMembers(params: {
   limit?: number;
 }): Promise<SearchResponse<WorkspaceMemberResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -1282,7 +1294,7 @@ export async function searchTabs(params: {
   limit?: number;
 }): Promise<SearchResponse<TabResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -1317,7 +1329,7 @@ export async function searchTabs(params: {
     }
 
     const mapped: TabResult[] = (data ?? []).map((t: Record<string, unknown>) => {
-      const project = t.projects as { name: string } | null;
+      const project = coerceRelation<{ name: string }>(t.projects);
       return {
         id: t.id as string,
         name: t.name as string,
@@ -1363,7 +1375,7 @@ export async function searchBlocks(params: {
   limit?: number;
 }): Promise<SearchResponse<BlockResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
   const supabase = ctx.supabase!;
@@ -1504,7 +1516,7 @@ export async function searchBlocks(params: {
     // Filter by project ID if specified
     if (projectFilter) {
       results = results.filter((b: Record<string, unknown>) => {
-        const tabs = b.tabs as { project_id: string } | null;
+        const tabs = coerceRelation<{ project_id: string }>(b.tabs);
         return tabs && projectFilter.includes(tabs.project_id);
       });
     }
@@ -1513,7 +1525,7 @@ export async function searchBlocks(params: {
     if (params.projectName) {
       const searchName = params.projectName.toLowerCase();
       results = results.filter((b: Record<string, unknown>) => {
-        const tabs = b.tabs as { projects: { name: string } | null } | null;
+        const tabs = coerceRelation<{ projects: { name: string } | null }>(b.tabs);
         return tabs?.projects?.name.toLowerCase().includes(searchName);
       });
     }
@@ -1526,7 +1538,7 @@ export async function searchBlocks(params: {
     const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "block", blockIds);
 
     const mapped: BlockResult[] = results.map((b: Record<string, unknown>) => {
-      const tabs = b.tabs as { name: string; project_id: string; projects: { name: string } | null } | null;
+      const tabs = coerceRelation<{ name: string; project_id: string; projects: { name: string } | null }>(b.tabs);
       const props = propertiesMap.get(b.id as string) ?? [];
 
       // Extract properties by name
@@ -1602,7 +1614,7 @@ export async function searchDocs(params: {
   limit?: number;
 }): Promise<SearchResponse<DocResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -1685,7 +1697,7 @@ export async function searchDocContent(params: {
   snippetLength?: number;
 }): Promise<{ data: { found: boolean; snippets: string[]; matchCount: number } | null; error: string | null }> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const snippetLength = params.snippetLength ?? 100;
@@ -1793,7 +1805,7 @@ export async function searchDocsContentAll(params: {
   limit?: number;
 }): Promise<SearchResponse<DocContentSearchResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const snippetLength = params.snippetLength ?? 100;
@@ -1891,7 +1903,7 @@ export async function searchTables(params: {
   limit?: number;
 }): Promise<SearchResponse<TableResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -1923,7 +1935,7 @@ export async function searchTables(params: {
     }
 
     const mapped: TableResult[] = (data ?? []).map((t: Record<string, unknown>) => {
-      const project = t.projects as { name: string } | null;
+      const project = coerceRelation<{ name: string }>(t.projects);
       return {
         id: t.id as string,
         title: t.title as string,
@@ -1959,7 +1971,7 @@ export async function searchTableFields(params: {
   limit?: number;
 }): Promise<SearchResponse<TableFieldResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 100;
@@ -2032,7 +2044,7 @@ export async function searchTableViews(params: {
   limit?: number;
 }): Promise<SearchResponse<TableViewResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -2115,7 +2127,7 @@ export async function searchTableRows(params: {
   limit?: number;
 }): Promise<SearchResponse<TableRowResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -2338,7 +2350,7 @@ export async function searchTimelineEvents(params: {
   limit?: number;
 }): Promise<SearchResponse<TimelineEventResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
   const supabase = ctx.supabase!;
@@ -2552,7 +2564,7 @@ export async function searchFiles(params: {
   limit?: number;
 }): Promise<SearchResponse<FileResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -2635,7 +2647,7 @@ export async function searchFiles(params: {
     results = results.slice(0, limit);
 
     const mapped: FileResult[] = results.map((f: Record<string, unknown>) => {
-      const project = f.projects as { name: string } | null;
+      const project = coerceRelation<{ name: string }>(f.projects);
       return {
         id: f.id as string,
         file_name: f.file_name as string,
@@ -2676,7 +2688,7 @@ export async function searchComments(params: {
   limit?: number;
 }): Promise<SearchResponse<CommentResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -2812,7 +2824,7 @@ export async function searchTaskComments(params: {
   limit?: number;
 }): Promise<SearchResponse<TaskCommentResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -2902,7 +2914,7 @@ export async function searchPayments(params: {
   limit?: number;
 }): Promise<SearchResponse<PaymentResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -2957,8 +2969,8 @@ export async function searchPayments(params: {
     }
 
     const mapped: PaymentResult[] = (data ?? []).map((p: Record<string, unknown>) => {
-      const project = p.projects as { name: string } | null;
-      const client = p.clients as { name: string } | null;
+      const project = coerceRelation<{ name: string }>(p.projects);
+      const client = coerceRelation<{ name: string }>(p.clients);
       return {
         id: p.id as string,
         payment_number: p.payment_number as string | null,
@@ -2997,7 +3009,7 @@ export async function searchTags(params: {
   limit?: number;
 }): Promise<SearchResponse<TagResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -3157,7 +3169,7 @@ export async function searchPropertyDefinitions(params: {
   limit?: number;
 }): Promise<SearchResponse<PropertyDefinitionResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -3216,7 +3228,7 @@ export async function searchEntityProperties(params: {
   limit?: number;
 }): Promise<SearchResponse<EntityPropertyResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -3347,7 +3359,7 @@ export async function searchEntityProperties(params: {
 
     // Map to result format
     const mapped: EntityPropertyResult[] = results.slice(0, limit).map((row) => {
-      const def = row.property_definitions as { name: string; type: string } | null;
+    const def = coerceRelation<{ name: string; type: string }>(row.property_definitions);
       return {
         id: row.id,
         entity_type: row.entity_type,
@@ -3385,7 +3397,7 @@ export async function searchEntityLinks(params: {
   limit?: number;
 }): Promise<SearchResponse<EntityLinkResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -3506,7 +3518,7 @@ export async function getEntityById(params: {
   id: string;
 }): Promise<{ data: EntityResult | null; error: string | null }> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
   const supabase = ctx.supabase!;
@@ -3551,8 +3563,23 @@ export async function getEntityById(params: {
         const statusValue = statusProp?.value as { name?: string } | null;
         const priorityValue = priorityProp?.value as { name?: string } | null;
 
-        const project = data.projects as { name: string } | null;
-        const tab = data.tabs as { name: string } | null;
+        const project = coerceRelation<{ name: string }>(data.projects);
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
+        const tab = coerceRelation<{ name: string }>(data.tabs);
 
         // Merge properties into data for backward compatibility
         const enrichedData = {
@@ -3591,7 +3618,7 @@ export async function getEntityById(params: {
 
         if (error || !data) return { data: null, error: error?.message ?? "Project not found" };
 
-        const client = data.clients as { name: string } | null;
+        const client = coerceRelation<{ name: string }>(data.clients);
 
         return {
           data: {
@@ -3669,7 +3696,10 @@ export async function getEntityById(params: {
 
         if (error || !data) return { data: null, error: error?.message ?? "Tab not found" };
 
-        const project = data.projects as { name: string };
+        const project = coerceRelation<{ name: string }>(data.projects);
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
 
         return {
           data: {
@@ -3697,7 +3727,10 @@ export async function getEntityById(params: {
 
         if (error || !data) return { data: null, error: error?.message ?? "Block not found" };
 
-        const tabs = data.tabs as { name: string; project_id: string; projects: { name: string } };
+        const tabs = coerceRelation<{ name: string; project_id: string; projects: { name: string } }>(data.tabs);
+        if (!tabs) {
+          return { data: null, error: "Block tab not found" };
+        }
 
         return {
           data: {
@@ -3749,7 +3782,10 @@ export async function getEntityById(params: {
 
         if (error || !data) return { data: null, error: error?.message ?? "Table not found" };
 
-        const project = data.projects as { name: string } | null;
+        const project = coerceRelation<{ name: string }>(data.projects);
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
 
         return {
           data: {
@@ -3833,7 +3869,10 @@ export async function getEntityById(params: {
 
         if (error || !data) return { data: null, error: error?.message ?? "File not found" };
 
-        const project = data.projects as { name: string } | null;
+        const project = coerceRelation<{ name: string }>(data.projects);
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
 
         return {
           data: {
@@ -3861,8 +3900,11 @@ export async function getEntityById(params: {
 
         if (error || !data) return { data: null, error: error?.message ?? "Payment not found" };
 
-        const project = data.projects as { name: string } | null;
-        const client = data.clients as { name: string } | null;
+        const project = coerceRelation<{ name: string }>(data.projects);
+        if (!project) {
+          return { data: null, error: "Tab project not found" };
+        }
+        const client = coerceRelation<{ name: string }>(data.clients);
 
         return {
           data: {
@@ -3929,7 +3971,7 @@ export async function getEntityContext(params: {
   includeLinks?: boolean;
 }): Promise<{ data: EntityContextResult | null; error: string | null }> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const includeProperties = params.includeProperties ?? true;
@@ -3955,7 +3997,7 @@ export async function getEntityContext(params: {
 
       if (properties && properties.length > 0) {
         result.properties = properties.map((p) => {
-          const def = p.property_definitions as { name: string; type: string } | null;
+          const def = coerceRelation<{ name: string; type: string }>(p.property_definitions);
           return {
             id: p.property_definition_id,
             name: def?.name ?? "Unknown",
@@ -4031,7 +4073,7 @@ export async function getEntityContextById(params: {
   includeRelationships?: boolean;
 }): Promise<{ data: EntityContextResult | null; error: string | null }> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const includeProperties = params.includeProperties ?? true;
@@ -4059,7 +4101,7 @@ export async function getEntityContextById(params: {
 
       if (properties && properties.length > 0) {
         result.properties = properties.map((p) => {
-          const def = p.property_definitions as { name: string; type: string } | null;
+          const def = coerceRelation<{ name: string; type: string }>(p.property_definitions);
           return {
             id: p.property_definition_id,
             name: def?.name ?? "Unknown",
@@ -4310,7 +4352,7 @@ export async function getTableSchema(params: {
   tableId: string;
 }): Promise<{ data: TableSchemaResult | null; error: string | null }> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
 
@@ -4345,7 +4387,7 @@ export async function getTableSchema(params: {
         .eq("table_id", params.tableId),
     ]);
 
-    const project = table.projects as { name: string } | null;
+    const project = coerceRelation<{ name: string }>(table.projects);
 
     return {
       data: {
@@ -4401,7 +4443,7 @@ export async function listEntityLinks(params: {
   target_entity_id: string;
 }>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const direction = params.direction ?? "both";
@@ -4498,7 +4540,7 @@ export async function resolveEntityByName(params: {
   limit?: number;
 }): Promise<SearchResponse<ResolvedEntity>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 5;
@@ -4518,7 +4560,7 @@ export async function resolveEntityByName(params: {
 
         for (const task of data ?? []) {
           const titleLower = task.title.toLowerCase();
-          const project = task.projects as { name: string } | null;
+          const project = coerceRelation<{ name: string }>(task.projects);
 
           let confidence: "exact" | "high" | "partial" = "partial";
           if (titleLower === searchName) confidence = "exact";
@@ -4550,7 +4592,7 @@ export async function resolveEntityByName(params: {
 
         for (const project of data ?? []) {
           const nameLower = project.name.toLowerCase();
-          const client = project.clients as { name: string } | null;
+          const client = coerceRelation<{ name: string }>(project.clients);
 
           let confidence: "exact" | "high" | "partial" = "partial";
           if (nameLower === searchName) confidence = "exact";
@@ -4646,7 +4688,7 @@ export async function resolveEntityByName(params: {
 
         for (const tab of data ?? []) {
           const nameLower = tab.name.toLowerCase();
-          const project = tab.projects as { name: string } | null;
+          const project = coerceRelation<{ name: string }>(tab.projects);
 
           let confidence: "exact" | "high" | "partial" = "partial";
           if (nameLower === searchName) confidence = "exact";
@@ -4703,7 +4745,7 @@ export async function resolveEntityByName(params: {
 
         for (const table of data ?? []) {
           const titleLower = table.title.toLowerCase();
-          const project = table.projects as { name: string } | null;
+          const project = coerceRelation<{ name: string }>(table.projects);
 
           let confidence: "exact" | "high" | "partial" = "partial";
           if (titleLower === searchName) confidence = "exact";
@@ -4760,7 +4802,7 @@ export async function resolveEntityByName(params: {
 
         for (const file of data ?? []) {
           const nameLower = file.file_name.toLowerCase();
-          const project = file.projects as { name: string } | null;
+          const project = coerceRelation<{ name: string }>(file.projects);
 
           let confidence: "exact" | "high" | "partial" = "partial";
           if (nameLower === searchName) confidence = "exact";
@@ -4793,8 +4835,8 @@ export async function resolveEntityByName(params: {
         for (const payment of data ?? []) {
           const displayName = payment.payment_number ?? payment.description ?? `Payment ${payment.id.slice(0, 8)}`;
           const nameLower = displayName.toLowerCase();
-          const project = payment.projects as { name: string } | null;
-          const client = payment.clients as { name: string } | null;
+          const project = coerceRelation<{ name: string }>(payment.projects);
+          const client = coerceRelation<{ name: string }>(payment.clients);
 
           let confidence: "exact" | "high" | "partial" = "partial";
           if (nameLower === searchName) confidence = "exact";
@@ -4910,7 +4952,7 @@ export async function resolveTableFieldByName(params: {
   limit?: number;
 }): Promise<SearchResponse<ResolvedTableField>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 5;
@@ -4997,7 +5039,7 @@ export async function queryTableRowsByFieldNames(params: {
   limit?: number;
 }): Promise<SearchResponse<TableRowWithFieldNames>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
@@ -5126,7 +5168,7 @@ export async function resolveTableFieldsByNames(params: {
   error: string | null;
 }> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error };
+  if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
 
@@ -5235,7 +5277,7 @@ export async function searchAll(params: {
   offset?: number;
 }): Promise<PaginatedSearchResponse<SearchAllResult>> {
   const ctx = await getSearchContext();
-  if (ctx.error) return { data: null, error: ctx.error, hasMore: false };
+  if (ctx.error !== null) return { data: null, error: ctx.error, hasMore: false };
 
   const limitPerType = params.limit ?? 5;
   const offset = params.offset ?? 0;

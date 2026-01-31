@@ -597,7 +597,8 @@ Remember: Every tool parameter description tells you where to get the data. Read
 /**
  * Get the system prompt with optional context injection
  */
-export function getSystemPrompt(context?: {
+export function getSystemPrompt(
+  context?: {
   workspaceId?: string;
   workspaceName?: string;
   userId?: string;
@@ -605,8 +606,10 @@ export function getSystemPrompt(context?: {
   currentDate?: string;
   currentProjectId?: string;
   currentTabId?: string;
-}): string {
-  let prompt = TRAK_SYSTEM_PROMPT;
+},
+  mode: "full" | "fast" = "full"
+): string {
+  let prompt = mode === "fast" ? TRAK_FAST_ACTION_PROMPT : TRAK_SYSTEM_PROMPT;
 
   if (context) {
     const contextSection = `
@@ -677,3 +680,15 @@ export const RESPONSE_TEMPLATES = {
       `Found ${count} ${entityType}${count > 1 ? "s" : ""}:`,
   },
 };
+
+export const TRAK_FAST_ACTION_PROMPT = `You are Trak AI. Execute user commands using the available tools.
+
+Rules:
+- Prefer the most direct tool for the job.
+- Use bulk tools for 3+ items.
+- If updating table rows by field names/labels, use updateTableRowsByFieldNames.
+- If assigning people, searchWorkspaceMembers first to get {id, name}.
+- Use provided context IDs directly; do not search for them.
+- If required parameters are missing, ask one concise clarification question and stop.
+- Return a short confirmation after successful writes.
+`;

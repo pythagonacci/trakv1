@@ -10,8 +10,8 @@
 
 import { allTools, toOpenAIFormat, getToolsByGroups } from "./tool-definitions";
 import { getSystemPrompt } from "./system-prompt";
-import { executeTool, type ToolCall, type ToolCallResult } from "./tool-executor";
-import { aiDebug } from "./debug";
+import { executeTool, type ToolCallResult } from "./tool-executor";
+import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 import { classifyIntent } from "./intent-classifier";
 
 // ============================================================================
@@ -87,6 +87,197 @@ const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const MAX_TOOL_ITERATIONS = 25; // Prevent infinite loops
 const TOOL_REPEAT_THRESHOLD = 2;
+const TOOL_CALL_MAX_TOKENS = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 512);
+const FINAL_RESPONSE_MAX_TOKENS = Number(process.env.AI_FINAL_MAX_TOKENS ?? 1024);
+const TOOL_RESULT_MAX_ITEMS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS ?? 25);
+const TOOL_RESULT_MAX_STRING_CHARS = Number(process.env.AI_TOOL_RESULT_MAX_STRING_CHARS ?? 2000);
+const TOOL_RESULT_MAX_OBJECT_KEYS = Number(process.env.AI_TOOL_RESULT_MAX_OBJECT_KEYS ?? 50);
+const TOOL_RESULT_MAX_DEPTH = Number(process.env.AI_TOOL_RESULT_MAX_DEPTH ?? 3);
+const SKIP_SECOND_LLM = process.env.AI_SKIP_SECOND_LLM !== "0";
+const COMPACT_TOOL_RESULTS = process.env.AI_COMPACT_TOOL_RESULTS !== "0";
+const PROMPT_MODE = (process.env.AI_PROMPT_MODE || "auto").toLowerCase();
+const TRIM_CORE_TO_INTENT = process.env.AI_TRIM_CORE_TO_INTENT !== "0";
+const EARLY_EXIT_WRITES = process.env.AI_EARLY_EXIT_WRITES !== "0";
+
+type ToolFormatCacheEntry = {
+  tools: ReturnType<typeof toOpenAIFormat>;
+  jsonChars: number;
+};
+
+const toolFormatCache = new Map<string, ToolFormatCacheEntry>();
+
+function isSearchLikeToolName(name: string) {
+  return name.startsWith("search") || name.startsWith("get") || name.startsWith("resolve");
+}
+
+function shouldUseFastPrompt(
+  userCommand: string,
+  intent: { confidence: number; toolGroups: string[] },
+  conversationHistory: AIMessage[]
+) {
+  if (PROMPT_MODE === "full") return false;
+  if (PROMPT_MODE === "fast") return true;
+  if (conversationHistory.length > 0) return false;
+  if (userCommand.length > 180) return false;
+  if (intent.confidence < 0.8) return false;
+  if (intent.toolGroups.length > 2) return false;
+  const lowered = userCommand.toLowerCase();
+  if (/(explain|why|summarize|analysis|report|reasoning)/i.test(lowered)) return false;
+  return true;
+}
+
+function trimToolsForIntent(
+  tools: ReturnType<typeof getToolsByGroups>,
+  intent: { toolGroups: string[]; confidence: number; entities: string[] },
+  userCommand: string
+) {
+  if (!TRIM_CORE_TO_INTENT) return tools;
+  const lower = userCommand.toLowerCase();
+  const hasTableOnly =
+    intent.toolGroups.includes("table") &&
+    intent.toolGroups.every((g) => g === "core" || g === "table");
+  if (!hasTableOnly || intent.confidence < 0.85) {
+    return tools;
+  }
+
+  const keep = new Set<string>([
+    "searchTables",
+    "searchTableRows",
+    "getTableSchema",
+    "resolveEntityByName",
+    "getEntityById",
+  ]);
+
+  if (intent.entities.includes("task") || lower.includes("task")) keep.add("searchTasks");
+  if (intent.entities.includes("project") || lower.includes("project")) keep.add("searchProjects");
+  if (intent.entities.includes("tab") || lower.includes("tab")) keep.add("searchTabs");
+  if (intent.entities.includes("block") || lower.includes("block")) keep.add("searchBlocks");
+  if (intent.entities.includes("doc") || lower.includes("doc")) keep.add("searchDocs");
+  if (intent.entities.includes("client") || lower.includes("client")) keep.add("searchClients");
+  if (intent.entities.includes("timeline") || lower.includes("timeline"))
+    keep.add("searchTimelineEvents");
+  if (intent.entities.includes("table") || lower.includes("tag")) keep.add("searchTags");
+  if (lower.includes("assignee") || lower.includes("member")) keep.add("searchWorkspaceMembers");
+  if (lower.includes("file")) keep.add("searchFiles");
+
+  return tools.filter((tool) => tool.category !== "search" || keep.has(tool.name));
+}
+
+function extractCountFromResult(data: unknown): number | null {
+  if (!data || typeof data !== "object") return null;
+  const obj = data as Record<string, unknown>;
+  const keys = [
+    "updated",
+    "updatedCount",
+    "created",
+    "createdCount",
+    "movedCount",
+    "deletedCount",
+    "insertedCount",
+  ];
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  if (Array.isArray(obj.insertedIds)) return obj.insertedIds.length;
+  return null;
+}
+
+function summarizeToolCall(toolName: string, result: ToolCallResult) {
+  if (!result.success) {
+    return `Failed to ${toolName}: ${result.error ?? "Unknown error"}.`;
+  }
+  if (result.hint) {
+    return result.hint;
+  }
+
+  const count = extractCountFromResult(result.data);
+  const countText = count !== null ? ` (${count})` : "";
+
+  switch (toolName) {
+    case "createField":
+      return `Added a column.${countText}`;
+    case "createTable":
+      return `Created a table.${countText}`;
+    case "createRow":
+    case "bulkInsertRows":
+      return `Inserted rows.${countText}`;
+    case "updateTableRowsByFieldNames":
+    case "bulkUpdateRows":
+    case "updateRow":
+    case "updateCell":
+      return `Updated table rows.${countText}`;
+    case "deleteRow":
+    case "deleteRows":
+      return `Deleted rows.${countText}`;
+    case "createTaskItem":
+      return `Created task.${countText}`;
+    case "updateTaskItem":
+      return `Updated task.${countText}`;
+    case "createProject":
+      return `Created project.${countText}`;
+    case "createTab":
+      return `Created tab.${countText}`;
+    case "createBlock":
+      return `Created block.${countText}`;
+    case "createTaskBoardFromTasks":
+      return `Created task board.${countText}`;
+    default:
+      return `Action completed.${countText}`;
+  }
+}
+
+function buildToolSummary(toolCalls: Array<{ tool: string; result: ToolCallResult }>) {
+  const messages = toolCalls.map((call) => summarizeToolCall(call.tool, call.result));
+  const combined = messages.filter(Boolean).join(" ");
+  return combined.length > 0 ? combined : "Action completed.";
+}
+
+function shouldTruncateString(value: string) {
+  return value.length > TOOL_RESULT_MAX_STRING_CHARS;
+}
+
+function compactValue(value: unknown, depth: number): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return shouldTruncateString(value)
+      ? `${value.slice(0, TOOL_RESULT_MAX_STRING_CHARS)}...[truncated]`
+      : value;
+  }
+  if (typeof value !== "object") return value;
+
+  if (Array.isArray(value)) {
+    const limited = value.slice(0, TOOL_RESULT_MAX_ITEMS).map((item) =>
+      compactValue(item, depth + 1)
+    );
+    if (value.length > TOOL_RESULT_MAX_ITEMS) {
+      limited.push({ __truncated_items: value.length - TOOL_RESULT_MAX_ITEMS });
+    }
+    return limited;
+  }
+
+  if (depth >= TOOL_RESULT_MAX_DEPTH) {
+    return "[truncated_object]";
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  const limitedEntries = entries.slice(0, TOOL_RESULT_MAX_OBJECT_KEYS);
+  const compacted: Record<string, unknown> = {};
+  for (const [key, entryValue] of limitedEntries) {
+    compacted[key] = compactValue(entryValue, depth + 1);
+  }
+  if (entries.length > TOOL_RESULT_MAX_OBJECT_KEYS) {
+    compacted.__truncated_keys = entries.length - TOOL_RESULT_MAX_OBJECT_KEYS;
+  }
+  return compacted;
+}
+
+function compactToolResult(result: ToolCallResult): ToolCallResult {
+  return {
+    ...result,
+    data: compactValue(result.data, 0),
+  };
+}
 
 // ============================================================================
 // AI EXECUTOR
@@ -101,21 +292,70 @@ export async function executeAICommand(
   context: ExecutionContext,
   conversationHistory: AIMessage[] = []
 ): Promise<ExecutionResult> {
+  const timingEnabled = isAITimingEnabled();
+  const timingStart = timingEnabled ? Date.now() : 0;
+  const timing = timingEnabled
+    ? {
+        t_intent_ms: 0,
+        t_llm1_ms: 0,
+        t_llm2_ms: 0,
+        t_llm_extra_ms: 0,
+        t_tools_total_ms: 0,
+        tool_result_chars_total: 0,
+        system_prompt_chars: 0,
+        tools_json_chars: 0,
+        tool_timings_ms: {} as Record<string, number>,
+      }
+    : null;
+  let timingLogged = false;
+  const logTiming = () => {
+    if (!timing || timingLogged) return;
+    timingLogged = true;
+    const toolTimingEntries = Object.entries(timing.tool_timings_ms).map(([tool, ms]) => [
+      `t_tool_${tool}_ms`,
+      Math.round(ms),
+    ]);
+    aiTiming({
+      t_intent_ms: Math.round(timing.t_intent_ms),
+      t_llm1_ms: Math.round(timing.t_llm1_ms),
+      t_llm2_ms: Math.round(timing.t_llm2_ms),
+      t_llm_extra_ms: Math.round(timing.t_llm_extra_ms),
+      t_tools_total_ms: Math.round(timing.t_tools_total_ms),
+      t_total_ms: Math.round(Date.now() - timingStart),
+      system_prompt_chars: timing.system_prompt_chars,
+      tools_json_chars: timing.tools_json_chars,
+      tool_result_chars_total: timing.tool_result_chars_total,
+      ...Object.fromEntries(toolTimingEntries),
+    });
+  };
+  const withTiming = (result: ExecutionResult) => {
+    logTiming();
+    return result;
+  };
+
   const openAIKey = process.env.OPENAI_API_KEY;
   const deepseekKey = process.env.DEEPSEEK_API_KEY;
   const providerPref = (process.env.AI_PROVIDER || "").toLowerCase();
 
   if (!openAIKey && !deepseekKey) {
-    return {
+    return withTiming({
       success: false,
       response:
         "AI service is not configured. Please set OPENAI_API_KEY or DEEPSEEK_API_KEY.",
       toolCallsMade: [],
       error: "Missing API key",
-    };
+    });
+  }
+
+  // Classify intent to determine which tools are needed
+  const intentStart = timingEnabled ? Date.now() : 0;
+  const intent = classifyIntent(userCommand);
+  if (timing) {
+    timing.t_intent_ms = Date.now() - intentStart;
   }
 
   // Build the system prompt with context
+  const promptMode = shouldUseFastPrompt(userCommand, intent, conversationHistory) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
     workspaceName: context.workspaceName,
@@ -124,7 +364,10 @@ export async function executeAICommand(
     currentDate: new Date().toISOString().split("T")[0],
     currentProjectId: context.currentProjectId,
     currentTabId: context.currentTabId,
-  });
+  }, promptMode);
+  if (timing) {
+    timing.system_prompt_chars = systemPrompt.length;
+  }
 
   // Initialize messages
   const messages: AIMessage[] = [
@@ -133,12 +376,21 @@ export async function executeAICommand(
     { role: "user", content: userCommand },
   ];
 
-  // Classify intent to determine which tools are needed
-  const intent = classifyIntent(userCommand);
-  const relevantTools = getToolsByGroups(intent.toolGroups);
+  const relevantTools = trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, userCommand);
 
-  // Get tools in OpenAI format (compatible with Deepseek)
-  const tools = toOpenAIFormat(relevantTools);
+  // Get tools in OpenAI format (compatible with Deepseek) with caching
+  const toolCacheKey = relevantTools.map((tool) => tool.name).join("|");
+  const cachedTools = toolFormatCache.get(toolCacheKey);
+  let tools: ReturnType<typeof toOpenAIFormat>;
+  if (cachedTools) {
+    tools = cachedTools.tools;
+    if (timing) timing.tools_json_chars = cachedTools.jsonChars;
+  } else {
+    tools = toOpenAIFormat(relevantTools);
+    const jsonChars = timingEnabled ? JSON.stringify(tools).length : 0;
+    toolFormatCache.set(toolCacheKey, { tools, jsonChars });
+    if (timing) timing.tools_json_chars = jsonChars;
+  }
   const provider =
     providerPref === "deepseek"
       ? deepseekKey
@@ -170,6 +422,7 @@ export async function executeAICommand(
     toolCount: tools.length,
     toolCountReduction: `${allTools.length} → ${relevantTools.length} (${Math.round((1 - relevantTools.length / allTools.length) * 100)}% reduction)`,
     provider,
+    promptMode,
   });
 
   // Track all tool calls made
@@ -178,6 +431,7 @@ export async function executeAICommand(
   let lastToolRepeatCount = 0;
   let lastToolName: string | null = null;
   let lastSearchTaskIds: string[] | null = null;
+  let llmCallIndex = 0;
   const contextTableId = context.contextTableId;
   const tableIdTools = new Set([
     "getTableSchema",
@@ -205,18 +459,33 @@ export async function executeAICommand(
     try {
       aiDebug("executeAICommand:iteration", { iterations });
       // Call the AI
+      const llmStart = timingEnabled ? Date.now() : 0;
+      const maxTokens = messages.some((message) => message.role === "tool")
+        ? FINAL_RESPONSE_MAX_TOKENS
+        : TOOL_CALL_MAX_TOKENS;
       const response =
         provider === "openai"
-          ? await callOpenAI(openAIKey as string, messages, tools)
-          : await callDeepseek(deepseekKey as string, messages, tools);
+          ? await callOpenAI(openAIKey as string, messages, tools, maxTokens)
+          : await callDeepseek(deepseekKey as string, messages, tools, maxTokens);
+      const llmDuration = timingEnabled ? Date.now() - llmStart : 0;
+      llmCallIndex += 1;
+      if (timing) {
+        if (llmCallIndex === 1) {
+          timing.t_llm1_ms = llmDuration;
+        } else if (llmCallIndex === 2) {
+          timing.t_llm2_ms = llmDuration;
+        } else {
+          timing.t_llm_extra_ms += llmDuration;
+        }
+      }
 
       if (!response.choices || response.choices.length === 0) {
-        return {
+        return withTiming({
           success: false,
           response: "No response from AI service.",
           toolCallsMade: allToolCallsMade,
           error: "Empty response",
-        };
+        });
       }
 
       const choice = response.choices[0];
@@ -236,6 +505,9 @@ export async function executeAICommand(
 
       // Check if we have tool calls to process
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+        let allToolCallsSuccessful = true;
+        const toolNamesThisRound: string[] = [];
+        const toolCallsThisRound: Array<{ tool: string; result: ToolCallResult }> = [];
         // Process each tool call
         for (const toolCall of assistantMessage.tool_calls) {
           const toolName = toolCall.function.name;
@@ -265,9 +537,15 @@ export async function executeAICommand(
             const existing = Array.isArray(toolArgs.taskIds) ? (toolArgs.taskIds as string[]) : [];
             toolArgs.taskIds = Array.from(new Set([...existing, ...lastSearchTaskIds]));
           }
-          aiDebug("executeAICommand:toolCall", { tool: toolName, arguments: toolArgs });
+          toolNamesThisRound.push(toolName);
+          aiDebug("executeAICommand:toolCall", {
+            tool: toolName,
+            argCount: Object.keys(toolArgs).length,
+            argKeys: Object.keys(toolArgs).slice(0, 10),
+          });
 
           // Execute the tool
+          const toolStart = timingEnabled ? Date.now() : 0;
           const result = await executeTool({
             name: toolName,
             arguments: toolArgs,
@@ -276,6 +554,12 @@ export async function executeAICommand(
             userId: context.userId,
             contextTableId,
           });
+          const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
+          if (timing) {
+            timing.t_tools_total_ms += toolDuration;
+            timing.tool_timings_ms[toolName] =
+              (timing.tool_timings_ms[toolName] ?? 0) + toolDuration;
+          }
           aiDebug("executeAICommand:toolResult", {
             tool: toolName,
             success: result.success,
@@ -288,6 +572,10 @@ export async function executeAICommand(
             arguments: toolArgs,
             result,
           });
+          toolCallsThisRound.push({ tool: toolName, result });
+          if (!result.success) {
+            allToolCallsSuccessful = false;
+          }
 
           lastToolName = toolName;
           if (toolName === "searchTasks" && result.success && Array.isArray(result.data)) {
@@ -302,10 +590,7 @@ export async function executeAICommand(
             lastToolRepeatCount = 1;
           }
 
-          const isSearchLike =
-            toolName.startsWith("search") ||
-            toolName.startsWith("get") ||
-            toolName.startsWith("resolve");
+          const isSearchLike = isSearchLikeToolName(toolName);
 
           if (!isSearchLike && lastToolRepeatCount >= TOOL_REPEAT_THRESHOLD) {
             aiDebug("executeAICommand:repeatStop", {
@@ -313,26 +598,51 @@ export async function executeAICommand(
               repeatCount: lastToolRepeatCount,
             });
             return result.success
-              ? {
+              ? withTiming({
                   success: true,
                   response:
                     "Action completed. I stopped repeating the same tool call to prevent duplicates.",
                   toolCallsMade: allToolCallsMade,
-                }
-              : {
+                })
+              : withTiming({
                   success: false,
                   response: "An error occurred while executing the command.",
                   toolCallsMade: allToolCallsMade,
                   error: result.error || "Tool failed",
-                };
+                });
           }
 
           // Add tool result to messages
+          const compactedForMetrics = compactToolResult(result);
+          const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : result;
+          const toolMessageContent = JSON.stringify(toolResultForModel);
+          if (timing) {
+            timing.tool_result_chars_total += JSON.stringify(compactedForMetrics).length;
+          }
           messages.push({
             role: "tool",
-            content: JSON.stringify(result),
+            content: toolMessageContent,
             tool_call_id: toolCall.id,
             name: toolName,
+          });
+        }
+
+        const writeToolsThisRound = toolNamesThisRound.filter(
+          (name) => !isSearchLikeToolName(name)
+        );
+        const hasNonCreateWrite = writeToolsThisRound.some(
+          (name) => !name.startsWith("create")
+        );
+        if (
+          EARLY_EXIT_WRITES &&
+          SKIP_SECOND_LLM &&
+          allToolCallsSuccessful &&
+          hasNonCreateWrite
+        ) {
+          return withTiming({
+            success: true,
+            response: buildToolSummary(toolCallsThisRound),
+            toolCallsMade: allToolCallsMade,
           });
         }
 
@@ -341,30 +651,30 @@ export async function executeAICommand(
       }
 
       // No more tool calls - we have a final response
-      return {
+      return withTiming({
         success: true,
         response: assistantMessage.content || "Command executed successfully.",
         toolCallsMade: allToolCallsMade,
-      };
+      });
     } catch (error) {
       aiDebug("executeAICommand:error", error);
       console.error("[executeAICommand] Error:", error);
-      return {
+      return withTiming({
         success: false,
         response: "An error occurred while processing your command.",
         toolCallsMade: allToolCallsMade,
         error: error instanceof Error ? error.message : "Unknown error",
-      };
+      });
     }
   }
 
   // Hit max iterations
-  return {
+  return withTiming({
     success: false,
     response: "The command required too many steps to complete. Please try a simpler request.",
     toolCallsMade: allToolCallsMade,
     error: "Max iterations reached",
-  };
+  });
 }
 
 /**
@@ -373,13 +683,15 @@ export async function executeAICommand(
 async function callDeepseek(
   apiKey: string,
   messages: AIMessage[],
-  tools: ReturnType<typeof toOpenAIFormat>
+  tools: ReturnType<typeof toOpenAIFormat>,
+  maxTokens: number
 ): Promise<ChatCompletionResponse> {
   aiDebug("callDeepseek:request", {
     messageCount: messages.length,
     toolCount: tools.length,
     model: DEEPSEEK_MODEL,
   });
+  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
   const response = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
     headers: {
@@ -407,7 +719,7 @@ async function callDeepseek(
       tools,
       tool_choice: "auto",
       temperature: 0.1, // Low temperature for more deterministic responses
-      max_tokens: 4096,
+      max_tokens: resolvedMaxTokens,
     }),
   });
 
@@ -426,7 +738,8 @@ async function callDeepseek(
 async function callOpenAI(
   apiKey: string,
   messages: AIMessage[],
-  tools: ReturnType<typeof toOpenAIFormat>
+  tools: ReturnType<typeof toOpenAIFormat>,
+  maxTokens: number
 ): Promise<ChatCompletionResponse> {
   const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL;
   aiDebug("callOpenAI:request", {
@@ -434,6 +747,7 @@ async function callOpenAI(
     toolCount: tools.length,
     model,
   });
+  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
   const response = await fetch(OPENAI_API_URL, {
     method: "POST",
     headers: {
@@ -452,7 +766,7 @@ async function callOpenAI(
       tools,
       tool_choice: "auto",
       temperature: 0.1,
-      max_tokens: 4096,
+      max_tokens: resolvedMaxTokens,
     }),
   });
 
@@ -496,13 +810,15 @@ export async function* executeAICommandStream(
     return;
   }
 
+  const intent = classifyIntent(userCommand);
+  const promptMode = shouldUseFastPrompt(userCommand, intent, []) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
     workspaceName: context.workspaceName,
     userId: context.userId,
     userName: context.userName,
     currentDate: new Date().toISOString().split("T")[0],
-  });
+  }, promptMode);
 
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
@@ -510,8 +826,7 @@ export async function* executeAICommandStream(
   ];
 
   // Classify intent to determine which tools are needed
-  const intent = classifyIntent(userCommand);
-  const relevantTools = getToolsByGroups(intent.toolGroups);
+  const relevantTools = trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, userCommand);
   const tools = toOpenAIFormat(relevantTools);
   let iterations = 0;
 
@@ -524,7 +839,10 @@ export async function* executeAICommandStream(
     };
 
     try {
-      const response = await callDeepseek(apiKey, messages, tools);
+      const maxTokens = messages.some((message) => message.role === "tool")
+        ? FINAL_RESPONSE_MAX_TOKENS
+        : TOOL_CALL_MAX_TOKENS;
+      const response = await callDeepseek(apiKey, messages, tools, maxTokens);
       const choice = response.choices[0];
       const assistantMessage = choice.message;
 
@@ -565,9 +883,10 @@ export async function* executeAICommandStream(
             data: result,
           };
 
+          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(result) : result;
           messages.push({
             role: "tool",
-            content: JSON.stringify(result),
+            content: JSON.stringify(compactedResult),
             tool_call_id: toolCall.id,
             name: toolName,
           });

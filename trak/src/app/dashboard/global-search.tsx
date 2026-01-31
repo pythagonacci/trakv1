@@ -75,6 +75,7 @@ export default function GlobalSearch() {
             const projectId = task.project_id;
             const tabId = task.tab_id;
             const blockId = task.task_block_id;
+            const isStandalone = !projectId && !tabId;
             const taskUrl =
               projectId && tabId && blockId
                 ? `/dashboard/projects/${projectId}/tabs/${tabId}?task=${blockId}-${task.id}`
@@ -84,11 +85,11 @@ export default function GlobalSearch() {
               id: task.id,
               type: "task" as const,
               title: task.title,
-              subtitle: task.taskType === "standalone" ? "Standalone Task" : undefined,
+              subtitle: isStandalone ? "Standalone Task" : undefined,
               url: taskUrl,
               preview: task.title,
               metadata: {
-                taskType: task.taskType,
+                taskType: isStandalone ? "standalone" : "attached",
                 projectId,
                 tabId,
                 blockId,

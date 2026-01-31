@@ -213,7 +213,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     let isMounted = true;
     getCurrentUser().then((result) => {
       if (!isMounted) return;
-      if ("data" in result) {
+      if ("data" in result && result.data) {
         setCurrentUserId(result.data.id);
       }
     });

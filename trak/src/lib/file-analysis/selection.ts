@@ -18,7 +18,7 @@ export function buildScopeHints(message: string) {
   };
 }
 
-export function matchFilesByName(message: string, files: { id: string; file_name: string }[]) {
+export function matchFilesByName<T extends { id: string; file_name: string }>(message: string, files: T[]): T[] {
   const lower = message.toLowerCase();
   return files.filter((file) => {
     const name = file.file_name.toLowerCase();

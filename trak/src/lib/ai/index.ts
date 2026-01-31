@@ -24,6 +24,7 @@ export {
 // System prompt
 export {
   TRAK_SYSTEM_PROMPT,
+  TRAK_FAST_ACTION_PROMPT,
   getSystemPrompt,
   CLARIFICATION_PROMPTS,
   RESPONSE_TEMPLATES,

@@ -274,10 +274,15 @@ export function AICommandPalette() {
     if (!targetProjectId) {
       const filesSpace = await getOrCreateFilesSpace(workspaceId);
       if ("error" in filesSpace) {
-        setToast({ message: filesSpace.error, type: "error" });
+        setToast({ message: filesSpace.error ?? "Failed to get files space", type: "error" });
         return;
       }
       targetProjectId = filesSpace.data.id;
+    }
+
+    if (!targetProjectId) {
+      setToast({ message: "No project ID available", type: "error" });
+      return;
     }
 
     const uploads: UploadingFile[] = files.map((file) => ({
@@ -494,6 +499,10 @@ export function AICommandPalette() {
     }
     setMessages([]);
     setInput("");
+    if (!workspaceId) {
+      setIsClearing(false);
+      return;
+    }
     const refreshed = await getFileAnalysisContextFiles({
       sessionId,
       projectId: pathMatch.projectId || undefined,

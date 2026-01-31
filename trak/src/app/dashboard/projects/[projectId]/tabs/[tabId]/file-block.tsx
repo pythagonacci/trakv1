@@ -361,7 +361,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     let isMounted = true;
     getCurrentUser().then((result) => {
       if (!isMounted) return;
-      if ("data" in result) {
+      if ("data" in result && result.data) {
         setCurrentUserId(result.data.id);
       }
     });

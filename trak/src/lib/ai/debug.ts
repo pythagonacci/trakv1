@@ -6,3 +6,12 @@ export function aiDebug(...args: unknown[]) {
   if (!isAIDebugEnabled()) return;
   console.log("[AI DEBUG]", ...args);
 }
+
+export function isAITimingEnabled() {
+  return process.env.AI_TIMING === "1";
+}
+
+export function aiTiming(payload: Record<string, unknown>) {
+  if (!isAITimingEnabled()) return;
+  console.log(`[AI TIMING] ${JSON.stringify(payload)}`);
+}
