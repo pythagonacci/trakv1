@@ -1,0 +1,288 @@
+import { SupabaseClient } from "@supabase/supabase-js";
+import { getEmbedding } from "@/lib/file-analysis/embeddings";
+import { logger } from "@/lib/logger";
+import { DEEPSEEK_API_URL, DEFAULT_DEEPSEEK_MODEL, RETRIEVAL_TOP_K } from "@/lib/file-analysis/constants";
+
+export interface SearchResult {
+    parentId: string;
+    sourceType: string;
+    summary: string;
+    chunks: {
+        content: string;
+        score: number;
+    }[];
+    score: number; // Parent score
+}
+
+// Parent Gating Threshold - heuristic
+const MIN_PARENT_SCORE = 0.15;
+const MIN_CHUNK_SCORE = 0.15;
+const MAX_PARENT_COUNT = 10;
+
+export class UnstructuredSearch {
+    constructor(private supabase: SupabaseClient) { }
+
+    async searchWorkspace(workspaceId: string, query: string): Promise<SearchResult[]> {
+        // 1. Generate Query Embedding
+        const { embedding: queryVector } = await getEmbedding(query);
+        const normalizedQuery = normalizeEmbedding(queryVector);
+
+        // 2. Parent Gating: Find most relevant "Containers" first
+        // We use RPC or direct select if pgvector installed. 
+        // Assuming standard pgvector `ws_unstructured_parents_search` function doesn't exist yet, 
+        // I will write a raw query using `rpc` if migration created valid function, 
+        // or use Supabase's vector similarity via client.
+
+        // For V1, I didn't create an RPC function in the migration plan. 
+        // I should probably have done that for performance. 
+        // BUT I can do a client-side vector sort if the # of parents is small, 
+        // or strictly I should rely on an RPC. 
+        // Let's assume for this Agent task I can rely on a dedicated RPC function I'll implicitly add 
+        // OR just use client side sorting if dataset small? No, dangerous.
+
+        // I will update the migration to include an RPC function in the next step or just embed the logic here if I can.
+        // Actually, Supabase JS client `match_documents` pattern is standard.
+        // I will use a custom RPC call `match_indexing_parents` which I'll define in the migration correction step if possible.
+        // Wait, I already wrote the migration file and didn't include RPC. 
+        // I should create a new file or just use raw query if able. 
+        // Let's write a `match_unstructured_parents` RPC in a separate "fix" migration if needed, 
+        // or just assume I can add it now.
+
+        // Actually, I'll use a raw query check first.
+        // But since I can't easily execute raw SQL from here without RPC...
+        // I'll stick to a simpler approach: 
+        // If I can't use RPC, I have to download vectors? No that's bad.
+        // I will create a `rpc` function in a new migration file now to support this.
+        // It's "Additive changes only".
+
+        // Let's assume I will call `rpc('match_unstructured_parents', { query_embedding, match_threshold, match_count })`.
+
+        let { data: parents, error: parentError } = await this.supabase.rpc('match_unstructured_parents', {
+            match_embedding: queryVector,
+            match_threshold: MIN_PARENT_SCORE,
+            match_count: MAX_PARENT_COUNT,
+            filter_workspace_id: workspaceId
+        });
+
+        if (parentError) {
+            console.error('[Search] RPC match_unstructured_parents failed:', parentError);
+            logger.error('Parent match error', parentError);
+            parents = null;
+        }
+
+        if (!parents || parents.length === 0) {
+            // Retry with a looser threshold before falling back
+            const retry = await this.supabase.rpc('match_unstructured_parents', {
+                match_embedding: queryVector,
+                match_threshold: 0,
+                match_count: MAX_PARENT_COUNT,
+                filter_workspace_id: workspaceId
+            });
+            if (retry.error) {
+                console.error('[Search] RPC match_unstructured_parents retry failed:', retry.error);
+                logger.error('Parent match retry error', retry.error);
+            } else {
+                parents = retry.data;
+            }
+        }
+
+        if (!parents || parents.length === 0) {
+            // Fallback to client-side scoring (handles RPC issues or low-quality summaries)
+            parents = await this.matchParentsClientSide(workspaceId, normalizedQuery, MAX_PARENT_COUNT);
+        }
+
+        if (!parents || parents.length === 0) {
+            console.log('[Search] No relevant parents found after fallback');
+            return [];
+        }
+
+        console.log(`[Search] Found ${parents.length} relevant parents:`, parents.map((p: any) => ({ id: p.id, score: p.similarity })));
+        const relevantParentIds = parents.map((p: any) => p.id);
+
+        // 3. Chunk Retrieval for these parents
+        // Fetch chunks for these parents.
+        // Optional: Also vector search chunks? 
+        // Or just simple text match/fetch since we trust the parent context?
+        // Hybrid: Vector search chunks WITHIN these parents.
+
+        // We need another RPC for chunks? Or just select * and sort JS side (chunks per parent is small ~20-50).
+        // Let's fetch all chunks for these parents and sort JS side for simplicity over 10 parents.
+
+        const { data: chunks, error: chunkError } = await this.supabase
+            .from("unstructured_chunks")
+            .select("parent_id, content, embedding")
+            .in("parent_id", relevantParentIds);
+
+        if (chunkError || !chunks) return [];
+
+        // 4. Rerank Chunks (Cosine Similarity against Query)
+        const results: Record<string, SearchResult> = {};
+
+        // Initialize results map
+        console.log(`[Search] Chunk scoring started for ${chunks.length} total chunks...`);
+        parents.forEach((p: any) => {
+            results[p.id] = {
+                parentId: p.id,
+                sourceType: p.source_type,
+                summary: p.summary,
+                score: p.similarity, // from RPC
+                chunks: []
+            };
+        });
+
+        // Score chunks
+        const allScores: number[] = [];
+        const chunkBuckets = new Map<string, Array<{ content: string; score: number }>>();
+        chunks.forEach(chunk => {
+            const embedding = parseEmbedding(chunk.embedding);
+            if (!embedding) return;
+            const chunkScore = cosineSimilarity(normalizedQuery, normalizeEmbedding(embedding));
+            allScores.push(chunkScore);
+            const bucket = chunkBuckets.get(chunk.parent_id) ?? [];
+            bucket.push({ content: chunk.content, score: chunkScore });
+            chunkBuckets.set(chunk.parent_id, bucket);
+        });
+
+        chunkBuckets.forEach((bucket, parentId) => {
+            const sorted = bucket.sort((a, b) => b.score - a.score);
+            const filtered = sorted.filter(chunk => chunk.score >= MIN_CHUNK_SCORE).slice(0, RETRIEVAL_TOP_K);
+            const finalChunks = filtered.length > 0 ? filtered : sorted.slice(0, Math.min(3, sorted.length));
+            if (finalChunks.length > 0) {
+                console.log(`  [Search] Chunk matched parent ${parentId.slice(0, 8)} with score ${finalChunks[0].score.toFixed(3)}`);
+                results[parentId].chunks.push(...finalChunks);
+            }
+        });
+
+        if (allScores.length > 0) {
+            const max = Math.max(...allScores);
+            const avg = allScores.reduce((a, b) => a + b, 0) / allScores.length;
+            console.log(`[Search] Chunk Statistics: Count=${allScores.length}, MaxScore=${max.toFixed(4)}, AvgScore=${avg.toFixed(4)}`);
+        }
+
+        const finalResults = Object.values(results)
+            .filter(r => r.chunks.length > 0)
+            .sort((a, b) => b.score - a.score);
+
+        console.log(`[Search] Final results after chunk filtering: ${finalResults.length}`);
+        return finalResults;
+    }
+
+    private async matchParentsClientSide(workspaceId: string, normalizedQuery: number[], limit: number) {
+        const { data: parentRows, error } = await this.supabase
+            .from("unstructured_parents")
+            .select("id, source_type, source_id, summary, summary_embedding")
+            .eq("workspace_id", workspaceId);
+
+        if (error || !parentRows) {
+            if (error) {
+                console.error("[Search] Client-side parent fetch failed:", error);
+                logger.error("Parent fallback fetch error", error);
+            }
+            return [];
+        }
+
+        const scored = parentRows
+            .map((parent: any) => {
+                const embedding = parseEmbedding(parent.summary_embedding);
+                if (!embedding) return null;
+                return {
+                    id: parent.id,
+                    source_type: parent.source_type,
+                    source_id: parent.source_id,
+                    summary: parent.summary,
+                    similarity: cosineSimilarity(normalizedQuery, normalizeEmbedding(embedding))
+                };
+            })
+            .filter(Boolean)
+            .sort((a: any, b: any) => b.similarity - a.similarity)
+            .slice(0, limit);
+
+        return scored;
+    }
+
+    async answerQuery(workspaceId: string, query: string) {
+        // 1. Search
+        const searchResults = await this.searchWorkspace(workspaceId, query);
+
+        if (searchResults.length === 0) {
+            return { answer: "I couldn't find any relevant information in your workspace.", sources: [] };
+        }
+
+        // 2. Format Context
+        const contextDocs = searchResults.map(r => {
+            // Take top 3 chunks per parent
+            const topChunks = r.chunks.sort((a, b) => b.score - a.score).slice(0, 3);
+            const chunkText = topChunks.map(c => c.content).join("\n...\n");
+            return `[Source: ${r.sourceType} - ${r.summary}]\n${chunkText}`;
+        }).join("\n\n---\n\n");
+
+        // 3. Synthesize (DeepSeek)
+        const systemPrompt = `You are a workspace assistant. Answer the user's question based ONLY on the following context. 
+    If the answer isn't in the context, say "I don't have enough information."
+    Cite your sources naturally (e.g., "According to the Project Alpha file...").`;
+
+        // Call DeepSeek
+        const answer = await this.callLLM(systemPrompt, query, contextDocs);
+
+        return {
+            answer,
+            sources: searchResults.map(r => ({ type: r.sourceType, summary: r.summary }))
+        };
+    }
+
+    private async callLLM(system: string, query: string, context: string): Promise<string> {
+        const apiKey = process.env.DEEPSEEK_API_KEY;
+        if (!apiKey) return "LLM not configured.";
+
+        try {
+            const response = await fetch(DEEPSEEK_API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model: DEFAULT_DEEPSEEK_MODEL,
+                    messages: [
+                        { role: "system", content: system },
+                        { role: "user", content: `Context:\n${context}\n\nQuestion: ${query}` },
+                    ],
+                    max_tokens: 500
+                })
+            });
+
+            const data = await response.json();
+            return data.choices?.[0]?.message?.content || "No response.";
+        } catch (e) {
+            logger.error("LLM Answer failed", e);
+            return "Failed to generate answer.";
+        }
+    }
+}
+
+// Helper (copied from service.ts to avoid circular deps if needed, or import)
+function cosineSimilarity(a: number[], b: number[]) {
+    if (!a.length || a.length !== b.length) return 0;
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+function normalizeEmbedding(vector: number[]) {
+    const magnitude = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+    if (!magnitude) return vector;
+    return vector.map((v) => v / magnitude);
+}
+
+function parseEmbedding(value: unknown): number[] | null {
+    if (!value) return null;
+    if (Array.isArray(value)) return value as number[];
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const normalized = trimmed.replace(/^\[|\]$/g, "");
+        if (!normalized) return [];
+        return normalized.split(",").map((entry) => Number(entry.trim())).filter((n) => Number.isFinite(n));
+    }
+    return null;
+}
