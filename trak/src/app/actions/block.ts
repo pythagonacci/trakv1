@@ -5,6 +5,7 @@ import { getCurrentWorkspaceId, safeRevalidatePath } from "@/app/actions/workspa
 import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
+import { IndexingQueue } from "@/lib/search/job-queue";
 
 // ============================================================================
 // TYPES
@@ -208,7 +209,7 @@ export async function createBlock(data: {
     // 5. Handle parent_block_id
     let parentBlockId = data.parentBlockId || null;
     let column: number;
-    
+
     // If parentBlockId is provided, verify it exists and belongs to the same tab
     if (parentBlockId) {
       const { data: parentBlock, error: parentError } = await supabase
@@ -402,6 +403,18 @@ export async function createBlock(data: {
       clientPageEnabled: project.client_page_enabled ?? undefined,
     });
 
+    // Trigger Async Indexing
+    try {
+      const queue = new IndexingQueue(supabase);
+      await queue.enqueue({
+        workspaceId: project.workspace_id,
+        resourceType: "block",
+        resourceId: block.id,
+      });
+    } catch (err) {
+      console.error("Failed to enqueue indexing job for block create", { blockId: block.id, error: err });
+    }
+
     return { data: block };
   } catch (error) {
     console.error("Create block exception:", error);
@@ -479,7 +492,7 @@ export async function updateBlock(data: {
       console.error("Invalid blockId in updateBlock:", data.blockId, typeof data.blockId);
       return { error: "Invalid block ID" };
     }
-    
+
     const { data: block, error: blockError } = await supabase
       .from("blocks")
       .select("id, tab_id")
@@ -495,7 +508,7 @@ export async function updateBlock(data: {
       });
       return { error: `Block not found: ${blockError.message}` };
     }
-    
+
     if (!block) {
       console.error("Block not found in database:", {
         blockId: data.blockId,
@@ -573,6 +586,18 @@ export async function updateBlock(data: {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
     });
+
+    // Trigger Async Indexing
+    try {
+      const queue = new IndexingQueue(supabase);
+      await queue.enqueue({
+        workspaceId: project.workspace_id,
+        resourceType: "block",
+        resourceId: updatedBlock.id,
+      });
+    } catch (err) {
+      console.error("Failed to enqueue indexing job for block update", { blockId: updatedBlock.id, error: err });
+    }
 
     return { data: updatedBlock };
   } catch (error) {
@@ -883,7 +908,7 @@ export async function duplicateBlock(blockId: string) {
       for (const block of blocksToShift) {
         await supabase
           .from("blocks")
-          .update({ 
+          .update({
             position: block.position + 1,
             updated_at: new Date().toISOString()
           })

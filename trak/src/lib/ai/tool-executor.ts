@@ -82,6 +82,11 @@ import {
 import { renameFile } from "@/app/actions/file";
 
 // ============================================================================
+// IMPORTS - Indexing Actions
+// ============================================================================
+import { reindexWorkspaceContent } from "@/app/actions/indexing";
+
+// ============================================================================
 // IMPORTS - Table Actions
 // ============================================================================
 import { createTable, getTable, deleteTable } from "@/app/actions/tables/table-actions";
@@ -269,6 +274,19 @@ export async function executeTool(
           data: { toolGroups, reason },
         };
       }
+
+      // ==================================================================
+      // WORKSPACE TOOLS
+      // ==================================================================
+      case "reindexWorkspaceContent":
+        return await wrapResult(
+          reindexWorkspaceContent({
+            workspaceId: (args as any)?.workspaceId as string | undefined,
+            includeBlocks: (args as any)?.includeBlocks as boolean | undefined,
+            includeFiles: (args as any)?.includeFiles as boolean | undefined,
+            maxItems: (args as any)?.maxItems as number | undefined,
+          })
+        );
 
       // ==================================================================
       // SEARCH TOOLS

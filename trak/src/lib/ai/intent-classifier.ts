@@ -23,7 +23,8 @@ export type ToolGroup =
   | "file" // File operations
   | "client" // Client operations
   | "property" // Property operations
-  | "comment"; // Comment operations
+  | "comment" // Comment operations
+  | "workspace"; // Workspace-level maintenance
 
 export interface IntentClassification {
   /** Tool groups needed for this command */
@@ -56,6 +57,8 @@ const ENTITY_PATTERNS: Record<string, RegExp[]> = {
   project: [
     /\bproject(?:s)?\b/i,
     /\bclient(?:s)?\b/i,
+  ],
+  workspace: [
     /\bworkspace(?:s)?\b/i,
   ],
   table: [
@@ -340,6 +343,7 @@ function mapEntityToToolGroup(entity: string): ToolGroup | null {
     doc: "doc",
     file: "file",
     client: "client",
+    workspace: "workspace",
   };
 
   return mapping[entity] || null;

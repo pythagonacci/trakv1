@@ -5,6 +5,7 @@ import { DEEPSEEK_API_URL, DEFAULT_DEEPSEEK_MODEL, RETRIEVAL_TOP_K } from "@/lib
 
 export interface SearchResult {
     parentId: string;
+    sourceId: string;
     sourceType: string;
     summary: string;
     chunks: {
@@ -123,6 +124,7 @@ export class UnstructuredSearch {
         parents.forEach((p: any) => {
             results[p.id] = {
                 parentId: p.id,
+                sourceId: p.source_id,
                 sourceType: p.source_type,
                 summary: p.summary,
                 score: p.similarity, // from RPC
@@ -208,26 +210,111 @@ export class UnstructuredSearch {
             return { answer: "I couldn't find any relevant information in your workspace.", sources: [] };
         }
 
-        // 2. Format Context
-        const contextDocs = searchResults.map(r => {
+        // 2. Format Context & Pre-fetch Titles
+        // We fetch titles first so we can give them to the LLM (better citations than UUIDs)
+        const enrichedSources = await this.formatSourcesForFrontend(searchResults);
+
+        const contextDocs = enrichedSources.map((s, i) => {
+            // Find original chunks (the formatted source flattened them, but we need text)
+            const originalReq = searchResults[i];
+
             // Take top 3 chunks per parent
-            const topChunks = r.chunks.sort((a, b) => b.score - a.score).slice(0, 3);
+            const topChunks = originalReq.chunks.sort((a, b) => b.score - a.score).slice(0, 3);
             const chunkText = topChunks.map(c => c.content).join("\n...\n");
-            return `[Source: ${r.sourceType} - ${r.summary}]\n${chunkText}`;
+
+            return `[${i + 1}] Source: ${s.source_id} (Score: ${s.similarity.toFixed(2)})\n${chunkText}`;
         }).join("\n\n---\n\n");
 
         // 3. Synthesize (DeepSeek)
         const systemPrompt = `You are a workspace assistant. Answer the user's question based ONLY on the following context. 
-    If the answer isn't in the context, say "I don't have enough information."
-    Cite your sources naturally (e.g., "According to the Project Alpha file...").`;
+    The context provides sources labeled [1], [2], etc.
+    
+    1. Answer the question clearly using Markdown.
+    2. Cite your sources using their numbers, e.g., "Feature X is ready [1]".
+    3. If the answer isn't in the context, say "I don't have enough information."
+    4. AT THE VERY END, output a single line starting with "SOURCES:" listing the numbers of sources you actually used to answer.
+       Example:
+       ... answer text ...
+       
+       SOURCES: [1], [3]`;
 
         // Call DeepSeek
-        const answer = await this.callLLM(systemPrompt, query, contextDocs);
+        const rawAnswer = await this.callLLM(systemPrompt, query, contextDocs);
+
+        // 4. Parse SOURCES output
+        let answer = rawAnswer;
+        let usedIndices: number[] = [];
+
+        const sourcesMatch = rawAnswer.match(/SOURCES:\s*(\[[0-9]+\](?:,\s*\[[0-9]+\])*)/i);
+        if (sourcesMatch) {
+            // Extract indices
+            const indicesText = sourcesMatch[1];
+            const matches = indicesText.match(/\[([0-9]+)\]/g);
+            if (matches) {
+                usedIndices = matches.map(m => parseInt(m.replace(/[\[\]]/g, ''), 10));
+            }
+
+            // Remove the SOURCES line from the final answer text
+            answer = rawAnswer.replace(sourcesMatch[0], '').trim();
+        } else {
+            // Fallback
+            if (answer.toLowerCase().includes("don't have enough information")) {
+                usedIndices = [];
+            } else {
+                // Assume top 3 relevant if not specified
+                usedIndices = [1, 2, 3];
+            }
+        }
+
+        // Filter sources
+        const finalSources = enrichedSources.filter((_, i) => usedIndices.includes(i + 1));
 
         return {
             answer,
-            sources: searchResults.map(r => ({ type: r.sourceType, summary: r.summary }))
+            sources: finalSources.length > 0 ? finalSources : []
         };
+    }
+
+    private async formatSourcesForFrontend(results: SearchResult[]) {
+        // Collect IDs to fetch titles
+        const fileIds: string[] = [];
+        const tableIds: string[] = [];
+        const blockIds: string[] = [];
+
+        results.forEach(r => {
+            if (r.sourceType === 'file') fileIds.push(r.sourceId);
+            else if (r.sourceType === 'table') tableIds.push(r.sourceId);
+            else if (r.sourceType === 'block') blockIds.push(r.sourceId);
+        });
+
+        const titles = new Map<string, string>();
+
+        // Fetch Files
+        if (fileIds.length > 0) {
+            const { data } = await this.supabase.from("files").select("id, file_name").in("id", fileIds);
+            data?.forEach(f => titles.set(f.id, f.file_name));
+        }
+        // Fetch Tables
+        if (tableIds.length > 0) {
+            const { data } = await this.supabase.from("tables").select("id, title").in("id", tableIds);
+            data?.forEach(t => titles.set(t.id, t.title));
+        }
+        // Fetch Blocks (context from explicit field or parent?)
+        // Blocks don't always have names. Maybe use Tab/Project?
+        if (blockIds.length > 0) {
+            // For blocks, often no title. We might want to fetch project/tab name?
+            // Leaving simple for now or "Block"
+        }
+
+        return results.map(r => {
+            const topChunk = r.chunks.sort((a, b) => b.score - a.score)[0];
+            const title = titles.get(r.sourceId) || `${r.sourceType} (${r.sourceId.slice(0, 8)})`;
+            return {
+                source_id: title, // Frontend displays this as name
+                chunk_content: topChunk?.content || r.summary,
+                similarity: r.score
+            };
+        });
     }
 
     private async callLLM(system: string, query: string, context: string): Promise<string> {

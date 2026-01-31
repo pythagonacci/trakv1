@@ -224,8 +224,95 @@ export class ResourceIndexer {
                 tabId: block.tab_id
             };
         }
+        else if (type === 'table') {
+            return this.fetchTableContent(id);
+        }
 
         return null;
+    }
+
+    private async fetchTableContent(tableId: string): Promise<ResourceContent | null> {
+        // 1. Fetch Table Metadata
+        const { data: table } = await this.supabase
+            .from("tables")
+            .select("id, title, description, project_id, workspace_id")
+            .eq("id", tableId)
+            .single();
+
+        if (!table) return null;
+
+        // 2. Fetch Fields (ordered)
+        const { data: fields } = await this.supabase
+            .from("table_fields")
+            .select("id, name, type, config")
+            .eq("table_id", tableId)
+            .order("order");
+
+        if (!fields || fields.length === 0) {
+            // Index just the metadata if no fields (or maybe just return null? Better to index metadata)
+            return {
+                text: `Table: ${table.title}\nDescription: ${table.description || ""}`,
+                projectId: table.project_id
+            };
+        }
+
+        // 3. Fetch Rows
+        const { data: rows } = await this.supabase
+            .from("table_rows")
+            .select("id, data")
+            .eq("table_id", tableId)
+            .order("order"); // or order index
+
+        if (!rows || rows.length === 0) {
+            return {
+                text: `Table: ${table.title}\nDescription: ${table.description || ""}\n(No rows)`,
+                projectId: table.project_id
+            };
+        }
+
+        // 4. Format Content
+        let text = `Table: ${table.title}\n`;
+        if (table.description) text += `Description: ${table.description}\n`;
+        text += `\n`;
+
+        // Efficiently map field IDs to names
+        const fieldMap = new Map(fields.map(f => [f.id, f.name]));
+
+        // Helper to format values
+        const formatValue = (val: any): string => {
+            if (val === null || val === undefined) return "";
+            if (typeof val === "string") return val;
+            if (typeof val === "number" || typeof val === "boolean") return String(val);
+            if (Array.isArray(val)) {
+                return val.map(v => {
+                    if (typeof v === 'object' && v && 'name' in v) return v.name;
+                    return String(v);
+                }).join(", ");
+            }
+            if (typeof val === "object") {
+                if ('name' in val) return val.name;
+                if ('label' in val) return val.label; // for some selects
+                return JSON.stringify(val);
+            }
+            return String(val);
+        };
+
+        rows.forEach((row, index) => {
+            text += `Row ${index + 1}:\n`;
+            fields.forEach(field => {
+                const rawValue = row.data[field.id];
+                const formatted = formatValue(rawValue);
+                if (formatted) {
+                    text += `- ${field.name}: ${formatted}\n`;
+                }
+            });
+            text += `\n`;
+        });
+
+        return {
+            text,
+            projectId: table.project_id
+        };
     }
 }
 

@@ -50,7 +50,8 @@ export interface FileAnalysisMessageContent {
   text: string;
   tables?: Array<{
     title?: string;
-    columns: string[];
+    columns?: string[];
+    headers?: string[];
     rows: Array<Array<string | number | null>>;
   }>;
   charts?: Array<{

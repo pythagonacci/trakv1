@@ -59,7 +59,7 @@ const controlTools: ToolDefinition[] = [
       toolGroups: {
         type: "array",
         description:
-          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, file, client, property, comment.",
+          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, file, client, property, comment, workspace.",
         items: { type: "string" },
       },
       reason: {
@@ -1235,6 +1235,27 @@ const commentActionTools: ToolDefinition[] = [
   },
 ];
 
+// ============================================================================
+// WORKSPACE ACTION TOOLS
+// ============================================================================
+
+const workspaceActionTools: ToolDefinition[] = [
+  {
+    name: "reindexWorkspaceContent",
+    description:
+      "Re-index all searchable workspace content for embedding search (blocks and files). " +
+      "Use this if embeddings are missing or stale. Returns counts of enqueued items.",
+    category: "workspace",
+    parameters: {
+      workspaceId: { type: "string", description: "Workspace ID to re-index (defaults to current workspace)." },
+      includeBlocks: { type: "boolean", description: "Include blocks in re-indexing (default true)." },
+      includeFiles: { type: "boolean", description: "Include files in re-indexing (default true)." },
+      maxItems: { type: "number", description: "Optional cap on total items enqueued (for safety)." },
+    },
+    requiredParams: [],
+  },
+];
+
 
 // ============================================================================
 // EXPORT ALL TOOLS
@@ -1243,6 +1264,7 @@ const commentActionTools: ToolDefinition[] = [
 export const allTools: ToolDefinition[] = [
   ...searchTools,
   ...controlTools,
+  ...workspaceActionTools,
   ...taskActionTools,
   ...projectActionTools,
   ...tabActionTools,
@@ -1271,7 +1293,7 @@ export const toolsByCategory: Record<ToolCategory, ToolDefinition[]> = {
   doc: docActionTools,
   file: fileActionTools,
   comment: commentActionTools,
-  workspace: [], // Workspace actions are typically not exposed to AI
+  workspace: workspaceActionTools,
   payment: [],
 };
 
@@ -1359,7 +1381,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   member: pickTools(["searchWorkspaceMembers"]),
   tag: pickTools(["searchTags"]),
   cross_entity: pickTools(["searchAll", "resolveEntityByName", "getEntityById", "getEntityContext"]),
-  workspace: [],
+  workspace: pickTools(["reindexWorkspaceContent"]),
 };
 
 // ============================================================================
@@ -1394,6 +1416,9 @@ export const coreTools: ToolDefinition[] = pickTools([
 
   // Table schema (read-only, needed for understanding table structure)
   "getTableSchema",
+
+  // Workspace maintenance
+  "reindexWorkspaceContent",
 ]);
 
 // ============================================================================
@@ -1504,7 +1529,8 @@ export type ToolGroup =
   | "file"
   | "client"
   | "property"
-  | "comment";
+  | "comment"
+  | "workspace";
 
 /**
  * Get tools for specific groups.
@@ -1570,6 +1596,9 @@ function getToolsForGroup(group: ToolGroup): ToolDefinition[] {
     case "comment":
       return commentActionTools;
 
+    case "workspace":
+      return workspaceActionTools;
+
     default:
       return [];
   }
@@ -1592,6 +1621,7 @@ export function getToolCountsByGroup(): Record<ToolGroup | "total", number> {
     client: clientActionTools.length,
     property: propertyActionTools.length,
     comment: commentActionTools.length,
+    workspace: workspaceActionTools.length,
     total: allTools.length,
   };
 }

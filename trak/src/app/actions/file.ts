@@ -360,6 +360,69 @@ export async function deleteFile(fileId: string) {
 }
 
 /**
+ * Rename a file (display name only)
+ */
+export async function renameFile(fileId: string, fileName: string) {
+  const supabase = await createClient();
+
+  // 1. Check authentication
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // 2. Get file details
+  const { data: file, error: fileError } = await supabase
+    .from('files')
+    .select('id, workspace_id, uploaded_by')
+    .eq('id', fileId)
+    .single();
+
+  if (fileError || !file) {
+    return { error: 'File not found' };
+  }
+
+  // 3. Check permissions: uploader OR admin/owner of workspace
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', file.workspace_id)
+    .eq('user_id', user.id)
+    .single();
+
+  const isUploader = file.uploaded_by === user.id;
+  const isAdmin = membership?.role === 'admin' || membership?.role === 'owner';
+
+  if (!isUploader && !isAdmin) {
+    return { error: 'Not authorized to rename this file' };
+  }
+
+  const trimmedName = fileName?.trim();
+  if (!trimmedName) {
+    return { error: 'File name cannot be empty' };
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from('files')
+    .update({ file_name: trimmedName })
+    .eq('id', fileId)
+    .select('id, file_name')
+    .single();
+
+  if (updateError || !updated) {
+    return { error: 'Failed to rename file' };
+  }
+
+  revalidatePath('/dashboard/projects');
+  revalidatePath('/dashboard/internal');
+  return { data: updated };
+}
+
+/**
  * Get download URL for a file
  */
 export async function getFileUrl(fileId: string) {

@@ -30,6 +30,7 @@ import {
 import type { FileAnalysisMessageContent, FileCitation } from "@/lib/file-analysis/types";
 import { buildScopeHints, selectFilesForQuery } from "@/lib/file-analysis/selection";
 import { logger } from "@/lib/logger";
+import { IndexingQueue } from "@/lib/search/job-queue";
 
 interface FileAnalysisRequest {
   sessionId?: string;
@@ -161,17 +162,17 @@ function parseModelOutput(raw: string): FileAnalysisMessageContent {
       if (parsed && typeof parsed === "object") {
         const normalizedTables = Array.isArray(parsed.tables)
           ? parsed.tables.map((table: any) => {
-              const columns =
-                Array.isArray(table?.columns) && table.columns.length > 0
-                  ? table.columns
-                  : Array.isArray(table?.headers)
-                    ? table.headers
-                    : [];
-              return {
-                ...table,
-                columns,
-              };
-            })
+            const columns =
+              Array.isArray(table?.columns) && table.columns.length > 0
+                ? table.columns
+                : Array.isArray(table?.headers)
+                  ? table.headers
+                  : [];
+            return {
+              ...table,
+              columns,
+            };
+          })
           : undefined;
 
         return {
@@ -186,12 +187,19 @@ function parseModelOutput(raw: string): FileAnalysisMessageContent {
     // fall through
   }
 
-  const textMatch = normalizedRaw.match(/"text"\s*:\s*"(.*?)"\s*(?:,\s*"(tables|charts|notes|clarification)"|}$)/s);
-  if (textMatch?.[1]) {
+  const textMatch = normalizedRaw.match(/"text"\s*:\s*"(.*?)"\s*(?:,\s*"(tables|charts|notes|clarification)"|}$)/);
+  // Note: If you needed dotAll matching for the content inside quotes, standard JS regex without 's' flag
+  // works if the content doesn't have unescaped newlines. 
+  // But if we want to match across newlines, we can use [\s\S]* instead of .*
+  // Let's use a safer pattern compatible with older targets if needed.
+  // Actually, standard JSON strings shouldn't have raw newlines.
+  // But to be safe and match the previous logic:
+  const textMatchSafe = normalizedRaw.match(/"text"\s*:\s*"([\s\S]*?)"\s*(?:,\s*"(tables|charts|notes|clarification)"|}$)/);
+  if (textMatchSafe?.[1]) {
     try {
-      return { text: JSON.parse(`"${textMatch[1]}"`) };
+      return { text: JSON.parse(`"${textMatchSafe[1]}"`) };
     } catch {
-      return { text: textMatch[1] };
+      return { text: textMatchSafe[1] };
     }
   }
 
@@ -246,6 +254,9 @@ export async function POST(request: NextRequest) {
       const summaries: string[] = [];
       const citationsPayload: Array<{ file_id: string }> = [];
 
+      // Initialize Indexing Queue
+      const queue = new IndexingQueue(supabase);
+
       for (const file of files || []) {
         const artifact = await ensureFileArtifact(supabase, file as FileRecord);
         const isImage = (file.file_type || "").startsWith("image/");
@@ -264,6 +275,18 @@ export async function POST(request: NextRequest) {
           })
         );
         citationsPayload.push({ file_id: file.id });
+
+        // Trigger Async Indexing for Search
+        try {
+          // Enqueue job but don't block response
+          await queue.enqueue({
+            workspaceId: file.workspace_id,
+            resourceType: "file",
+            resourceId: file.id,
+          });
+        } catch (err) {
+          logger.error("Failed to enqueue indexing job for file", { fileId: file.id, error: err });
+        }
       }
 
       const summaryText = summaries.join("\n");

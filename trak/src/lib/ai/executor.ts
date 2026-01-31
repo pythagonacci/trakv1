@@ -143,6 +143,7 @@ const TOOL_GROUP_NAMES = new Set([
   "client",
   "property",
   "comment",
+  "workspace",
 ]);
 
 const TOOL_ACCESS_SIGNAL =
@@ -191,6 +192,9 @@ function extractToolGroupsFromKeywords(text: string) {
   }
   if (/\bclient(?:s)?\b/i.test(lower)) {
     groups.add("client");
+  }
+  if (/\bworkspace(?:s)?\b/i.test(lower)) {
+    groups.add("workspace");
   }
   return Array.from(groups);
 }
@@ -801,8 +805,14 @@ export async function executeAICommand(
         }
 
         // NEW: Optimistic early exit for searches - skip the 2nd LLM call
+        // OPTIMIZATION: Only exit if the intent is PURELY search.
+        // If the user wanted to "create", "update", etc., we must continue even if the first step was just a search.
         const onlySearchOps = toolNamesThisRound.every(isSearchLikeToolName);
-        if (SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps) {
+        const hasWriteIntent =
+          activeIntent.toolGroups.some(g => g !== "core") ||
+          activeIntent.actions.some(a => ["create", "update", "delete", "organize", "move", "copy", "insert"].includes(a));
+
+        if (SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps && !hasWriteIntent) {
           return withTiming({
             success: true,
             response: buildToolSummary(toolCallsThisRound),
