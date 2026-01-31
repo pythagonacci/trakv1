@@ -1,35 +1,22 @@
+// ... imports remain the same
 import { NextRequest, NextResponse } from "next/server";
 import { executeAICommand, type AIMessage } from "@/lib/ai";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
-import { aiDebug } from "@/lib/ai/debug";
+import { aiDebug, aiTiming, isAITimingEnabled } from "@/lib/ai/debug"; // Added imports
 import { getBlockWithContext } from "@/app/actions/ai-context";
 
 /**
  * POST /api/ai
- *
- * Execute an AI command in the current workspace.
- *
- * Request body:
- * {
- *   command: string;           // The natural language command
- *   conversationHistory?: AIMessage[];  // Optional conversation history for context
- * }
- *
- * Response:
- * {
- *   success: boolean;
- *   response: string;          // The AI's response text
- *   toolCallsMade?: Array<{    // Optional: details of tools called
- *     tool: string;
- *     arguments: Record<string, unknown>;
- *     result: { success: boolean; data?: unknown; error?: string };
- *   }>;
- *   error?: string;            // Error message if success is false
- * }
+ * ...
  */
 export async function POST(request: NextRequest) {
+  const reqStart = Date.now(); // START TIMING
+  let t_auth = 0;
+  let t_context = 0;
+  let t_executor = 0;
+
   try {
     const referer = request.headers.get("referer");
     let currentProjectId: string | undefined;
@@ -49,7 +36,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Check authentication
+    const authStart = Date.now();
     const user = await getAuthenticatedUser();
+
     if (!user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized", response: "Please sign in to use AI commands." },
@@ -76,6 +65,7 @@ export async function POST(request: NextRequest) {
 
     const workspaceName = workspaceResult.data?.name || undefined;
     const userName = profileResult.data?.name || profileResult.data?.email || undefined;
+    t_auth = Date.now() - authStart; // END AUTH TIMING
 
     // 4. Parse request body
     const body = await request.json();
@@ -106,20 +96,21 @@ export async function POST(request: NextRequest) {
     let history: AIMessage[] = conversationHistory || [];
     let contextTableId: string | undefined;
 
+    const contextStart = Date.now();
     if (contextBlockId) {
       const blockContext = await getBlockWithContext({ blockId: contextBlockId });
       if (blockContext.data) {
-      const ctx = blockContext.data as any;
-      const block = ctx.block as { id: string; type: string; content?: Record<string, unknown> };
-      const blockType = block.type;
-      const tabName = ctx.tab?.name || "unknown tab";
-      const projectName = ctx.project?.name || "unknown project";
-      const content = (block.content || {}) as Record<string, unknown>;
-      const tableId = blockType === "table" ? String(content.tableId || "") : "";
-      const textSnippet =
-        blockType === "text"
-          ? String((content.text as string | undefined) || "").trim().slice(0, 300)
-          : "";
+        const ctx = blockContext.data as any;
+        const block = ctx.block as { id: string; type: string; content?: Record<string, unknown> };
+        const blockType = block.type;
+        const tabName = ctx.tab?.name || "unknown tab";
+        const projectName = ctx.project?.name || "unknown project";
+        const content = (block.content || {}) as Record<string, unknown>;
+        const tableId = blockType === "table" ? String(content.tableId || "") : "";
+        const textSnippet =
+          blockType === "text"
+            ? String((content.text as string | undefined) || "").trim().slice(0, 300)
+            : "";
 
         const contextLines = [
           "Context: user selected a block. Use this as the target unless the user says otherwise.",
@@ -145,8 +136,10 @@ export async function POST(request: NextRequest) {
         ];
       }
     }
+    t_context = Date.now() - contextStart; // END CONTEXT TIMING
 
     // 5. Execute the AI command
+    const executorStart = Date.now();
     const result = await executeAICommand(
       command,
       {
@@ -160,6 +153,9 @@ export async function POST(request: NextRequest) {
       },
       history
     );
+    t_executor = Date.now() - executorStart;
+
+    const totalDuration = Date.now() - reqStart;
 
     aiDebug("api/ai:response", {
       success: result.success,
@@ -172,7 +168,29 @@ export async function POST(request: NextRequest) {
       error: result.error,
     });
 
+    // Log top-level API timings
+    let timings: Record<string, number> | undefined;
+    if (isAITimingEnabled()) {
+      timings = {
+        t_auth_ms: t_auth,
+        t_context_ms: t_context,
+        t_executor_ms: t_executor,
+        t_api_total_ms: totalDuration,
+        overhead_ms: totalDuration - t_executor
+      };
+      aiTiming({
+        event: "api_complete",
+        ...timings
+      });
+    }
+
     // 6. Return the result
+    if (timings) {
+      (result as any)._timing = {
+        ...((result as any)._timing || {}),
+        ...timings
+      };
+    }
     return NextResponse.json(result);
   } catch (error) {
     aiDebug("api/ai:error", error);

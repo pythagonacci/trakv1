@@ -165,7 +165,7 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchWorkspaceMembers",
-    description: "SEARCH for workspace members (read-only). ⚠️ CRITICAL: Use this BEFORE calling setTaskAssignees to get BOTH user_id AND name fields. Returns: {user_id, name, email, role}. When assigning tasks, you MUST have both user_id and name - this tool provides both. Search by name, email, or role.",
+    description: "SEARCH for workspace members (read-only). ⚠️ DO NOT USE FOR TASK ASSIGNMENT. For assigning tasks, use createTaskItem(assignees=['Name']) directly - the server resolves names automatically and faster. Use this tool ONLY when you need to list members for the user to see.",
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search by member name or email" },
@@ -388,16 +388,16 @@ const taskActionTools: ToolDefinition[] = [
   {
     name: "createTaskItem",
     description:
-      "CREATE a new task item. Use to add a task to a TASK BLOCK (not a tab).\n\n" +
-      "Required: taskBlockId (from searchBlocks with type='task') and title.\n\n" +
-      "IMPORTANT:\n" +
-      "- taskBlockId must be a block ID of type 'task'\n" +
-      "- If you only have a tabId, first create a task block with createBlock(type: 'task', tabId), then use its id here.\n\n" +
-      "Returns: New task object with ID. Use this for creating individual tasks.",
+      "CREATE a new task item. ⚠️ SMART TOOL: Do NOT search for assignee IDs or task block IDs. Just pass names directly.\n\n" +
+      "Auto-Context: Defaults to current view. Provide 'taskBlockName' (e.g. 'Kanban') to target specific blocks.\n" +
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
     category: "task",
     parameters: {
-      taskBlockId: { type: "string", description: "The task block ID (block type 'task'). If you only have a tabId, create a task block first and use its id." },
+      taskBlockId: { type: "string", description: "Optional: task block ID. PREFER 'taskBlockName' for natural language." },
+      taskBlockName: { type: "string", description: "Target Block Name (e.g. 'Sprint Board'). System finds fuzzy match." },
       title: { type: "string", description: "Task title" },
+      assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). Do NOT look up IDs. System resolves names automatically.", items: { type: "string" } },
+      tags: { type: "array", description: "List of tag names.", items: { type: "string" } },
       status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "done"] },
       priority: { type: "string", description: "Task priority", enum: ["low", "medium", "high", "urgent"] },
       description: { type: "string", description: "Task description" },
@@ -405,14 +405,17 @@ const taskActionTools: ToolDefinition[] = [
       dueTime: { type: "string", description: "Due time (HH:MM)" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
     },
-    requiredParams: ["taskBlockId", "title"],
+    requiredParams: ["title"],
   },
   {
     name: "updateTaskItem",
-    description: "UPDATE an existing task's properties. Use to modify task title, status (todo/in-progress/done), priority (low/medium/high/urgent), description, or dates. Required: taskId (from searchTasks). Returns: Updated task object. ⚠️ For updating 3+ tasks with the same changes, prefer bulkUpdateTaskItems.",
+    description: "UPDATE an existing task's properties. Use to modify task title, status, priority, etc.\n\n" +
+      "Auto-Context: You can provide 'lookupName' instead of 'taskId' to find and update a task by its title in one step. Prefer this for single-task updates to be faster.\n" +
+      "Returns: Updated task object.",
     category: "task",
     parameters: {
-      taskId: { type: "string", description: "The task ID to update" },
+      taskId: { type: "string", description: "The task ID to update (optional if lookupName provided)" },
+      lookupName: { type: "string", description: "Find task by title to update (use this if you don't have the ID yet)" },
       title: { type: "string", description: "New title" },
       status: { type: "string", description: "New status", enum: ["todo", "in-progress", "done"] },
       priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
@@ -421,7 +424,7 @@ const taskActionTools: ToolDefinition[] = [
       dueTime: { type: "string", description: "New due time (HH:MM)" },
       startDate: { type: "string", description: "New start date" },
     },
-    requiredParams: ["taskId"],
+    requiredParams: [],
   },
   {
     name: "bulkUpdateTaskItems",
@@ -614,7 +617,8 @@ const projectActionTools: ToolDefinition[] = [
     category: "project",
     parameters: {
       name: { type: "string", description: "Project name" },
-      clientId: { type: "string", description: "Optional client ID to associate" },
+      clientId: { type: "string", description: "Optional client ID. PREFER 'clientName' for natural language." },
+      clientName: { type: "string", description: "Client Name (e.g. 'Acme Corp'). System resolves to ID automatically." },
       status: { type: "string", description: "Project status. MUST be exactly one of: 'not_started', 'in_progress', or 'complete' (NOT 'completed'!)", enum: ["not_started", "in_progress", "complete"] },
       dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
       projectType: { type: "string", description: "Project type", enum: ["project", "internal"] },
@@ -697,7 +701,8 @@ const blockActionTools: ToolDefinition[] = [
       "- If you need to create tasks in a tab and no task block exists, create one with type: \"task\" first, then use its id as taskBlockId for createTaskItem.",
     category: "block",
     parameters: {
-      tabId: { type: "string", description: "The tab ID to create the block in" },
+      tabId: { type: "string", description: "The tab ID to create the block in. PREFER 'tabName' if target is different from current context." },
+      tabName: { type: "string", description: "Target Tab Name (e.g. 'Overview'). System finds fuzzy match." },
       type: {
         type: "string",
         description: "Block type",
@@ -708,7 +713,7 @@ const blockActionTools: ToolDefinition[] = [
       column: { type: "number", description: "Column (0, 1, or 2)" },
       parentBlockId: { type: "string", description: "Parent section block ID for nested blocks" },
     },
-    requiredParams: ["tabId", "type"],
+    requiredParams: ["type"],
   },
   {
     name: "updateBlock",
@@ -807,10 +812,11 @@ const tableActionTools: ToolDefinition[] = [
     description: "CREATE ONE table row. Use for creating 1-2 rows ONLY. ⚠️ For 3+ rows, you MUST use bulkInsertRows (required, more efficient). Required: tableId. Optional: data (initial cell values). Returns: Row object with rowId.",
     category: "table",
     parameters: {
-      tableId: { type: "string", description: "The table ID" },
+      tableId: { type: "string", description: "The table ID. PREFER 'tableName' for natural language." },
+      tableName: { type: "string", description: "Target Table Name (e.g. 'Employees'). System finds fuzzy match." },
       data: { type: "object", description: "Optional: Row data as key-value pairs where key is field ID. Format: {fieldId1: 'value1', fieldId2: 'value2'}. Get field IDs from getTableSchema." },
     },
-    requiredParams: ["tableId"],
+    requiredParams: [],
   },
   {
     name: "updateRow",
@@ -862,14 +868,15 @@ const tableActionTools: ToolDefinition[] = [
       "Returns: Array of created row objects with rowIds.",
     category: "table",
     parameters: {
-      tableId: { type: "string", description: "The table ID. Get this from createTable or searchTables." },
+      tableId: { type: "string", description: "The table ID. Get this from createTable or searchTables. PREFER 'tableName'." },
+      tableName: { type: "string", description: "Target Table Name (e.g. 'Q1 Goals'). System finds fuzzy match." },
       rows: {
         type: "array",
         description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' } }, ...]",
         items: { type: "object" },
       },
     },
-    requiredParams: ["tableId", "rows"],
+    requiredParams: ["rows"],
   },
   {
     name: "bulkUpdateRows",
@@ -957,18 +964,14 @@ const timelineActionTools: ToolDefinition[] = [
     description: "Create a new event in a timeline block.",
     category: "timeline",
     parameters: {
-      timelineBlockId: { type: "string", description: "The timeline block ID" },
-      title: { type: "string", description: "Event title" },
-      startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
-      endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
-      status: { type: "string", description: "Event status" },
       progress: { type: "number", description: "Progress percentage (0-100)" },
       notes: { type: "string", description: "Event notes" },
       color: { type: "string", description: "Event color (hex)" },
       isMilestone: { type: "boolean", description: "Whether this is a milestone" },
-      assigneeId: { type: "string", description: "Assignee user ID" },
+      assigneeId: { type: "string", description: "Assignee user ID. PREFER 'assigneeName'." },
+      assigneeName: { type: "string", description: "Assignee Name (e.g. 'Amna'). System resolves to ID." },
     },
-    requiredParams: ["timelineBlockId", "title", "startDate", "endDate"],
+    requiredParams: ["title", "startDate", "endDate"],
   },
   {
     name: "updateTimelineEvent",

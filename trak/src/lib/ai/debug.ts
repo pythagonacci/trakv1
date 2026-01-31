@@ -8,7 +8,7 @@ export function aiDebug(...args: unknown[]) {
 }
 
 export function isAITimingEnabled() {
-  return process.env.AI_TIMING === "1";
+  return true; // process.env.AI_TIMING === "1";
 }
 
 export function aiTiming(payload: Record<string, unknown>) {

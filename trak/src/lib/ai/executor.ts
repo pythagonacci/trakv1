@@ -382,6 +382,7 @@ export async function executeAICommand(
   const timing = timingEnabled
     ? {
       t_intent_ms: 0,
+      t_prompt_build_ms: 0,
       t_llm1_ms: 0,
       t_llm2_ms: 0,
       t_llm_extra_ms: 0,
@@ -401,7 +402,9 @@ export async function executeAICommand(
       Math.round(ms),
     ]);
     aiTiming({
+      event: "executor_complete",
       t_intent_ms: Math.round(timing.t_intent_ms),
+      t_prompt_build_ms: Math.round(timing.t_prompt_build_ms ?? 0),
       t_llm1_ms: Math.round(timing.t_llm1_ms),
       t_llm2_ms: Math.round(timing.t_llm2_ms),
       t_llm_extra_ms: Math.round(timing.t_llm_extra_ms),
@@ -415,6 +418,21 @@ export async function executeAICommand(
   };
   const withTiming = (result: ExecutionResult) => {
     logTiming();
+    if (timing) {
+      (result as any)._timing = {
+        t_intent_ms: Math.round(timing.t_intent_ms),
+        t_prompt_build_ms: Math.round(timing.t_prompt_build_ms ?? 0),
+        t_llm1_ms: Math.round(timing.t_llm1_ms),
+        t_llm2_ms: Math.round(timing.t_llm2_ms),
+        t_llm_extra_ms: Math.round(timing.t_llm_extra_ms),
+        t_tools_total_ms: Math.round(timing.t_tools_total_ms),
+        t_total_ms: Math.round(Date.now() - timingStart),
+        system_prompt_chars: timing.system_prompt_chars,
+        tools_json_chars: timing.tools_json_chars,
+        tool_result_chars_total: timing.tool_result_chars_total,
+        tool_timings_ms: timing.tool_timings_ms,
+      };
+    }
     return result;
   };
 
@@ -433,6 +451,7 @@ export async function executeAICommand(
   }
 
   // Classify intent to determine which tools are needed
+  // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
   const intent = classifyIntent(userCommand);
   if (timing) {
@@ -440,6 +459,7 @@ export async function executeAICommand(
   }
 
   // Build the system prompt with context
+  const promptBuildStart = timingEnabled ? Date.now() : 0;
   const promptMode = shouldUseFastPrompt(userCommand, intent, conversationHistory) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
@@ -452,6 +472,7 @@ export async function executeAICommand(
   }, promptMode);
   if (timing) {
     timing.system_prompt_chars = systemPrompt.length;
+    timing.t_prompt_build_ms = Date.now() - promptBuildStart;
   }
 
   // Initialize messages
@@ -525,6 +546,9 @@ export async function executeAICommand(
   let lastSearchTaskIds: string[] | null = null;
   let llmCallIndex = 0;
   const contextTableId = context.contextTableId;
+
+  // Track consecutive errors per tool to prevent extensive retry loops
+  const consecutiveErrorCount = new Map<string, number>();
 
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
@@ -684,6 +708,19 @@ export async function executeAICommand(
           toolCallsThisRound.push({ tool: toolName, result });
           if (!result.success) {
             allToolCallsSuccessful = false;
+            const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
+            consecutiveErrorCount.set(toolName, currentErrors);
+
+            if (currentErrors >= 3) {
+              return withTiming({
+                success: false,
+                response: `I'm having trouble with the ${toolName} tool. It failed ${currentErrors} times in a row. Error: ${result.error}`,
+                toolCallsMade: allToolCallsMade,
+                error: "Too many consecutive tool errors"
+              });
+            }
+          } else {
+            consecutiveErrorCount.set(toolName, 0);
           }
 
           if (toolName === "requestToolGroups" && result.success) {
@@ -786,16 +823,14 @@ export async function executeAICommand(
         const writeToolsThisRound = toolNamesThisRound.filter(
           (name) => !isSearchLikeToolName(name)
         );
-        const hasNonCreateWrite = writeToolsThisRound.some(
-          (name) => !name.startsWith("create")
-        );
+        const hasWriteTool = writeToolsThisRound.length > 0;
 
-        // Optimistic early exit for writes (updates/deletes)
+        // Optimistic early exit for ALL writes (updates/deletes/creates)
         if (
           EARLY_EXIT_WRITES &&
           SKIP_SECOND_LLM &&
           allToolCallsSuccessful &&
-          hasNonCreateWrite
+          hasWriteTool
         ) {
           return withTiming({
             success: true,

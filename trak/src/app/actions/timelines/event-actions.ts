@@ -21,6 +21,7 @@ export async function createTimelineEvent(input: {
   baselineStart?: string | null;
   baselineEnd?: string | null;
   displayOrder?: number;
+  assigneeId?: string;
 }): Promise<ActionResult<TimelineEvent>> {
   const access = await requireTimelineAccess(input.timelineBlockId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
@@ -60,6 +61,7 @@ export async function createTimelineEvent(input: {
       baseline_start: input.baselineStart ?? null,
       baseline_end: input.baselineEnd ?? null,
       display_order: input.displayOrder ?? nextOrder,
+      assignee_id: input.assigneeId ?? null,
       created_by: userId,
       updated_by: userId,
     })
@@ -136,7 +138,7 @@ export async function updateTimelineEvent(
       errorDetails: error.details,
       errorHint: error.hint,
     });
-    
+
     // Provide more specific error messages based on error code
     if (error.code === "23503") {
       // Foreign key violation
@@ -149,17 +151,17 @@ export async function updateTimelineEvent(
           errorDetails: error.details,
           errorHint: error.hint,
         });
-        return { 
-          error: `Invalid assignee: The selected user ID does not exist in the authentication system. This may happen if the user account was deleted. Please select a different user.` 
+        return {
+          error: `Invalid assignee: The selected user ID does not exist in the authentication system. This may happen if the user account was deleted. Please select a different user.`
         };
       }
       return { error: `Database constraint violation: ${error.message || "Invalid reference"}` };
     }
-    
+
     if (error.code === "42501") {
       return { error: "Permission denied: You don't have access to update this event" };
     }
-    
+
     return { error: `Failed to update timeline event: ${error.message || error.code || "Unknown error"}` };
   }
 

@@ -416,7 +416,73 @@ export async function executeTool(
       // ==================================================================
       case "createTaskItem":
         {
-          const taskBlockId = args.taskBlockId as string;
+          let taskBlockId = args.taskBlockId as string;
+
+          // Optimization: If taskBlockId is missing but we have a currentTabId, try to find/create a block
+          if (!taskBlockId && context?.currentTabId) {
+            const existingBlocks = await searchBlocks({
+              type: "task",
+              tabId: context.currentTabId,
+              limit: 1,
+            });
+
+            if (existingBlocks.data && existingBlocks.data.length > 0) {
+              taskBlockId = existingBlocks.data[0].id;
+            } else {
+              // Create a new task block if none exists
+              const blockResult = await createBlock({
+                tabId: context.currentTabId,
+                type: "task",
+                content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+              });
+
+              if (!("error" in blockResult) && blockResult.data) {
+                taskBlockId = blockResult.data.id;
+              }
+            }
+          }
+
+          // FALLBACK: If still no taskBlockId (e.g. global context), try to find ANY task block
+          if (!taskBlockId) {
+            const anyBlock = await searchBlocks({
+              type: "task",
+              limit: 1,
+            });
+            if (anyBlock.data && anyBlock.data.length > 0) {
+              taskBlockId = anyBlock.data[0].id;
+            }
+          }
+
+          if (!taskBlockId) {
+            return { success: false, error: "Missing taskBlockId and could not auto-resolve from context. Please provide a task block ID." };
+          }
+
+          // Optimization: Resolve taskBlockName if provided
+          if (!taskBlockId && args.taskBlockName && context?.currentTabId) {
+            const blockName = args.taskBlockName as string;
+            const existingBlocks = await searchBlocks({
+              type: "task",
+              tabId: context.currentTabId,
+              limit: 5,
+            });
+
+            if (existingBlocks.data) {
+              // Try exact match first
+              const exact = existingBlocks.data.find(b =>
+                (b.content as any)?.title?.toLowerCase() === blockName.toLowerCase()
+              );
+              if (exact) {
+                taskBlockId = exact.id;
+              } else {
+                // Fuzzy match
+                const fuzzy = existingBlocks.data.find(b =>
+                  (b.content as any)?.title?.toLowerCase().includes(blockName.toLowerCase())
+                );
+                if (fuzzy) taskBlockId = fuzzy.id;
+              }
+            }
+          }
+
           const payload = {
             taskBlockId,
             title: args.title as string,
@@ -428,8 +494,43 @@ export async function executeTool(
             startDate: args.startDate as string | undefined,
           };
 
+          // ------------------------------------------------------------------
+          // SMART TOOL: Pre-resolution of Assignees & Tags
+          // ------------------------------------------------------------------
+          let resolvedAssignees: any[] = [];
+          if (Array.isArray(args.assignees) && args.assignees.length > 0) {
+            const assigneeArgs = args.assignees.map(a =>
+              // If it looks like an ID, treat as ID. If name, treat as name.
+              isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
+            );
+
+            const resolveResult = await resolveTaskAssignees(assigneeArgs);
+            if (resolveResult.ambiguities.length > 0) {
+              const details = resolveResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+              return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
+            }
+            resolvedAssignees = resolveResult.resolved;
+          }
+
+          // ------------------------------------------------------------------
+          // EXECUTION: Create -> Assign -> Tag
+          // ------------------------------------------------------------------
+
           const directResult = await createTaskItem(payload);
           if (!("error" in directResult)) {
+            const newTaskId = directResult.data.id;
+
+            // Chain 1: Assignees
+            if (resolvedAssignees.length > 0) {
+              await setTaskAssignees(newTaskId, resolvedAssignees);
+            }
+
+            // Chain 2: Tags
+            if (Array.isArray(args.tags) && args.tags.length > 0) {
+              await setTaskTags(newTaskId, args.tags as string[]);
+            }
+
+            // Return the created task (fetching fresh might be better, but returning original is faster)
             return { success: true, data: directResult.data };
           }
 
@@ -528,17 +629,55 @@ export async function executeTool(
         }
 
       case "updateTaskItem":
-        return await wrapResult(
-          updateTaskItem(args.taskId as string, {
-            title: args.title as string | undefined,
-            status: args.status as any,
-            priority: args.priority as any,
-            description: args.description as string | null | undefined,
-            dueDate: args.dueDate as string | null | undefined,
-            dueTime: args.dueTime as string | null | undefined,
-            startDate: args.startDate as string | null | undefined,
-          })
-        );
+        {
+          let taskId = args.taskId as string;
+          const lookupName = args.lookupName as string;
+
+          // Latency Optimization: If taskId missing, find by name
+          if (!taskId && lookupName) {
+            const searchResult = await searchTasks({
+              searchText: lookupName,
+              limit: 5
+            });
+
+            if (!searchResult.error && searchResult.data) {
+              // Filter for exact matches if possible, or take the best match
+              const matches = searchResult.data;
+              if (matches.length === 1) {
+                taskId = matches[0].id;
+              } else if (matches.length > 1) {
+                // If multiple matches, try to find case-insensitive exact match
+                const exact = matches.find(m => m.title.toLowerCase() === lookupName.toLowerCase());
+                if (exact) {
+                  taskId = exact.id;
+                } else {
+                  return {
+                    success: false,
+                    error: `Ambiguous task name. Found ${matches.length} tasks matching "${lookupName}". Please specify which one or use the exact title.`
+                  };
+                }
+              } else {
+                return { success: false, error: `Task "${lookupName}" not found.` };
+              }
+            }
+          }
+
+          if (!taskId) {
+            return { success: false, error: "Missing taskId or valid lookupName." };
+          }
+
+          return await wrapResult(
+            updateTaskItem(taskId, {
+              title: args.title as string | undefined,
+              status: args.status as any,
+              priority: args.priority as any,
+              description: args.description as string | null | undefined,
+              dueDate: args.dueDate as string | null | undefined,
+              dueTime: args.dueTime as string | null | undefined,
+              startDate: args.startDate as string | null | undefined,
+            })
+          );
+        }
 
       case "bulkUpdateTaskItems":
         if (!Array.isArray(args.taskIds) || args.taskIds.length === 0) {
@@ -800,10 +939,21 @@ export async function executeTool(
         if (!workspaceId) {
           return { success: false, error: "No workspace selected" };
         }
+
+        // Smart Tool: Resolve clientName if clientId is missing
+        let clientId = args.clientId as string | undefined;
+        if (!clientId && args.clientName) {
+          const clientSearch = await searchClients({ searchText: args.clientName as string, limit: 1 });
+          // Prefer exact match, else fuzzy
+          if (clientSearch.data && clientSearch.data.length > 0) {
+            clientId = clientSearch.data[0].id;
+          }
+        }
+
         return await wrapResult(
           createProject(workspaceId, {
             name: args.name as string,
-            client_id: args.clientId as string | undefined,
+            client_id: clientId,
             status: args.status as any,
             due_date_date: args.dueDate as string | undefined,
             project_type: args.projectType as any,
@@ -850,10 +1000,25 @@ export async function executeTool(
       // ==================================================================
       // BLOCK ACTIONS
       // ==================================================================
-      case "createBlock":
+      case "createBlock": {
+        let tabId = args.tabId as string;
+
+        // Priority 1: Smart Tool - Resolve tabName if provided
+        if (!tabId && args.tabName) {
+          const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
+          if (tabSearch.data && tabSearch.data.length > 0) {
+            tabId = tabSearch.data[0].id;
+          }
+        }
+
+        // Priority 2: Use Context
+        if (!tabId && context?.currentTabId) {
+          tabId = context.currentTabId;
+        }
+
         return await wrapResult(
           createBlock({
-            tabId: args.tabId as string,
+            tabId,
             type: args.type as any,
             content: args.content as any,
             position: args.position as number | undefined,
@@ -861,6 +1026,7 @@ export async function executeTool(
             parentBlockId: args.parentBlockId as string | undefined,
           })
         );
+      }
 
       case "updateBlock":
         return await wrapResult(
@@ -970,13 +1136,24 @@ export async function executeTool(
       case "deleteField":
         return await wrapResult(deleteField(args.fieldId as string));
 
-      case "createRow":
+      case "createRow": {
+        let tableId = args.tableId as string;
+        if (!tableId && args.tableName) {
+          const tableSearch = await searchTables({ searchText: args.tableName as string, limit: 1 });
+          if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
+            tableId = tableSearch.data[0].id;
+          }
+        }
+
+        if (!tableId) return { success: false, error: "Missing tableId for createRow. Provide tableId or tableName." };
+
         return await wrapResult(
           createRow({
-            tableId: args.tableId as string,
+            tableId,
             data: args.data as Record<string, unknown>,
           })
         );
+      }
 
       case "updateRow":
         return await wrapResult(
@@ -1010,6 +1187,16 @@ export async function executeTool(
 
       case "bulkInsertRows":
         {
+          let resolvedTableId = args.tableId as string;
+          // Smart Tool: Resolve tableName
+          if (!resolvedTableId && args.tableName) {
+            const tableSearch = await searchTables({ searchText: args.tableName as string, limit: 1 });
+            if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
+              resolvedTableId = tableSearch.data[0].id;
+            }
+          }
+          if (!resolvedTableId) return { success: false, error: "Missing tableId for bulkInsertRows. Provide tableId or tableName." };
+
           const rowsArg =
             (args.rows as Array<{ data: Record<string, unknown>; order?: number | string | null }>) ??
             undefined;
@@ -1042,11 +1229,11 @@ export async function executeTool(
             };
           }
 
-          await maybeEnsureFieldsForRows(args.tableId as string, normalizedRows);
-          await maybeRemoveDefaultRows(args.tableId as string);
+          await maybeEnsureFieldsForRows(resolvedTableId, normalizedRows);
+          await maybeRemoveDefaultRows(resolvedTableId);
 
           const mappingResult = await mapRowDataToFieldIds(
-            args.tableId as string,
+            resolvedTableId,
             normalizedRows
           );
 
@@ -1057,7 +1244,7 @@ export async function executeTool(
             };
           }
 
-          if (await shouldSkipDuplicateInsert(args.tableId as string, mappingResult.rows)) {
+          if (await shouldSkipDuplicateInsert(resolvedTableId, mappingResult.rows)) {
             return {
               success: true,
               data: { insertedIds: [] },
@@ -1066,7 +1253,7 @@ export async function executeTool(
 
           const result = await wrapResult(
             bulkInsertRows({
-              tableId: args.tableId as string,
+              tableId: resolvedTableId,
               rows: mappingResult.rows,
             })
           );
@@ -1357,10 +1544,32 @@ export async function executeTool(
       // ==================================================================
       // TIMELINE ACTIONS
       // ==================================================================
-      case "createTimelineEvent":
+      case "createTimelineEvent": {
+        let timelineBlockId = args.timelineBlockId as string;
+
+        // Smart Tool: Resolve timelineBlockName
+        if (!timelineBlockId && args.timelineBlockName) {
+          const blockSearch = await searchBlocks({ searchText: args.timelineBlockName as string, type: "timeline", limit: 1 });
+          // Prefer exact match
+          if (blockSearch.data && blockSearch.data.length > 0) {
+            timelineBlockId = blockSearch.data[0].id;
+          }
+        }
+
+        if (!timelineBlockId) return { success: false, error: "Missing timelineBlockId. Provide ID or 'timelineBlockName'." };
+
+        // Smart Tool: Resolve assigneeName
+        let assigneeId = args.assigneeId as string | undefined;
+        if (!assigneeId && args.assigneeName) {
+          const assigneeResult = await resolveTaskAssignees([{ name: args.assigneeName as string }]);
+          if (assigneeResult.resolved.length > 0) {
+            assigneeId = assigneeResult.resolved[0].id;
+          }
+        }
+
         return await wrapResult(
           createTimelineEvent({
-            timelineBlockId: args.timelineBlockId as string,
+            timelineBlockId,
             title: args.title as string,
             startDate: args.startDate as string,
             endDate: args.endDate as string,
@@ -1369,9 +1578,10 @@ export async function executeTool(
             notes: args.notes as string | undefined,
             color: args.color as string | undefined,
             isMilestone: args.isMilestone as boolean | undefined,
+            assigneeId,
           })
         );
-
+      }
       case "updateTimelineEvent":
         return await wrapResult(
           updateTimelineEvent(args.eventId as string, {
@@ -1380,8 +1590,8 @@ export async function executeTool(
             endDate: args.endDate as string | undefined,
             status: args.status as TimelineEventStatus | undefined,
             progress: args.progress as number | undefined,
-            notes: args.notes as string | undefined,
-            color: args.color as string | undefined,
+            notes: (args.notes as string | null | undefined) ?? undefined,
+            color: (args.color as string | null | undefined) ?? undefined,
             isMilestone: args.isMilestone as boolean | undefined,
           })
         );
