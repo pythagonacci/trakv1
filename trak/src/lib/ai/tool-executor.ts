@@ -1181,7 +1181,6 @@ export async function executeTool(
               .map((row) => row.id);
 
         if (matchedRowIds.length === 0) {
-          // Provide detailed context when no rows match
           const filterSummary = filters
             ? Object.entries(filters)
                 .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
@@ -1189,21 +1188,26 @@ export async function executeTool(
             : "";
 
           return {
-            success: true,
-            data: { updated: 0, rowIds: [], totalRowsScanned: rowsResult.data.length },
-            hint: applyAllRows
+            success: false,
+            error: applyAllRows
               ? `No rows found to update. Scanned ${rowsResult.data.length} rows.`
-              : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map(f => f.name).join(", ")}`,
+              : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map((f) => f.name).join(", ")}`,
           };
         }
 
-        return await wrapResult(
+        const updateResult = await wrapResult(
           bulkUpdateRows({
             tableId,
             rowIds: matchedRowIds,
             updates: updatesByFieldId,
           })
         );
+
+        if (updateResult.success) {
+          updateResult.data = { updated: matchedRowIds.length, rowIds: matchedRowIds };
+        }
+
+        return updateResult;
       }
 
       case "bulkUpdateRowsByFieldNames": {
@@ -1287,8 +1291,17 @@ export async function executeTool(
                 .map((row) => row.id);
 
           if (matchedRowIds.length === 0) {
-            results.push({ index, updated: 0, rowIds: [], filters });
-            continue;
+            const filterSummary = filters
+              ? Object.entries(filters)
+                  .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+                  .join(", ")
+              : "";
+            return {
+              success: false,
+              error: applyAllRows
+                ? `No rows found to update. Scanned ${rowsResult.data.length} rows.`
+                : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map((f) => f.name).join(", ")}`,
+            };
           }
 
           const updateResult = await wrapResult(
@@ -2088,6 +2101,38 @@ function resolveUpdateValue(
   return { value: rawValue };
 }
 
+function parseNumericValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/[, ]+/g, "").replace(/\$/g, "").toLowerCase();
+  const suffixMatch = normalized.match(/^(?<num>-?\d+(\.\d+)?)(?<suffix>[a-z]+)?$/);
+  if (!suffixMatch || !suffixMatch.groups) return null;
+
+  const num = Number(suffixMatch.groups.num);
+  if (!Number.isFinite(num)) return null;
+
+  const suffix = suffixMatch.groups.suffix ?? "";
+  const multipliers: Record<string, number> = {
+    k: 1e3,
+    thousand: 1e3,
+    m: 1e6,
+    million: 1e6,
+    b: 1e9,
+    billion: 1e9,
+    t: 1e12,
+    trillion: 1e12,
+  };
+
+  if (!suffix) return num;
+  const multiplier = multipliers[suffix];
+  if (!multiplier) return null;
+  return num * multiplier;
+}
+
 function matchesRowFilters(
   rowData: Record<string, unknown>,
   filters: Record<string, unknown>,
@@ -2144,20 +2189,32 @@ function matchesRowFilters(
       case "gte": {
         if (typeof actualValue === "number" && typeof filterValue === "number") {
           if (actualValue < filterValue) return false;
-        } else if (typeof actualValue === "string" && typeof filterValue === "string") {
-          if (actualValue < filterValue) return false;
         } else {
-          return false;
+          const actualNumeric = parseNumericValue(actualValue);
+          const filterNumeric = parseNumericValue(filterValue);
+          if (actualNumeric !== null && filterNumeric !== null) {
+            if (actualNumeric < filterNumeric) return false;
+          } else if (typeof actualValue === "string" && typeof filterValue === "string") {
+            if (actualValue < filterValue) return false;
+          } else {
+            return false;
+          }
         }
         break;
       }
       case "lte": {
         if (typeof actualValue === "number" && typeof filterValue === "number") {
           if (actualValue > filterValue) return false;
-        } else if (typeof actualValue === "string" && typeof filterValue === "string") {
-          if (actualValue > filterValue) return false;
         } else {
-          return false;
+          const actualNumeric = parseNumericValue(actualValue);
+          const filterNumeric = parseNumericValue(filterValue);
+          if (actualNumeric !== null && filterNumeric !== null) {
+            if (actualNumeric > filterNumeric) return false;
+          } else if (typeof actualValue === "string" && typeof filterValue === "string") {
+            if (actualValue > filterValue) return false;
+          } else {
+            return false;
+          }
         }
         break;
       }
@@ -2179,6 +2236,12 @@ function matchesRowFilters(
           }
           return false;
         } else {
+          const actualNumeric = parseNumericValue(actualValue);
+          const filterNumeric = parseNumericValue(filterValue);
+          if (actualNumeric !== null && filterNumeric !== null) {
+            if (actualNumeric !== filterNumeric) return false;
+            break;
+          }
           if (actualString !== null && filterString !== null) {
             if (actualString !== filterString) return false;
           } else if (String(actualValue) !== String(filterValue)) {

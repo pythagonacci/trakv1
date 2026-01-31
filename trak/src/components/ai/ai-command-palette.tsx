@@ -21,6 +21,7 @@ import { createFileRecord } from "@/app/actions/file";
 import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
 import type { AIMessage } from "@/lib/ai";
+import { formatBlockText } from "@/lib/format-block-text";
 
 interface UploadingFile {
   id: string;
@@ -626,7 +627,10 @@ export function AICommandPalette() {
                     )}
                   >
                     {message.content?.text && (
-                      <p className="whitespace-pre-wrap">{message.content.text}</p>
+                      <div
+                        className="whitespace-pre-wrap"
+                        dangerouslySetInnerHTML={{ __html: formatBlockText(message.content.text) }}
+                      />
                     )}
 
                     {message.content?.clarification && (
@@ -647,33 +651,49 @@ export function AICommandPalette() {
                       </div>
                     )}
 
-                    {message.content?.tables?.map((table, idx) => (
+                    {message.content?.tables?.map((table, idx) => {
+                      const columns =
+                        (table.columns && table.columns.length > 0)
+                          ? table.columns
+                          : (table.headers && table.headers.length > 0)
+                            ? table.headers
+                            : [];
+                      return (
                       <div key={idx} className="overflow-x-auto">
                         {table.title && <div className="text-xs font-semibold mb-1">{table.title}</div>}
-                        <table className="min-w-full text-xs border border-[var(--border)]">
-                          <thead>
-                            <tr>
-                              {table.columns.map((col) => (
-                                <th key={col} className="px-2 py-1 border-b border-[var(--border)] text-left">
-                                  {col}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {table.rows.map((row, rowIndex) => (
-                              <tr key={rowIndex}>
-                                {row.map((cell, cellIndex) => (
-                                  <td key={cellIndex} className="px-2 py-1 border-b border-[var(--border)]">
-                                    {cell}
-                                  </td>
+                        {columns.length > 0 && (
+                          <table className="min-w-full text-xs border border-[var(--border)]">
+                            <thead>
+                              <tr>
+                                {columns.map((col) => (
+                                  <th key={col} className="px-2 py-1 border-b border-[var(--border)] text-left">
+                                    {col}
+                                  </th>
                                 ))}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {table.rows.map((row, rowIndex) => (
+                                <tr key={rowIndex}>
+                                  {row.map((cell, cellIndex) => (
+                                    <td key={cellIndex} className="px-2 py-1 border-b border-[var(--border)]">
+                                      {cell}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
                       </div>
-                    ))}
+                    )})}
+
+                    {message.content?.notes && (
+                      <div
+                        className="whitespace-pre-wrap"
+                        dangerouslySetInnerHTML={{ __html: formatBlockText(message.content.notes) }}
+                      />
+                    )}
 
                     {message.content?.charts?.map((chart, idx) => (
                       <div key={idx} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">

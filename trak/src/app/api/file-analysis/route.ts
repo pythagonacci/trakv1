@@ -25,6 +25,7 @@ import {
   MAX_INLINE_FILE_BYTES,
   MAX_INLINE_PAGES,
   MAX_INLINE_ROWS,
+  FILE_ANALYSIS_MAX_TOKENS,
 } from "@/lib/file-analysis/constants";
 import type { FileAnalysisMessageContent, FileCitation } from "@/lib/file-analysis/types";
 import { buildScopeHints, selectFilesForQuery } from "@/lib/file-analysis/selection";
@@ -90,7 +91,7 @@ async function callDeepSeek(messages: Array<{ role: string; content: string }>) 
       model: DEFAULT_DEEPSEEK_MODEL,
       messages,
       temperature: 0.2,
-      max_tokens: 1200,
+      max_tokens: FILE_ANALYSIS_MAX_TOKENS,
     }),
   });
 
@@ -109,16 +110,73 @@ function parseModelOutput(raw: string): FileAnalysisMessageContent {
     return { text: "I couldn't generate a response." };
   }
 
+  const stripCodeFences = (input: string) => {
+    const match = input.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    return match ? match[1].trim() : input;
+  };
+
+  const repairJson = (input: string) => {
+    let result = "";
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < input.length; i += 1) {
+      const char = input[i];
+      if (escaped) {
+        result += char;
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        result += char;
+        escaped = true;
+        continue;
+      }
+      if (char === "\"") {
+        inString = !inString;
+        result += char;
+        continue;
+      }
+      if (inString && (char === "\n" || char === "\r")) {
+        result += "\\n";
+        if (char === "\r" && input[i + 1] === "\n") {
+          i += 1;
+        }
+        continue;
+      }
+      result += char;
+    }
+
+    return result;
+  };
+
+  const normalizedRaw = repairJson(stripCodeFences(raw));
+
   try {
-    const jsonStart = raw.indexOf("{");
-    const jsonEnd = raw.lastIndexOf("}");
+    const jsonStart = normalizedRaw.indexOf("{");
+    const jsonEnd = normalizedRaw.lastIndexOf("}");
     if (jsonStart !== -1 && jsonEnd !== -1) {
-      const sliced = raw.slice(jsonStart, jsonEnd + 1);
+      const sliced = normalizedRaw.slice(jsonStart, jsonEnd + 1);
       const parsed = JSON.parse(sliced);
       if (parsed && typeof parsed === "object") {
+        const normalizedTables = Array.isArray(parsed.tables)
+          ? parsed.tables.map((table: any) => {
+              const columns =
+                Array.isArray(table?.columns) && table.columns.length > 0
+                  ? table.columns
+                  : Array.isArray(table?.headers)
+                    ? table.headers
+                    : [];
+              return {
+                ...table,
+                columns,
+              };
+            })
+          : undefined;
+
         return {
           text: String(parsed.text || parsed.answer || "").trim(),
-          tables: parsed.tables || undefined,
+          tables: normalizedTables,
           charts: parsed.charts || undefined,
           notes: parsed.notes || undefined,
         };
@@ -128,7 +186,16 @@ function parseModelOutput(raw: string): FileAnalysisMessageContent {
     // fall through
   }
 
-  return { text: raw };
+  const textMatch = normalizedRaw.match(/"text"\s*:\s*"(.*?)"\s*(?:,\s*"(tables|charts|notes|clarification)"|}$)/s);
+  if (textMatch?.[1]) {
+    try {
+      return { text: JSON.parse(`"${textMatch[1]}"`) };
+    } catch {
+      return { text: textMatch[1] };
+    }
+  }
+
+  return { text: normalizedRaw };
 }
 
 export async function POST(request: NextRequest) {

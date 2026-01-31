@@ -12,6 +12,7 @@ export const MAX_INLINE_TOKENS = 8000;
 export const MAX_INLINE_ROWS = 2000;
 export const MAX_INLINE_PAGES = 20;
 export const MAX_INLINE_FILE_BYTES = 2 * 1024 * 1024; // 2MB
+export const FILE_ANALYSIS_MAX_TOKENS = Number(process.env.FILE_ANALYSIS_MAX_TOKENS ?? 2000);
 
 export const MAX_TABLE_PREVIEW_ROWS = 200;
 

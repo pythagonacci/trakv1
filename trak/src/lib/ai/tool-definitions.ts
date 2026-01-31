@@ -28,6 +28,7 @@ export interface ToolDefinition {
 
 export type ToolCategory =
   | "search"
+  | "control"
   | "task"
   | "project"
   | "table"
@@ -41,6 +42,34 @@ export type ToolCategory =
   | "client"
   | "workspace"
   | "payment";
+
+// ============================================================================
+// CONTROL TOOLS
+// ============================================================================
+
+const controlTools: ToolDefinition[] = [
+  {
+    name: "requestToolGroups",
+    description:
+      "Request additional tool groups when you realize you need capabilities not currently available. " +
+      "Use this the moment you notice a missing tool (e.g., table updates). " +
+      "Returns the requested groups so the executor can expand access and continue.",
+    category: "control",
+    parameters: {
+      toolGroups: {
+        type: "array",
+        description:
+          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, client, property, comment.",
+        items: { type: "string" },
+      },
+      reason: {
+        type: "string",
+        description: "Short reason why these tools are needed.",
+      },
+    },
+    requiredParams: ["toolGroups"],
+  },
+];
 
 // ============================================================================
 // SEARCH TOOLS
@@ -380,7 +409,7 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "updateTaskItem",
-    description: "UPDATE an existing task's properties. Use to modify task title, status (todo/in-progress/done), priority (low/medium/high/urgent), description, or dates. Required: taskId (from searchTasks). Returns: Updated task object.",
+    description: "UPDATE an existing task's properties. Use to modify task title, status (todo/in-progress/done), priority (low/medium/high/urgent), description, or dates. Required: taskId (from searchTasks). Returns: Updated task object. ⚠️ For updating 3+ tasks with the same changes, prefer bulkUpdateTaskItems.",
     category: "task",
     parameters: {
       taskId: { type: "string", description: "The task ID to update" },
@@ -393,6 +422,28 @@ const taskActionTools: ToolDefinition[] = [
       startDate: { type: "string", description: "New start date" },
     },
     requiredParams: ["taskId"],
+  },
+  {
+    name: "bulkUpdateTaskItems",
+    description: "UPDATE multiple tasks with the same changes in ONE call. ⚠️ REQUIRED for 3+ tasks. Use when updating many tasks with the same status, priority, or other properties. Much more efficient than calling updateTaskItem multiple times. Required: taskIds array and updates object. Returns: updatedCount and skipped array.",
+    category: "task",
+    parameters: {
+      taskIds: { type: "array", description: "Array of task IDs to update", items: { type: "string" } },
+      updates: {
+        type: "object",
+        description: "Updates to apply to all tasks. Same format as updateTaskItem.",
+        properties: {
+          title: { type: "string", description: "New title" },
+          status: { type: "string", description: "New status", enum: ["todo", "in-progress", "done"] },
+          priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
+          description: { type: "string", description: "New description (set to null to clear)" },
+          dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
+          dueTime: { type: "string", description: "New due time (HH:MM)" },
+          startDate: { type: "string", description: "New start date" },
+        },
+      },
+    },
+    requiredParams: ["taskIds", "updates"],
   },
   {
     name: "bulkMoveTaskItems",
@@ -869,6 +920,31 @@ const tableActionTools: ToolDefinition[] = [
     },
     requiredParams: ["tableId", "updates"],
   },
+  {
+    name: "bulkUpdateRowsByFieldNames",
+    description:
+      "BATCH UPDATE rows using field names and labels (NOT IDs) when different rows need different values.\n\n" +
+      "Provide an array of row updates with their own filters and updates.\n" +
+      "This is ideal when you need to set different values per row (e.g., Country of Origin for each company).\n\n" +
+      "Example:\n" +
+      "{ tableId: 'xxx', rows: [\n" +
+      "  { filters: { 'Company': 'Apple' }, updates: { 'Country of Origin': 'United States' } },\n" +
+      "  { filters: { 'Company': 'TSMC' }, updates: { 'Country of Origin': 'Taiwan' } }\n" +
+      "] }\n\n" +
+      "Returns: total updated count and row IDs.",
+    category: "table",
+    parameters: {
+      tableId: { type: "string", description: "The table ID" },
+      rows: {
+        type: "array",
+        description:
+          "Array of row update entries. Each entry: { filters?: { FieldName: value }, updates: { FieldName: value } }",
+        items: { type: "object" },
+      },
+      limit: { type: "number", description: "Max rows to scan when matching filters (default 500)" },
+    },
+    requiredParams: ["tableId", "rows"],
+  },
 ];
 
 // ============================================================================
@@ -1148,6 +1224,7 @@ const commentActionTools: ToolDefinition[] = [
 
 export const allTools: ToolDefinition[] = [
   ...searchTools,
+  ...controlTools,
   ...taskActionTools,
   ...projectActionTools,
   ...tabActionTools,
@@ -1163,6 +1240,7 @@ export const allTools: ToolDefinition[] = [
 
 export const toolsByCategory: Record<ToolCategory, ToolDefinition[]> = {
   search: searchTools,
+  control: controlTools,
   task: taskActionTools,
   project: projectActionTools,
   tab: tabActionTools,
@@ -1205,6 +1283,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
     "searchTasks",
     "createTaskItem",
     "updateTaskItem",
+    "bulkUpdateTaskItems",
     "deleteTaskItem",
     "bulkMoveTaskItems",
     "duplicateTasksToBlock",
@@ -1278,6 +1357,7 @@ export const coreTools: ToolDefinition[] = pickTools([
   "resolveEntityByName",
   "getEntityById",
   "getEntityContext",
+  "requestToolGroups",
 
   // Entity-specific searches (read-only, always useful)
   "searchTasks",

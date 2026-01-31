@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/app/actions/auth";
 import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatBlockText } from "@/lib/format-block-text";
 import FileUploadZone from "./file-upload-zone";
 import { useAI } from "@/components/ai";
 
@@ -156,7 +157,12 @@ function PdfAttachment({
                     >
                       <div className="flex items-start gap-2">
                         <div className="flex-1">
-                          <p className="text-[11px] leading-snug whitespace-pre-wrap">{comment.text}</p>
+                          <div
+                            className="text-[11px] leading-snug whitespace-pre-wrap"
+                            dangerouslySetInnerHTML={{
+                              __html: formatBlockText(comment.text, { preset: "compact" }),
+                            }}
+                          />
                           <p className="text-[10px] text-[var(--tertiary-foreground)]">
                             {new Date(comment.created_at).toLocaleString()}
                           </p>
@@ -635,7 +641,12 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
                               >
                                 <div className="flex items-start gap-2">
                                   <div className="flex-1">
-                                    <p className="text-[11px] leading-snug whitespace-pre-wrap">{comment.text}</p>
+                                    <div
+                                      className="text-[11px] leading-snug whitespace-pre-wrap"
+                                      dangerouslySetInnerHTML={{
+                                        __html: formatBlockText(comment.text, { preset: "compact" }),
+                                      }}
+                                    />
                                     <p className="text-[10px] text-[var(--tertiary-foreground)]">
                                       {new Date(comment.created_at).toLocaleString()}
                                     </p>

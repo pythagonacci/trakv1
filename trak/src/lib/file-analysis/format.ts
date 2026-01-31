@@ -18,10 +18,18 @@ export function formatMessageForBlock(content: FileAnalysisMessageContent): stri
 
   if (content.tables && content.tables.length > 0) {
     content.tables.forEach((table) => {
+      const columns =
+        (table.columns && table.columns.length > 0)
+          ? table.columns
+          : (table.headers && table.headers.length > 0)
+            ? table.headers
+            : [];
       if (table.title) {
         parts.push(`\n## ${table.title}`);
       }
-      parts.push(formatTableMarkdown(table.columns, table.rows));
+      if (columns.length > 0) {
+        parts.push(formatTableMarkdown(columns, table.rows));
+      }
     });
   }
 

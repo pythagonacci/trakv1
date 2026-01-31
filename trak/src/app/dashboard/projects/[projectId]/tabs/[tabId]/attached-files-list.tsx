@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/app/actions/auth";
 import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronDown, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatBlockText } from "@/lib/format-block-text";
 import { useAI } from "@/components/ai";
 
 interface BlockFile {
@@ -399,7 +400,12 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
                               <div key={comment.id} className="rounded border border-neutral-200/60 dark:border-neutral-700 px-2 py-1 bg-neutral-50/60 dark:bg-neutral-800/60">
                                 <div className="flex items-start gap-2">
                                   <div className="flex-1">
-                                    <p className="text-[11px] leading-snug whitespace-pre-wrap">{comment.text}</p>
+                                    <div
+                                      className="text-[11px] leading-snug whitespace-pre-wrap"
+                                      dangerouslySetInnerHTML={{
+                                        __html: formatBlockText(comment.text, { preset: "compact" }),
+                                      }}
+                                    />
                                     <p className="text-[10px] text-neutral-400">{new Date(comment.created_at).toLocaleString()}</p>
                                   </div>
                                   {currentUserId && comment.user_id === currentUserId && (
