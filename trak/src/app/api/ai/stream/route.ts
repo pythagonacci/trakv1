@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { executeAICommandStream } from "@/lib/ai";
+import { executeAICommandStream, type AIMessage } from "@/lib/ai/executor";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
+import { getBlockWithContext } from "@/app/actions/ai-context";
 
 /**
  * POST /api/ai/stream
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
   try {
     // 1. Check authentication
     const user = await getAuthenticatedUser();
+
     if (!user) {
       return new Response(
         `data: ${JSON.stringify({ type: "error", content: "Unauthorized" })}\n\n`,
@@ -57,10 +59,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Get workspace and user details
-    const supabase = await createClient();
+    const dataClient = await createClient();
     const [workspaceResult, profileResult] = await Promise.all([
-      supabase.from("workspaces").select("name").eq("id", workspaceId).single(),
-      supabase.from("profiles").select("name, email").eq("id", user.id).single(),
+      dataClient.from("workspaces").select("name").eq("id", workspaceId).single(),
+      dataClient.from("profiles").select("name, email").eq("id", user.id).single(),
     ]);
 
     const workspaceName = workspaceResult.data?.name || undefined;
@@ -68,7 +70,27 @@ export async function POST(request: NextRequest) {
 
     // 4. Parse request body
     const body = await request.json();
-    const { command } = body as { command: string };
+    const { command, projectId, tabId, contextBlockId, messages } = body as {
+      command: string;
+      projectId?: string;
+      tabId?: string;
+      contextBlockId?: string;
+      messages?: AIMessage[];
+    };
+
+    // 5. Handle context block if provided
+    let contextTableId: string | undefined;
+    if (contextBlockId) {
+      const blockContext = await getBlockWithContext({ blockId: contextBlockId });
+      if (blockContext.data) {
+        const ctx = blockContext.data as any;
+        const block = ctx.block as { type: string; content?: Record<string, unknown> };
+        if (block.type === "table") {
+          const content = (block.content || {}) as Record<string, unknown>;
+          contextTableId = content.tableId ? String(content.tableId) : undefined;
+        }
+      }
+    }
 
     if (!command || typeof command !== "string") {
       return new Response(
@@ -84,7 +106,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Create streaming response
+    // 6. Create streaming response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -94,7 +116,10 @@ export async function POST(request: NextRequest) {
             workspaceName,
             userId: user.id,
             userName,
-          });
+            currentProjectId: projectId,
+            currentTabId: tabId,
+            contextTableId,
+          }, messages || []);
 
           for await (const event of generator) {
             const data = JSON.stringify(event);

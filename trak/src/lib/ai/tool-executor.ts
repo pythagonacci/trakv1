@@ -191,6 +191,7 @@ export interface ToolExecutionContext {
   userId?: string;
   contextTableId?: string;
   currentTabId?: string;
+  currentProjectId?: string;
 }
 
 const shouldUseTestContext =
@@ -976,14 +977,18 @@ export async function executeTool(
       // ==================================================================
       // TAB ACTIONS
       // ==================================================================
-      case "createTab":
+      case "createTab": {
+        const projectId = (args.projectId as string | undefined) || context?.currentProjectId;
+        if (!projectId) return { success: false, error: "createTab: Missing projectId and could not infer from context" };
+
         return await wrapResult(
           createTab({
-            projectId: args.projectId as string,
+            projectId,
             name: args.name as string,
             parentTabId: args.parentTabId as string | null | undefined,
           })
         );
+      }
 
       case "updateTab":
         return await wrapResult(
@@ -1050,12 +1055,12 @@ export async function executeTool(
           return { success: false, error: "Missing workspaceId for createTable" };
         }
 
-        const tabId = args.tabId as string | undefined;
+        const tabId = (args.tabId as string | undefined) || context?.currentTabId;
 
         // Create the table
         const tableResult = await createTable({
           workspaceId: targetWorkspaceId,
-          projectId: args.projectId as string | undefined,
+          projectId: (args.projectId as string | undefined) || context?.currentProjectId,
           title: args.title as string | undefined,
           description: args.description as string | null | undefined,
           icon: args.icon as string | null | undefined,
@@ -1553,6 +1558,28 @@ export async function executeTool(
           // Prefer exact match
           if (blockSearch.data && blockSearch.data.length > 0) {
             timelineBlockId = blockSearch.data[0].id;
+          }
+        }
+
+        // Priority 3: Resolve from context (Current Tab)
+        if (!timelineBlockId && context?.currentTabId) {
+          const existingBlocks = await searchBlocks({
+            type: "timeline",
+            tabId: context.currentTabId,
+            limit: 1,
+          });
+          if (existingBlocks.data && existingBlocks.data.length > 0) {
+            timelineBlockId = existingBlocks.data[0].id;
+          } else {
+            // Use createBlock to auto-create if needed
+            const blockResult = await createBlock({
+              tabId: context.currentTabId,
+              type: "timeline",
+              content: { title: "Timeline", viewMode: "gantt" }
+            });
+            if (!("error" in blockResult) && blockResult.data) {
+              timelineBlockId = blockResult.data.id;
+            }
           }
         }
 

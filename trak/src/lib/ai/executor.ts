@@ -13,6 +13,7 @@ import { getSystemPrompt } from "./system-prompt";
 import { executeTool, type ToolCallResult } from "./tool-executor";
 import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 import { classifyIntent } from "./intent-classifier";
+import { trySimpleCommand } from "./simple-commands";
 
 // ============================================================================
 // TYPES
@@ -120,14 +121,16 @@ function shouldUseFastPrompt(
   intent: { confidence: number; toolGroups: string[] },
   conversationHistory: AIMessage[]
 ) {
-  if (PROMPT_MODE === "full") return false;
+  // Always use fast prompt if explicitly set
   if (PROMPT_MODE === "fast") return true;
+  // For "full" or "auto" mode, auto-detect simple commands
   if (conversationHistory.length > 0) return false;
-  if (userCommand.length > 180) return false;
-  if (intent.confidence < 0.8) return false;
+  if (userCommand.length > 150) return false;
+  if (intent.confidence < 0.85) return false;
   if (intent.toolGroups.length > 2) return false;
   const lowered = userCommand.toLowerCase();
-  if (/(explain|why|summarize|analysis|report|reasoning)/i.test(lowered)) return false;
+  if (/(explain|why|summarize|analysis|report|reasoning|help|how)/i.test(lowered)) return false;
+  // Simple create/search commands qualify for fast prompt
   return true;
 }
 
@@ -450,7 +453,8 @@ export async function executeAICommand(
     });
   }
 
-  // Classify intent to determine which tools are needed
+  // LLM-based execution (no fast path - all commands go through the LLM)
+
   // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
   const intent = classifyIntent(userCommand);
@@ -676,6 +680,8 @@ export async function executeAICommand(
             workspaceId: context.workspaceId,
             userId: context.userId,
             contextTableId,
+            currentTabId: context.currentTabId,
+            currentProjectId: context.currentProjectId,
           });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
 
@@ -843,9 +849,10 @@ export async function executeAICommand(
         // OPTIMIZATION: Only exit if the intent is PURELY search.
         // If the user wanted to "create", "update", etc., we must continue even if the first step was just a search.
         const onlySearchOps = toolNamesThisRound.every(isSearchLikeToolName);
-        const hasWriteIntent =
-          activeIntent.toolGroups.some(g => g !== "core") ||
-          activeIntent.actions.some(a => ["create", "update", "delete", "organize", "move", "copy", "insert"].includes(a));
+        // Only consider actions, not toolGroups - having entity toolGroups loaded
+        // doesn't mean we intend to write. The LLM can request tools if it needs to write.
+        const WRITE_ACTIONS = ["create", "update", "delete", "organize", "move", "copy", "insert"];
+        const hasWriteIntent = activeIntent.actions.some(a => WRITE_ACTIONS.includes(a));
 
         if (SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps && !hasWriteIntent) {
           return withTiming({
@@ -1049,12 +1056,79 @@ export async function executeSimpleCommand(
 }
 
 /**
+ * Generate a human-friendly status message for a tool call.
+ */
+function getHumanFriendlyToolMessage(toolName: string): string {
+  // Extract the action and entity from tool name (e.g., "createTaskItem" -> "create", "Task")
+  const actionPatterns: Record<string, string> = {
+    create: "Creating",
+    update: "Updating",
+    delete: "Deleting",
+    search: "Searching",
+    get: "Looking up",
+    list: "Finding",
+    bulk: "Processing",
+    move: "Moving",
+    copy: "Copying",
+    duplicate: "Duplicating",
+  };
+
+  const entityPatterns: Record<string, string> = {
+    task: "task",
+    project: "project",
+    table: "table",
+    row: "data",
+    field: "field",
+    tab: "tab",
+    block: "content",
+    timeline: "timeline",
+    client: "client",
+    comment: "comment",
+    file: "file",
+    doc: "document",
+    workspace: "workspace",
+    property: "property",
+  };
+
+  const lowerName = toolName.toLowerCase();
+
+  // Find matching action
+  let action = "Working on";
+  for (const [pattern, friendlyAction] of Object.entries(actionPatterns)) {
+    if (lowerName.startsWith(pattern)) {
+      action = friendlyAction;
+      break;
+    }
+  }
+
+  // Find matching entity
+  let entity = "your request";
+  for (const [pattern, friendlyEntity] of Object.entries(entityPatterns)) {
+    if (lowerName.includes(pattern)) {
+      entity = friendlyEntity;
+      break;
+    }
+  }
+
+  // Special cases for common tools
+  if (lowerName.includes("schema")) {
+    return "Reading table structure...";
+  }
+  if (lowerName === "requesttoolgroups") {
+    return "Getting ready...";
+  }
+
+  return `${action} ${entity}...`;
+}
+
+/**
  * Stream-based execution for real-time responses.
  * Returns an async generator that yields partial results.
  */
 export async function* executeAICommandStream(
   userCommand: string,
-  context: ExecutionContext
+  context: ExecutionContext,
+  previousMessages: AIMessage[] = []
 ): AsyncGenerator<{
   type: "thinking" | "tool_call" | "tool_result" | "response";
   content: string;
@@ -1081,6 +1155,7 @@ export async function* executeAICommandStream(
 
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
+    ...previousMessages,
     { role: "user", content: userCommand },
   ];
 
@@ -1124,7 +1199,7 @@ export async function* executeAICommandStream(
 
           yield {
             type: "tool_call",
-            content: `Calling ${toolName}...`,
+            content: getHumanFriendlyToolMessage(toolName),
             data: { tool: toolName, arguments: toolArgs },
           };
 
@@ -1134,6 +1209,9 @@ export async function* executeAICommandStream(
           }, {
             workspaceId: context.workspaceId,
             userId: context.userId,
+            contextTableId: context.contextTableId,
+            currentTabId: context.currentTabId,
+            currentProjectId: context.currentProjectId,
           });
 
           yield {

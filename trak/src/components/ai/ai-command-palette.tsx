@@ -20,7 +20,6 @@ import {
 import { createFileRecord } from "@/app/actions/file";
 import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
-import type { AIMessage } from "@/lib/ai";
 import { formatBlockText } from "@/lib/format-block-text";
 
 interface UploadingFile {
@@ -46,6 +45,7 @@ export function AICommandPalette() {
   const [messages, setMessages] = useState<FileAnalysisMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<"assistant" | "file">("assistant");
@@ -65,8 +65,16 @@ export function AICommandPalette() {
   const initializedModeRef = useRef(false);
 
   const pathMatch = useMemo(() => {
-    const match = pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
-    return match ? { projectId: match[1], tabId: match[2] } : { projectId: null, tabId: null };
+    // Match project ID anywhere after /dashboard/projects/
+    const projectMatch = pathname.match(/\/dashboard\/projects\/([^/]+)/);
+
+    // Match tab ID anywhere after /tabs/
+    const tabMatch = pathname.match(/\/tabs\/([^/]+)/);
+
+    return {
+      projectId: projectMatch ? projectMatch[1] : null,
+      tabId: tabMatch ? tabMatch[1] : null,
+    };
   }, [pathname]);
 
   const workspaceId = currentWorkspace?.id || null;
@@ -149,7 +157,7 @@ export function AICommandPalette() {
   useEffect(() => {
     if (!isOpen || mode !== "file") return;
     loadSession();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, mode, workspaceId, pathMatch.projectId, pathMatch.tabId]);
 
   useEffect(() => {
@@ -222,42 +230,111 @@ export function AICommandPalette() {
     const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: messageText };
     setAssistantMessages((prev) => [...prev, userMessage]);
     setAssistantLoading(true);
+    setStreamingContent(null);
 
     try {
-      const history: AIMessage[] = [
-        ...assistantMessages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        })),
-        { role: "user", content: messageText },
-      ];
-      const response = await fetch("/api/ai", {
+      const response = await fetch("/api/ai/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           command: messageText,
-          conversationHistory: history,
-          contextBlockId: contextBlock?.blockId || null,
+          projectId: pathMatch.projectId,
+          tabId: pathMatch.tabId,
+          messages: assistantMessages.slice(-10).map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
         }),
       });
-      const result = await response.json();
-      if (!result?.success) {
-        setToast({ message: result?.error || "Failed to run AI command", type: "error" });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        setToast({ message: errorText || "Failed to run AI command", type: "error" });
         return;
       }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        setToast({ message: "Streaming not supported", type: "error" });
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResponse = "";
+      const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string } }> = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          if (!jsonStr) continue;
+
+          try {
+            const event = JSON.parse(jsonStr) as {
+              type: "thinking" | "tool_call" | "tool_result" | "response" | "error" | "done";
+              content?: string;
+              data?: unknown;
+            };
+
+            switch (event.type) {
+              case "thinking":
+                setStreamingContent(event.content || "Analyzing...");
+                break;
+              case "tool_call":
+                setStreamingContent(event.content || "Working on it...");
+                if (event.data && typeof event.data === "object" && "tool" in event.data) {
+                  toolCalls.push({ tool: (event.data as { tool: string }).tool });
+                }
+                break;
+              case "tool_result":
+                if (event.data && typeof event.data === "object" && "success" in event.data) {
+                  const result = event.data as { success: boolean; error?: string };
+                  if (toolCalls.length > 0) {
+                    toolCalls[toolCalls.length - 1].result = result;
+                  }
+                }
+                setStreamingContent(null); // Don't show "Processing..." - next tool_call or response will update
+                break;
+              case "response":
+                finalResponse = event.content || "";
+                setStreamingContent(null);
+                break;
+              case "error":
+                setToast({ message: event.content || "An error occurred", type: "error" });
+                setStreamingContent(null);
+                return;
+              case "done":
+                break;
+            }
+          } catch {
+            // Skip malformed JSON
+          }
+        }
+      }
+
       setAssistantMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: result.response || "",
-          toolCalls: result.toolCallsMade || [],
+          content: finalResponse,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         },
       ]);
     } catch (error) {
       setToast({ message: "Failed to send message", type: "error" });
     } finally {
       setAssistantLoading(false);
+      setStreamingContent(null);
     }
   };
 
@@ -659,34 +736,35 @@ export function AICommandPalette() {
                             ? table.headers
                             : [];
                       return (
-                      <div key={idx} className="overflow-x-auto">
-                        {table.title && <div className="text-xs font-semibold mb-1">{table.title}</div>}
-                        {columns.length > 0 && (
-                          <table className="min-w-full text-xs border border-[var(--border)]">
-                            <thead>
-                              <tr>
-                                {columns.map((col) => (
-                                  <th key={col} className="px-2 py-1 border-b border-[var(--border)] text-left">
-                                    {col}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {table.rows.map((row, rowIndex) => (
-                                <tr key={rowIndex}>
-                                  {row.map((cell, cellIndex) => (
-                                    <td key={cellIndex} className="px-2 py-1 border-b border-[var(--border)]">
-                                      {cell}
-                                    </td>
+                        <div key={idx} className="overflow-x-auto">
+                          {table.title && <div className="text-xs font-semibold mb-1">{table.title}</div>}
+                          {columns.length > 0 && (
+                            <table className="min-w-full text-xs border border-[var(--border)]">
+                              <thead>
+                                <tr>
+                                  {columns.map((col) => (
+                                    <th key={col} className="px-2 py-1 border-b border-[var(--border)] text-left">
+                                      {col}
+                                    </th>
                                   ))}
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    )})}
+                              </thead>
+                              <tbody>
+                                {table.rows.map((row, rowIndex) => (
+                                  <tr key={rowIndex}>
+                                    {row.map((cell, cellIndex) => (
+                                      <td key={cellIndex} className="px-2 py-1 border-b border-[var(--border)]">
+                                        {cell}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      )
+                    })}
 
                     {message.content?.notes && (
                       <div
@@ -779,7 +857,7 @@ export function AICommandPalette() {
             <div className="flex justify-start">
               <div className="rounded-lg bg-[var(--muted)] px-3 py-2 text-sm flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-[var(--muted-foreground)]">Thinking...</span>
+                <span className="text-[var(--muted-foreground)]">{streamingContent || "Thinking..."}</span>
               </div>
             </div>
           )}

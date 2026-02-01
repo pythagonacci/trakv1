@@ -167,39 +167,45 @@ const ACTION_PATTERNS: Record<string, RegExp[]> = {
 const SPECIAL_PATTERNS: Array<{
   pattern: RegExp;
   toolGroups: ToolGroup[];
+  actions: string[];
   reasoning: string;
 }> = [
-  {
-    // "search tasks AND create table" → needs both search and table tools
-    pattern: /(?:search|find).*tasks?.*(?:and|then).*(?:create|organize).*table/i,
-    toolGroups: ["core", "table"],
-    reasoning: "Search tasks and organize into table - needs table creation tools",
-  },
-  {
-    // "organize [data] by [field]" → implies table operations
-    pattern: /organize\s+(?:all\s+)?.*?(?:by|into)/i,
-    toolGroups: ["core", "table"],
-    reasoning: "Organizing data - needs table tools for structured organization",
-  },
-  {
-    // "create a table with..." → needs table tools
-    pattern: /create\s+(?:a\s+)?table\s+(?:with|of|for|containing)/i,
-    toolGroups: ["core", "table"],
-    reasoning: "Creating a table with data - needs table creation and population tools",
-  },
-  {
-    // "search tasks" → only core tools needed, no task CRUD (must come after compound patterns)
-    pattern: /^(?:search|find|show|list|get|display)\s+(?:all\s+)?tasks?\b/i,
-    toolGroups: ["core"],
-    reasoning: "Read-only task search - only core search tools needed",
-  },
-  {
-    // "update tasks..." → needs task modification tools
-    pattern: /(?:update|edit|modify|change)\s+(?:all\s+)?tasks?\b/i,
-    toolGroups: ["core", "task"],
-    reasoning: "Modifying tasks - needs task update tools",
-  },
-];
+    {
+      // "search tasks AND create table" → needs both search and table tools
+      pattern: /(?:search|find).*tasks?.*(?:and|then).*(?:create|organize).*table/i,
+      toolGroups: ["core", "table"],
+      actions: ["search", "create"],
+      reasoning: "Search tasks and organize into table - needs table creation tools",
+    },
+    {
+      // "organize [data] by [field]" → implies table operations
+      pattern: /organize\s+(?:all\s+)?.*?(?:by|into)/i,
+      toolGroups: ["core", "table"],
+      actions: ["organize"],
+      reasoning: "Organizing data - needs table tools for structured organization",
+    },
+    {
+      // "create a table with..." → needs table tools
+      pattern: /create\s+(?:a\s+)?table\s+(?:with|of|for|containing)/i,
+      toolGroups: ["core", "table"],
+      actions: ["create"],
+      reasoning: "Creating a table with data - needs table creation and population tools",
+    },
+    {
+      // "search tasks" → only core tools needed, no task CRUD (must come after compound patterns)
+      pattern: /^(?:search|find|show|list|get|display)\s+(?:all\s+)?tasks?\b/i,
+      toolGroups: ["core"],
+      actions: ["search"],
+      reasoning: "Read-only task search - only core search tools needed",
+    },
+    {
+      // "update tasks..." → needs task modification tools
+      pattern: /(?:update|edit|modify|change)\s+(?:all\s+)?tasks?\b/i,
+      toolGroups: ["core", "task"],
+      actions: ["update"],
+      reasoning: "Modifying tasks - needs task update tools",
+    },
+  ];
 
 // ============================================================================
 // CLASSIFICATION LOGIC
@@ -220,7 +226,7 @@ export function classifyIntent(userCommand: string): IntentClassification {
         toolGroups: special.toolGroups,
         confidence: 0.95,
         entities: [],
-        actions: [],
+        actions: special.actions,
         reasoning: special.reasoning,
       };
       aiDebug("classifyIntent:special-match", classification);
