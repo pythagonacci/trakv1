@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getServerUser } from '@/lib/auth/get-server-user'
 import { safeRevalidatePath } from './workspace'
+import type { AuthContext } from '@/lib/auth-context'
 import { createTab } from './tab'
 import type { BlockType } from './block';
 
@@ -268,21 +269,25 @@ function summarizeBlockPreview(
 }
 
 // 1. CREATE PROJECT
-export async function createProject(workspaceId: string, projectData: ProjectData) {
-  const authResult = await getServerUser()
-
-  // Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
+export async function createProject(workspaceId: string, projectData: ProjectData, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
   }
-  const { supabase, user } = authResult
 
   // Check if user is a member of the workspace
   const { data: membership, error: memberError } = await supabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {
@@ -716,7 +721,7 @@ export async function getSingleProject(projectId: string) {
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', project.workspace_id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {
@@ -727,14 +732,18 @@ export async function getSingleProject(projectId: string) {
 }
 
 // 4. UPDATE PROJECT
-export async function updateProject(projectId: string, updates: Partial<ProjectData>) {
-  const authResult = await getServerUser()
-
-  // Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
+export async function updateProject(projectId: string, updates: Partial<ProjectData>, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
   }
-  const { supabase, user } = authResult
 
   // Get project to find workspace_id
   const { data: project, error: fetchError } = await supabase
@@ -752,7 +761,7 @@ export async function updateProject(projectId: string, updates: Partial<ProjectD
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', project.workspace_id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {
@@ -796,14 +805,18 @@ export async function updateProject(projectId: string, updates: Partial<ProjectD
 }
 
 // 5. DELETE PROJECT
-export async function deleteProject(projectId: string) {
-  const authResult = await getServerUser()
-
-  // Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
+export async function deleteProject(projectId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
   }
-  const { supabase, user } = authResult
 
   // Get project to find workspace_id
   const { data: project, error: fetchError } = await supabase
@@ -821,7 +834,7 @@ export async function deleteProject(projectId: string) {
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', project.workspace_id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {

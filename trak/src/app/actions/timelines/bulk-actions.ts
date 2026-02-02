@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -8,8 +9,9 @@ type ActionResult<T> = { data: T } | { error: string };
 export async function bulkUpdateTimelineEvents(input: {
   timelineBlockId: string;
   updates: Array<{ id: string; startDate?: string; endDate?: string; displayOrder?: number }>;
+  authContext?: AuthContext;
 }): Promise<ActionResult<null>> {
-  const access = await requireTimelineAccess(input.timelineBlockId);
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.updates.length === 0) return { data: null };
@@ -55,8 +57,9 @@ export async function bulkDeleteTimelineEvents(input: {
 export async function bulkDuplicateTimelineEvents(input: {
   timelineBlockId: string;
   eventIds: string[];
+  authContext?: AuthContext;
 }): Promise<ActionResult<TimelineEvent[]>> {
-  const access = await requireTimelineAccess(input.timelineBlockId);
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.eventIds.length === 0) return { data: [] };

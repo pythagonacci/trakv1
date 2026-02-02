@@ -8,6 +8,7 @@ import {
   requirePropertyDefinitionAccess,
   isSimilarPropertyName,
 } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type {
   PropertyDefinition,
   PropertyType,
@@ -22,9 +23,10 @@ type ActionResult<T> = { data: T } | { error: string };
  * Get all property definitions for a workspace.
  */
 export async function getPropertyDefinitions(
-  workspaceId: string
+  workspaceId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<PropertyDefinition[]>> {
-  const access = await requireWorkspaceAccessForProperties(workspaceId);
+  const access = await requireWorkspaceAccessForProperties(workspaceId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -70,9 +72,9 @@ export async function getPropertyDefinition(
  * Checks for similar existing names to prevent duplicates like "Q1 Budget" vs "q1-budget".
  */
 export async function createPropertyDefinition(
-  input: CreatePropertyDefinitionInput
+  input: CreatePropertyDefinitionInput & { authContext?: AuthContext }
 ): Promise<ActionResult<PropertyDefinition>> {
-  const access = await requireWorkspaceAccessForProperties(input.workspace_id);
+  const access = await requireWorkspaceAccessForProperties(input.workspace_id, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -119,9 +121,10 @@ export async function createPropertyDefinition(
  */
 export async function updatePropertyDefinition(
   definitionId: string,
-  updates: UpdatePropertyDefinitionInput
+  updates: UpdatePropertyDefinitionInput,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<PropertyDefinition>> {
-  const access = await requirePropertyDefinitionAccess(definitionId);
+  const access = await requirePropertyDefinitionAccess(definitionId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, definition } = access;
 
@@ -207,9 +210,10 @@ export async function deletePropertyDefinition(
 export async function mergePropertyOptions(
   definitionId: string,
   sourceValue: string,
-  targetValue: string
+  targetValue: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<{ updated_count: number }>> {
-  const access = await requirePropertyDefinitionAccess(definitionId);
+  const access = await requirePropertyDefinitionAccess(definitionId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, definition } = access;
 
@@ -294,9 +298,10 @@ export async function mergePropertyOptions(
  */
 export async function addPropertyOption(
   definitionId: string,
-  option: PropertyOption
+  option: PropertyOption,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<PropertyDefinition>> {
-  const access = await requirePropertyDefinitionAccess(definitionId);
+  const access = await requirePropertyDefinitionAccess(definitionId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -396,9 +401,10 @@ export async function updatePropertyOption(
  */
 export async function removePropertyOption(
   definitionId: string,
-  optionId: string
+  optionId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<PropertyDefinition>> {
-  const access = await requirePropertyDefinitionAccess(definitionId);
+  const access = await requirePropertyDefinitionAccess(definitionId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
+import type { AuthContext } from "@/lib/auth-context";
 
 // ============================================================================
 // TYPES
@@ -328,26 +329,39 @@ interface ResolvedEntity {
 // CONTEXT HELPERS
 // ============================================================================
 
+/** Success shape for search context (workspace + auth + client). Pass to search fns to avoid duplicate getSearchContext. */
+export type SearchContextSuccess = {
+  workspaceId: string;
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+};
+
 /**
  * Gets the authenticated search context including workspace ID and Supabase client.
  * All search functions must call this to ensure proper authorization.
+ * Exported so callers (e.g. tool-executor) can get context once and pass to multiple search fns.
+ * When opts.authContext is provided, reuses it to avoid duplicate auth.
  */
-async function getSearchContext(): Promise<
+export async function getSearchContext(opts?: { authContext?: AuthContext }): Promise<
   | { error: string; workspaceId?: undefined; supabase?: undefined; userId?: undefined }
   | { error: null; workspaceId: string; supabase: Awaited<ReturnType<typeof createClient>>; userId: string }
 > {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = await createClient();
+    userId = user.id;
+  }
+
   const workspaceId = await getCurrentWorkspaceId();
-  if (!workspaceId) {
-    return { error: "No workspace selected" };
-  }
+  if (!workspaceId) return { error: "No workspace selected" };
 
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return { error: "Unauthorized" };
-  }
-
-  const supabase = await createClient();
-  return { error: null, workspaceId, supabase, userId: user.id };
+  return { error: null, workspaceId, supabase, userId };
 }
 
 // ============================================================================
@@ -1191,24 +1205,50 @@ export async function searchClients(params: {
   }
 }
 
+/** Cache workspace members per workspace to speed up assignee resolution (TTL 60s). */
+const workspaceMembersCache = new Map<
+  string,
+  { results: WorkspaceMemberResult[]; ts: number }
+>();
+const WORKSPACE_MEMBERS_CACHE_TTL_MS = 60_000;
+
 /**
  * Search for workspace members.
  * Returns members with their profile information (name, email).
  *
  * @param params.searchText - Fuzzy search on name or email
  * @param params.role - Filter by role (owner, admin, teammate)
- * @param params.limit - Maximum results (default 50)
+ * @param params.limit - Maximum results (default 20)
+ * @param opts.ctx - Pre-obtained search context to avoid duplicate getSearchContext
  */
-export async function searchWorkspaceMembers(params: {
-  searchText?: string;
-  role?: string | string[];
-  limit?: number;
-}): Promise<SearchResponse<WorkspaceMemberResult>> {
-  const ctx = await getSearchContext();
-  if (ctx.error !== null) return { data: null, error: ctx.error };
+export async function searchWorkspaceMembers(
+  params: {
+    searchText?: string;
+    role?: string | string[];
+    limit?: number;
+  },
+  opts?: { ctx?: SearchContextSuccess }
+): Promise<SearchResponse<WorkspaceMemberResult>> {
+  const ctx = opts?.ctx ?? (await getSearchContext());
+  if ("error" in ctx && ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
-  const limit = params.limit ?? 50;
+  const limit = params.limit ?? 20;
+
+  const cacheKey = workspaceId + (normalizeArrayFilter(params.role)?.join(",") ?? "");
+  const cached = workspaceMembersCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < WORKSPACE_MEMBERS_CACHE_TTL_MS) {
+    let results = cached.results;
+    if (params.searchText) {
+      const text = params.searchText.toLowerCase();
+      results = results.filter(
+        (m) =>
+          m.name?.toLowerCase().includes(text) ||
+          m.email.toLowerCase().includes(text)
+      );
+    }
+    return { data: results.slice(0, limit), error: null };
+  }
 
   try {
     // Get members
@@ -1260,6 +1300,8 @@ export async function searchWorkspaceMembers(params: {
         created_at: m.created_at,
       };
     });
+
+    workspaceMembersCache.set(cacheKey, { results, ts: Date.now() });
 
     // Filter by search text if provided
     if (params.searchText) {
@@ -1359,23 +1401,27 @@ export async function searchTabs(params: {
  * @param params.tabId - Filter by tab ID
  * @param params.isTemplate - Filter by template status
  * @param params.limit - Maximum results (default 50)
+ * @param opts.ctx - Pre-obtained search context to avoid duplicate getSearchContext
  */
-export async function searchBlocks(params: {
-  searchText?: string;
-  type?: string | string[];
-  projectId?: string | string[];
-  projectName?: string; // Search by project name
-  tabId?: string | string[];
-  isTemplate?: boolean;
-  // Property filters via entity_properties
-  assigneeId?: string | string[];
-  assigneeName?: string;
-  tagId?: string | string[];
-  tagName?: string;
-  limit?: number;
-}): Promise<SearchResponse<BlockResult>> {
-  const ctx = await getSearchContext();
-  if (ctx.error !== null) return { data: null, error: ctx.error };
+export async function searchBlocks(
+  params: {
+    searchText?: string;
+    type?: string | string[];
+    projectId?: string | string[];
+    projectName?: string; // Search by project name
+    tabId?: string | string[];
+    isTemplate?: boolean;
+    // Property filters via entity_properties
+    assigneeId?: string | string[];
+    assigneeName?: string;
+    tagId?: string | string[];
+    tagName?: string;
+    limit?: number;
+  },
+  opts?: { ctx?: SearchContextSuccess }
+): Promise<SearchResponse<BlockResult>> {
+  const ctx = opts?.ctx ?? (await getSearchContext());
+  if ("error" in ctx && ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
   const supabase = ctx.supabase!;

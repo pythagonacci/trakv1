@@ -8,6 +8,7 @@ import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EntityType } from "@/types/properties";
 import { normalizePropertyName, isSimilarPropertyName } from "@/lib/properties/name-utils";
+import type { AuthContext } from "@/lib/auth-context";
 
 export interface WorkspaceAccessContext {
   supabase: SupabaseClient;
@@ -28,32 +29,48 @@ export interface PropertyDefinitionAccessContext {
  * Ensures a user can act within a workspace (used for create/read flows).
  */
 export async function requireWorkspaceAccessForProperties(
-  workspaceId: string
+  workspaceId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<WorkspaceAccessContext | { error: string }> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return { error: "Unauthorized" };
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
   }
 
-  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
   if (!membership) {
     return { error: "Not a member of this workspace" };
   }
 
-  return { supabase, userId: user.id, workspaceId };
+  return { supabase, userId, workspaceId };
 }
 
 /**
  * Fetches property definition and ensures the requesting user belongs to its workspace.
  */
 export async function requirePropertyDefinitionAccess(
-  definitionId: string
+  definitionId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<PropertyDefinitionAccessContext | { error: string }> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return { error: "Unauthorized" };
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
   }
 
   const { data: definition, error: defError } = await supabase
@@ -66,12 +83,12 @@ export async function requirePropertyDefinitionAccess(
     return { error: "Property definition not found" };
   }
 
-  const membership = await checkWorkspaceMembership(definition.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(definition.workspace_id, userId);
   if (!membership) {
     return { error: "Not a member of this workspace" };
   }
 
-  return { supabase, userId: user.id, definition };
+  return { supabase, userId, definition };
 }
 
 /**
@@ -131,12 +148,20 @@ export async function getWorkspaceIdForEntity(
  */
 export async function requireEntityAccess(
   entityType: EntityType,
-  entityId: string
+  entityId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<WorkspaceAccessContext | { error: string }> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return { error: "Unauthorized" };
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
   }
 
   const workspaceId = await getWorkspaceIdForEntity(entityType, entityId);
@@ -144,12 +169,12 @@ export async function requireEntityAccess(
     return { error: "Entity not found" };
   }
 
-  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
   if (!membership) {
     return { error: "Not a member of this workspace" };
   }
 
-  return { supabase, userId: user.id, workspaceId };
+  return { supabase, userId, workspaceId };
 }
 
 // Re-export utility functions for backwards compatibility

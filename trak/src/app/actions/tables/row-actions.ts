@@ -5,6 +5,7 @@
 // - Triggers set ordering/updated_at and validate JSON; we still validate membership via requireTableAccess.
 
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { syncRelationLinks } from "./relation-actions";
 import { recomputeFormulasForRow } from "./formula-actions";
 import { recomputeRollupsForRow, recomputeRollupsForTargetRowChanged } from "./rollup-actions";
@@ -17,10 +18,11 @@ interface CreateRowInput {
   tableId: string;
   data?: Record<string, unknown>;
   order?: string | number | null;
+  authContext?: AuthContext;
 }
 
 export async function createRow(input: CreateRowInput): Promise<ActionResult<TableRow>> {
-  const access = await requireTableAccess(input.tableId);
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
@@ -52,8 +54,8 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
   return { data: (refreshed as TableRow) || data };
 }
 
-export async function updateRow(rowId: string, updates: { data?: Record<string, unknown> }): Promise<ActionResult<TableRow>> {
-  const access = await getRowContext(rowId);
+export async function updateRow(rowId: string, updates: { data?: Record<string, unknown> }, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow>> {
+  const access = await getRowContext(rowId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, row } = access;
 
@@ -85,8 +87,8 @@ export async function updateRow(rowId: string, updates: { data?: Record<string, 
   return { data: (refreshed as TableRow) || data };
 }
 
-export async function updateCell(rowId: string, fieldId: string, value: unknown): Promise<ActionResult<TableRow>> {
-  const access = await getRowContext(rowId);
+export async function updateCell(rowId: string, fieldId: string, value: unknown, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow>> {
+  const access = await getRowContext(rowId, opts);
   if ("error" in access) {
     console.error("updateCell: getRowContext error:", access.error);
     return { error: access.error ?? "Unknown error" };
@@ -244,8 +246,8 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown)
   return { data: (refreshed as TableRow) || data };
 }
 
-export async function deleteRow(rowId: string): Promise<ActionResult<null>> {
-  const access = await getRowContext(rowId);
+export async function deleteRow(rowId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await getRowContext(rowId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -256,9 +258,9 @@ export async function deleteRow(rowId: string): Promise<ActionResult<null>> {
   return { data: null };
 }
 
-export async function deleteRows(rowIds: string[]): Promise<ActionResult<null>> {
+export async function deleteRows(rowIds: string[], opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
   if (rowIds.length === 0) return { data: null };
-  const access = await getRowContext(rowIds[0]);
+  const access = await getRowContext(rowIds[0], opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -287,8 +289,8 @@ export async function reorderRows(tableId: string, orders: Array<{ rowId: string
   return { data };
 }
 
-export async function duplicateRow(rowId: string): Promise<ActionResult<TableRow>> {
-  const access = await getRowContext(rowId);
+export async function duplicateRow(rowId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow>> {
+  const access = await getRowContext(rowId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, row } = access;
 
@@ -314,12 +316,21 @@ export async function duplicateRow(rowId: string): Promise<ActionResult<TableRow
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getRowContext(rowId: string) {
-  const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    console.error("getRowContext: Auth error:", authError);
-    return { error: "Unauthorized" } as const;
+async function getRowContext(rowId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await import("@/lib/supabase/server").then((m) => m.createClient());
+    const { data: { user }, error: authError } = await client.auth.getUser();
+    if (authError || !user) {
+      console.error("getRowContext: Auth error:", authError);
+      return { error: "Unauthorized" } as const;
+    }
+    supabase = client;
+    userId = user.id;
   }
 
   const { data: row, error } = await supabase
@@ -338,11 +349,11 @@ async function getRowContext(rowId: string) {
     return { error: "Row not found" } as const;
   }
 
-  const access = await requireTableAccess(row.table_id);
+  const access = await requireTableAccess(row.table_id, { authContext: opts?.authContext });
   if ("error" in access) {
     console.error("getRowContext: Table access error:", access.error);
     return access;
   }
 
-  return { supabase: access.supabase, userId: user.id, row };
+  return { supabase: access.supabase, userId, row };
 }

@@ -788,6 +788,27 @@ const tableActionTools: ToolDefinition[] = [
     requiredParams: ["tableId", "name", "type"],
   },
   {
+    name: "bulkCreateFields",
+    description:
+      "CREATE multiple fields (columns) in a table in ONE call. ⚠️ PREFERRED over calling createField multiple times.\n\n" +
+      "Use when adding 2+ fields to the same table. All fields are created in parallel.\n\n" +
+      "⚠️  CRITICAL: Use the CORRECT field TYPE for each field:\n" +
+      "- Priority field → type: \"priority\" (NOT \"select\" named \"Priority\")\n" +
+      "- Status field → type: \"status\" (NOT \"select\" named \"Status\")\n" +
+      "- Custom dropdown → type: \"select\"\n\n" +
+      "Example: fields: [{name: \"Name\", type: \"text\"}, {name: \"Region\", type: \"text\"}, {name: \"Population\", type: \"number\"}]",
+    category: "table",
+    parameters: {
+      tableId: { type: "string", description: "The table ID" },
+      fields: {
+        type: "array",
+        description: "Array of field definitions. Each must have 'name' (string) and 'type' (string). Optional: 'config' (object) and 'isPrimary' (boolean).",
+        items: { type: "object" },
+      },
+    },
+    requiredParams: ["tableId", "fields"],
+  },
+  {
     name: "updateField",
     description: "UPDATE a table field/column's name or configuration. Use to rename columns or modify field config (like adding dropdown options). Required: fieldId. Returns: Updated field object.",
     category: "table",

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import type { AuthContext } from "@/lib/auth-context";
 
 // Types
 export type Doc = {
@@ -134,24 +135,26 @@ export async function getSingleDoc(docId: string) {
 /**
  * Create a new doc
  */
-export async function createDoc(workspaceId: string, title?: string) {
-  const supabase = await createClient();
+export async function createDoc(workspaceId: string, title?: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { data: null, error: "Not authenticated" };
+    userId = user.id;
+  }
 
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { data: null, error: "Not authenticated" };
-    }
-
     // SECURITY: Verify user is a member of this workspace before creating
     const { data: membership, error: memberError } = await supabase
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", workspaceId)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (memberError || !membership) {
@@ -163,8 +166,8 @@ export async function createDoc(workspaceId: string, title?: string) {
       .insert({
         workspace_id: workspaceId,
         title: title || "Untitled Document",
-        created_by: user.id,
-        last_edited_by: user.id,
+        created_by: userId,
+        last_edited_by: userId,
         content: {
           type: "doc",
           content: [{ type: "paragraph" }],
@@ -195,19 +198,22 @@ export async function updateDoc(
     title?: string;
     content?: any;
     is_archived?: boolean;
-  }
+  },
+  opts?: { authContext?: AuthContext }
 ) {
-  const supabase = await createClient();
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { data: null, error: "Not authenticated" };
+    userId = user.id;
+  }
 
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { data: null, error: "Not authenticated" };
-    }
-
     // SECURITY: First get the doc to find its workspace
     const { data: doc } = await supabase
       .from("docs")
@@ -224,7 +230,7 @@ export async function updateDoc(
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", doc.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (memberError || !membership) {
@@ -235,7 +241,7 @@ export async function updateDoc(
       .from("docs")
       .update({
         ...updates,
-        last_edited_by: user.id,
+        last_edited_by: userId,
       })
       .eq("id", docId)
       .select()
@@ -258,18 +264,20 @@ export async function updateDoc(
 /**
  * Delete a doc
  */
-export async function deleteDoc(docId: string) {
-  const supabase = await createClient();
+export async function deleteDoc(docId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+    userId = user.id;
+  }
 
   try {
-    // SECURITY: Verify user is authenticated
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { error: "Not authenticated" };
-    }
 
     // SECURITY: First get the doc to find its workspace
     const { data: doc } = await supabase
@@ -287,7 +295,7 @@ export async function deleteDoc(docId: string) {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", doc.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (memberError || !membership) {

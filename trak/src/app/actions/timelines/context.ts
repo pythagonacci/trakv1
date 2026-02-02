@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AuthContext } from "@/lib/auth-context";
 
 export interface TimelineAccessContext {
   supabase: SupabaseClient;
@@ -15,10 +16,19 @@ export interface TimelineAccessContext {
   };
 }
 
-export async function requireTimelineAccess(timelineBlockId: string): Promise<{ error: string } | TimelineAccessContext> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+export async function requireTimelineAccess(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<{ error: string } | TimelineAccessContext> {
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: block, error: blockError } = await supabase
     .from("blocks")
@@ -37,14 +47,14 @@ export async function requireTimelineAccess(timelineBlockId: string): Promise<{ 
     return { error: "Timeline block is missing workspace" };
   }
 
-  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
   if (!membership) {
     return { error: "Not a member of this workspace" };
   }
 
   return {
     supabase,
-    userId: user.id,
+    userId,
     block: {
       id: block.id,
       tab_id: block.tab_id,
@@ -54,13 +64,22 @@ export async function requireTimelineAccess(timelineBlockId: string): Promise<{ 
   };
 }
 
-export async function requireWorkspaceAccessForTimeline(workspaceId: string) {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+export async function requireWorkspaceAccessForTimeline(workspaceId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
-  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
-  return { supabase, userId: user.id };
+  return { supabase, userId };
 }

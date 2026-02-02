@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { checkWorkspaceMembership, getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTaskItemAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TaskReference, TaskReferenceType } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -12,8 +13,9 @@ export async function createTaskReference(input: {
   referenceType: TaskReferenceType;
   referenceId: string;
   tableId?: string | null;
+  authContext?: AuthContext;
 }): Promise<ActionResult<TaskReference>> {
-  const access = await requireTaskItemAccess(input.taskId);
+  const access = await requireTaskItemAccess(input.taskId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, task } = access;
 
@@ -34,10 +36,18 @@ export async function createTaskReference(input: {
   return { data: data as TaskReference };
 }
 
-export async function deleteTaskReference(referenceId: string): Promise<ActionResult<null>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+export async function deleteTaskReference(referenceId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    supabase = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    userId = user.id;
+  }
 
   const { data: ref, error: refError } = await supabase
     .from("task_references")
@@ -55,8 +65,8 @@ export async function deleteTaskReference(referenceId: string): Promise<ActionRe
   return { data: null };
 }
 
-export async function listTaskReferences(taskId: string): Promise<ActionResult<TaskReference[]>> {
-  const access = await requireTaskItemAccess(taskId);
+export async function listTaskReferences(taskId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TaskReference[]>> {
+  const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

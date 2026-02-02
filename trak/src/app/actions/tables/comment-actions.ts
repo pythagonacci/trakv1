@@ -5,6 +5,7 @@
 // - RLS exists on table_comments via add_tables_schema.sql; membership is enforced again here.
 
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TableComment } from "@/types/table";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -13,10 +14,11 @@ interface CreateCommentInput {
   rowId: string;
   content: string;
   parentId?: string | null;
+  authContext?: AuthContext;
 }
 
 export async function createComment(input: CreateCommentInput): Promise<ActionResult<TableComment>> {
-  const access = await getRowAccess(input.rowId);
+  const access = await getRowAccess(input.rowId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, tableId } = access;
 
@@ -37,8 +39,8 @@ export async function createComment(input: CreateCommentInput): Promise<ActionRe
   return { data };
 }
 
-export async function updateComment(commentId: string, content: string): Promise<ActionResult<TableComment>> {
-  const access = await getCommentAccess(commentId);
+export async function updateComment(commentId: string, content: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableComment>> {
+  const access = await getCommentAccess(commentId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, comment } = access;
 
@@ -59,8 +61,8 @@ export async function updateComment(commentId: string, content: string): Promise
   return { data };
 }
 
-export async function deleteComment(commentId: string): Promise<ActionResult<null>> {
-  const access = await getCommentAccess(commentId);
+export async function deleteComment(commentId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await getCommentAccess(commentId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, comment } = access;
 
@@ -93,8 +95,8 @@ export async function resolveComment(commentId: string, resolved: boolean): Prom
   return { data };
 }
 
-export async function getRowComments(rowId: string): Promise<ActionResult<TableComment[]>> {
-  const access = await getRowAccess(rowId);
+export async function getRowComments(rowId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableComment[]>> {
+  const access = await getRowAccess(rowId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -114,10 +116,19 @@ export async function getRowComments(rowId: string): Promise<ActionResult<TableC
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getRowAccess(rowId: string) {
-  const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" };
+async function getRowAccess(rowId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await import("@/lib/supabase/server").then((m) => m.createClient());
+    const { data: { user } } = await client.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: row, error } = await supabase
     .from("table_rows")
@@ -127,16 +138,25 @@ async function getRowAccess(rowId: string) {
 
   if (error || !row) return { error: "Row not found" };
 
-  const access = await requireTableAccess(row.table_id);
+  const access = await requireTableAccess(row.table_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
-  return { supabase: access.supabase, userId: user.id, tableId: row.table_id };
+  return { supabase: access.supabase, userId, tableId: row.table_id };
 }
 
-async function getCommentAccess(commentId: string) {
-  const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" };
+async function getCommentAccess(commentId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await import("@/lib/supabase/server").then((m) => m.createClient());
+    const { data: { user } } = await client.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: comment, error } = await supabase
     .from("table_comments")
@@ -146,8 +166,8 @@ async function getCommentAccess(commentId: string) {
 
   if (error || !comment) return { error: "Comment not found" };
 
-  const access = await getRowAccess(comment.row_id);
+  const access = await getRowAccess(comment.row_id, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
-  return { supabase: access.supabase, userId: user.id, comment };
+  return { supabase: access.supabase, userId, comment };
 }

@@ -5,6 +5,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireEntityAccess, requireWorkspaceAccessForProperties } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type {
   EntityType,
   EntityProperty,
@@ -63,9 +64,9 @@ export async function getEntityProperties(
  * Set/upsert a property value on an entity.
  */
 export async function setEntityProperty(
-  input: SetEntityPropertyInput
+  input: SetEntityPropertyInput & { authContext?: AuthContext }
 ): Promise<ActionResult<EntityProperty>> {
-  const access = await requireEntityAccess(input.entity_type, input.entity_id);
+  const access = await requireEntityAccess(input.entity_type, input.entity_id, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
 
@@ -142,9 +143,10 @@ export async function removeEntityProperty(
  */
 export async function getEntityPropertiesWithInheritance(
   entityType: EntityType,
-  entityId: string
+  entityId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<EntityPropertiesResult>> {
-  const access = await requireEntityAccess(entityType, entityId);
+  const access = await requireEntityAccess(entityType, entityId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
 
@@ -309,9 +311,10 @@ export async function setInheritedPropertyVisibility(
   sourceEntityType: EntityType,
   sourceEntityId: string,
   propertyDefinitionId: string,
-  isVisible: boolean
+  isVisible: boolean,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<null>> {
-  const access = await requireEntityAccess(entityType, entityId);
+  const access = await requireEntityAccess(entityType, entityId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

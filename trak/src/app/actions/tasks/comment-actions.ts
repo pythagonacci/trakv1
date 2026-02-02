@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTaskItemAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TaskComment } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -8,8 +9,9 @@ type ActionResult<T> = { data: T } | { error: string };
 export async function createTaskComment(input: {
   taskId: string;
   text: string;
+  authContext?: AuthContext;
 }): Promise<ActionResult<TaskComment>> {
-  const access = await requireTaskItemAccess(input.taskId);
+  const access = await requireTaskItemAccess(input.taskId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
@@ -29,13 +31,24 @@ export async function createTaskComment(input: {
 
 export async function updateTaskComment(
   commentId: string,
-  updates: Partial<{ text: string }>
+  updates: Partial<{ text: string }>,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TaskComment>> {
-  const { createClient } = await import("@/lib/supabase/server");
-  const { getAuthenticatedUser, checkWorkspaceMembership } = await import("@/lib/auth-utils");
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { getAuthenticatedUser } = await import("@/lib/auth-utils");
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
+  const { checkWorkspaceMembership } = await import("@/lib/auth-utils");
 
   const { data: comment, error: commentError } = await supabase
     .from("task_comments")
@@ -53,7 +66,7 @@ export async function updateTaskComment(
 
   if (!task) return { error: "Task not found" };
 
-  const membership = await checkWorkspaceMembership(task.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const payload: Record<string, any> = {};
@@ -93,7 +106,7 @@ export async function deleteTaskComment(commentId: string): Promise<ActionResult
 
   if (!task) return { error: "Task not found" };
 
-  const membership = await checkWorkspaceMembership(task.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const { error } = await supabase.from("task_comments").delete().eq("id", commentId);

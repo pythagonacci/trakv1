@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTaskBlockAccess, requireWorkspaceAccessForTasks } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TaskItem } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -164,8 +165,8 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
   return { data: result };
 }
 
-export async function getWorkspaceTasksWithDueDates(workspaceId: string): Promise<ActionResult<TaskItem[]>> {
-  const access = await requireWorkspaceAccessForTasks(workspaceId);
+export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TaskItem[]>> {
+  const access = await requireWorkspaceAccessForTasks(workspaceId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

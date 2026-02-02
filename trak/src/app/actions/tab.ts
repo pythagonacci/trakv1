@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } from "@/lib/auth-utils";
 import { safeRevalidatePath } from "@/app/actions/workspace";
 import { revalidatePath } from "next/cache";
+import type { AuthContext } from "@/lib/auth-context";
 
 // Limits to prevent unbounded queries
 const TABS_PER_PROJECT_LIMIT = 1000;
@@ -33,14 +34,22 @@ export async function createTab(data: {
   projectId: string;
   name: string;
   parentTabId?: string | null;
+  authContext?: AuthContext;
 }) {
   try {
-    const supabase = await createClient();
-
-    // 1. Auth check
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return { error: "Unauthorized" };
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let userId: string;
+    if (data.authContext) {
+      supabase = data.authContext.supabase;
+      userId = data.authContext.userId;
+    } else {
+      const client = await createClient();
+      const user = await getAuthenticatedUser();
+      if (!user) {
+        return { error: "Unauthorized" };
+      }
+      supabase = client;
+      userId = user.id;
     }
 
     // 2. Get project and its workspace_id
@@ -59,7 +68,7 @@ export async function createTab(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", project.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (memberError || !member) {
@@ -216,14 +225,19 @@ export async function updateTab(data: {
   tabId: string;
   name?: string;
   parentTabId?: string | null;
+  authContext?: AuthContext;
 }) {
   try {
-    const supabase = await createClient();
-
-    // 1. Auth check
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return { error: "Unauthorized" };
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let userId: string;
+    if (data.authContext) {
+      supabase = data.authContext.supabase;
+      userId = data.authContext.userId;
+    } else {
+      supabase = await createClient();
+      const user = await getAuthenticatedUser();
+      if (!user) return { error: "Unauthorized" };
+      userId = user.id;
     }
 
     // 2. Get existing tab with its project's workspace_id
@@ -247,7 +261,7 @@ export async function updateTab(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", existingTab.project.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (memberError || !member) {
@@ -421,14 +435,18 @@ export async function reorderTabs(data: {
 // 5. DELETE TAB
 // ============================================================================
 
-export async function deleteTab(tabId: string) {
+export async function deleteTab(tabId: string, opts?: { authContext?: AuthContext }) {
   try {
-    const supabase = await createClient();
-
-    // 1. Auth check
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return { error: "Unauthorized" };
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let userId: string;
+    if (opts?.authContext) {
+      supabase = opts.authContext.supabase;
+      userId = opts.authContext.userId;
+    } else {
+      supabase = await createClient();
+      const user = await getAuthenticatedUser();
+      if (!user) return { error: "Unauthorized" };
+      userId = user.id;
     }
 
     // 2. Get tab with its project's workspace_id
@@ -452,7 +470,7 @@ export async function deleteTab(tabId: string) {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", tab.project.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (memberError || !member) {

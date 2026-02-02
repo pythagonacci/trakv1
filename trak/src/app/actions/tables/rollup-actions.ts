@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { getRelatedRows } from "./relation-actions";
 import type { FilterCondition, TableField } from "@/types/table";
 
@@ -214,7 +215,7 @@ export async function computeRollupValue(
           ...(row?.data || {}),
           [fieldId]: formatRollupErrorValue(message),
         },
-        updated_by: user.id,
+        updated_by: userId,
       })
       .eq("id", rowId);
     return { data: { value: null, error: message } };
@@ -236,7 +237,7 @@ export async function computeRollupValue(
             ...(row?.data || {}),
             [fieldId]: formatRollupErrorValue(message),
           },
-          updated_by: user.id,
+          updated_by: userId,
         })
         .eq("id", rowId);
       return { data: { value: null, error: message } };
@@ -274,7 +275,7 @@ export async function computeRollupValue(
           [fieldId]: result,
           [`${fieldId}_computed_at`]: new Date().toISOString(),
         },
-        updated_by: user.id,
+        updated_by: userId,
       })
       .eq("id", rowId);
 
@@ -299,7 +300,7 @@ export async function computeRollupValue(
           ...cleanedData,
           [fieldId]: formatRollupErrorValue(message),
         },
-        updated_by: user.id,
+        updated_by: userId,
       })
       .eq("id", rowId);
     if (updateError) {
@@ -310,10 +311,16 @@ export async function computeRollupValue(
   }
 }
 
-export async function recomputeRollupField(fieldId: string): Promise<ActionResult<null>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+export async function recomputeRollupField(fieldId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+  }
 
   const { data: field } = await supabase
     .from("table_fields")
@@ -325,7 +332,7 @@ export async function recomputeRollupField(fieldId: string): Promise<ActionResul
     return { error: "Rollup field not found" };
   }
 
-  const access = await requireTableAccess(field.table_id);
+  const access = await requireTableAccess(field.table_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: rows } = await supabase
@@ -334,7 +341,7 @@ export async function recomputeRollupField(fieldId: string): Promise<ActionResul
     .eq("table_id", field.table_id);
 
   for (const row of rows || []) {
-    await computeRollupValue(row.id, fieldId);
+    await computeRollupValue(row.id, fieldId, opts);
   }
 
   return { data: null };
@@ -370,13 +377,20 @@ export async function recomputeRollupsForRow(tableId: string, rowId: string, rel
 export async function recomputeRollupsForTargetRowChanged(
   targetRowId: string,
   targetTableId: string,
-  changedFieldId?: string
+  changedFieldId?: string,
+  opts?: { authContext?: AuthContext }
 ) {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" } as const;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" } as const;
+    supabase = client;
+  }
 
-  const access = await requireTableAccess(targetTableId);
+  const access = await requireTableAccess(targetTableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error } as const;
 
   const { data: relations } = await supabase
@@ -410,7 +424,7 @@ export async function recomputeRollupsForTargetRowChanged(
       });
 
       for (const field of relevant) {
-        await computeRollupValue(rel.fromRowId, field.id);
+        await computeRollupValue(rel.fromRowId, field.id, opts);
       }
     }
   }

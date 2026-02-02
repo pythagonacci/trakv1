@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { recomputeFormulasForRow } from "./formula-actions";
 import { recomputeRollupsForRow, recomputeRollupsForTargetRowChanged } from "./rollup-actions";
 
@@ -57,7 +58,7 @@ export async function bulkUpdateRows(input: {
         ...cleanedData,
         ...input.updates,
       },
-      updated_by: user.id,
+      updated_by: userId,
     };
   });
 
@@ -80,12 +81,19 @@ export async function bulkUpdateRows(input: {
 export async function bulkDeleteRows(input: {
   tableId: string;
   rowIds: string[];
+  authContext?: AuthContext;
 }): Promise<ActionResult<null>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (input.authContext) {
+    supabase = input.authContext.supabase;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+  }
 
-  const access = await requireTableAccess(input.tableId);
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
@@ -171,8 +179,8 @@ export async function bulkDuplicateRows(input: {
     table_id: row.table_id,
     data: row.data,
     order: Number(row.order) + 0.001 * (idx + 1),
-    created_by: user.id,
-    updated_by: user.id,
+    created_by: userId,
+    updated_by: userId,
   }));
 
   const { error } = await supabase.from("table_rows").insert(payload);
@@ -214,8 +222,8 @@ export async function bulkInsertRows(input: {
     table_id: input.tableId,
     data: sanitizeRowData(row.data || {}, validIds),
     order: row.order ?? null,
-    created_by: user.id,
-    updated_by: user.id,
+    created_by: userId,
+    updated_by: userId,
   }));
 
   const chunkSize = 100;

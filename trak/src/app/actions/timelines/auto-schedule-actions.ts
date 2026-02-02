@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { DependencyType, TimelineDependency, TimelineEvent } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -25,8 +26,8 @@ function getRequiredStart(
   }
 }
 
-export async function autoScheduleTimeline(timelineBlockId: string): Promise<ActionResult<TimelineEvent[]>> {
-  const access = await requireTimelineAccess(timelineBlockId);
+export async function autoScheduleTimeline(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineEvent[]>> {
+  const access = await requireTimelineAccess(timelineBlockId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, userId, block } = access;

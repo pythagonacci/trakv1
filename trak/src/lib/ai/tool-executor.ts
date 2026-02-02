@@ -29,6 +29,8 @@ import {
   getEntityById,
   getEntityContext,
   getTableSchema,
+  getSearchContext,
+  type SearchContextSuccess,
 } from "@/app/actions/ai-search";
 
 // ============================================================================
@@ -164,9 +166,10 @@ import {
 } from "@/app/actions/tables/comment-actions";
 
 // ============================================================================
-// IMPORTS - Workspace Context
+// IMPORTS - Workspace Context & Shared Auth
 // ============================================================================
 import { getCurrentWorkspaceId, setTestContext, clearTestContext } from "@/app/actions/workspace";
+import { getAuthContext, type AuthContext } from "@/lib/auth-context";
 import { aiDebug } from "./debug";
 
 // ============================================================================
@@ -247,6 +250,7 @@ export async function executeTool(
   context?: ToolExecutionContext
 ): Promise<ToolCallResult> {
   const { name, arguments: args } = toolCall;
+  const t0 = performance.now();
 
   try {
     aiDebug("executeTool:start", { tool: name, ...summarizeToolArgs(args) });
@@ -258,6 +262,11 @@ export async function executeTool(
 
     // Get workspace ID from context or from cookies (for backward compatibility)
     const workspaceId = context?.workspaceId || await getCurrentWorkspaceId();
+
+    // Single shared auth per tool run — pass to all actions that accept authContext to avoid duplicate auth
+    const authResult = await getAuthContext();
+    const authContext: AuthContext | null =
+      authResult && !("error" in authResult) ? authResult : null;
 
     switch (name) {
       // ==================================================================
@@ -286,6 +295,7 @@ export async function executeTool(
             includeBlocks: (args as any)?.includeBlocks as boolean | undefined,
             includeFiles: (args as any)?.includeFiles as boolean | undefined,
             maxItems: (args as any)?.maxItems as number | undefined,
+            authContext: authContext ?? undefined,
           })
         );
 
@@ -339,7 +349,7 @@ export async function executeTool(
           }
         }
         if (context?.currentTabId) {
-          const tabBlocks = await getTabBlocks(context.currentTabId);
+          const tabBlocks = await getTabBlocks(context.currentTabId, { authContext: authContext ?? undefined });
           const tableIds = (tabBlocks.data ?? [])
             .filter((block) => block.type === "table")
             .map((block) => String((block.content as Record<string, unknown> | undefined)?.tableId || ""))
@@ -417,71 +427,57 @@ export async function executeTool(
       // ==================================================================
       case "createTaskItem":
         {
+          const timing: Record<string, number> = {};
+          const needBlock = !(args.taskBlockId as string);
+          const assigneeArgs =
+            Array.isArray(args.assignees) && args.assignees.length > 0
+              ? args.assignees.map(a =>
+                  isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
+                )
+              : [];
+          const needAssignees = assigneeArgs.length > 0;
+
           let taskBlockId = args.taskBlockId as string;
+          let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
 
-          // Optimization: If taskBlockId is missing but we have a currentTabId, try to find/create a block
-          if (!taskBlockId && context?.currentTabId) {
-            const existingBlocks = await searchBlocks({
-              type: "task",
-              tabId: context.currentTabId,
-              limit: 1,
-            });
-
-            if (existingBlocks.data && existingBlocks.data.length > 0) {
-              taskBlockId = existingBlocks.data[0].id;
-            } else {
-              // Create a new task block if none exists
-              const blockResult = await createBlock({
-                tabId: context.currentTabId,
-                type: "task",
-                content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
-              });
-
-              if (!("error" in blockResult) && blockResult.data) {
-                taskBlockId = blockResult.data.id;
-              }
+          let searchCtx: SearchContextSuccess | null = null;
+          if (needBlock || needAssignees) {
+            const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+            if (ctxResult.error !== null) {
+              return { success: false, error: ctxResult.error };
             }
+            searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
           }
 
-          // FALLBACK: If still no taskBlockId (e.g. global context), try to find ANY task block
-          if (!taskBlockId) {
-            const anyBlock = await searchBlocks({
-              type: "task",
-              limit: 1,
-            });
-            if (anyBlock.data && anyBlock.data.length > 0) {
-              taskBlockId = anyBlock.data[0].id;
+          if (needBlock && needAssignees && searchCtx) {
+            const tResolve0 = performance.now();
+            const [resolvedBlockId, resolveResult] = await Promise.all([
+              resolveTaskBlockIdForCreateTask(context, args, searchCtx, authContext),
+              resolveTaskAssignees(assigneeArgs, searchCtx),
+            ]);
+            timing.t_resolve_assignee_ms = Math.round(performance.now() - tResolve0);
+            taskBlockId = resolvedBlockId ?? taskBlockId;
+            if (resolveResult.ambiguities.length > 0) {
+              const details = resolveResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+              return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
             }
+            resolvedAssignees = resolveResult.resolved;
+          } else if (needBlock) {
+            const resolvedBlockId = await resolveTaskBlockIdForCreateTask(context, args, searchCtx ?? undefined, authContext);
+            taskBlockId = resolvedBlockId ?? taskBlockId;
+          } else if (needAssignees && searchCtx) {
+            const tResolve0 = performance.now();
+            const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
+            timing.t_resolve_assignee_ms = Math.round(performance.now() - tResolve0);
+            if (assigneeResult.ambiguities.length > 0) {
+              const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+              return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
+            }
+            resolvedAssignees = assigneeResult.resolved;
           }
 
           if (!taskBlockId) {
             return { success: false, error: "Missing taskBlockId and could not auto-resolve from context. Please provide a task block ID." };
-          }
-
-          // Optimization: Resolve taskBlockName if provided
-          if (!taskBlockId && args.taskBlockName && context?.currentTabId) {
-            const blockName = args.taskBlockName as string;
-            const existingBlocks = await searchBlocks({
-              type: "task",
-              tabId: context.currentTabId,
-              limit: 5,
-            });
-
-            if (existingBlocks.data) {
-              // Try exact match first
-              const exact = existingBlocks.data.find(b =>
-                (b.content as any)?.title?.toLowerCase() === blockName.toLowerCase()
-              );
-              if (exact) {
-                taskBlockId = exact.id;
-              } else {
-                // Fuzzy match
-                const fuzzy = existingBlocks.data.find(b =>
-                  (b.content as any)?.title?.toLowerCase().includes(blockName.toLowerCase())
-                );
-                if (fuzzy) taskBlockId = fuzzy.id;
-              }
-            }
           }
 
           const payload = {
@@ -496,42 +492,30 @@ export async function executeTool(
           };
 
           // ------------------------------------------------------------------
-          // SMART TOOL: Pre-resolution of Assignees & Tags
-          // ------------------------------------------------------------------
-          let resolvedAssignees: any[] = [];
-          if (Array.isArray(args.assignees) && args.assignees.length > 0) {
-            const assigneeArgs = args.assignees.map(a =>
-              // If it looks like an ID, treat as ID. If name, treat as name.
-              isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
-            );
-
-            const resolveResult = await resolveTaskAssignees(assigneeArgs);
-            if (resolveResult.ambiguities.length > 0) {
-              const details = resolveResult.ambiguities.map(a => `"${a.input}"`).join(", ");
-              return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
-            }
-            resolvedAssignees = resolveResult.resolved;
-          }
-
-          // ------------------------------------------------------------------
           // EXECUTION: Create -> Assign -> Tag
           // ------------------------------------------------------------------
 
-          const directResult = await createTaskItem(payload);
+          const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
           if (!("error" in directResult)) {
             const newTaskId = directResult.data.id;
 
-            // Chain 1: Assignees
+            const postCreate: Promise<unknown>[] = [];
             if (resolvedAssignees.length > 0) {
-              await setTaskAssignees(newTaskId, resolvedAssignees);
+              postCreate.push(setTaskAssignees(newTaskId, resolvedAssignees, { timing, replaceExisting: false, authContext: authContext ?? undefined }));
             }
-
-            // Chain 2: Tags
             if (Array.isArray(args.tags) && args.tags.length > 0) {
-              await setTaskTags(newTaskId, args.tags as string[]);
+              postCreate.push(setTaskTags(newTaskId, args.tags as string[], { authContext: authContext ?? undefined }));
             }
+            if (postCreate.length > 0) await Promise.all(postCreate);
 
-            // Return the created task (fetching fresh might be better, but returning original is faster)
+            aiDebug("createTaskItem:timing", {
+              t_auth_ms: timing.t_auth_ms,
+              t_ctx_ms: timing.t_ctx_ms,
+              t_resolve_assignee_ms: timing.t_resolve_assignee_ms,
+              t_insert_task_ms: timing.t_insert_task_ms,
+              t_insert_assignees_ms: timing.t_insert_assignees_ms,
+              t_fetch_return_ms: timing.t_fetch_return_ms,
+            });
             return { success: true, data: directResult.data };
           }
 
@@ -555,6 +539,7 @@ export async function executeTool(
                   tabId: taskBlockId,
                   type: "task",
                   content: undefined,
+                  authContext: authContext ?? undefined,
                 });
                 if ("error" in blockResult) {
                   return { success: false, error: blockResult.error ?? "Failed to create task block" };
@@ -575,7 +560,7 @@ export async function executeTool(
               const retryResult = await createTaskItem({
                 ...payload,
                 taskBlockId: existingBlockId,
-              });
+              }, { authContext: authContext ?? undefined });
 
               if (!("error" in retryResult)) {
                 return { success: true, data: retryResult.data };
@@ -606,6 +591,7 @@ export async function executeTool(
                   tabId,
                   type: "task",
                   content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+                  authContext: authContext ?? undefined,
                 });
                 if ("error" in blockResult) {
                   return { success: false, error: blockResult.error ?? "Failed to create task block" };
@@ -617,7 +603,7 @@ export async function executeTool(
                 const retryResult = await createTaskItem({
                   ...payload,
                   taskBlockId: taskBlockIdToUse,
-                });
+                }, { authContext: authContext ?? undefined });
                 if (!("error" in retryResult)) {
                   return { success: true, data: retryResult.data };
                 }
@@ -676,7 +662,7 @@ export async function executeTool(
               dueDate: args.dueDate as string | null | undefined,
               dueTime: args.dueTime as string | null | undefined,
               startDate: args.startDate as string | null | undefined,
-            })
+            }, { authContext: authContext ?? undefined })
           );
         }
 
@@ -700,17 +686,19 @@ export async function executeTool(
               dueTime: updatesArg?.dueTime as string | null | undefined,
               startDate: updatesArg?.startDate as string | null | undefined,
             },
+            authContext: authContext ?? undefined,
           })
         );
 
       case "deleteTaskItem":
-        return await wrapResult(deleteTaskItem(args.taskId as string));
+        return await wrapResult(deleteTaskItem(args.taskId as string, { authContext: authContext ?? undefined }));
 
       case "bulkMoveTaskItems":
         return await wrapResult(
           bulkMoveTaskItems({
             taskIds: args.taskIds as string[],
             targetBlockId: args.targetBlockId as string,
+            authContext: authContext ?? undefined,
           })
         );
 
@@ -772,6 +760,7 @@ export async function executeTool(
           const dupResult = await duplicateTasksToBlock({
             targetBlockId: taskBlockId,
             taskIds,
+            authContext: authContext ?? undefined,
             includeAssignees: args.includeAssignees as boolean | undefined,
             includeTags: args.includeTags as boolean | undefined,
           });
@@ -833,7 +822,8 @@ export async function executeTool(
         return await wrapResult(
           setTaskAssignees(
             args.taskId as string,
-            assigneeResult.resolved
+            assigneeResult.resolved,
+            { authContext: authContext ?? undefined }
           )
         );
 
@@ -883,7 +873,7 @@ export async function executeTool(
 
           const failures: Array<{ taskId: string; error: string }> = [];
           for (const taskId of taskIds) {
-            const result = await setTaskAssignees(taskId, assigneeResult.resolved);
+            const result = await setTaskAssignees(taskId, assigneeResult.resolved, { authContext: authContext ?? undefined });
             if ("error" in result) {
               failures.push({ taskId, error: result.error });
             }
@@ -902,7 +892,7 @@ export async function executeTool(
 
       case "setTaskTags":
         return await wrapResult(
-          setTaskTags(args.taskId as string, args.tagNames as string[])
+          setTaskTags(args.taskId as string, args.tagNames as string[], { authContext: authContext ?? undefined })
         );
 
       case "createTaskSubtask":
@@ -911,6 +901,7 @@ export async function executeTool(
             taskId: args.taskId as string,
             title: args.title as string,
             completed: args.completed as boolean | undefined,
+            authContext: authContext ?? undefined,
           })
         );
 
@@ -923,13 +914,14 @@ export async function executeTool(
         );
 
       case "deleteTaskSubtask":
-        return await wrapResult(deleteTaskSubtask(args.subtaskId as string));
+        return await wrapResult(deleteTaskSubtask(args.subtaskId as string, { authContext: authContext ?? undefined }));
 
       case "createTaskComment":
         return await wrapResult(
           createTaskComment({
             taskId: args.taskId as string,
             text: args.text as string,
+            authContext: authContext ?? undefined,
           })
         );
 
@@ -958,7 +950,7 @@ export async function executeTool(
             status: args.status as any,
             due_date_date: args.dueDate as string | undefined,
             project_type: args.projectType as any,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "updateProject":
@@ -968,11 +960,11 @@ export async function executeTool(
             status: args.status as any,
             client_id: args.clientId as string | null | undefined,
             due_date_date: args.dueDate as string | null | undefined,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "deleteProject":
-        return await wrapResult(deleteProject(args.projectId as string));
+        return await wrapResult(deleteProject(args.projectId as string, { authContext: authContext ?? undefined }));
 
       // ==================================================================
       // TAB ACTIONS
@@ -986,6 +978,7 @@ export async function executeTool(
             projectId,
             name: args.name as string,
             parentTabId: args.parentTabId as string | null | undefined,
+            authContext: authContext ?? undefined,
           })
         );
       }
@@ -1026,6 +1019,7 @@ export async function executeTool(
             tabId,
             type: args.type as any,
             content: args.content as any,
+            authContext: authContext ?? undefined,
             position: args.position as number | undefined,
             column: args.column as number | undefined,
             parentBlockId: args.parentBlockId as string | undefined,
@@ -1044,7 +1038,7 @@ export async function executeTool(
         );
 
       case "deleteBlock":
-        return await wrapResult(deleteBlock(args.blockId as string));
+        return await wrapResult(deleteBlock(args.blockId as string, { authContext: authContext ?? undefined }));
 
       // ==================================================================
       // TABLE ACTIONS
@@ -1064,6 +1058,7 @@ export async function executeTool(
           title: args.title as string | undefined,
           description: args.description as string | null | undefined,
           icon: args.icon as string | null | undefined,
+          authContext: authContext ?? undefined,
         });
 
         if ("error" in tableResult) {
@@ -1076,12 +1071,13 @@ export async function executeTool(
             tabId,
             type: "table",
             content: { tableId: tableResult.data.table.id },
+            authContext: authContext ?? undefined,
           });
 
           if ("error" in blockResult) {
             // CRITICAL FIX: Table was created but block creation failed
             // Clean up the orphaned table to maintain data consistency
-            await deleteTable(tableResult.data.table.id);
+            await deleteTable(tableResult.data.table.id, { authContext: authContext ?? undefined });
 
             return {
               success: false,
@@ -1130,16 +1126,137 @@ export async function executeTool(
           );
         }
 
+      case "bulkCreateFields":
+        {
+          const tableId = args.tableId as string;
+          const fields = args.fields as Array<{
+            name: string;
+            type: string;
+            config?: Record<string, unknown>;
+            isPrimary?: boolean;
+          }>;
+
+          if (!Array.isArray(fields) || fields.length === 0) {
+            return { success: false, error: "fields must be a non-empty array" };
+          }
+
+          // Fetch schema once and resolve default-column reuse in memory,
+          // then issue all writes in parallel.  This avoids the per-field
+          // getTable + isNewEmptyTable round-trips that maybeReuseDefaultField
+          // would make if called individually.
+          const tableResult = await getTable(tableId, { authContext: authContext ?? undefined });
+          const existingFields = ("error" in tableResult || !tableResult.data?.fields)
+            ? []
+            : tableResult.data.fields;
+
+          // Determine whether this is a new empty table (≤3 rows, no data)
+          let isEmpty = false;
+          if (existingFields.length > 0) {
+            const rowsResult = await getTableRows(tableId, { limit: 5, offset: 0, authContext: authContext ?? undefined });
+            if (!("error" in rowsResult) && rowsResult.data) {
+              const totalRows = rowsResult.data.total ?? rowsResult.data.rows.length;
+              const hasData = rowsResult.data.rows.some(
+                (row) => row.data && Object.keys(row.data).length > 0
+              );
+              isEmpty = totalRows <= 3 && !hasData;
+            }
+          }
+
+          // Build a set of available default columns (non-primary, default-named)
+          // that can be reused by renaming.  We consume them in order so each
+          // field gets a unique candidate.
+          const defaultCandidates = isEmpty
+            ? existingFields.filter((f) => !f.is_primary && isDefaultFieldName(f.name))
+            : [];
+          const availableDefaults = new Map(
+            defaultCandidates.map((f) => [normalizeFieldName(f.name), f])
+          );
+
+          // Plan each field: resolve to existing | reuse default | create new
+          type FieldPlan =
+            | { kind: "existing"; data: unknown }
+            | { kind: "reuse"; candidateId: string; name: string; type: string; config?: Record<string, unknown> }
+            | { kind: "create"; name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean };
+
+          const plans: FieldPlan[] = [];
+          for (const field of fields) {
+            // Check if a field with this name already exists
+            const normalized = normalizeFieldName(field.name);
+            const existing = existingFields.find(
+              (f) => normalizeFieldName(f.name) === normalized
+            );
+            if (existing) {
+              plans.push({ kind: "existing", data: existing });
+              continue;
+            }
+
+            // Try to claim a default column for reuse
+            if (isEmpty && !field.isPrimary && !(CONFIG_REQUIRED_TYPES.has(field.type) && !field.config)) {
+              const preferred = field.type === "text" ? ["column 2", "column 3"] : ["column 3", "column 2"];
+              const candidate = preferred
+                .map((name) => availableDefaults.get(name))
+                .find(Boolean) ?? [...availableDefaults.values()][0];
+
+              if (candidate) {
+                availableDefaults.delete(normalizeFieldName(candidate.name));
+                plans.push({
+                  kind: "reuse",
+                  candidateId: candidate.id,
+                  name: field.name,
+                  type: field.type,
+                  config: field.config,
+                });
+                continue;
+              }
+            }
+
+            // Fall through to a new createField
+            plans.push({ kind: "create", name: field.name, type: field.type, config: field.config, isPrimary: field.isPrimary });
+          }
+
+          // Execute all writes in parallel — each targets a distinct field
+          const results = await Promise.all(
+            plans.map(async (plan) => {
+              if (plan.kind === "existing") {
+                return { success: true, data: plan.data };
+              }
+              if (plan.kind === "reuse") {
+                const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
+                const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
+                if (nextConfig !== undefined) payload.config = nextConfig;
+                return await wrapResult(updateField(plan.candidateId, payload));
+              }
+              // kind === "create"
+              return await wrapResult(
+                createField({
+                  tableId,
+                  name: plan.name,
+                  type: plan.type as any,
+                  config: plan.config as any,
+                  isPrimary: plan.isPrimary,
+                })
+              );
+            })
+          );
+
+          const allSuccessful = results.every((r) => r.success);
+          return {
+            success: allSuccessful,
+            data: results.map((r) => r.data),
+            error: allSuccessful ? undefined : results.find((r) => !r.success)?.error,
+          };
+        }
+
       case "updateField":
         return await wrapResult(
           updateField(args.fieldId as string, {
             name: args.name as string | undefined,
             config: args.config as any,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "deleteField":
-        return await wrapResult(deleteField(args.fieldId as string));
+        return await wrapResult(deleteField(args.fieldId as string, { authContext: authContext ?? undefined }));
 
       case "createRow": {
         let tableId = args.tableId as string;
@@ -1156,6 +1273,7 @@ export async function executeTool(
           createRow({
             tableId,
             data: args.data as Record<string, unknown>,
+            authContext: authContext ?? undefined,
           })
         );
       }
@@ -1164,7 +1282,7 @@ export async function executeTool(
         return await wrapResult(
           updateRow(args.rowId as string, {
             data: args.data as Record<string, unknown>,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "updateCell":
@@ -1181,14 +1299,14 @@ export async function executeTool(
           };
         }
         return await wrapResult(
-          updateCell(args.rowId as string, args.fieldId as string, args.value)
+          updateCell(args.rowId as string, args.fieldId as string, args.value, { authContext: authContext ?? undefined })
         );
 
       case "deleteRow":
-        return await wrapResult(deleteRow(args.rowId as string));
+        return await wrapResult(deleteRow(args.rowId as string, { authContext: authContext ?? undefined }));
 
       case "deleteRows":
-        return await wrapResult(deleteRows(args.rowIds as string[]));
+        return await wrapResult(deleteRows(args.rowIds as string[], { authContext: authContext ?? undefined }));
 
       case "bulkInsertRows":
         {
@@ -1575,7 +1693,8 @@ export async function executeTool(
             const blockResult = await createBlock({
               tabId: context.currentTabId,
               type: "timeline",
-              content: { title: "Timeline", viewMode: "gantt" }
+              content: { title: "Timeline", viewMode: "gantt" },
+              authContext: authContext ?? undefined,
             });
             if (!("error" in blockResult) && blockResult.data) {
               timelineBlockId = blockResult.data.id;
@@ -1590,7 +1709,7 @@ export async function executeTool(
         if (!assigneeId && args.assigneeName) {
           const assigneeResult = await resolveTaskAssignees([{ name: args.assigneeName as string }]);
           if (assigneeResult.resolved.length > 0) {
-            assigneeId = assigneeResult.resolved[0].id;
+            assigneeId = assigneeResult.resolved[0].id ?? undefined;
           }
         }
 
@@ -1606,6 +1725,7 @@ export async function executeTool(
             color: args.color as string | undefined,
             isMilestone: args.isMilestone as boolean | undefined,
             assigneeId,
+            authContext: authContext ?? undefined,
           })
         );
       }
@@ -1620,11 +1740,11 @@ export async function executeTool(
             notes: (args.notes as string | null | undefined) ?? undefined,
             color: (args.color as string | null | undefined) ?? undefined,
             isMilestone: args.isMilestone as boolean | undefined,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "deleteTimelineEvent":
-        return await wrapResult(deleteTimelineEvent(args.eventId as string));
+        return await wrapResult(deleteTimelineEvent(args.eventId as string, { authContext: authContext ?? undefined }));
 
       case "createTimelineDependency":
         return await wrapResult(
@@ -1633,12 +1753,13 @@ export async function executeTool(
             fromId: args.fromEventId as string,
             toId: args.toEventId as string,
             dependencyType: args.dependencyType as any,
+            authContext: authContext ?? undefined,
           })
         );
 
       case "deleteTimelineDependency":
         return await wrapResult(
-          deleteTimelineDependency(args.dependencyId as string)
+          deleteTimelineDependency(args.dependencyId as string, { authContext: authContext ?? undefined })
         );
 
       // ==================================================================
@@ -1705,7 +1826,7 @@ export async function executeTool(
             address: args.address as string | undefined,
             website: args.website as string | undefined,
             notes: args.notes as string | undefined,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "updateClient":
@@ -1718,11 +1839,11 @@ export async function executeTool(
             address: args.address as string | undefined,
             website: args.website as string | undefined,
             notes: args.notes as string | undefined,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "deleteClient":
-        return await wrapResult(deleteClient(args.clientId as string));
+        return await wrapResult(deleteClient(args.clientId as string, { authContext: authContext ?? undefined }));
 
       // ==================================================================
       // DOC ACTIONS
@@ -1732,7 +1853,7 @@ export async function executeTool(
           return { success: false, error: "No workspace selected" };
         }
         return await wrapResult(
-          createDoc(workspaceId, args.title as string)
+          createDoc(workspaceId, args.title as string, { authContext: authContext ?? undefined })
         );
 
       case "updateDoc":
@@ -1740,23 +1861,23 @@ export async function executeTool(
           updateDoc(args.docId as string, {
             title: args.title as string | undefined,
             content: args.content as any,
-          })
+          }, { authContext: authContext ?? undefined })
         );
 
       case "archiveDoc":
         return await wrapResult(
-          updateDoc(args.docId as string, { is_archived: true })
+          updateDoc(args.docId as string, { is_archived: true }, { authContext: authContext ?? undefined })
         );
 
       case "deleteDoc":
-        return await wrapResult(deleteDoc(args.docId as string));
+        return await wrapResult(deleteDoc(args.docId as string, { authContext: authContext ?? undefined }));
 
       // ==================================================================
       // FILE ACTIONS
       // ==================================================================
       case "renameFile":
         return await wrapResult(
-          renameFile(args.fileId as string, args.fileName as string)
+          renameFile(args.fileId as string, args.fileName as string, { authContext: authContext ?? undefined })
         );
 
       // ==================================================================
@@ -1769,16 +1890,17 @@ export async function executeTool(
             rowId: args.rowId as string,
             content: args.text as string,
             parentId: undefined,
+            authContext: authContext ?? undefined,
           })
         );
 
       case "updateComment":
         return await wrapResult(
-          updateTableComment(args.commentId as string, args.text as string)
+          updateTableComment(args.commentId as string, args.text as string, { authContext: authContext ?? undefined })
         );
 
       case "deleteComment":
-        return await wrapResult(deleteTableComment(args.commentId as string));
+        return await wrapResult(deleteTableComment(args.commentId as string, { authContext: authContext ?? undefined }));
 
       // ==================================================================
       // UNKNOWN TOOL
@@ -1797,6 +1919,7 @@ export async function executeTool(
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   } finally {
+    aiDebug("executeTool:done", { tool: name, ms: Math.round(performance.now() - t0) });
     // Clear test context if it was set
     if (shouldUseTestContext && context?.workspaceId && context?.userId) {
       await clearTestContext();
@@ -1810,10 +1933,12 @@ interface ResolveAssigneesResult {
 }
 
 async function resolveTaskAssignees(
-  assignees: Array<Record<string, unknown>>
+  assignees: Array<Record<string, unknown>>,
+  searchCtx?: SearchContextSuccess
 ): Promise<ResolveAssigneesResult> {
   const resolved: Array<{ id?: string | null; name?: string | null }> = [];
   const ambiguities: Array<{ input: string; matches: Array<{ id: string; name: string; email: string }> }> = [];
+  const opts = searchCtx ? { ctx: searchCtx } : undefined;
 
   for (const assignee of assignees) {
     if (!assignee || typeof assignee !== "object") continue;
@@ -1832,10 +1957,10 @@ async function resolveTaskAssignees(
         });
       } else {
         // Try to fetch the name from workspace members
-        const search = await searchWorkspaceMembers({
-          searchText: userId,
-          limit: 1,
-        });
+        const search = await searchWorkspaceMembers(
+          { searchText: userId, limit: 5 },
+          opts
+        );
         resolved.push({
           id: userId,
           name: search.data?.[0]?.name ?? null,
@@ -1846,10 +1971,10 @@ async function resolveTaskAssignees(
 
     const name = assignee.name as string | undefined;
     if (name) {
-      const search = await searchWorkspaceMembers({
-        searchText: name,
-        limit: 5, // Increased from 2 to show more options
-      });
+      const search = await searchWorkspaceMembers(
+        { searchText: name, limit: 5 },
+        opts
+      );
 
       if (search.data && search.data.length === 1) {
         // Exact match - use it
@@ -1877,10 +2002,10 @@ async function resolveTaskAssignees(
     const id = assignee.id as string | undefined;
     if (id) {
       // Try to fetch the name from workspace members
-      const search = await searchWorkspaceMembers({
-        searchText: id,
-        limit: 1,
-      });
+      const search = await searchWorkspaceMembers(
+        { searchText: id, limit: 5 },
+        opts
+      );
       resolved.push({
         id,
         name: search.data?.[0]?.name ?? null,
@@ -1889,6 +2014,69 @@ async function resolveTaskAssignees(
   }
 
   return { resolved, ambiguities };
+}
+
+/** Cache task block id per tab so repeated create-task in same tab skips searchBlocks (same request/session). */
+const taskBlockIdByTabCache = new Map<string, string>();
+
+/** Resolve task block ID from context when not provided. Used for parallelization with assignee resolution. */
+async function resolveTaskBlockIdForCreateTask(
+  context: ToolExecutionContext | undefined,
+  args: Record<string, unknown>,
+  searchCtx?: SearchContextSuccess,
+  authContext?: AuthContext | null
+): Promise<string | null> {
+  if (args.taskBlockId) return args.taskBlockId as string;
+
+  const blockOpts = searchCtx ? { ctx: searchCtx } : undefined;
+
+  if (context?.currentTabId) {
+    const cached = taskBlockIdByTabCache.get(context.currentTabId);
+    if (cached) return cached;
+
+    const existingBlocks = await searchBlocks(
+      { type: "task", tabId: context.currentTabId, limit: 1 },
+      blockOpts
+    );
+    if (existingBlocks.data && existingBlocks.data.length > 0) {
+      const id = existingBlocks.data[0].id;
+      taskBlockIdByTabCache.set(context.currentTabId, id);
+      return id;
+    }
+    const blockResult = await createBlock({
+      tabId: context.currentTabId,
+      type: "task",
+      content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+      authContext: authContext ?? undefined,
+    });
+    if (!("error" in blockResult) && blockResult.data) {
+      const id = blockResult.data.id;
+      taskBlockIdByTabCache.set(context.currentTabId, id);
+      return id;
+    }
+  }
+
+  const anyBlock = await searchBlocks({ type: "task", limit: 1 }, blockOpts);
+  if (anyBlock.data && anyBlock.data.length > 0) return anyBlock.data[0].id;
+
+  if (args.taskBlockName && context?.currentTabId) {
+    const existingBlocks = await searchBlocks(
+      { type: "task", tabId: context.currentTabId, limit: 5 },
+      blockOpts
+    );
+    if (existingBlocks.data) {
+      const blockName = (args.taskBlockName as string).toLowerCase();
+      const exact = existingBlocks.data.find(
+        (b) => (b.content as Record<string, unknown>)?.title?.toString().toLowerCase() === blockName
+      );
+      if (exact) return exact.id;
+      const fuzzy = existingBlocks.data.find((b) =>
+        (b.content as Record<string, unknown>)?.title?.toString().toLowerCase().includes(blockName)
+      );
+      if (fuzzy) return fuzzy.id;
+    }
+  }
+  return null;
 }
 
 const DEFAULT_FIELD_NAMES = new Set(["column 2", "column 3"]);

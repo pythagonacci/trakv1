@@ -125,7 +125,7 @@ function shouldUseFastPrompt(
   if (PROMPT_MODE === "fast") return true;
   // For "full" or "auto" mode, auto-detect simple commands
   if (conversationHistory.length > 0) return false;
-  if (userCommand.length > 150) return false;
+  if (userCommand.length > 400) return false;
   if (intent.confidence < 0.85) return false;
   if (intent.toolGroups.length > 2) return false;
   const lowered = userCommand.toLowerCase();
@@ -368,6 +368,87 @@ function compactToolResult(result: ToolCallResult): ToolCallResult {
 }
 
 // ============================================================================
+// SINGLE-ACTION TOOL NARROWING
+// ============================================================================
+
+/**
+ * When intent is a single action on a single entity (e.g., "create task"),
+ * keep only the tools relevant to that action. This cuts the tools JSON
+ * payload sent to the LLM, which directly correlates with lower latency.
+ *
+ * Falls back to the full tool set when:
+ * - Multiple entity groups are involved
+ * - Multiple actions are detected
+ * - Confidence is below threshold
+ * - The LLM later calls requestToolGroups (handled by the upgrade path)
+ */
+const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
+  create: {
+    task: ["createTaskItem"],
+    project: ["createProject"],
+    table: ["createTable", "createField", "bulkCreateFields", "createRow", "bulkInsertRows"],
+    tab: ["createTab"],
+    block: ["createBlock"],
+    doc: ["createDoc"],
+    client: ["createClient"],
+    timeline: ["createTimelineEvent"],
+  },
+  update: {
+    task: [
+      "updateTaskItem",
+      "bulkUpdateTaskItems",
+      "setTaskAssignees",
+      "bulkSetTaskAssignees",
+      "setTaskTags",
+    ],
+    project: ["updateProject"],
+    table: [
+      "updateTableRowsByFieldNames",
+      "bulkUpdateRows",
+      "bulkUpdateRowsByFieldNames",
+      "updateRow",
+      "updateCell",
+      "updateField",
+    ],
+    tab: ["updateTab"],
+    block: ["updateBlock"],
+    doc: ["updateDoc"],
+    client: ["updateClient"],
+    timeline: ["updateTimelineEvent"],
+  },
+  delete: {
+    task: ["deleteTaskItem"],
+    project: ["deleteProject"],
+    table: ["deleteRow", "deleteRows", "deleteField"],
+    tab: ["deleteTab"],
+    block: ["deleteBlock"],
+    doc: ["deleteDoc", "archiveDoc"],
+    client: ["deleteClient"],
+    timeline: ["deleteTimelineEvent", "deleteTimelineDependency"],
+  },
+};
+
+function narrowToolsForSingleAction(
+  tools: ReturnType<typeof getToolsByGroups>,
+  intent: { actions: string[]; toolGroups: string[]; confidence: number }
+): ReturnType<typeof getToolsByGroups> {
+  const nonCoreGroups = intent.toolGroups.filter((g) => g !== "core");
+  if (nonCoreGroups.length !== 1 || intent.actions.length !== 1 || intent.confidence < 0.85) {
+    return tools;
+  }
+  const action = intent.actions[0];
+  if (!["create", "update", "delete"].includes(action)) return tools;
+  const entity = nonCoreGroups[0];
+  const allowed = SINGLE_ACTION_TOOLS[action]?.[entity];
+  if (!allowed) return tools;
+  const allowedSet = new Set(allowed);
+  // Keep all search/control (core) tools + only the action-relevant entity tools
+  return tools.filter(
+    (tool) => tool.category === "search" || tool.category === "control" || allowedSet.has(tool.name)
+  );
+}
+
+// ============================================================================
 // AI EXECUTOR
 // ============================================================================
 
@@ -453,14 +534,29 @@ export async function executeAICommand(
     });
   }
 
-  // LLM-based execution (no fast path - all commands go through the LLM)
-
   // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
   const intent = classifyIntent(userCommand);
   if (timing) {
     timing.t_intent_ms = Date.now() - intentStart;
   }
+
+  // Fast path: simple pattern-matched commands skip the LLM entirely
+  const simpleResult = await trySimpleCommand(userCommand, context);
+  if (simpleResult) return withTiming(simpleResult);
+
+  // Detect multi-step commands (used later to prevent premature early-exit on writes).
+  // "then / also / after that / next" are unambiguous multi-step connectors.
+  // "and" is tricky: it joins two actions ("create X and assign to Y") but also
+  // appears inside noun lists ("columns Name, Region, and Population").
+  // We only treat "and" as multi-step when it is followed by an action verb,
+  // indicating a second independent action rather than a list continuation.
+  const ACTION_VERBS = /\b(?:and)\s+(?:assign|add|set|tag|move|delete|remove|update|rename|change|populate|fill|insert|attach|link|copy|duplicate|archive|complete|close|open|share|export|import)\b/i;
+  const isMultiStepCommand =
+    /\b(?:then|also|after that|next)\b/i.test(userCommand) ||
+    /\b(?:with|w\/|columns?|fields?|rows?)\b/i.test(userCommand) ||
+    ACTION_VERBS.test(userCommand) ||
+    intent.actions.length > 1;
 
   // Build the system prompt with context
   const promptBuildStart = timingEnabled ? Date.now() : 0;
@@ -473,6 +569,7 @@ export async function executeAICommand(
     currentDate: new Date().toISOString().split("T")[0],
     currentProjectId: context.currentProjectId,
     currentTabId: context.currentTabId,
+    activeToolGroups: intent.toolGroups,
   }, promptMode);
   if (timing) {
     timing.system_prompt_chars = systemPrompt.length;
@@ -488,7 +585,10 @@ export async function executeAICommand(
 
   let activeIntent = intent;
   let toolUpgradeAttempted = false;
-  let relevantTools = trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand);
+  let relevantTools = narrowToolsForSingleAction(
+    trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand),
+    activeIntent
+  );
 
   // Get tools in OpenAI format (compatible with Deepseek) with caching
   const getCachedTools = (toolsForIntent: typeof relevantTools) => {
@@ -741,10 +841,13 @@ export async function executeAICommand(
                 ...activeIntent,
                 toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(validGroups as any[])])),
               };
-              relevantTools = trimToolsForIntent(
-                getToolsByGroups(activeIntent.toolGroups),
-                activeIntent,
-                userCommand
+              relevantTools = narrowToolsForSingleAction(
+                trimToolsForIntent(
+                  getToolsByGroups(activeIntent.toolGroups),
+                  activeIntent,
+                  userCommand
+                ),
+                activeIntent
               );
               tools = getCachedTools(relevantTools);
               toolUpgradeAttempted = true;
@@ -831,12 +934,15 @@ export async function executeAICommand(
         );
         const hasWriteTool = writeToolsThisRound.length > 0;
 
-        // Optimistic early exit for ALL writes (updates/deletes/creates)
+        // Optimistic early exit for writes — only when the command is a single
+        // discrete action.  Multi-step commands ("create X and assign to Y") need
+        // to continue so the LLM can issue the remaining tool calls.
         if (
           EARLY_EXIT_WRITES &&
           SKIP_SECOND_LLM &&
           allToolCallsSuccessful &&
-          hasWriteTool
+          hasWriteTool &&
+          !isMultiStepCommand
         ) {
           return withTiming({
             success: true,
@@ -899,7 +1005,10 @@ export async function executeAICommand(
           ...activeIntent,
           toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(upgradeGroups as any[])])),
         };
-        relevantTools = trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand);
+        relevantTools = narrowToolsForSingleAction(
+          trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand),
+          activeIntent
+        );
         tools = getCachedTools(relevantTools);
         aiDebug("executeAICommand:toolUpgrade", {
           from: intent.toolGroups,
@@ -950,6 +1059,7 @@ async function callDeepseek(
   tools: ReturnType<typeof toOpenAIFormat>,
   maxTokens: number
 ): Promise<ChatCompletionResponse> {
+  const t0 = performance.now();
   aiDebug("callDeepseek:request", {
     messageCount: messages.length,
     toolCount: tools.length,
@@ -994,7 +1104,14 @@ async function callDeepseek(
     throw new Error(`Deepseek API error: ${response.status}`);
   }
 
-  return response.json();
+  const body = await response.json();
+  aiDebug("callDeepseek:response", {
+    ms: Math.round(performance.now() - t0),
+    messageCount: messages.length,
+    toolCount: tools.length,
+    model: DEEPSEEK_MODEL,
+  });
+  return body;
 }
 
 /**
@@ -1006,6 +1123,7 @@ async function callOpenAI(
   tools: ReturnType<typeof toOpenAIFormat>,
   maxTokens: number
 ): Promise<ChatCompletionResponse> {
+  const t0 = performance.now();
   const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL;
   aiDebug("callOpenAI:request", {
     messageCount: messages.length,
@@ -1042,7 +1160,14 @@ async function callOpenAI(
     throw new Error(`OpenAI API error: ${response.status}`);
   }
 
-  return response.json();
+  const body = await response.json();
+  aiDebug("callOpenAI:response", {
+    ms: Math.round(performance.now() - t0),
+    messageCount: messages.length,
+    toolCount: tools.length,
+    model,
+  });
+  return body;
 }
 
 /**
@@ -1144,6 +1269,23 @@ export async function* executeAICommandStream(
   }
 
   const intent = classifyIntent(userCommand);
+
+  // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
+  const simpleResult = await trySimpleCommand(userCommand, context);
+  if (simpleResult) {
+    yield {
+      type: "response",
+      content: simpleResult.response,
+      data: simpleResult,
+    };
+    return;
+  }
+
+  // Fix D: Detect multi-step commands to prevent premature early-exit on writes
+  const isMultiStepCommand =
+    /\b(?:and|then|also|after that|next)\b/i.test(userCommand) ||
+    intent.actions.length > 1;
+
   const promptMode = shouldUseFastPrompt(userCommand, intent, []) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
@@ -1159,8 +1301,11 @@ export async function* executeAICommandStream(
     { role: "user", content: userCommand },
   ];
 
-  // Classify intent to determine which tools are needed
-  const relevantTools = trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, userCommand);
+  // Fix C: Narrow tools for single-action intents to reduce payload size
+  const relevantTools = narrowToolsForSingleAction(
+    trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, userCommand),
+    intent
+  );
   const tools = toOpenAIFormat(relevantTools);
   let iterations = 0;
 
@@ -1187,6 +1332,7 @@ export async function* executeAICommandStream(
       });
 
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+        const toolCallsThisRound: Array<{ tool: string; result: ToolCallResult }> = [];
         for (const toolCall of assistantMessage.tool_calls) {
           const toolName = toolCall.function.name;
           let toolArgs: Record<string, unknown>;
@@ -1214,6 +1360,8 @@ export async function* executeAICommandStream(
             currentProjectId: context.currentProjectId,
           });
 
+          toolCallsThisRound.push({ tool: toolName, result });
+
           yield {
             type: "tool_result",
             content: result.success ? "Success" : result.error || "Error",
@@ -1227,6 +1375,33 @@ export async function* executeAICommandStream(
             tool_call_id: toolCall.id,
             name: toolName,
           });
+        }
+
+        // Fix D: Early-exit after successful writes, but only for single-step commands.
+        // Multi-step commands ("create X and assign to Y") must continue so the LLM
+        // can issue the remaining tool calls.
+        // Only exit when ALL tool calls actually succeeded (fix: was assuming success and reporting it even when tools failed).
+        const allToolCallsSucceeded = toolCallsThisRound.every((c) => c.result.success);
+        const hasWriteTool = toolCallsThisRound.some(
+          (c) => !isSearchLikeToolName(c.tool)
+        );
+        if (
+          EARLY_EXIT_WRITES &&
+          SKIP_SECOND_LLM &&
+          !isMultiStepCommand &&
+          hasWriteTool &&
+          allToolCallsSucceeded
+        ) {
+          const summary = buildToolSummary(toolCallsThisRound);
+          yield {
+            type: "response",
+            content: summary,
+          };
+          return;
+        }
+        if (hasWriteTool && !allToolCallsSucceeded) {
+          // At least one write failed — let the LLM see the tool results and generate a response that surfaces the error
+          // (continue to next iteration so the model can reply with the error)
         }
 
         continue;

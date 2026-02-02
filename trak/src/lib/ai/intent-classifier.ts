@@ -215,6 +215,7 @@ const SPECIAL_PATTERNS: Array<{
  * Classify user intent to determine which tool groups are needed.
  */
 export function classifyIntent(userCommand: string): IntentClassification {
+  const t0 = performance.now();
   aiDebug("classifyIntent:start", { command: userCommand });
 
   const command = userCommand.toLowerCase();
@@ -229,7 +230,7 @@ export function classifyIntent(userCommand: string): IntentClassification {
         actions: special.actions,
         reasoning: special.reasoning,
       };
-      aiDebug("classifyIntent:special-match", classification);
+      aiDebug("classifyIntent:special-match", { ...classification, ms: Math.round(performance.now() - t0) });
       return classification;
     }
   }
@@ -272,7 +273,7 @@ export function classifyIntent(userCommand: string): IntentClassification {
       actions: detectedActions,
       reasoning: "Read-only query - core search tools sufficient",
     };
-    aiDebug("classifyIntent:read-only", classification);
+    aiDebug("classifyIntent:read-only", { ...classification, ms: Math.round(performance.now() - t0) });
     return classification;
   }
 
@@ -317,7 +318,7 @@ export function classifyIntent(userCommand: string): IntentClassification {
     reasoning,
   };
 
-  aiDebug("classifyIntent:result", classification);
+  aiDebug("classifyIntent:result", { ...classification, ms: Math.round(performance.now() - t0) });
   return classification;
 }
 

@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { evaluateFormula, extractDependencies } from "@/lib/formula-parser";
 import type { TableField } from "@/types/table";
 
@@ -90,10 +91,16 @@ export async function createFormulaField(input: {
   return { data: field as TableField };
 }
 
-export async function recomputeFormulaField(fieldId: string): Promise<ActionResult<null>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+export async function recomputeFormulaField(fieldId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+  }
 
   const { data: field } = await supabase
     .from("table_fields")
@@ -105,7 +112,7 @@ export async function recomputeFormulaField(fieldId: string): Promise<ActionResu
     return { error: "Formula field not found" };
   }
 
-  const access = await requireTableAccess(field.table_id);
+  const access = await requireTableAccess(field.table_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: fields } = await supabase
@@ -206,7 +213,7 @@ export async function recomputeFormulasForRow(
     .from("table_rows")
     .update({
       data: updatedData,
-      updated_by: user.id,
+      updated_by: userId,
     })
     .eq("id", rowId);
   if (error) {

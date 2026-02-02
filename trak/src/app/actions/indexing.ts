@@ -2,14 +2,16 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { IndexingQueue } from "@/lib/search/job-queue";
-import { requireWorkspaceAccess } from "@/lib/auth-utils";
+import { requireWorkspaceAccess, checkWorkspaceMembership } from "@/lib/auth-utils";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import type { AuthContext } from "@/lib/auth-context";
 
 type ReindexWorkspaceParams = {
   workspaceId?: string;
   includeBlocks?: boolean;
   includeFiles?: boolean;
   maxItems?: number;
+  authContext?: AuthContext;
 };
 
 type ReindexResult = {
@@ -97,12 +99,21 @@ export async function reindexWorkspaceContent(params: ReindexWorkspaceParams = {
     return { error: "Missing workspaceId" };
   }
 
-  const access = await requireWorkspaceAccess(workspaceId);
-  if ("error" in access) {
-    return { error: access.error };
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (params.authContext) {
+    supabase = params.authContext.supabase;
+    const membership = await checkWorkspaceMembership(workspaceId, params.authContext.userId);
+    if (!membership) {
+      return { error: "Not a member of this workspace" };
+    }
+  } else {
+    const access = await requireWorkspaceAccess(workspaceId);
+    if ("error" in access) {
+      return { error: access.error };
+    }
+    supabase = await createClient();
   }
 
-  const supabase = await createClient();
   const queue = new IndexingQueue(supabase);
 
   const includeBlocks = params.includeBlocks !== false;

@@ -1,40 +1,36 @@
 "use server";
 
-import { requireTaskBlockAccess, requireTaskItemAccess } from "./context";
+import { requireTaskBlockAccess, requireTaskItemAccess, type TaskTimingSink } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TaskItem, TaskPriority, TaskStatus } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
 
-export async function createTaskItem(input: {
-  taskBlockId: string;
-  title: string;
-  status?: TaskStatus;
-  priority?: TaskPriority;
-  description?: string | null;
-  dueDate?: string | null;
-  dueTime?: string | null;
-  startDate?: string | null;
-  hideIcons?: boolean;
-  recurring?: {
-    enabled: boolean;
-    frequency?: "daily" | "weekly" | "monthly";
-    interval?: number;
-  };
-}): Promise<ActionResult<TaskItem>> {
-  const access = await requireTaskBlockAccess(input.taskBlockId);
+export async function createTaskItem(
+  input: {
+    taskBlockId: string;
+    title: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    description?: string | null;
+    dueDate?: string | null;
+    dueTime?: string | null;
+    startDate?: string | null;
+    hideIcons?: boolean;
+    recurring?: {
+      enabled: boolean;
+      frequency?: "daily" | "weekly" | "monthly";
+      interval?: number;
+    };
+  },
+  opts?: { timing?: TaskTimingSink; authContext?: AuthContext }
+): Promise<ActionResult<TaskItem>> {
+  const access = await requireTaskBlockAccess(input.taskBlockId, { timing: opts?.timing, authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, block } = access;
 
-  const { data: maxOrder } = await supabase
-    .from("task_items")
-    .select("display_order")
-    .eq("task_block_id", block.id)
-    .order("display_order", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const nextOrder = maxOrder?.display_order !== undefined ? maxOrder.display_order + 1 : 0;
-
+  // display_order is set by DB trigger set_task_item_display_order (saves one round-trip)
+  const tInsert0 = performance.now();
   const { data, error } = await supabase
     .from("task_items")
     .insert({
@@ -50,7 +46,7 @@ export async function createTaskItem(input: {
       due_time: input.dueTime ?? null,
       start_date: input.startDate ?? null,
       hide_icons: input.hideIcons ?? false,
-      display_order: nextOrder,
+      display_order: 0,
       recurring_enabled: input.recurring?.enabled ?? false,
       recurring_frequency: input.recurring?.frequency ?? null,
       recurring_interval: input.recurring?.interval ?? null,
@@ -59,6 +55,10 @@ export async function createTaskItem(input: {
     })
     .select("*")
     .single();
+  if (opts?.timing) {
+    opts.timing.t_insert_task_ms = Math.round(performance.now() - tInsert0);
+    opts.timing.t_fetch_return_ms = 0; // return is part of insert round-trip
+  }
 
   if (error || !data) return { error: "Failed to create task" };
   return { data: data as TaskItem };
@@ -78,9 +78,10 @@ export async function updateTaskItem(
     recurringEnabled: boolean;
     recurringFrequency: "daily" | "weekly" | "monthly" | null;
     recurringInterval: number | null;
-  }>
+  }>,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TaskItem>> {
-  const access = await requireTaskItemAccess(taskId);
+  const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
@@ -126,12 +127,13 @@ export async function bulkUpdateTaskItems(input: {
     recurringFrequency: "daily" | "weekly" | "monthly" | null;
     recurringInterval: number | null;
   }>;
+  authContext?: AuthContext;
 }): Promise<ActionResult<{ updatedCount: number; skipped: string[] }>> {
   const taskIds = Array.from(new Set((input.taskIds || []).filter(Boolean)));
   if (taskIds.length === 0) return { data: { updatedCount: 0, skipped: [] } };
 
   // Get access from first task to verify workspace access
-  const firstTaskAccess = await requireTaskItemAccess(taskIds[0]);
+  const firstTaskAccess = await requireTaskItemAccess(taskIds[0], { authContext: input.authContext });
   if ("error" in firstTaskAccess) return { error: firstTaskAccess.error ?? "Unknown error" };
   const { supabase, userId, task: firstTask } = firstTaskAccess;
   const workspaceId = firstTask.workspace_id;
@@ -179,8 +181,9 @@ export async function bulkUpdateTaskItems(input: {
 export async function bulkMoveTaskItems(input: {
   taskIds: string[];
   targetBlockId: string;
+  authContext?: AuthContext;
 }): Promise<ActionResult<{ movedCount: number; skipped: string[] }>> {
-  const access = await requireTaskBlockAccess(input.targetBlockId);
+  const access = await requireTaskBlockAccess(input.targetBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, block } = access;
 
@@ -234,8 +237,9 @@ export async function duplicateTasksToBlock(input: {
   targetBlockId: string;
   includeAssignees?: boolean;
   includeTags?: boolean;
+  authContext?: AuthContext;
 }): Promise<ActionResult<{ createdCount: number; createdTaskIds: string[]; skipped: string[] }>> {
-  const access = await requireTaskBlockAccess(input.targetBlockId);
+  const access = await requireTaskBlockAccess(input.targetBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, block } = access;
 
@@ -420,8 +424,8 @@ export async function duplicateTasksToBlock(input: {
   return { data: { createdCount: createdTaskIds.length, createdTaskIds, skipped } };
 }
 
-export async function deleteTaskItem(taskId: string): Promise<ActionResult<null>> {
-  const access = await requireTaskItemAccess(taskId);
+export async function deleteTaskItem(taskId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -430,8 +434,8 @@ export async function deleteTaskItem(taskId: string): Promise<ActionResult<null>
   return { data: null };
 }
 
-export async function reorderTaskItems(taskBlockId: string, orderedIds: string[]): Promise<ActionResult<null>> {
-  const access = await requireTaskBlockAccess(taskBlockId);
+export async function reorderTaskItems(taskBlockId: string, orderedIds: string[], opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await requireTaskBlockAccess(taskBlockId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

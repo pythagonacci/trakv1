@@ -5,6 +5,7 @@
 // - Future UI (table-block replacement) should use these actions with React Query.
 
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TableView, ViewConfig, ViewType } from "@/types/table";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -15,10 +16,11 @@ interface CreateViewInput {
   type?: ViewType;
   config?: ViewConfig;
   isDefault?: boolean;
+  authContext?: AuthContext;
 }
 
 export async function createView(input: CreateViewInput): Promise<ActionResult<TableView>> {
-  const access = await requireTableAccess(input.tableId);
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
@@ -41,8 +43,8 @@ export async function createView(input: CreateViewInput): Promise<ActionResult<T
   return { data };
 }
 
-export async function listViews(tableId: string): Promise<ActionResult<TableView[]>> {
-  const access = await requireTableAccess(tableId);
+export async function listViews(tableId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableView[]>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -92,8 +94,8 @@ export async function getView(viewId: string): Promise<ActionResult<TableView>> 
   return { data: sanitized };
 }
 
-export async function updateView(viewId: string, updates: Partial<Pick<TableView, "name" | "type" | "config" | "is_default">>): Promise<ActionResult<TableView>> {
-  const access = await getViewContext(viewId);
+export async function updateView(viewId: string, updates: Partial<Pick<TableView, "name" | "type" | "config" | "is_default">>, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableView>> {
+  const access = await getViewContext(viewId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, view } = access;
 
@@ -133,8 +135,8 @@ export async function deleteView(viewId: string): Promise<ActionResult<null>> {
   return { data: null };
 }
 
-export async function setDefaultView(viewId: string): Promise<ActionResult<TableView>> {
-  const access = await getViewContext(viewId);
+export async function setDefaultView(viewId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableView>> {
+  const access = await getViewContext(viewId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, view } = access;
 
@@ -156,11 +158,20 @@ export async function setDefaultView(viewId: string): Promise<ActionResult<Table
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getViewContext(viewId: string) {
-  const supabase = await import("@/lib/supabase/server").then((m) => m.createClient());
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return { error: "Unauthorized" } as const;
+async function getViewContext(viewId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await import("@/lib/supabase/server").then((m) => m.createClient());
+    const { data: { user } } = await client.auth.getUser();
+    if (!user) {
+      return { error: "Unauthorized" } as const;
+    }
+    supabase = client;
+    userId = user.id;
   }
 
   const { data: view, error } = await supabase
@@ -173,8 +184,8 @@ async function getViewContext(viewId: string) {
     return { error: "View not found" } as const;
   }
 
-  const access = await requireTableAccess(view.table_id);
+  const access = await requireTableAccess(view.table_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
-  return { supabase: access.supabase, view, userId: user.id };
+  return { supabase: access.supabase, view, userId };
 }

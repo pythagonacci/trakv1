@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTimelineAccess } from "./context";
 import { validateEventStatus, validateTimelineDateRange } from "./validators";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent, TimelineEventStatus } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -22,8 +23,9 @@ export async function createTimelineEvent(input: {
   baselineEnd?: string | null;
   displayOrder?: number;
   assigneeId?: string;
+  authContext?: AuthContext;
 }): Promise<ActionResult<TimelineEvent>> {
-  const access = await requireTimelineAccess(input.timelineBlockId);
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { valid, message } = validateTimelineDateRange(input.startDate, input.endDate);
@@ -89,9 +91,10 @@ export async function updateTimelineEvent(
     baselineStart: string | null;
     baselineEnd: string | null;
     displayOrder: number;
-  }>
+  }>,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TimelineEvent>> {
-  const access = await getEventContext(eventId);
+  const access = await getEventContext(eventId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (updates.status && !validateEventStatus(updates.status)) {
@@ -172,8 +175,8 @@ export async function updateTimelineEvent(
   return { data: data as TimelineEvent };
 }
 
-export async function deleteTimelineEvent(eventId: string): Promise<ActionResult<null>> {
-  const access = await getEventContext(eventId);
+export async function deleteTimelineEvent(eventId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await getEventContext(eventId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
@@ -219,8 +222,8 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
   return { data: data as TimelineEvent };
 }
 
-export async function setTimelineEventBaseline(eventId: string, baseline: { start: string | null; end: string | null }): Promise<ActionResult<TimelineEvent>> {
-  const access = await getEventContext(eventId);
+export async function setTimelineEventBaseline(eventId: string, baseline: { start: string | null; end: string | null }, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineEvent>> {
+  const access = await getEventContext(eventId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, userId } = access;
@@ -243,10 +246,19 @@ export async function setTimelineEventBaseline(eventId: string, baseline: { star
   return { data: data as TimelineEvent };
 }
 
-async function getEventContext(eventId: string): Promise<{ error: string } | { supabase: any; userId: string; event: TimelineEvent }> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+async function getEventContext(eventId: string, opts?: { authContext?: AuthContext }): Promise<{ error: string } | { supabase: any; userId: string; event: TimelineEvent }> {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: event, error: eventError } = await supabase
     .from("timeline_events")
@@ -260,10 +272,10 @@ async function getEventContext(eventId: string): Promise<{ error: string } | { s
     .from("workspace_members")
     .select("role")
     .eq("workspace_id", (event as any).workspace_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (!membership) return { error: "Not a member of this workspace" };
 
-  return { supabase, userId: user.id, event: event as TimelineEvent };
+  return { supabase, userId, event: event as TimelineEvent };
 }

@@ -362,17 +362,17 @@ export async function deleteFile(fileId: string) {
 /**
  * Rename a file (display name only)
  */
-export async function renameFile(fileId: string, fileName: string) {
-  const supabase = await createClient();
-
-  // 1. Check authentication
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError || !user) {
-    return { error: 'Not authenticated' };
+export async function renameFile(fileId: string, fileName: string, opts?: { authContext?: import("@/lib/auth-context").AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return { error: 'Not authenticated' };
+    userId = user.id;
   }
 
   // 2. Get file details
@@ -391,10 +391,10 @@ export async function renameFile(fileId: string, fileName: string) {
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', file.workspace_id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single();
 
-  const isUploader = file.uploaded_by === user.id;
+  const isUploader = file.uploaded_by === userId;
   const isAdmin = membership?.role === 'admin' || membership?.role === 'owner';
 
   if (!isUploader && !isAdmin) {

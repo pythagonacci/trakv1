@@ -5,6 +5,7 @@
 // - Triggers in add_tables_schema.sql set ordering and enforce RLS; we still gate by workspace membership before writes.
 
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { recomputeFormulaField } from "./formula-actions";
 import { recomputeRollupField } from "./rollup-actions";
 import { extractDependencies } from "@/lib/formula-parser";
@@ -20,10 +21,11 @@ interface CreateFieldInput {
   order?: number | null;
   isPrimary?: boolean;
   width?: number | null;
+  authContext?: AuthContext;
 }
 
 export async function createField(input: CreateFieldInput): Promise<ActionResult<TableField>> {
-  const access = await requireTableAccess(input.tableId);
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -83,8 +85,8 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   return { data };
 }
 
-export async function updateField(fieldId: string, updates: Partial<Pick<TableField, "name" | "type" | "config" | "is_primary" | "width">>): Promise<ActionResult<TableField>> {
-  const access = await getFieldContext(fieldId);
+export async function updateField(fieldId: string, updates: Partial<Pick<TableField, "name" | "type" | "config" | "is_primary" | "width">>, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableField>> {
+  const access = await getFieldContext(fieldId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table, field } = access;
 
@@ -134,8 +136,8 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
   return { data };
 }
 
-export async function deleteField(fieldId: string): Promise<ActionResult<null>> {
-  const access = await getFieldContext(fieldId);
+export async function deleteField(fieldId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await getFieldContext(fieldId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table } = access;
 
@@ -151,8 +153,8 @@ export async function deleteField(fieldId: string): Promise<ActionResult<null>> 
   return { data: null };
 }
 
-export async function reorderFields(tableId: string, orders: Array<{ fieldId: string; order: number }>): Promise<ActionResult<TableField[]>> {
-  const access = await requireTableAccess(tableId);
+export async function reorderFields(tableId: string, orders: Array<{ fieldId: string; order: number }>, opts?: { authContext?: AuthContext }): Promise<ActionResult<TableField[]>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -254,11 +256,19 @@ export async function updateFieldConfig(fieldId: string, config: Record<string, 
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getFieldContext(fieldId: string) {
-  const supabase = await requireFieldSupabase();
-  if ("error" in supabase) return { error: supabase.error || "Unauthorized" };
+async function getFieldContext(fieldId: string, opts?: { authContext?: AuthContext }) {
+  let supabaseClient: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabaseClient = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const s = await requireFieldSupabase();
+    if ("error" in s) return { error: s.error || "Unauthorized" };
+    supabaseClient = s.supabaseClient;
+    userId = s.userId;
+  }
 
-  const { supabaseClient, userId } = supabase;
   const { data: field, error: fieldError } = await supabaseClient
     .from("table_fields")
     .select("id, table_id, type, config")
@@ -269,7 +279,7 @@ async function getFieldContext(fieldId: string) {
     return { error: "Field not found" };
   }
 
-  const access = await requireTableAccess(field.table_id);
+  const access = await requireTableAccess(field.table_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   return { supabase: access.supabase, table: access.table, userId, field };

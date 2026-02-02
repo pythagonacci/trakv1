@@ -7,6 +7,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireTableAccess, requireWorkspaceAccessForTables } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { Table, TableField } from "@/types/table";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -17,11 +18,12 @@ interface CreateTableInput {
   title?: string;
   description?: string | null;
   icon?: string | null;
+  authContext?: AuthContext;
 }
 
 export async function createTable(input: CreateTableInput): Promise<ActionResult<{ table: Table; primaryField: TableField }>> {
-  const { workspaceId, projectId = null, title = "Untitled Table", description = null, icon = null } = input;
-  const access = await requireWorkspaceAccessForTables(workspaceId);
+  const { workspaceId, projectId = null, title = "Untitled Table", description = null, icon = null, authContext } = input;
+  const access = await requireWorkspaceAccessForTables(workspaceId, { authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
 
@@ -103,8 +105,8 @@ export async function createTable(input: CreateTableInput): Promise<ActionResult
   return { data: { table, primaryField } };
 }
 
-export async function getTable(tableId: string): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {
-  const access = await requireTableAccess(tableId);
+export async function getTable(tableId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -131,8 +133,8 @@ export async function getTable(tableId: string): Promise<ActionResult<{ table: T
   return { data: { table, fields } };
 }
 
-export async function updateTable(tableId: string, updates: Partial<Pick<Table, "title" | "description" | "icon" | "project_id">>): Promise<ActionResult<Table>> {
-  const access = await requireTableAccess(tableId);
+export async function updateTable(tableId: string, updates: Partial<Pick<Table, "title" | "description" | "icon" | "project_id">>, opts?: { authContext?: AuthContext }): Promise<ActionResult<Table>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -155,8 +157,8 @@ export async function updateTable(tableId: string, updates: Partial<Pick<Table, 
   return { data };
 }
 
-export async function deleteTable(tableId: string): Promise<ActionResult<null>> {
-  const access = await requireTableAccess(tableId);
+export async function deleteTable(tableId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -167,8 +169,8 @@ export async function deleteTable(tableId: string): Promise<ActionResult<null>> 
   return { data: null };
 }
 
-export async function duplicateTable(tableId: string, options?: { includeRows?: boolean }): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {
-  const access = await requireTableAccess(tableId);
+export async function duplicateTable(tableId: string, options?: { includeRows?: boolean }, opts?: { authContext?: AuthContext }): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table, userId } = access;
 
@@ -247,8 +249,8 @@ export async function duplicateTable(tableId: string, options?: { includeRows?: 
   return { data: { table: newTable, fields: newFields } };
 }
 
-export async function listWorkspaceTables(workspaceId: string): Promise<ActionResult<Table[]>> {
-  const access = await requireWorkspaceAccessForTables(workspaceId);
+export async function listWorkspaceTables(workspaceId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<Table[]>> {
+  const access = await requireWorkspaceAccessForTables(workspaceId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

@@ -8,6 +8,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AuthContext } from "@/lib/auth-context";
 
 export interface TableAccessContext {
   supabase: SupabaseClient;
@@ -26,14 +27,21 @@ export interface TableAccessContext {
  * Fetches table metadata and ensures the requesting user belongs to the table's workspace.
  * Returns an error string if unauthorized or missing.
  */
-export async function requireTableAccess(tableId: string): Promise<
+export async function requireTableAccess(tableId: string, opts?: { authContext?: AuthContext }): Promise<
   | { error: string }
   | TableAccessContext
 > {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return { error: "Unauthorized" };
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
   }
 
   const { data: table, error: tableError } = await supabase
@@ -46,28 +54,35 @@ export async function requireTableAccess(tableId: string): Promise<
     return { error: "Table not found" };
   }
 
-  const membership = await checkWorkspaceMembership(table.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(table.workspace_id, userId);
   if (!membership) {
     return { error: "Not a member of this workspace" };
   }
 
-  return { supabase, userId: user.id, table };
+  return { supabase, userId, table };
 }
 
 /**
  * Ensures a user can act within a workspace (used for create flows).
  */
-export async function requireWorkspaceAccessForTables(workspaceId: string) {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return { error: "Unauthorized" };
+export async function requireWorkspaceAccessForTables(workspaceId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
   }
 
-  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
   if (!membership) {
     return { error: "Not a member of this workspace" };
   }
 
-  return { supabase, userId: user.id };
+  return { supabase, userId };
 }

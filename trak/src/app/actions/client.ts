@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getServerUser } from '@/lib/auth/get-server-user'
 import { safeRevalidatePath } from './workspace'
+import type { AuthContext } from '@/lib/auth-context'
 
 // Type for client data
 type ClientData = {
@@ -16,21 +17,25 @@ type ClientData = {
 }
 
 // 1. CREATE CLIENT
-export async function createClient(workspaceId: string, clientData: ClientData) {
-  const authResult = await getServerUser()
-
-  // Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
+export async function createClient(workspaceId: string, clientData: ClientData, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
   }
-  const { supabase, user } = authResult
 
   // Check if user is a member of the workspace
   const { data: membership, error: memberError } = await supabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {
@@ -154,14 +159,18 @@ export async function getSingleClient(clientId: string) {
 }
 
 // 4. UPDATE CLIENT
-export async function updateClient(clientId: string, updates: Partial<ClientData>) {
-  const authResult = await getServerUser()
-
-  // Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
+export async function updateClient(clientId: string, updates: Partial<ClientData>, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
   }
-  const { supabase, user } = authResult
 
   // Get client to find workspace_id
   const { data: client, error: fetchError } = await supabase
@@ -179,7 +188,7 @@ export async function updateClient(clientId: string, updates: Partial<ClientData
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', client.workspace_id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {
@@ -203,14 +212,18 @@ export async function updateClient(clientId: string, updates: Partial<ClientData
 }
 
 // 5. DELETE CLIENT
-export async function deleteClient(clientId: string) {
-  const authResult = await getServerUser()
-
-  // Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
+export async function deleteClient(clientId: string, opts?: { authContext?: AuthContext }) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
   }
-  const { supabase, user } = authResult
 
   // Get client to find workspace_id
   const { data: client, error: fetchError } = await supabase
@@ -228,7 +241,7 @@ export async function deleteClient(clientId: string) {
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', client.workspace_id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (memberError || !membership) {

@@ -5,6 +5,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAccessForProperties } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type {
   EntityType,
   QueryEntitiesParams,
@@ -21,9 +22,9 @@ type ActionResult<T> = { data: T } | { error: string };
  * Joins through the hierarchy to resolve workspace context for each entity type.
  */
 export async function queryEntities(
-  params: QueryEntitiesParams
+  params: QueryEntitiesParams & { authContext?: AuthContext }
 ): Promise<ActionResult<EntityReference[]>> {
-  const access = await requireWorkspaceAccessForProperties(params.workspace_id);
+  const access = await requireWorkspaceAccessForProperties(params.workspace_id, { authContext: params.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -54,9 +55,10 @@ export async function queryEntities(
  */
 export async function queryEntitiesGroupedBy(
   params: QueryEntitiesParams,
-  groupByPropertyId: string
+  groupByPropertyId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<GroupedEntitiesResult[]>> {
-  const access = await requireWorkspaceAccessForProperties(params.workspace_id);
+  const access = await requireWorkspaceAccessForProperties(params.workspace_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -77,6 +79,7 @@ export async function queryEntitiesGroupedBy(
     properties: params.properties?.filter(
       (p) => p.property_definition_id !== groupByPropertyId
     ),
+    authContext: opts?.authContext,
   });
 
   if ("error" in entitiesResult) return entitiesResult;

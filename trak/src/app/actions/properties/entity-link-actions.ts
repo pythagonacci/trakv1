@@ -9,6 +9,7 @@ import {
   requireWorkspaceAccessForProperties,
   getWorkspaceIdForEntity,
 } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import type {
   EntityType,
@@ -88,9 +89,10 @@ export async function removeEntityLink(
   sourceEntityType: EntityType,
   sourceEntityId: string,
   targetEntityType: EntityType,
-  targetEntityId: string
+  targetEntityId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<null>> {
-  const access = await requireEntityAccess(sourceEntityType, sourceEntityId);
+  const access = await requireEntityAccess(sourceEntityType, sourceEntityId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -163,9 +165,10 @@ export async function getEntityLinks(
  */
 export async function getLinkedEntities(
   entityType: EntityType,
-  entityId: string
+  entityId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<EntityReference[]>> {
-  const access = await requireEntityAccess(entityType, entityId);
+  const access = await requireEntityAccess(entityType, entityId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -201,9 +204,10 @@ export async function getLinkedEntities(
  */
 export async function getLinkingEntities(
   entityType: EntityType,
-  entityId: string
+  entityId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<EntityReference[]>> {
-  const access = await requireEntityAccess(entityType, entityId);
+  const access = await requireEntityAccess(entityType, entityId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -242,9 +246,10 @@ export async function searchLinkableEntities(
   workspaceId: string,
   query: string,
   entityTypes?: EntityType[],
-  limit: number = 10
+  limit: number = 10,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<EntityReference[]>> {
-  const access = await requireWorkspaceAccessForProperties(workspaceId);
+  const access = await requireWorkspaceAccessForProperties(workspaceId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 

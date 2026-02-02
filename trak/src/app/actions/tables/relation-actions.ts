@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TableField, TableRow } from "@/types/table";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -75,10 +76,20 @@ export async function configureRelationField(input: {
   limit?: number;
   displayFieldId?: string | null;
   reverseFieldName?: string;
+  authContext?: AuthContext;
 }): Promise<ActionResult<{ field: TableField; reverseField?: TableField }>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (input.authContext) {
+    supabase = input.authContext.supabase;
+    userId = input.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: field, error: fieldError } = await supabase
     .from("table_fields")
@@ -90,7 +101,7 @@ export async function configureRelationField(input: {
     return { error: "Field not found" };
   }
 
-  const access = await requireTableAccess(field.table_id);
+  const access = await requireTableAccess(field.table_id, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { data: relatedTable, error: relatedError } = await supabase
@@ -188,11 +199,18 @@ export async function configureRelationField(input: {
 
 export async function getRelatedRows(
   rowId: string,
-  fieldId: string
+  fieldId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<{ rows: TableRow[]; displayFieldId?: string | null }>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+  }
 
   const { data: field, error: fieldError } = await supabase
     .from("table_fields")
@@ -204,7 +222,7 @@ export async function getRelatedRows(
     return { error: "Relation field not found" };
   }
 
-  const access = await requireTableAccess(field.table_id);
+  const access = await requireTableAccess(field.table_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const config = normalizeRelationConfig(field.config as TableField["config"]);
@@ -298,14 +316,21 @@ export async function getRelatedRows(
 export async function countRelationLinksForRows(input: {
   tableId: string;
   rowIds: string[];
+  authContext?: AuthContext;
 }): Promise<ActionResult<{ count: number }>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  if (input.authContext) {
+    supabase = input.authContext.supabase;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+  }
 
   if (input.rowIds.length === 0) return { data: { count: 0 } };
 
-  const access = await requireTableAccess(input.tableId);
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const quotedIds = input.rowIds.map((id) => `"${id}"`).join(",");
@@ -326,6 +351,7 @@ export async function syncRelationLinks(input: {
   fromField: Pick<TableField, "id" | "table_id" | "config">;
   nextRowIds: string[];
   userId?: string;
+  authContext?: AuthContext;
 }) {
   /**
    * Sync relation links using a delta-based approach.
@@ -337,11 +363,20 @@ export async function syncRelationLinks(input: {
    * This keeps updates atomic and avoids race conditions between
    * separate link/unlink calls.
    */
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" } as const;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (input.authContext) {
+    supabase = input.authContext.supabase;
+    userId = input.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" } as const;
+    supabase = client;
+    userId = user.id;
+  }
 
-  const access = await requireTableAccess(input.fromField.table_id);
+  const access = await requireTableAccess(input.fromField.table_id, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" } as const;
 
   const config = normalizeRelationConfig(input.fromField.config);
@@ -411,7 +446,7 @@ export async function syncRelationLinks(input: {
     .from("table_rows")
     .update({
       data: updatedData,
-      updated_by: input.userId ?? user.id,
+      updated_by: input.userId ?? userId,
     })
     .eq("id", input.fromRowId);
 
@@ -456,7 +491,7 @@ export async function syncRelationLinks(input: {
               ...(forwardRow.data || {}),
               [forwardFieldId]: nextForward,
             },
-            updated_by: input.userId ?? user.id,
+            updated_by: input.userId ?? userId,
           })
           .eq("id", toRowId);
       }
@@ -489,7 +524,7 @@ export async function syncRelationLinks(input: {
               ...(forwardRow.data || {}),
               [forwardFieldId]: nextForward,
             },
-            updated_by: input.userId ?? user.id,
+            updated_by: input.userId ?? userId,
           })
           .eq("id", toRowId);
       }

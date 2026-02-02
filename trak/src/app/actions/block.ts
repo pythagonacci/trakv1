@@ -33,6 +33,7 @@ export interface Block {
 // ============================================================================
 
 import { getAuthenticatedUser, getTabMetadata, checkWorkspaceMembership } from "@/lib/auth-utils";
+import type { AuthContext } from "@/lib/auth-context";
 
 // Limits to prevent unbounded queries
 const BLOCKS_PER_TAB_LIMIT = 500;
@@ -41,14 +42,18 @@ const BLOCKS_PER_TAB_LIMIT = 500;
 // 1. GET TAB BLOCKS - OPTIMIZED
 // ============================================================================
 
-export async function getTabBlocks(tabId: string) {
+export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthContext }) {
   try {
-    const supabase = await createClient();
-
-    // 🔒 Auth check FIRST (before any data fetch)
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return { error: "Unauthorized" };
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let userId: string;
+    if (opts?.authContext) {
+      supabase = opts.authContext.supabase;
+      userId = opts.authContext.userId;
+    } else {
+      supabase = await createClient();
+      const user = await getAuthenticatedUser();
+      if (!user) return { error: "Unauthorized" };
+      userId = user.id;
     }
 
     // 🔒 Verify tab access + get workspace in one query
@@ -60,7 +65,7 @@ export async function getTabBlocks(tabId: string) {
     const workspaceId = (tab.projects as any).workspace_id;
 
     // 🔒 Verify workspace membership BEFORE fetching blocks
-    const member = await checkWorkspaceMembership(workspaceId, user.id);
+    const member = await checkWorkspaceMembership(workspaceId, userId);
     if (!member) {
       return { error: "Not a member of this workspace" };
     }
@@ -162,14 +167,19 @@ export async function createBlock(data: {
   column?: number; // Column index: 0, 1, or 2 (defaults to 0)
   parentBlockId?: string | null; // Parent block ID for nested blocks (e.g., sections)
   originalBlockId?: string | null; // If this is a reference to another block
+  authContext?: AuthContext;
 }) {
   try {
-    const supabase = await createClient();
-
-    // 1. Auth check
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return { error: "Unauthorized" };
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let userId: string;
+    if (data.authContext) {
+      supabase = data.authContext.supabase;
+      userId = data.authContext.userId;
+    } else {
+      supabase = await createClient();
+      const user = await getAuthenticatedUser();
+      if (!user) return { error: "Unauthorized" };
+      userId = user.id;
     }
 
     // 2. Get tab and verify it exists
@@ -199,7 +209,7 @@ export async function createBlock(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", project.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (memberError || !member) {
@@ -479,7 +489,7 @@ export async function updateBlock(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", workspaceId)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (!membershipCheck.data) {
@@ -546,7 +556,7 @@ export async function updateBlock(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", project.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (memberError || !member) {
@@ -610,14 +620,18 @@ export async function updateBlock(data: {
 // 4. DELETE BLOCK
 // ============================================================================
 
-export async function deleteBlock(blockId: string) {
+export async function deleteBlock(blockId: string, opts?: { authContext?: AuthContext }) {
   try {
-    const supabase = await createClient();
-
-    // 1. Auth check
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return { error: "Unauthorized" };
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let userId: string;
+    if (opts?.authContext) {
+      supabase = opts.authContext.supabase;
+      userId = opts.authContext.userId;
+    } else {
+      supabase = await createClient();
+      const user = await getAuthenticatedUser();
+      if (!user) return { error: "Unauthorized" };
+      userId = user.id;
     }
 
     // 2. Get block and verify it exists
@@ -660,7 +674,7 @@ export async function deleteBlock(blockId: string) {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", project.workspace_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
     if (memberError || !member) {

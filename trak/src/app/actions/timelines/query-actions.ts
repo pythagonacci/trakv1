@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent, TimelineItem } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -23,11 +24,11 @@ export async function getTimelineItems(timelineBlockId: string): Promise<ActionR
   return { data: { events: (events || []) as TimelineEvent[] } };
 }
 
-export async function getResolvedTimelineItems(timelineBlockId: string): Promise<ActionResult<TimelineItem[]>> {
-  const access = await requireTimelineAccess(timelineBlockId);
+export async function getResolvedTimelineItems(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineItem[]>> {
+  const access = await requireTimelineAccess(timelineBlockId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
-  const itemsResult = await getTimelineItems(timelineBlockId);
+  const itemsResult = await getTimelineItems(timelineBlockId, opts);
   if ("error" in itemsResult) return itemsResult;
   const items = itemsResult.data;
 

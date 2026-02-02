@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTimelineAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import { validateReferenceType } from "./validators";
 import type { ReferenceType, TimelineReference } from "@/types/timeline";
 
@@ -14,8 +15,9 @@ export async function createTimelineReference(input: {
   referenceType: ReferenceType;
   referenceId: string;
   tableId?: string | null;
+  authContext?: AuthContext;
 }): Promise<ActionResult<TimelineReference>> {
-  const access = await requireTimelineAccess(input.timelineBlockId);
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (!validateReferenceType(input.referenceType)) {
@@ -138,8 +140,9 @@ export async function bulkImportTableRows(input: {
   eventId: string;
   tableId: string;
   rowIds: string[];
+  authContext?: AuthContext;
 }): Promise<ActionResult<null>> {
-  const access = await requireTimelineAccess(input.timelineBlockId);
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };

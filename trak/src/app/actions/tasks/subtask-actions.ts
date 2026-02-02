@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTaskItemAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TaskSubtask } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -10,8 +11,9 @@ export async function createTaskSubtask(input: {
   title: string;
   completed?: boolean;
   displayOrder?: number;
+  authContext?: AuthContext;
 }): Promise<ActionResult<TaskSubtask>> {
-  const access = await requireTaskItemAccess(input.taskId);
+  const access = await requireTaskItemAccess(input.taskId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -32,13 +34,24 @@ export async function createTaskSubtask(input: {
 
 export async function updateTaskSubtask(
   subtaskId: string,
-  updates: Partial<{ title: string; completed: boolean; displayOrder: number }>
+  updates: Partial<{ title: string; completed: boolean; displayOrder: number }>,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TaskSubtask>> {
-  const { createClient } = await import("@/lib/supabase/server");
-  const { getAuthenticatedUser, checkWorkspaceMembership } = await import("@/lib/auth-utils");
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { getAuthenticatedUser } = await import("@/lib/auth-utils");
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
+  const { checkWorkspaceMembership } = await import("@/lib/auth-utils");
 
   const { data: subtask, error: subtaskError } = await supabase
     .from("task_subtasks")
@@ -56,7 +69,7 @@ export async function updateTaskSubtask(
 
   if (!task) return { error: "Task not found" };
 
-  const membership = await checkWorkspaceMembership(task.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const payload: Record<string, any> = {};
@@ -75,12 +88,22 @@ export async function updateTaskSubtask(
   return { data: data as TaskSubtask };
 }
 
-export async function deleteTaskSubtask(subtaskId: string): Promise<ActionResult<null>> {
-  const { createClient } = await import("@/lib/supabase/server");
-  const { getAuthenticatedUser, checkWorkspaceMembership } = await import("@/lib/auth-utils");
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+export async function deleteTaskSubtask(subtaskId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { getAuthenticatedUser } = await import("@/lib/auth-utils");
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
+  const { checkWorkspaceMembership } = await import("@/lib/auth-utils");
 
   const { data: subtask, error: subtaskError } = await supabase
     .from("task_subtasks")
@@ -98,7 +121,7 @@ export async function deleteTaskSubtask(subtaskId: string): Promise<ActionResult
 
   if (!task) return { error: "Task not found" };
 
-  const membership = await checkWorkspaceMembership(task.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);

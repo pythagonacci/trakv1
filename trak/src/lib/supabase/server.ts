@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 
 // Test mode flag - set this to true when running outside of Next.js request context
 let isTestMode = false;
+let testUserId: string | null = null;
 
 export function enableTestMode() {
   isTestMode = true;
@@ -11,6 +12,11 @@ export function enableTestMode() {
 
 export function disableTestMode() {
   isTestMode = false;
+  testUserId = null;
+}
+
+export function setTestUserId(userId: string) {
+  testUserId = userId;
 }
 
 export async function createClient() {
@@ -24,12 +30,26 @@ export async function createClient() {
       throw new Error("Missing Supabase environment variables for test mode");
     }
 
-    return createServiceClient(supabaseUrl, supabaseKey, {
+    const client = createServiceClient(supabaseUrl, supabaseKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
       }
     });
+
+    // Mock getUser if testUserId is set
+    if (testUserId) {
+      const originalGetUser = client.auth.getUser.bind(client.auth);
+      client.auth.getUser = async (token?: string) => {
+        if (!token && testUserId) {
+          const { data: { user }, error } = await client.auth.admin.getUserById(testUserId);
+          return { data: { user }, error: error as any };
+        }
+        return originalGetUser(token);
+      };
+    }
+
+    return client;
   }
 
   // Normal Next.js request flow
@@ -73,11 +93,25 @@ export async function createClient() {
       throw new Error("Not in request context and missing service role key");
     }
 
-    return createServiceClient(supabaseUrl, supabaseKey, {
+    const client = createServiceClient(supabaseUrl, supabaseKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
       }
     });
+
+    // Mock getUser if testUserId is set (for scripts outside test environment)
+    if (testUserId) {
+      const originalGetUser = client.auth.getUser.bind(client.auth);
+      client.auth.getUser = async (token?: string) => {
+        if (!token && testUserId) {
+          const { data: { user }, error } = await client.auth.admin.getUserById(testUserId);
+          return { data: { user }, error: error as any };
+        }
+        return originalGetUser(token);
+      };
+    }
+
+    return client;
   }
 }

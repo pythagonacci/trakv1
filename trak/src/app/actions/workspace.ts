@@ -6,7 +6,7 @@ import { cache } from 'react'
 import { getServerUser, setTestUserContext as setServerUserTestContext, clearTestUserContext as clearServerUserTestContext } from '@/lib/auth/get-server-user'
 import { logger } from '@/lib/logger'
 import { setTestUserContext, clearTestUserContext } from '@/lib/auth-utils'
-import { enableTestMode, disableTestMode } from '@/lib/supabase/server'
+import { enableTestMode, disableTestMode, setTestUserId } from '@/lib/supabase/server'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -18,6 +18,7 @@ export async function setTestContext(workspaceId: string, userId: string) {
   testWorkspaceContext = { workspaceId, userId };
   await setTestUserContext(userId); // For auth-utils.ts
   setServerUserTestContext(userId); // For get-server-user.ts
+  setTestUserId(userId); // For supabase/server.ts
   enableTestMode();
 }
 

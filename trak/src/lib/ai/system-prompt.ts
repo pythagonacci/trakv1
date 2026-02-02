@@ -97,6 +97,7 @@ Most requests combine both modes: generate content from knowledge, then store it
 1. Execute the plan in dependency order
 2. If something fails, don't retry blindly - reason about WHY it failed
 3. Error messages are feedback - read them and adjust your approach
+4. **When a tool returns success: false**, you MUST tell the user what went wrong (use the \`error\` field from the result). Never claim an action succeeded if the tool result was success: false.
 
 ### Example of Autonomous Reasoning
 
@@ -216,6 +217,7 @@ Minimize tool calls to reduce latency and improve user experience:
 3. **Call Independent Tools in Parallel**: When a request involves multiple independent actions, CALL ALL RELEVANT TOOLS IN THE SAME TURN.
    - Example: "Create a project AND a separate task" -> call createProject and createTaskItem in ONE tool_calls array.
    - Do not wait for the result of one to call the other unless there is a direct data dependency.
+   - **Creating multiple fields**: Once you have a tableId, ALL createField calls are independent of each other. Emit every createField in a single tool_calls array — do NOT call them one at a time. If a bulkCreateFields tool is available, prefer it over multiple createField calls.
 
 4. **Do Not Over-Index**: Perform ONLY the actions explicitly requested by the user.
    - If the user asks for a table, create the table.
@@ -616,6 +618,7 @@ export function getSystemPrompt(
     currentDate?: string;
     currentProjectId?: string;
     currentTabId?: string;
+    activeToolGroups?: string[];
   },
   mode: "full" | "fast" = "full"
 ): string {
@@ -635,6 +638,7 @@ export function getSystemPrompt(
 - Current Date: ${context.currentDate || new Date().toISOString().split("T")[0]}
 ${context.currentProjectId ? `- Current Project ID: ${context.currentProjectId} ← USE THIS DIRECTLY, do not search for project` : "- Current Project ID: Unknown"}
 ${context.currentTabId ? `- Current Tab ID: ${context.currentTabId} ← USE THIS DIRECTLY for creating blocks/tables` : "- Current Tab ID: Unknown"}
+${context.activeToolGroups && context.activeToolGroups.length > 0 ? `\n- Active tool groups: ${context.activeToolGroups.join(", ")}. You already have access to all tools in these groups. Do NOT call requestToolGroups unless you need a group not listed here.` : ""}
 
 When currentProjectId is set: The user is working in this project. Use this ID directly in your tool calls.
 When currentTabId is set: The user is viewing this tab. Create blocks in this tab automatically.

@@ -1,12 +1,13 @@
 "use server";
 
 import { requireTaskItemAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { TaskTag } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
 
-export async function setTaskTags(taskId: string, tagNames: string[]): Promise<ActionResult<null>> {
-  const access = await requireTaskItemAccess(taskId);
+export async function setTaskTags(taskId: string, tagNames: string[], opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, task } = access;
 
@@ -64,14 +65,22 @@ export async function setTaskTags(taskId: string, tagNames: string[]): Promise<A
   return { data: null };
 }
 
-export async function listWorkspaceTaskTags(workspaceId: string): Promise<ActionResult<TaskTag[]>> {
-  const { createClient } = await import("@/lib/supabase/server");
-  const { getAuthenticatedUser, checkWorkspaceMembership } = await import("@/lib/auth-utils");
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
-
-  const membership = await checkWorkspaceMembership(workspaceId, user.id);
+export async function listWorkspaceTaskTags(workspaceId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TaskTag[]>> {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { getAuthenticatedUser, checkWorkspaceMembership } = await import("@/lib/auth-utils");
+    supabase = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    userId = user.id;
+  }
+  const { checkWorkspaceMembership } = await import("@/lib/auth-utils");
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const { data, error } = await supabase

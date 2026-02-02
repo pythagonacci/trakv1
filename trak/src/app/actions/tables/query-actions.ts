@@ -5,6 +5,7 @@
 // - UI should pair this with React Query and evolve filters/grouping as we port the table-block.
 
 import { requireTableAccess } from "./context";
+import type { AuthContext } from "@/lib/auth-context";
 import type { FilterCondition, SortCondition, TableRow, TableView } from "@/types/table";
 import type { PostgrestFilterBuilder, PostgrestSingleResponse } from "@supabase/postgrest-js";
 
@@ -13,10 +14,11 @@ type ActionResult<T> = { data: T } | { error: string };
 interface GetTableDataInput {
   tableId: string;
   viewId?: string | null;
+  authContext?: AuthContext;
 }
 
 export async function getTableData(input: GetTableDataInput): Promise<ActionResult<{ rows: TableRow[]; view?: TableView | null }>> {
-  const access = await requireTableAccess(input.tableId);
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -89,8 +91,8 @@ export async function searchTableRows(tableId: string, query: string): Promise<A
   return { data: results };
 }
 
-export async function getFilteredRows(tableId: string, filters: FilterCondition[]): Promise<ActionResult<TableRow[]>> {
-  const access = await requireTableAccess(tableId);
+export async function getFilteredRows(tableId: string, filters: FilterCondition[], opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow[]>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
@@ -112,9 +114,9 @@ export async function getFilteredRows(tableId: string, filters: FilterCondition[
 
 export async function getTableRows(
   tableId: string,
-  options?: { limit?: number; offset?: number }
+  options?: { limit?: number; offset?: number; authContext?: AuthContext }
 ): Promise<ActionResult<{ rows: TableRow[]; total: number; hasMore: boolean }>> {
-  const access = await requireTableAccess(tableId);
+  const access = await requireTableAccess(tableId, { authContext: options?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
   const limit = options?.limit ?? 50;

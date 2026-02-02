@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTimelineAccess } from "./context";
 import { detectCircularDependencies, validateDependencyType } from "./validators";
+import type { AuthContext } from "@/lib/auth-context";
 import type { DependencyType, TimelineDependency } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -13,8 +14,9 @@ export async function createTimelineDependency(input: {
   fromId: string;
   toId: string;
   dependencyType: DependencyType;
+  authContext?: AuthContext;
 }): Promise<ActionResult<TimelineDependency>> {
-  const access = await requireTimelineAccess(input.timelineBlockId);
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (!validateDependencyType(input.dependencyType)) {
@@ -59,8 +61,8 @@ export async function createTimelineDependency(input: {
   return { data: data as TimelineDependency };
 }
 
-export async function deleteTimelineDependency(dependencyId: string): Promise<ActionResult<null>> {
-  const access = await getDependencyContext(dependencyId);
+export async function deleteTimelineDependency(dependencyId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
+  const access = await getDependencyContext(dependencyId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
@@ -74,8 +76,8 @@ export async function deleteTimelineDependency(dependencyId: string): Promise<Ac
   return { data: null };
 }
 
-export async function getTimelineDependencies(timelineBlockId: string): Promise<ActionResult<TimelineDependency[]>> {
-  const access = await requireTimelineAccess(timelineBlockId);
+export async function getTimelineDependencies(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineDependency[]>> {
+  const access = await requireTimelineAccess(timelineBlockId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, block } = access;
@@ -91,10 +93,19 @@ export async function getTimelineDependencies(timelineBlockId: string): Promise<
   return { data: data as TimelineDependency[] };
 }
 
-async function getDependencyContext(dependencyId: string): Promise<{ error: string } | { supabase: any; dependency: TimelineDependency }> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+async function getDependencyContext(dependencyId: string, opts?: { authContext?: AuthContext }): Promise<{ error: string } | { supabase: any; dependency: TimelineDependency }> {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: dependency } = await supabase
     .from("timeline_dependencies")
@@ -108,7 +119,7 @@ async function getDependencyContext(dependencyId: string): Promise<{ error: stri
     .from("workspace_members")
     .select("role")
     .eq("workspace_id", (dependency as any).workspace_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (!membership) return { error: "Not a member of this workspace" };
