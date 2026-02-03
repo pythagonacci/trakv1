@@ -108,6 +108,55 @@ type ToolFormatCacheEntry = {
 
 const toolFormatCache = new Map<string, ToolFormatCacheEntry>();
 
+const DEFAULT_WARM_TOOL_GROUPS: ToolGroup[][] = [
+  ["core"],
+  ["core", "task"],
+  ["core", "table"],
+  ["core", "block"],
+  ["core", "doc"],
+  ["core", "project"],
+];
+
+export function warmPromptToActionCache(
+  toolGroupSets: ToolGroup[][] = DEFAULT_WARM_TOOL_GROUPS
+) {
+  const warmed: Array<{
+    groups: ToolGroup[];
+    toolCount: number;
+    jsonChars: number;
+    cached: boolean;
+  }> = [];
+
+  toolGroupSets.forEach((groups) => {
+    const toolsForGroups = getToolsByGroups(groups);
+    const toolCacheKey = toolsForGroups.map((tool) => tool.name).join("|");
+    const existing = toolFormatCache.get(toolCacheKey);
+    if (existing) {
+      warmed.push({
+        groups,
+        toolCount: toolsForGroups.length,
+        jsonChars: existing.jsonChars,
+        cached: true,
+      });
+      return;
+    }
+
+    const formatted = toOpenAIFormat(toolsForGroups);
+    const jsonChars = JSON.stringify(formatted).length;
+    toolFormatCache.set(toolCacheKey, { tools: formatted, jsonChars });
+    warmed.push({
+      groups,
+      toolCount: toolsForGroups.length,
+      jsonChars,
+      cached: false,
+    });
+  });
+
+  return {
+    warmed,
+  };
+}
+
 function isSearchLikeToolName(name: string) {
   return (
     name.startsWith("search") ||

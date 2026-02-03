@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import P2AWarmup from '@/components/ai/p2a-warmup';
 // import { Inter, Newsreader, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 
@@ -40,6 +41,7 @@ export default function RootLayout({
         className={`bg-[var(--background)] text-[var(--foreground)]`}
       >
         {children}
+        <P2AWarmup />
       </body>
     </html>
   );
