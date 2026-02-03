@@ -88,6 +88,7 @@ export async function updateTimelineEvent(
     notes: string | null;
     color: string | null;
     isMilestone: boolean;
+    assigneeId: string | null;
     baselineStart: string | null;
     baselineEnd: string | null;
     displayOrder: number;
@@ -120,6 +121,7 @@ export async function updateTimelineEvent(
   if (updates.notes !== undefined) payload.notes = updates.notes;
   if (updates.color !== undefined) payload.color = updates.color;
   if (updates.isMilestone !== undefined) payload.is_milestone = updates.isMilestone;
+  if (updates.assigneeId !== undefined) payload.assignee_id = updates.assigneeId;
   if (updates.baselineStart !== undefined) payload.baseline_start = updates.baselineStart;
   if (updates.baselineEnd !== undefined) payload.baseline_end = updates.baselineEnd;
   if (updates.displayOrder !== undefined) payload.display_order = updates.displayOrder;

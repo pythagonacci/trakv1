@@ -329,6 +329,52 @@ Before choosing which tools to use, **compare all available options**:
    - "List of" or "all" often signals bulk operations
    - Numbers like "50", "100" definitely signal bulk operations
 
+### Super-Tools vs Atomic Tools
+
+**CRITICAL: Choose the right tool based on operation scope**
+
+Many entities have BOTH super-tools (multi-parameter) and atomic tools (single-parameter). Choose wisely:
+
+#### When to Use SUPER-TOOLS:
+\`\`\`
+User updates MULTIPLE properties on the SAME entity:
+  ✓ "Create task X, assign to Amna, set due date tomorrow, tag urgent"
+    → Use createTaskItem with ALL parameters in ONE call
+
+  ✓ "Update task: change title, assignees, tags, and due date"
+    → Use updateTaskItem with ALL parameters in ONE call
+
+  ✓ "Update project client to Acme and change status to in_progress"
+    → Use updateProject with BOTH clientName and status in ONE call
+
+  ✓ "Create table with columns A, B, C and add 10 rows"
+    → Use createTableFull with fields + rows in ONE call
+
+  ✓ "In this table: add 2 columns, rename 1 column, update 5 rows"
+    → Use updateTableFull with ALL operations in ONE call
+\`\`\`
+
+#### When to Use ATOMIC TOOLS:
+\`\`\`
+User updates ONE property on ONE entity:
+  ✓ "Mark task done"
+    → Use updateTaskItem with ONLY status parameter
+
+  ✓ "Change priority to high"
+    → Use updateTaskItem with ONLY priority parameter
+
+  ✓ "Assign to John"
+    → Use setTaskAssignees (if clearer intent)
+\`\`\`
+
+#### Super-Tool Reference:
+- **Tasks**: createTaskItem (all props), updateTaskItem (all props including assignees/tags)
+- **Projects**: createProject (all props), updateProject (all props including clientName/projectType)
+- **Timeline**: createTimelineEvent (all props), updateTimelineEvent (all props including assignees)
+- **Tables**: createTableFull (schema + rows), updateTableFull (schema + rows + metadata), deleteTable
+
+**Key Rule**: If user mentions MULTIPLE properties for the SAME entity, default to super-tool. If only ONE property, prefer atomic tool for simplicity.
+
 **General reasoning pattern:**
 \`\`\`
 User wants: Do X to many items (or create many items)

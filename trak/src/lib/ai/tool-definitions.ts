@@ -409,8 +409,9 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "updateTaskItem",
-    description: "UPDATE an existing task's properties. Use to modify task title, status, priority, etc.\n\n" +
-      "Auto-Context: You can provide 'lookupName' instead of 'taskId' to find and update a task by its title in one step. Prefer this for single-task updates to be faster.\n" +
+    description: "UPDATE an existing task's properties including assignees and tags. ⚠️ SUPER TOOL: Use this when updating multiple properties on the same task (e.g., 'change title, assignees, and tags'). For single-property edits, atomic tools may be faster.\n\n" +
+      "Auto-Context: You can provide 'lookupName' instead of 'taskId' to find and update a task by its title in one step.\n" +
+      "Assignees: Pass NAMES (e.g. ['Amna']) directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
       "Returns: Updated task object.",
     category: "task",
     parameters: {
@@ -423,6 +424,8 @@ const taskActionTools: ToolDefinition[] = [
       dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
       dueTime: { type: "string", description: "New due time (HH:MM)" },
       startDate: { type: "string", description: "New start date" },
+      assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). REPLACES all current assignees. Empty array clears all. Undefined/omit to keep unchanged.", items: { type: "string" } },
+      tags: { type: "array", description: "List of tag names. REPLACES all current tags. Empty array clears all. Undefined/omit to keep unchanged.", items: { type: "string" } },
     },
     requiredParams: [],
   },
@@ -627,14 +630,17 @@ const projectActionTools: ToolDefinition[] = [
   },
   {
     name: "updateProject",
-    description: "UPDATE project properties (name, status, client, due date). Use to modify existing projects. Required: projectId. Returns: Updated project object.",
+    description: "UPDATE project properties (name, status, client, due date, type). ⚠️ SUPER TOOL: Use this when updating multiple properties on the same project. For single-property edits, atomic tools may be faster.\n\n" +
+      "Client Resolution: Pass NAMES (e.g. 'Acme Corp') directly. The server resolves them instantly. Do NOT call searchClients first.",
     category: "project",
     parameters: {
       projectId: { type: "string", description: "The project ID to update" },
       name: { type: "string", description: "New name" },
       status: { type: "string", description: "New status. MUST be exactly one of: 'not_started', 'in_progress', or 'complete' (NOT 'completed' or 'active'!)", enum: ["not_started", "in_progress", "complete"] },
-      clientId: { type: "string", description: "New client ID (null to remove)" },
-      dueDate: { type: "string", description: "New due date (YYYY-MM-DD)" },
+      clientId: { type: "string", description: "New client ID (null to remove). PREFER 'clientName' for natural language." },
+      clientName: { type: "string", description: "Client Name (e.g. 'Acme Corp'). System resolves to ID automatically. Set to null to remove client." },
+      dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
+      projectType: { type: "string", description: "New project type", enum: ["project", "internal"] },
     },
     requiredParams: ["projectId"],
   },
@@ -973,6 +979,95 @@ const tableActionTools: ToolDefinition[] = [
     },
     requiredParams: ["tableId", "rows"],
   },
+  {
+    name: "createTableFull",
+    description:
+      "★ CREATE TABLE with schema + data in ONE call ★ Use this when creating a table with columns AND initial rows.\n\n" +
+      "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n\n" +
+      "⚠️ SUPER TOOL: Prefer this over createTable + createField + bulkInsertRows sequence.\n\n" +
+      "Auto-creates table → creates fields → inserts rows in one atomic operation.",
+    category: "table",
+    parameters: {
+      workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
+      title: { type: "string", description: "Table name/title" },
+      description: { type: "string", description: "Optional table description" },
+      projectId: { type: "string", description: "Project to create table in" },
+      tabId: { type: "string", description: "Optional tab ID. If provided, a table block will be created in this tab." },
+      fields: {
+        type: "array",
+        description: "Array of field definitions. Each must have 'name' (string) and 'type' (string). Optional: 'config' (object).",
+        items: { type: "object" },
+      },
+      rows: {
+        type: "array",
+        description: "Array of row objects where each object has a 'data' property containing field names and values. Format: [{ data: { 'FieldName': 'value' } }, ...]",
+        items: { type: "object" },
+      },
+    },
+    requiredParams: ["workspaceId", "title"],
+  },
+  {
+    name: "updateTableFull",
+    description:
+      "★ UPDATE TABLE (schema + rows) in ONE call ★ Use when modifying both table structure AND data.\n\n" +
+      "Example: 'Add 2 columns, rename 1 column, and update 5 rows'\n\n" +
+      "⚠️ SUPER TOOL: Prefer this over multiple updateField + updateTableRowsByFieldNames calls.\n\n" +
+      "Schema Operations:\n" +
+      "- addFields: Create new columns\n" +
+      "- updateFields: Rename/reconfigure columns\n" +
+      "- deleteFields: Remove columns\n\n" +
+      "Row Operations:\n" +
+      "- insertRows: Add new rows\n" +
+      "- updateRows: Modify existing rows (uses filters + updates pattern)\n" +
+      "- deleteRowIds: Remove rows by ID",
+    category: "table",
+    parameters: {
+      tableId: { type: "string", description: "The table ID" },
+      tableName: { type: "string", description: "Target Table Name (e.g. 'Employees'). System finds fuzzy match if tableId not provided." },
+      title: { type: "string", description: "New table title" },
+      description: { type: "string", description: "New table description" },
+      addFields: {
+        type: "array",
+        description: "Fields to create. Each: { name, type, config?, isPrimary? }",
+        items: { type: "object" },
+      },
+      updateFields: {
+        type: "array",
+        description: "Fields to update. Each: { fieldId OR fieldName, name?, config? }",
+        items: { type: "object" },
+      },
+      deleteFields: {
+        type: "array",
+        description: "Field IDs or names to delete",
+        items: { type: "string" },
+      },
+      insertRows: {
+        type: "array",
+        description: "Rows to insert. Format: [{ data: { 'FieldName': 'value' } }, ...]",
+        items: { type: "object" },
+      },
+      updateRows: {
+        type: "object",
+        description: "Row updates. Format: { filters: { 'FieldName': value }, updates: { 'FieldName': value } }",
+      },
+      deleteRowIds: {
+        type: "array",
+        description: "Row IDs to delete",
+        items: { type: "string" },
+      },
+    },
+    requiredParams: [],
+  },
+  {
+    name: "deleteTable",
+    description: "DELETE a table permanently. ⚠️ Cannot be undone. Use to remove entire tables. Required: tableId. Returns: Success confirmation.",
+    category: "table",
+    parameters: {
+      tableId: { type: "string", description: "The table ID to delete" },
+      tableName: { type: "string", description: "Target Table Name (e.g. 'Old Table'). System finds fuzzy match if tableId not provided." },
+    },
+    requiredParams: [],
+  },
 ];
 
 // ============================================================================
@@ -982,9 +1077,17 @@ const tableActionTools: ToolDefinition[] = [
 const timelineActionTools: ToolDefinition[] = [
   {
     name: "createTimelineEvent",
-    description: "Create a new event in a timeline block.",
+    description: "CREATE a new event in a timeline block. ⚠️ SMART TOOL: Do NOT search for timeline block IDs. Just pass names directly.\n\n" +
+      "Auto-Context: Defaults to current view. Provide 'timelineBlockName' (e.g. 'Project Timeline') to target specific blocks.\n" +
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
     category: "timeline",
     parameters: {
+      timelineBlockId: { type: "string", description: "Optional: timeline block ID. PREFER 'timelineBlockName' for natural language." },
+      timelineBlockName: { type: "string", description: "Target Timeline Block Name (e.g. 'Project Timeline'). System finds fuzzy match." },
+      title: { type: "string", description: "Event title" },
+      startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
+      endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
+      status: { type: "string", description: "Event status", enum: ["not_started", "in_progress", "complete", "on_hold", "cancelled"] },
       progress: { type: "number", description: "Progress percentage (0-100)" },
       notes: { type: "string", description: "Event notes" },
       color: { type: "string", description: "Event color (hex)" },
@@ -996,19 +1099,21 @@ const timelineActionTools: ToolDefinition[] = [
   },
   {
     name: "updateTimelineEvent",
-    description: "Update a timeline event.",
+    description: "UPDATE a timeline event. ⚠️ SUPER TOOL: Use this when updating multiple properties on the same event (e.g., 'change dates, status, and assignee'). For single-property edits, atomic tools may be faster.\n\n" +
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
     category: "timeline",
     parameters: {
       eventId: { type: "string", description: "The event ID" },
       title: { type: "string", description: "New title" },
-      startDate: { type: "string", description: "New start date" },
-      endDate: { type: "string", description: "New end date" },
-      status: { type: "string", description: "New status" },
+      startDate: { type: "string", description: "New start date (YYYY-MM-DD)" },
+      endDate: { type: "string", description: "New end date (YYYY-MM-DD)" },
+      status: { type: "string", description: "New status", enum: ["not_started", "in_progress", "complete", "on_hold", "cancelled"] },
       progress: { type: "number", description: "New progress (0-100)" },
       notes: { type: "string", description: "New notes" },
-      color: { type: "string", description: "New color" },
+      color: { type: "string", description: "New color (hex)" },
       isMilestone: { type: "boolean", description: "Whether this is a milestone" },
-      assigneeId: { type: "string", description: "New assignee ID" },
+      assigneeId: { type: "string", description: "New assignee ID. PREFER 'assigneeName'." },
+      assigneeName: { type: "string", description: "New assignee name (e.g. 'Amna'). System resolves to ID." },
     },
     requiredParams: ["eventId"],
   },
@@ -1267,13 +1372,14 @@ const workspaceActionTools: ToolDefinition[] = [
   {
     name: "reindexWorkspaceContent",
     description:
-      "Re-index all searchable workspace content for embedding search (blocks and files). " +
+      "Re-index all searchable workspace content for embedding search (blocks, files, docs). " +
       "Use this if embeddings are missing or stale. Returns counts of enqueued items.",
     category: "workspace",
     parameters: {
       workspaceId: { type: "string", description: "Workspace ID to re-index (defaults to current workspace)." },
       includeBlocks: { type: "boolean", description: "Include blocks in re-indexing (default true)." },
       includeFiles: { type: "boolean", description: "Include files in re-indexing (default true)." },
+      includeDocs: { type: "boolean", description: "Include docs in re-indexing (default true)." },
       maxItems: { type: "number", description: "Optional cap on total items enqueued (for safety)." },
     },
     requiredParams: [],
