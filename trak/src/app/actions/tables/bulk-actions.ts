@@ -2,13 +2,25 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
-import { aiTiming, isAITimingEnabled } from "@/lib/ai/debug";
+import { aiTiming, aiDebug, isAITimingEnabled } from "@/lib/ai/debug";
 import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import { recomputeFormulasForRow } from "./formula-actions";
 import { recomputeRollupsForRow, recomputeRollupsForTargetRowChanged } from "./rollup-actions";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+const RPC_BULK_UPDATE_ROWS = "bulk_update_rows";
+const RPC_BULK_DELETE_ROWS = "bulk_delete_rows";
+const RPC_BULK_DUPLICATE_ROWS = "bulk_duplicate_rows";
+const RPC_BULK_INSERT_ROWS = "bulk_insert_rows";
+
+const RPC_DISABLED = process.env.DISABLE_RPC === "true";
+
+function unwrapRpcData<T>(data: T | T[] | null): T | null {
+  if (!data) return null;
+  return Array.isArray(data) ? (data[0] ?? null) : data;
+}
 
 function sanitizeRowData(rowData: Record<string, unknown>, validIds: Set<string>) {
   const cleaned: Record<string, unknown> = {};
@@ -46,12 +58,28 @@ export async function bulkUpdateRows(input: {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
+  const userId = user.id;
 
   const access = await requireTableAccess(input.tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   if (timingEnabled) t_access_ms = Date.now() - accessStart;
 
   if (input.rowIds.length === 0) return { data: null };
+
+  if (!RPC_DISABLED) {
+    const rpcResult = await supabase.rpc(RPC_BULK_UPDATE_ROWS, {
+      p_table_id: input.tableId,
+      p_row_ids: input.rowIds,
+      p_updates: input.updates,
+      p_updated_by: userId,
+    });
+    aiDebug("rpc:result", { name: RPC_BULK_UPDATE_ROWS, ok: !rpcResult.error, table: "table_rows" });
+    if (!rpcResult.error) {
+      return { data: null };
+    }
+  } else {
+    aiDebug("rpc:skip", { name: RPC_BULK_UPDATE_ROWS, reason: "disabled" });
+  }
 
   const fetchFieldsStart = timingEnabled ? Date.now() : 0;
   const { data: fields } = await supabase
@@ -203,19 +231,36 @@ export async function bulkDeleteRows(input: {
   authContext?: AuthContext;
 }): Promise<ActionResult<null>> {
   let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string | null = null;
   if (input.authContext) {
     supabase = input.authContext.supabase;
+    userId = input.authContext.userId;
   } else {
     const client = await createClient();
     const user = await getAuthenticatedUser();
     if (!user) return { error: "Unauthorized" };
     supabase = client;
+    userId = user.id;
   }
 
   const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
+
+  if (!RPC_DISABLED) {
+    const rpcResult = await supabase.rpc(RPC_BULK_DELETE_ROWS, {
+      p_table_id: input.tableId,
+      p_row_ids: input.rowIds,
+      p_updated_by: userId,
+    });
+    aiDebug("rpc:result", { name: RPC_BULK_DELETE_ROWS, ok: !rpcResult.error, table: "table_rows" });
+    if (!rpcResult.error) {
+      return { data: null };
+    }
+  } else {
+    aiDebug("rpc:skip", { name: RPC_BULK_DELETE_ROWS, reason: "disabled" });
+  }
 
   const quotedIds = input.rowIds.map((id) => `"${id}"`).join(",");
   const { data: relationLinks } = await supabase
@@ -262,7 +307,7 @@ export async function bulkDeleteRows(input: {
       .from("table_rows")
       .update({
         data: updatedData,
-        updated_by: user.id,
+        updated_by: userId,
       })
       .eq("id", rowId);
 
@@ -280,11 +325,26 @@ export async function bulkDuplicateRows(input: {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
+  const userId = user.id;
 
   const access = await requireTableAccess(input.tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (input.rowIds.length === 0) return { data: null };
+
+  if (!RPC_DISABLED) {
+    const rpcResult = await supabase.rpc(RPC_BULK_DUPLICATE_ROWS, {
+      p_table_id: input.tableId,
+      p_row_ids: input.rowIds,
+      p_created_by: userId,
+    });
+    aiDebug("rpc:result", { name: RPC_BULK_DUPLICATE_ROWS, ok: !rpcResult.error, table: "table_rows" });
+    if (!rpcResult.error) {
+      return { data: null };
+    }
+  } else {
+    aiDebug("rpc:skip", { name: RPC_BULK_DUPLICATE_ROWS, reason: "disabled" });
+  }
 
   const { data: rows } = await supabase
     .from("table_rows")
@@ -298,8 +358,8 @@ export async function bulkDuplicateRows(input: {
     table_id: row.table_id,
     data: row.data,
     order: Number(row.order) + 0.001 * (idx + 1),
-    created_by: user.id,
-    updated_by: user.id,
+    created_by: userId,
+    updated_by: userId,
   }));
 
   const { error } = await supabase.from("table_rows").insert(payload);
@@ -314,11 +374,28 @@ export async function bulkInsertRows(input: {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
+  const userId = user.id;
 
   const access = await requireTableAccess(input.tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   if (!input.rows.length) return { data: { insertedIds: [] } };
+
+  if (!RPC_DISABLED) {
+    const rpcResult = await supabase.rpc(RPC_BULK_INSERT_ROWS, {
+      p_table_id: input.tableId,
+      p_rows: input.rows,
+      p_created_by: userId,
+    });
+    aiDebug("rpc:result", { name: RPC_BULK_INSERT_ROWS, ok: !rpcResult.error, table: "table_rows" });
+    if (!rpcResult.error) {
+      const payload = unwrapRpcData<Record<string, unknown>>(rpcResult.data as any) ?? {};
+      const insertedIds = (payload.inserted_ids ?? payload.insertedIds ?? []) as string[];
+      return { data: { insertedIds } };
+    }
+  } else {
+    aiDebug("rpc:skip", { name: RPC_BULK_INSERT_ROWS, reason: "disabled" });
+  }
 
   const { data: fields } = await supabase
     .from("table_fields")
@@ -341,8 +418,8 @@ export async function bulkInsertRows(input: {
     table_id: input.tableId,
     data: sanitizeRowData(row.data || {}, validIds),
     order: row.order ?? null,
-    created_by: user.id,
-    updated_by: user.id,
+    created_by: userId,
+    updated_by: userId,
   }));
 
   const chunkSize = 100;

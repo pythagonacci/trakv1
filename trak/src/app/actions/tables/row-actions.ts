@@ -262,7 +262,31 @@ export async function deleteRows(rowIds: string[], opts?: { authContext?: AuthCo
   if (rowIds.length === 0) return { data: null };
   const access = await getRowContext(rowIds[0], opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase } = access;
+  const { supabase, userId, row } = access;
+
+  if (process.env.DISABLE_RPC === "true") {
+    try {
+      const { aiDebug } = await import("@/lib/ai/debug");
+      aiDebug("rpc:skip", { name: "bulk_delete_rows", reason: "disabled" });
+    } catch {
+      // ignore debug import failures
+    }
+  } else {
+    const rpcResult = await supabase.rpc("bulk_delete_rows", {
+      p_table_id: row.table_id,
+      p_row_ids: rowIds,
+      p_updated_by: userId,
+    });
+    try {
+      const { aiDebug } = await import("@/lib/ai/debug");
+      aiDebug("rpc:result", { name: "bulk_delete_rows", ok: !rpcResult.error, table: "table_rows" });
+    } catch {
+      // ignore debug import failures
+    }
+    if (!rpcResult.error) {
+      return { data: null };
+    }
+  }
 
   const { error } = await supabase.from("table_rows").delete().in("id", rowIds);
   if (error) {

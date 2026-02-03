@@ -45,6 +45,14 @@ import {
   bulkUpdateTaskItems,
   duplicateTasksToBlock,
 } from "@/app/actions/tasks/item-actions";
+import {
+  createTaskFullRpc,
+  updateTaskFullRpc,
+  bulkUpdateTaskItemsRpc,
+  bulkMoveTaskItemsRpc,
+  bulkSetTaskAssigneesRpc,
+  duplicateTasksToBlockRpc,
+} from "@/app/actions/tasks/super-actions";
 import { setTaskAssignees } from "@/app/actions/tasks/assignee-actions";
 import { setTaskTags } from "@/app/actions/tasks/tag-actions";
 import {
@@ -92,7 +100,12 @@ import { reindexWorkspaceContent } from "@/app/actions/indexing";
 // IMPORTS - Table Actions
 // ============================================================================
 import { createTable, getTable, updateTable, deleteTable } from "@/app/actions/tables/table-actions";
-import { createTableFullRpc, updateTableFullRpc } from "@/app/actions/tables/super-actions";
+import {
+  createTableFullRpc,
+  updateTableFullRpc,
+  updateTableRowsByFieldNamesRpc,
+  bulkUpdateRowsByFieldNamesRpc,
+} from "@/app/actions/tables/super-actions";
 import {
   createField,
   updateField,
@@ -496,6 +509,16 @@ export async function executeTool(
           // EXECUTION: Create -> Assign -> Tag
           // ------------------------------------------------------------------
 
+          const rpcResult = await createTaskFullRpc({
+            ...payload,
+            assignees: resolvedAssignees,
+            tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+            authContext: authContext ?? undefined,
+          });
+          if (!("error" in rpcResult)) {
+            return { success: true, data: rpcResult.data };
+          }
+
           const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
           if (!("error" in directResult)) {
             const newTaskId = directResult.data.id;
@@ -654,6 +677,59 @@ export async function executeTool(
             return { success: false, error: "Missing taskId or valid lookupName." };
           }
 
+          const baseUpdates: Record<string, unknown> = {};
+          if (args.title !== undefined) baseUpdates.title = args.title as string | undefined;
+          if (args.status !== undefined) baseUpdates.status = args.status as any;
+          if (args.priority !== undefined) baseUpdates.priority = args.priority as any;
+          if (args.description !== undefined) baseUpdates.description = args.description as string | null | undefined;
+          if (args.dueDate !== undefined) baseUpdates.dueDate = args.dueDate as string | null | undefined;
+          if (args.dueTime !== undefined) baseUpdates.dueTime = args.dueTime as string | null | undefined;
+          if (args.startDate !== undefined) baseUpdates.startDate = args.startDate as string | null | undefined;
+
+          const assigneesProvided = args.assignees !== undefined;
+          const tagsProvided = args.tags !== undefined;
+          let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
+          let searchCtx: SearchContextSuccess | null = null;
+
+          if (assigneesProvided) {
+            const assigneeArgs = Array.isArray(args.assignees) && args.assignees.length > 0
+              ? args.assignees.map(a =>
+                  isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
+                )
+              : [];
+
+            const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+            if (ctxResult.error === null) {
+              searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+              const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
+              if (assigneeResult.ambiguities.length > 0) {
+                const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+                return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
+              }
+              resolvedAssignees = assigneeResult.resolved;
+            }
+          }
+
+          const hasRpcOps =
+            Object.keys(baseUpdates).length > 0 ||
+            assigneesProvided ||
+            tagsProvided;
+
+          if (hasRpcOps) {
+            const rpcResult = await updateTaskFullRpc({
+              taskId,
+              updates: baseUpdates,
+              assignees: resolvedAssignees,
+              assigneesSet: assigneesProvided,
+              tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+              tagsSet: tagsProvided,
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
+          }
+
           // Update base task properties
           const updateResult = await wrapResult(
             updateTaskItem(taskId, {
@@ -672,36 +748,25 @@ export async function executeTool(
           }
 
           // Handle assignees if provided (undefined means no change, array means replace)
-          if (args.assignees !== undefined) {
-            const assigneeArgs = Array.isArray(args.assignees) && args.assignees.length > 0
-              ? args.assignees.map(a =>
-                  isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
-                )
-              : [];
-
-            if (assigneeArgs.length > 0 || Array.isArray(args.assignees)) {
-              // Get search context for assignee resolution
-              const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
-              if (ctxResult.error === null) {
-                const searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
-
-                if (assigneeArgs.length > 0) {
-                  const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
-                  if (assigneeResult.ambiguities.length > 0) {
-                    const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
-                    return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
-                  }
-                  await setTaskAssignees(taskId, assigneeResult.resolved, { replaceExisting: true, authContext: authContext ?? undefined });
-                } else {
-                  // Empty array means clear all assignees
-                  await setTaskAssignees(taskId, [], { replaceExisting: true, authContext: authContext ?? undefined });
+          if (assigneesProvided) {
+            if (resolvedAssignees.length > 0 || Array.isArray(args.assignees)) {
+              if (!searchCtx) {
+                const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+                if (ctxResult.error === null) {
+                  searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
                 }
+              }
+              if (resolvedAssignees.length > 0) {
+                await setTaskAssignees(taskId, resolvedAssignees, { replaceExisting: true, authContext: authContext ?? undefined });
+              } else {
+                // Empty array means clear all assignees
+                await setTaskAssignees(taskId, [], { replaceExisting: true, authContext: authContext ?? undefined });
               }
             }
           }
 
           // Handle tags if provided (undefined means no change, array means replace)
-          if (args.tags !== undefined && Array.isArray(args.tags)) {
+          if (tagsProvided && Array.isArray(args.tags)) {
             await setTaskTags(taskId, args.tags as string[], { authContext: authContext ?? undefined });
           }
 
@@ -716,6 +781,16 @@ export async function executeTool(
           };
         }
         const updatesArg = args.updates as Record<string, unknown> | undefined;
+        {
+          const rpcResult = await bulkUpdateTaskItemsRpc({
+            taskIds: args.taskIds as string[],
+            updates: updatesArg ?? {},
+            authContext: authContext ?? undefined,
+          });
+          if (!("error" in rpcResult)) {
+            return { success: true, data: rpcResult.data };
+          }
+        }
         return await wrapResult(
           bulkUpdateTaskItems({
             taskIds: args.taskIds as string[],
@@ -736,6 +811,16 @@ export async function executeTool(
         return await wrapResult(deleteTaskItem(args.taskId as string, { authContext: authContext ?? undefined }));
 
       case "bulkMoveTaskItems":
+        {
+          const rpcResult = await bulkMoveTaskItemsRpc({
+            taskIds: args.taskIds as string[],
+            targetBlockId: args.targetBlockId as string,
+            authContext: authContext ?? undefined,
+          });
+          if (!("error" in rpcResult)) {
+            return { success: true, data: rpcResult.data };
+          }
+        }
         return await wrapResult(
           bulkMoveTaskItems({
             taskIds: args.taskIds as string[],
@@ -745,6 +830,18 @@ export async function executeTool(
         );
 
       case "duplicateTasksToBlock":
+        {
+          const rpcResult = await duplicateTasksToBlockRpc({
+            taskIds: (args as any).taskIds as string[],
+            targetBlockId: (args as any).targetBlockId as string,
+            includeAssignees: (args as any).includeAssignees as boolean | undefined,
+            includeTags: (args as any).includeTags as boolean | undefined,
+            authContext: authContext ?? undefined,
+          });
+          if (!("error" in rpcResult)) {
+            return { success: true, data: rpcResult.data };
+          }
+        }
         return await wrapResult(duplicateTasksToBlock(args as any));
 
       case "createTaskBoardFromTasks":
@@ -911,6 +1008,17 @@ export async function executeTool(
               success: false,
               error: `Ambiguous assignees found. Please specify which person you meant:\n\n${ambiguityDetails}\n\nTip: Use searchWorkspaceMembers to get the exact user ID, or provide a more specific name.`,
             };
+          }
+
+          {
+            const rpcResult = await bulkSetTaskAssigneesRpc({
+              taskIds,
+              assignees: assigneeResult.resolved,
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
           }
 
           const failures: Array<{ taskId: string; error: string }> = [];
@@ -1527,6 +1635,19 @@ export async function executeTool(
           return { success: false, error: "updates are required for updateTableRowsByFieldNames." };
         }
 
+        {
+          const rpcResult = await updateTableRowsByFieldNamesRpc({
+            tableId,
+            filters,
+            updates,
+            limit,
+            authContext: authContext ?? undefined,
+          });
+          if (!("error" in rpcResult)) {
+            return { success: true, data: rpcResult.data };
+          }
+        }
+
         const schemaStart = timingEnabled ? Date.now() : 0;
         const schemaResult = await getTableSchema({ tableId });
         if (timingEnabled) t_schema_ms = Date.now() - schemaStart;
@@ -1654,6 +1775,18 @@ export async function executeTool(
         }
         if (!rows || rows.length === 0) {
           return { success: false, error: "rows are required for bulkUpdateRowsByFieldNames." };
+        }
+
+        {
+          const rpcResult = await bulkUpdateRowsByFieldNamesRpc({
+            tableId,
+            rows,
+            limit,
+            authContext: authContext ?? undefined,
+          });
+          if (!("error" in rpcResult)) {
+            return { success: true, data: rpcResult.data };
+          }
         }
 
         const schemaResult = await getTableSchema({ tableId });
