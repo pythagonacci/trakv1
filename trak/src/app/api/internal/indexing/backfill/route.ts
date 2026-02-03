@@ -77,6 +77,21 @@ export async function POST(req: NextRequest) {
             }));
         }
 
+        // 4. Fetch all Docs
+        const { data: docs } = await supabase
+            .from("docs")
+            .select("id")
+            .eq("workspace_id", workspaceId)
+            .limit(1000);
+
+        if (docs) {
+            docs.forEach(doc => jobsToEnqueue.push({
+                workspaceId,
+                resourceType: "doc",
+                resourceId: doc.id
+            }));
+        }
+
         // Bulk Enqueue
         if (jobsToEnqueue.length > 0) {
             await queue.bulkEnqueue(jobsToEnqueue);

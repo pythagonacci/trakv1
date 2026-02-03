@@ -280,11 +280,13 @@ export class UnstructuredSearch {
         const fileIds: string[] = [];
         const tableIds: string[] = [];
         const blockIds: string[] = [];
+        const docIds: string[] = [];
 
         results.forEach(r => {
             if (r.sourceType === 'file') fileIds.push(r.sourceId);
             else if (r.sourceType === 'table') tableIds.push(r.sourceId);
             else if (r.sourceType === 'block') blockIds.push(r.sourceId);
+            else if (r.sourceType === 'doc') docIds.push(r.sourceId);
         });
 
         const titles = new Map<string, string>();
@@ -294,24 +296,30 @@ export class UnstructuredSearch {
             const { data } = await this.supabase.from("files").select("id, file_name").in("id", fileIds);
             data?.forEach(f => titles.set(f.id, f.file_name));
         }
+        // Fetch Docs
+        if (docIds.length > 0) {
+            const { data } = await this.supabase.from("docs").select("id, title").in("id", docIds);
+            data?.forEach(d => titles.set(d.id, d.title));
+        }
         // Fetch Tables
         if (tableIds.length > 0) {
             const { data } = await this.supabase.from("tables").select("id, title").in("id", tableIds);
             data?.forEach(t => titles.set(t.id, t.title));
         }
-        // Fetch Blocks (context from explicit field or parent?)
-        // Blocks don't always have names. Maybe use Tab/Project?
+        // Fetch Blocks (derive a display title or fall back to block type)
         if (blockIds.length > 0) {
-            // For blocks, often no title. We might want to fetch project/tab name?
-            // Leaving simple for now or "Block"
+            const { data } = await this.supabase.from("blocks").select("id, type, content").in("id", blockIds);
+            data?.forEach((b: any) => titles.set(b.id, getBlockDisplayTitle(b)));
         }
 
         return results.map(r => {
             const topChunk = r.chunks.sort((a, b) => b.score - a.score)[0];
             const title = titles.get(r.sourceId) || `${r.sourceType} (${r.sourceId.slice(0, 8)})`;
+            const rawChunk = topChunk?.content || r.summary;
+            const chunkContent = r.sourceType === "block" ? formatBlockChunkPreview(rawChunk) : rawChunk;
             return {
                 source_id: title, // Frontend displays this as name
-                chunk_content: topChunk?.content || r.summary,
+                chunk_content: chunkContent,
                 similarity: r.score
             };
         });
@@ -344,6 +352,103 @@ export class UnstructuredSearch {
             logger.error("LLM Answer failed", e);
             return "Failed to generate answer.";
         }
+    }
+}
+
+function formatBlockChunkPreview(raw: string): string {
+    const trimmed = raw?.trim();
+    if (!trimmed) return raw;
+    const normalized = trimmed.replace(/\\n/g, "\n");
+    const looksJson =
+        (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"));
+    if (!looksJson) return normalized;
+
+    try {
+        const data = JSON.parse(trimmed);
+        if (typeof data === "string") return data;
+        if (data && typeof data.text === "string" && data.text.trim()) return data.text;
+        if (data && Array.isArray(data.tasks)) {
+            const lines = data.tasks
+                .map((task: any) => {
+                    if (!task || typeof task !== "object") return null;
+                    const text = typeof task.text === "string" ? task.text.trim() : "";
+                    if (!text) return null;
+                    const metaParts: string[] = [];
+                    if (task.status) metaParts.push(String(task.status));
+                    if (task.dueDate) metaParts.push(`due ${task.dueDate}`);
+                    if (task.priority) metaParts.push(String(task.priority));
+                    const meta = metaParts.length ? ` (${metaParts.join(", ")})` : "";
+                    return `- ${text}${meta}`;
+                })
+                .filter(Boolean)
+                .slice(0, 12);
+            if (lines.length > 0) return lines.join("\n");
+        }
+        if (data && typeof data.content === "string" && data.content.trim()) return data.content;
+    } catch {
+        return normalized;
+    }
+
+    return normalized;
+}
+
+function getBlockDisplayTitle(block: { type?: string; content?: Record<string, unknown> | null }): string {
+    const type = typeof block.type === "string" ? block.type : "block";
+    const content = block.content ?? {};
+
+    const asString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+    switch (type) {
+        case "text": {
+            return "Text block";
+        }
+        case "task": {
+            const title = asString((content as any).title);
+            return title || "Task block";
+        }
+        case "table": {
+            const title = asString((content as any).title);
+            return title || "Table block";
+        }
+        case "timeline":
+            return "Timeline block";
+        case "image": {
+            const alt = asString((content as any).alt) || asString((content as any).filename);
+            return alt || "Image block";
+        }
+        case "file": {
+            const filename = asString((content as any).filename);
+            return filename || "File block";
+        }
+        case "video": {
+            const title = asString((content as any).title);
+            return title || "Video block";
+        }
+        case "embed": {
+            const title = asString((content as any).title);
+            return title || "Embed block";
+        }
+        case "link": {
+            const title = asString((content as any).title) || asString((content as any).url);
+            return title || "Link block";
+        }
+        case "divider":
+            return "Divider block";
+        case "section": {
+            const title = asString((content as any).title);
+            return title || "Section block";
+        }
+        case "doc_reference": {
+            const title = asString((content as any).title);
+            return title || "Doc reference block";
+        }
+        case "pdf": {
+            const filename = asString((content as any).filename);
+            return filename || "PDF block";
+        }
+        default:
+            return `${type} block`;
     }
 }
 

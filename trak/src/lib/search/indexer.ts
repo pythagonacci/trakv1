@@ -224,6 +224,20 @@ export class ResourceIndexer {
                 tabId: block.tab_id
             };
         }
+        else if (type === 'doc') {
+            const { data: doc } = await this.supabase
+                .from("docs")
+                .select("id, title, content")
+                .eq("id", id)
+                .single();
+            if (!doc) return null;
+
+            const contentText = extractTextFromProseMirror(doc.content) || "";
+            const titleText = doc.title ? `Title: ${doc.title}\n\n` : "";
+            return {
+                text: `${titleText}${contentText}`.trim()
+            };
+        }
         else if (type === 'table') {
             return this.fetchTableContent(id);
         }

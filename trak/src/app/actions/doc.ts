@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { AuthContext } from "@/lib/auth-context";
+import { IndexingQueue } from "@/lib/search/job-queue";
 
 // Types
 export type Doc = {
@@ -181,6 +182,18 @@ export async function createDoc(workspaceId: string, title?: string, opts?: { au
       return { data: null, error: error.message };
     }
 
+    // Trigger Async Indexing
+    try {
+      const queue = new IndexingQueue(supabase);
+      await queue.enqueue({
+        workspaceId,
+        resourceType: "doc",
+        resourceId: data.id,
+      });
+    } catch (err) {
+      console.error("Failed to enqueue indexing job for doc create", { docId: data.id, error: err });
+    }
+
     revalidatePath("/dashboard/docs");
     return { data, error: null };
   } catch (error: any) {
@@ -252,6 +265,18 @@ export async function updateDoc(
       return { data: null, error: error.message };
     }
 
+    // Trigger Async Indexing
+    try {
+      const queue = new IndexingQueue(supabase);
+      await queue.enqueue({
+        workspaceId: doc.workspace_id,
+        resourceType: "doc",
+        resourceId: data.id,
+      });
+    } catch (err) {
+      console.error("Failed to enqueue indexing job for doc update", { docId: data.id, error: err });
+    }
+
     revalidatePath("/dashboard/docs");
     revalidatePath(`/dashboard/docs/${docId}`);
     return { data, error: null };
@@ -316,7 +341,6 @@ export async function deleteDoc(docId: string, opts?: { authContext?: AuthContex
     return { error: error.message };
   }
 }
-
 
 
 

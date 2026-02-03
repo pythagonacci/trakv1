@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Search, Sparkles, FileText, Loader2, Database, AlertCircle, Trash2, ArrowRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { formatBlockText } from "@/lib/format-block-text";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 
 
@@ -108,7 +109,7 @@ export default function SearchTestPage() {
                     <div className="border-b pb-4">
                         <h3 className="text-sm font-medium mb-1">1. Index Existing Data</h3>
                         <p className="text-xs text-gray-600 mb-2">
-                            Backfill local DB index for all existing files/blocks in this workspace.
+                            Backfill local DB index for all existing files/blocks/docs in this workspace.
                         </p>
                         <button
                             onClick={async () => {
@@ -131,7 +132,7 @@ export default function SearchTestPage() {
                             disabled={processing || !currentWorkspace}
                             className="px-4 py-2 bg-white border shadow-sm rounded-md text-sm hover:bg-gray-50 disabled:opacity-50"
                         >
-                            {processing ? "Starting Backfill..." : "Enqeue All Data"}
+                            {processing ? "Starting Backfill..." : "Enqueue All Data"}
                         </button>
                     </div>
 
@@ -253,16 +254,27 @@ export default function SearchTestPage() {
                         {results.sources && (
                             <div className="space-y-2">
                                 <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Sources</h3>
-                                {results.sources.map((source: any, i: number) => (
+                                {results.sources.map((source: any, i: number) => {
+                                    const previewSource = typeof source.chunk_content === "string" ? source.chunk_content : "";
+                                    const previewHtml = previewSource.trim()
+                                        ? formatBlockText(previewSource, { preset: "compact" })
+                                        : "";
+                                    return (
                                     <div key={i} className="p-3 border rounded bg-white text-sm">
                                         <div className="font-medium text-gray-900 mb-1 flex items-center gap-2">
                                             <FileText className="w-4 h-4 text-gray-400" />
                                             {source.source_id}
                                         </div>
-                                        <p className="text-gray-600 line-clamp-2">{source.chunk_content}</p>
+                                        {previewHtml && (
+                                            <div
+                                                className="text-gray-600 line-clamp-2"
+                                                dangerouslySetInnerHTML={{ __html: previewHtml }}
+                                            />
+                                        )}
                                         <div className="mt-1 text-xs text-gray-400">Score: {Math.round(source.similarity * 100)}%</div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

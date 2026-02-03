@@ -10,6 +10,7 @@ type ReindexWorkspaceParams = {
   workspaceId?: string;
   includeBlocks?: boolean;
   includeFiles?: boolean;
+  includeDocs?: boolean;
   maxItems?: number;
   authContext?: AuthContext;
 };
@@ -19,6 +20,7 @@ type ReindexResult = {
   enqueued: number;
   blocks: number;
   files: number;
+  docs: number;
 };
 
 const PAGE_SIZE = 1000;
@@ -118,12 +120,14 @@ export async function reindexWorkspaceContent(params: ReindexWorkspaceParams = {
 
   const includeBlocks = params.includeBlocks !== false;
   const includeFiles = params.includeFiles !== false;
+  const includeDocs = params.includeDocs !== false;
   const maxItems = typeof params.maxItems === "number" ? Math.max(0, params.maxItems) : null;
 
   const jobs: Array<{ workspaceId: string; resourceType: string; resourceId: string }> = [];
 
   let blockCount = 0;
   let fileCount = 0;
+  let docCount = 0;
 
   if (includeFiles) {
     const fileIds = await fetchIdsByField(supabase, "files", "workspace_id", workspaceId);
@@ -138,6 +142,21 @@ export async function reindexWorkspaceContent(params: ReindexWorkspaceParams = {
     });
   }
 
+  if (includeDocs) {
+    const docIds = await fetchIdsByField(supabase, "docs", "workspace_id", workspaceId);
+    const remaining =
+      maxItems && includeFiles ? Math.max(0, maxItems - fileCount) : maxItems;
+    const limited = remaining != null ? docIds.slice(0, remaining) : docIds;
+    docCount = limited.length;
+    limited.forEach((docId) => {
+      jobs.push({
+        workspaceId,
+        resourceType: "doc",
+        resourceId: docId,
+      });
+    });
+  }
+
   if (includeBlocks) {
     const projectIds = await fetchIdsByField(supabase, "projects", "workspace_id", workspaceId);
     if (projectIds.length > 0) {
@@ -145,7 +164,9 @@ export async function reindexWorkspaceContent(params: ReindexWorkspaceParams = {
       if (tabIds.length > 0) {
         const blockIds = await fetchIdsByIn(supabase, "blocks", "tab_id", tabIds);
         const remaining =
-          maxItems && includeFiles ? Math.max(0, maxItems - fileCount) : maxItems;
+          maxItems
+            ? Math.max(0, maxItems - fileCount - docCount)
+            : maxItems;
         const limited = remaining != null ? blockIds.slice(0, remaining) : blockIds;
         blockCount = limited.length;
         limited.forEach((blockId) => {
@@ -168,6 +189,7 @@ export async function reindexWorkspaceContent(params: ReindexWorkspaceParams = {
     enqueued: jobs.length,
     blocks: blockCount,
     files: fileCount,
+    docs: docCount,
   };
 
   return { data: result };
