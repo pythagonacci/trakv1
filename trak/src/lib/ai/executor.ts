@@ -13,7 +13,7 @@ import { getSystemPrompt } from "./system-prompt";
 import { executeTool, type ToolCallResult } from "./tool-executor";
 import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 import { classifyIntent, type IntentClassification, type ToolGroup } from "./intent-classifier";
-import { trySimpleCommand } from "./simple-commands";
+import { tryDeterministicCommand } from "./simple-commands";
 
 // ============================================================================
 // TYPES
@@ -618,7 +618,7 @@ export async function executeAICommand(
   }
 
   // Fast path: simple pattern-matched commands skip the LLM entirely
-  const simpleResult = await trySimpleCommand(userCommand, context);
+  const simpleResult = await tryDeterministicCommand(userCommand, context);
   if (simpleResult) return withTiming(simpleResult);
 
   // Detect multi-step commands (used later to prevent premature early-exit on writes).
@@ -1376,7 +1376,7 @@ export async function* executeAICommandStream(
   const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
-  const simpleResult = await trySimpleCommand(userCommand, context);
+  const simpleResult = await tryDeterministicCommand(userCommand, context);
   if (simpleResult) {
     yield {
       type: "response",
