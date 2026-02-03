@@ -1233,6 +1233,7 @@ export async function searchWorkspaceMembers(
   if ("error" in ctx && ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
+  if (!supabase) return { data: null, error: "Not authenticated" };
   const limit = params.limit ?? 20;
 
   const cacheKey = workspaceId + (normalizeArrayFilter(params.role)?.join(",") ?? "");

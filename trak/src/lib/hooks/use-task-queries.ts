@@ -33,7 +33,7 @@ export function useTaskItems(blockId: string, options?: { enabled?: boolean }) {
 export function useCreateTaskItem(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: createTaskItem,
+    mutationFn: (input: Parameters<typeof createTaskItem>[0]) => createTaskItem(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
@@ -50,7 +50,7 @@ export function useUpdateTaskItem(blockId: string) {
 export function useDeleteTaskItem(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: deleteTaskItem,
+    mutationFn: (taskId: string) => deleteTaskItem(taskId),
     onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
@@ -76,7 +76,7 @@ export function useTaskSubtasks(blockId: string) {
       onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
     remove: useMutation({
-      mutationFn: deleteTaskSubtask,
+      mutationFn: (subtaskId: string) => deleteTaskSubtask(subtaskId),
       onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
   };
@@ -144,7 +144,7 @@ export function useCreateTaskReference(taskId?: string) {
 export function useDeleteTaskReference(taskId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: deleteTaskReference,
+    mutationFn: (referenceId: string) => deleteTaskReference(referenceId),
     onSuccess: () => {
       if (taskId) qc.invalidateQueries({ queryKey: taskKeys.references(taskId) });
     },

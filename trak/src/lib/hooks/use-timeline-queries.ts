@@ -74,7 +74,7 @@ export function useUpdateTimelineEvent(blockId: string) {
 export function useDeleteTimelineEvent(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: deleteTimelineEvent,
+    mutationFn: (eventId: string) => deleteTimelineEvent(eventId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
     },
@@ -162,7 +162,7 @@ export function useCreateTimelineDependency(blockId: string) {
 export function useDeleteTimelineDependency(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: deleteTimelineDependency,
+    mutationFn: (dependencyId: string) => deleteTimelineDependency(dependencyId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: timelineKeys.dependencies(blockId) });
     },

@@ -6,8 +6,8 @@ import type { TimelineEvent, TimelineItem } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
-export async function getTimelineItems(timelineBlockId: string): Promise<ActionResult<{ events: TimelineEvent[] }>> {
-  const access = await requireTimelineAccess(timelineBlockId);
+export async function getTimelineItems(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<{ events: TimelineEvent[] }>> {
+  const access = await requireTimelineAccess(timelineBlockId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, block } = access;

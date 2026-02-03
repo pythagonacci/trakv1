@@ -57,7 +57,7 @@ export async function deleteTaskReference(referenceId: string, opts?: { authCont
 
   if (refError || !ref) return { error: "Reference not found" };
 
-  const membership = await checkWorkspaceMembership(ref.workspace_id, user.id);
+  const membership = await checkWorkspaceMembership(ref.workspace_id, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const { error } = await supabase.from("task_references").delete().eq("id", referenceId);

@@ -721,7 +721,7 @@ export async function getSingleProject(projectId: string) {
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', project.workspace_id)
-    .eq('user_id', userId)
+    .eq('user_id', user.id)
     .maybeSingle()
 
   if (memberError || !membership) {

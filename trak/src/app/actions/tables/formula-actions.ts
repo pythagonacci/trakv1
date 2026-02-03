@@ -93,13 +93,16 @@ export async function createFormulaField(input: {
 
 export async function recomputeFormulaField(fieldId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
   let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
   if (opts?.authContext) {
     supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
   } else {
     const client = await createClient();
     const user = await getAuthenticatedUser();
     if (!user) return { error: "Unauthorized" };
     supabase = client;
+    userId = user.id;
   }
 
   const { data: field } = await supabase
@@ -141,7 +144,7 @@ export async function recomputeFormulaField(fieldId: string, opts?: { authContex
         ...cleanedData,
         [field.id]: value,
       },
-      updated_by: user.id,
+      updated_by: userId,
     };
   });
 
@@ -213,7 +216,7 @@ export async function recomputeFormulasForRow(
     .from("table_rows")
     .update({
       data: updatedData,
-      updated_by: userId,
+      updated_by: user.id,
     })
     .eq("id", rowId);
   if (error) {

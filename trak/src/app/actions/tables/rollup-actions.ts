@@ -181,11 +181,21 @@ async function sanitizeRowData(
 
 export async function computeRollupValue(
   rowId: string,
-  fieldId: string
+  fieldId: string,
+  opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<{ value: unknown; error?: string }>> {
-  const supabase = await createClient();
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: "Unauthorized" };
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
 
   const { data: field } = await supabase
     .from("table_fields")

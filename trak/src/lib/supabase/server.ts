@@ -40,10 +40,11 @@ export async function createClient() {
     // Mock getUser if testUserId is set
     if (testUserId) {
       const originalGetUser = client.auth.getUser.bind(client.auth);
-      client.auth.getUser = async (token?: string) => {
+      type GetUserResponse = Awaited<ReturnType<typeof originalGetUser>>;
+      client.auth.getUser = async (token?: string): Promise<GetUserResponse> => {
         if (!token && testUserId) {
           const { data: { user }, error } = await client.auth.admin.getUserById(testUserId);
-          return { data: { user }, error: error as any };
+          return { data: { user: user ?? null }, error: error ?? null } as GetUserResponse;
         }
         return originalGetUser(token);
       };
@@ -103,10 +104,11 @@ export async function createClient() {
     // Mock getUser if testUserId is set (for scripts outside test environment)
     if (testUserId) {
       const originalGetUser = client.auth.getUser.bind(client.auth);
-      client.auth.getUser = async (token?: string) => {
+      type GetUserResponse = Awaited<ReturnType<typeof originalGetUser>>;
+      client.auth.getUser = async (token?: string): Promise<GetUserResponse> => {
         if (!token && testUserId) {
           const { data: { user }, error } = await client.auth.admin.getUserById(testUserId);
-          return { data: { user }, error: error as any };
+          return { data: { user: user ?? null }, error: error ?? null } as GetUserResponse;
         }
         return originalGetUser(token);
       };

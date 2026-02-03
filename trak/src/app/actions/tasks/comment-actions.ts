@@ -106,7 +106,7 @@ export async function deleteTaskComment(commentId: string): Promise<ActionResult
 
   if (!task) return { error: "Task not found" };
 
-  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
+  const membership = await checkWorkspaceMembership(task.workspace_id, user.id);
   if (!membership) return { error: "Not a member of this workspace" };
 
   const { error } = await supabase.from("task_comments").delete().eq("id", commentId);

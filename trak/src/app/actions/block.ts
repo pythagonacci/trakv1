@@ -489,7 +489,7 @@ export async function updateBlock(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", workspaceId)
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .maybeSingle();
 
     if (!membershipCheck.data) {
@@ -556,7 +556,7 @@ export async function updateBlock(data: {
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", project.workspace_id)
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .single();
 
     if (memberError || !member) {

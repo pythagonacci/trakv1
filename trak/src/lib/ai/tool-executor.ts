@@ -207,6 +207,7 @@ export interface ToolExecutionContext {
   workspaceId: string;
   userId?: string;
   contextTableId?: string;
+  contextBlockId?: string;
   currentTabId?: string;
   currentProjectId?: string;
 }
