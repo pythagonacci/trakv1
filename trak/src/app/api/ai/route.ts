@@ -107,11 +107,6 @@ export async function POST(request: NextRequest) {
         const projectName = ctx.project?.name || "unknown project";
         const content = (block.content || {}) as Record<string, unknown>;
         const tableId = blockType === "table" ? String(content.tableId || "") : "";
-        const textSnippet =
-          blockType === "text"
-            ? String((content.text as string | undefined) || "").trim().slice(0, 300)
-            : "";
-
         const contextLines = [
           "Context: user selected a block. Use this as the target unless the user says otherwise.",
           `- Block ID: ${block.id}`,
@@ -122,9 +117,6 @@ export async function POST(request: NextRequest) {
         if (tableId) {
           contextLines.push(`- Table ID: ${tableId}`);
           contextTableId = tableId;
-        }
-        if (textSnippet) {
-          contextLines.push(`- Text preview: ${textSnippet}`);
         }
 
         history = [
@@ -150,6 +142,7 @@ export async function POST(request: NextRequest) {
         currentProjectId,
         currentTabId,
         contextTableId,
+        contextBlockId: contextBlockId ?? undefined,
       },
       history
     );

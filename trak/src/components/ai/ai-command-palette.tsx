@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2 } from "lucide-react";
+import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useAI } from "./ai-context";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import { usePathname } from "next/navigation";
@@ -30,6 +32,32 @@ interface UploadingFile {
   error?: string;
 }
 
+interface SearchSource {
+  source_id: string;
+  chunk_content?: string;
+  similarity?: number;
+}
+
+interface SearchResultItem {
+  parentId: string;
+  sourceId: string;
+  sourceType: string;
+  summary: string;
+  chunks: Array<{ content: string; score: number }>;
+  score: number;
+}
+
+interface SearchEntry {
+  id: string;
+  query: string;
+  mode: "answer" | "search";
+  status: "loading" | "done" | "error";
+  answer?: string;
+  sources?: SearchSource[];
+  results?: SearchResultItem[];
+  error?: string;
+}
+
 export function AICommandPalette() {
   const {
     isOpen,
@@ -45,10 +73,12 @@ export function AICommandPalette() {
   const [messages, setMessages] = useState<FileAnalysisMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [assistantLoading, setAssistantLoading] = useState(false);
-  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
+  const [streamingResponse, setStreamingResponse] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [input, setInput] = useState("");
-  const [mode, setMode] = useState<"assistant" | "file">("assistant");
+  const [mode, setMode] = useState<"assistant" | "file" | "search">("assistant");
   const [assistantMessages, setAssistantMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; toolCalls?: Array<{ tool: string; result?: { success: boolean; error?: string } }> }>>([]);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -58,6 +88,8 @@ export function AICommandPalette() {
   const [mentionIndex, setMentionIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [searchMode, setSearchMode] = useState<"answer" | "search">("answer");
+  const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([]);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -162,7 +194,7 @@ export function AICommandPalette() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isLoading, isSyncing, assistantMessages, assistantLoading]);
+  }, [messages, isLoading, isSyncing, assistantMessages, assistantLoading, searchEntries, searchLoading]);
 
   useEffect(() => {
     if (mode === "file") return;
@@ -224,13 +256,89 @@ export function AICommandPalette() {
       return;
     }
 
+    if (mode === "search") {
+      if (searchLoading) return;
+      const messageText = input.trim();
+      const entryId = crypto.randomUUID();
+      setInput("");
+      setSearchEntries((prev) => [
+        ...prev,
+        {
+          id: entryId,
+          query: messageText,
+          mode: searchMode,
+          status: "loading",
+        },
+      ]);
+
+      if (!currentWorkspace?.id) {
+        setSearchEntries((prev) =>
+          prev.map((entry) =>
+            entry.id === entryId
+              ? { ...entry, status: "error", error: "No workspace selected. Please select a workspace first." }
+              : entry
+          )
+        );
+        return;
+      }
+
+      setSearchLoading(true);
+      try {
+        const response = await fetch("/api/ai/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: messageText,
+            mode: searchMode,
+            workspaceId: currentWorkspace.id,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || "Search failed");
+        }
+
+        const data = await response.json();
+        setSearchEntries((prev) =>
+          prev.map((entry) => {
+            if (entry.id !== entryId) return entry;
+            if (searchMode === "answer") {
+              return {
+                ...entry,
+                status: "done",
+                answer: typeof data.answer === "string" ? data.answer : "",
+                sources: Array.isArray(data.sources) ? data.sources : [],
+              };
+            }
+            return {
+              ...entry,
+              status: "done",
+              results: Array.isArray(data.results) ? data.results : [],
+            };
+          })
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Search failed";
+        setSearchEntries((prev) =>
+          prev.map((entry) =>
+            entry.id === entryId ? { ...entry, status: "error", error: message } : entry
+          )
+        );
+      } finally {
+        setSearchLoading(false);
+      }
+      return;
+    }
+
     if (assistantLoading) return;
     const messageText = input.trim();
     setInput("");
     const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: messageText };
     setAssistantMessages((prev) => [...prev, userMessage]);
     setAssistantLoading(true);
-    setStreamingContent(null);
+    setStreamingStatus(null);
+    setStreamingResponse(null);
 
     try {
       const response = await fetch("/api/ai/stream", {
@@ -241,6 +349,7 @@ export function AICommandPalette() {
           command: messageText,
           projectId: pathMatch.projectId,
           tabId: pathMatch.tabId,
+          contextBlockId: contextBlock?.blockId,
           messages: assistantMessages.slice(-10).map((m) => ({
             role: m.role,
             content: m.content,
@@ -280,17 +389,26 @@ export function AICommandPalette() {
 
           try {
             const event = JSON.parse(jsonStr) as {
-              type: "thinking" | "tool_call" | "tool_result" | "response" | "error" | "done";
+              type:
+                | "thinking"
+                | "tool_call"
+                | "tool_result"
+                | "response_delta"
+                | "response"
+                | "error"
+                | "done";
               content?: string;
               data?: unknown;
             };
 
             switch (event.type) {
               case "thinking":
-                setStreamingContent(event.content || "Analyzing...");
+                setStreamingStatus(event.content || "Analyzing...");
+                setStreamingResponse(null);
                 break;
               case "tool_call":
-                setStreamingContent(event.content || "Working on it...");
+                setStreamingStatus(event.content || "Working on it...");
+                setStreamingResponse(null);
                 if (event.data && typeof event.data === "object" && "tool" in event.data) {
                   toolCalls.push({ tool: (event.data as { tool: string }).tool });
                 }
@@ -302,15 +420,21 @@ export function AICommandPalette() {
                     toolCalls[toolCalls.length - 1].result = result;
                   }
                 }
-                setStreamingContent(null); // Don't show "Processing..." - next tool_call or response will update
+                setStreamingStatus(null); // Don't show "Processing..." - next tool_call or response will update
+                break;
+              case "response_delta":
+                setStreamingStatus(null);
+                setStreamingResponse((prev) => `${prev ?? ""}${event.content ?? ""}`);
                 break;
               case "response":
                 finalResponse = event.content || "";
-                setStreamingContent(null);
+                setStreamingStatus(null);
+                setStreamingResponse(null);
                 break;
               case "error":
                 setToast({ message: event.content || "An error occurred", type: "error" });
-                setStreamingContent(null);
+                setStreamingStatus(null);
+                setStreamingResponse(null);
                 return;
               case "done":
                 break;
@@ -334,7 +458,8 @@ export function AICommandPalette() {
       setToast({ message: "Failed to send message", type: "error" });
     } finally {
       setAssistantLoading(false);
-      setStreamingContent(null);
+      setStreamingStatus(null);
+      setStreamingResponse(null);
     }
   };
 
@@ -560,8 +685,13 @@ export function AICommandPalette() {
   };
 
   const handleClearChat = async () => {
-    if (mode !== "file") {
+    if (mode === "assistant") {
       setAssistantMessages([]);
+      setInput("");
+      return;
+    }
+    if (mode === "search") {
+      setSearchEntries([]);
       setInput("");
       return;
     }
@@ -616,10 +746,14 @@ export function AICommandPalette() {
             <Sparkles className="h-4 w-4 text-[var(--primary)]" />
             <div>
               <div className="text-sm font-semibold text-[var(--foreground)]">
-                {mode === "file" ? "File Analysis" : "AI Assistant"}
+                {mode === "file" ? "File Analysis" : mode === "search" ? "Workspace Search" : "AI Assistant"}
               </div>
               <div className="text-xs text-[var(--muted-foreground)]">
-                {mode === "file" ? "Ask questions about your files" : "Prompt to actions and answers"}
+                {mode === "file"
+                  ? "Ask questions about your files"
+                  : mode === "search"
+                    ? "Unstructured RAG across your workspace"
+                    : "Prompt to actions and answers"}
               </div>
             </div>
           </div>
@@ -649,12 +783,28 @@ export function AICommandPalette() {
               >
                 File Analysis
               </button>
+              <button
+                type="button"
+                onClick={() => setMode("search")}
+                className={cn(
+                  "rounded-full px-2 py-0.5 transition-colors",
+                  mode === "search"
+                    ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                )}
+              >
+                Search
+              </button>
             </div>
             <button
               onClick={handleClearChat}
               className="p-2 rounded hover:bg-[var(--surface-hover)] transition-colors"
               title={mode === "file" ? "Clear chat" : "Clear conversation"}
-              disabled={(mode === "file" && (isClearing || isSyncing)) || assistantLoading}
+              disabled={
+                (mode === "file" && (isClearing || isSyncing)) ||
+                (mode === "assistant" && assistantLoading) ||
+                (mode === "search" && searchLoading)
+              }
             >
               <Trash2 className="h-4 w-4 text-[var(--muted-foreground)]" />
             </button>
@@ -678,6 +828,38 @@ export function AICommandPalette() {
               <span className="flex items-center gap-1">
                 <Paperclip className="h-3 w-3" />
                 {contextFiles.length} files
+              </span>
+            </>
+          ) : mode === "search" ? (
+            <>
+              <span className="truncate">
+                {currentWorkspace?.name ? `${currentWorkspace.name} workspace` : "Workspace search"}
+              </span>
+              <span className="flex items-center rounded-full border border-[var(--border)] p-0.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setSearchMode("answer")}
+                  className={cn(
+                    "rounded-full px-2 py-0.5 transition-colors",
+                    searchMode === "answer"
+                      ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  )}
+                >
+                  Answer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSearchMode("search")}
+                  className={cn(
+                    "rounded-full px-2 py-0.5 transition-colors",
+                    searchMode === "search"
+                      ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  )}
+                >
+                  Search
+                </button>
               </span>
             </>
           ) : (
@@ -811,7 +993,7 @@ export function AICommandPalette() {
                 </div>
               );
             })
-          ) : (
+          ) : mode === "assistant" ? (
             assistantMessages.map((message) => {
               const isUser = message.role === "user";
               return (
@@ -838,6 +1020,112 @@ export function AICommandPalette() {
                 </div>
               );
             })
+          ) : (
+            searchEntries.map((entry) => {
+              const formatPreview = (text?: string) => {
+                if (!text || !text.trim()) return "";
+                return formatBlockText(text, { preset: "compact" });
+              };
+              return (
+                <React.Fragment key={entry.id}>
+                  <div className="flex justify-end">
+                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2 bg-[var(--primary)] text-[var(--primary-foreground)]">
+                      <p className="whitespace-pre-wrap">{entry.query}</p>
+                    </div>
+                  </div>
+                  <div className="flex justify-start">
+                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-3 bg-[var(--muted)] text-[var(--foreground)]">
+                      {entry.status === "loading" && (
+                        <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>{entry.mode === "answer" ? "Searching for an answer..." : "Searching workspace..."}</span>
+                        </div>
+                      )}
+
+                      {entry.status === "error" && (
+                        <div className="text-[var(--error)] text-sm">{entry.error || "Search failed"}</div>
+                      )}
+
+                      {entry.status === "done" && entry.mode === "answer" && (
+                        <>
+                          {entry.answer ? (
+                            <div className="prose prose-sm max-w-none text-[var(--foreground)]">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {entry.answer}
+                              </ReactMarkdown>
+                            </div>
+                          ) : (
+                            <div className="text-[var(--muted-foreground)]">No answer returned.</div>
+                          )}
+
+                          {entry.sources && entry.sources.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                                Sources
+                              </div>
+                              {entry.sources.map((source, index) => {
+                                const previewHtml = formatPreview(source.chunk_content);
+                                return (
+                                  <div key={`${entry.id}-source-${index}`} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="font-medium text-[var(--foreground)] flex items-center gap-2">
+                                        <FileText className="h-3 w-3 text-[var(--muted-foreground)]" />
+                                        {source.source_id}
+                                      </div>
+                                      {typeof source.similarity === "number" && (
+                                        <div className="text-[10px] text-[var(--muted-foreground)]">
+                                          Score: {Math.round(source.similarity * 100)}%
+                                        </div>
+                                      )}
+                                    </div>
+                                    {previewHtml && (
+                                      <div
+                                        className="mt-1 text-[var(--muted-foreground)] line-clamp-3"
+                                        dangerouslySetInnerHTML={{ __html: previewHtml }}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {entry.status === "done" && entry.mode === "search" && (
+                        <div className="space-y-2">
+                          {entry.results && entry.results.length > 0 ? (
+                            entry.results.map((result, index) => {
+                              const previewHtml = formatPreview(result.chunks?.[0]?.content || result.summary);
+                              return (
+                                <div key={`${entry.id}-result-${index}`} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="font-medium text-[var(--foreground)]">
+                                      {result.sourceType} · {result.sourceId}
+                                    </div>
+                                    <div className="text-[10px] text-[var(--muted-foreground)]">
+                                      Score: {Math.round(result.score * 100)}%
+                                    </div>
+                                  </div>
+                                  {previewHtml && (
+                                    <div
+                                      className="mt-1 text-[var(--muted-foreground)] line-clamp-3"
+                                      dangerouslySetInnerHTML={{ __html: previewHtml }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="text-[var(--muted-foreground)]">No results found.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })
           )}
 
           {mode === "file" && isLoading && (
@@ -857,7 +1145,9 @@ export function AICommandPalette() {
             <div className="flex justify-start">
               <div className="rounded-lg bg-[var(--muted)] px-3 py-2 text-sm flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-[var(--muted-foreground)]">{streamingContent || "Thinking..."}</span>
+                <span className="text-[var(--muted-foreground)]">
+                  {streamingResponse || streamingStatus || "Thinking..."}
+                </span>
               </div>
             </div>
           )}
@@ -884,7 +1174,13 @@ export function AICommandPalette() {
                 rows={2}
                 value={input}
                 onChange={(e) => handleMentionInput(e.target.value)}
-                placeholder={mode === "file" ? "Ask about your files..." : "Ask anything or give a command..."}
+                placeholder={
+                  mode === "file"
+                    ? "Ask about your files..."
+                    : mode === "search"
+                      ? "Search your workspace..."
+                      : "Ask anything or give a command..."
+                }
                 className={cn(
                   "w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2 text-sm",
                   "text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]",
@@ -896,7 +1192,11 @@ export function AICommandPalette() {
               type="submit"
               disabled={
                 !input.trim() ||
-                (mode === "file" ? isLoading || !sessionId : assistantLoading)
+                (mode === "file"
+                  ? isLoading || !sessionId
+                  : mode === "assistant"
+                    ? assistantLoading
+                    : searchLoading)
               }
               className={cn(
                 "rounded-md bg-[var(--primary)] px-3 py-2 text-xs text-[var(--primary-foreground)]",

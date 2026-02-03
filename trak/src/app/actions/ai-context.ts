@@ -716,18 +716,7 @@ export async function getBlockWithContext(params: {
       return { data: null, error: childrenError.message };
     }
 
-    const { data: properties, error: propertiesError } = await supabase
-      .from("entity_properties")
-      .select("id, status, priority, assignee_id, due_date, tags, created_at, updated_at")
-      .eq("workspace_id", workspaceId)
-      .eq("entity_type", "block")
-      .eq("entity_id", params.blockId)
-      .maybeSingle();
-
-    if (propertiesError) {
-      console.error("getBlockWithContext properties error:", propertiesError);
-      return { data: null, error: propertiesError.message };
-    }
+    const properties = null;
 
     const { data: outgoingLinks, error: outgoingLinksError } = await supabase
       .from("entity_links")
@@ -766,18 +755,7 @@ export async function getBlockWithContext(params: {
           created_at: block.created_at,
           updated_at: block.updated_at,
         },
-        properties: properties
-          ? {
-              id: properties.id,
-              status: properties.status,
-              priority: properties.priority,
-              assignee_id: properties.assignee_id,
-              due_date: properties.due_date,
-              tags: properties.tags ?? [],
-              created_at: properties.created_at,
-              updated_at: properties.updated_at,
-            }
-          : null,
+        properties,
         links: [...(outgoingLinks ?? []), ...(incomingLinks ?? [])].map((link: any) => ({
           id: link.id,
           source_entity_type: link.source_entity_type,

@@ -12,7 +12,7 @@ import { allTools, toOpenAIFormat, getToolsByGroups } from "./tool-definitions";
 import { getSystemPrompt } from "./system-prompt";
 import { executeTool, type ToolCallResult } from "./tool-executor";
 import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
-import { classifyIntent } from "./intent-classifier";
+import { classifyIntent, type IntentClassification, type ToolGroup } from "./intent-classifier";
 import { trySimpleCommand } from "./simple-commands";
 
 // ============================================================================
@@ -55,6 +55,7 @@ export interface ExecutionContext {
   currentProjectId?: string;
   currentTabId?: string;
   contextTableId?: string;
+  contextBlockId?: string;
 }
 
 interface ChatCompletionResponse {
@@ -132,6 +133,32 @@ function shouldUseFastPrompt(
   if (/(explain|why|summarize|analysis|report|reasoning|help|how)/i.test(lowered)) return false;
   // Simple create/search commands qualify for fast prompt
   return true;
+}
+
+function applyContextualToolGroups(
+  intent: IntentClassification,
+  context: ExecutionContext
+): IntentClassification {
+  let updated = false;
+  const toolGroups = new Set<ToolGroup>(intent.toolGroups);
+
+  if (context.contextBlockId && !toolGroups.has("block")) {
+    toolGroups.add("block");
+    updated = true;
+  }
+
+  if (context.contextTableId && !toolGroups.has("table")) {
+    toolGroups.add("table");
+    updated = true;
+  }
+
+  if (!updated) return intent;
+
+  return {
+    ...intent,
+    toolGroups: Array.from(toolGroups),
+    reasoning: `${intent.reasoning} + context`,
+  };
 }
 
 const TOOL_GROUP_NAMES = new Set([
@@ -536,7 +563,7 @@ export async function executeAICommand(
 
   // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
-  const intent = classifyIntent(userCommand);
+  const intent = applyContextualToolGroups(classifyIntent(userCommand), context);
   if (timing) {
     timing.t_intent_ms = Date.now() - intentStart;
   }
@@ -650,6 +677,7 @@ export async function executeAICommand(
   let lastSearchTaskIds: string[] | null = null;
   let llmCallIndex = 0;
   const contextTableId = context.contextTableId;
+  const contextBlockId = context.contextBlockId;
 
   // Track consecutive errors per tool to prevent extensive retry loops
   const consecutiveErrorCount = new Map<string, number>();
@@ -675,6 +703,7 @@ export async function executeAICommand(
     "bulkDuplicateRows",
     "updateTableRowsByFieldNames",
   ]);
+  const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
   // Iterate until we get a final response or hit max iterations
   let iterations = 0;
@@ -747,6 +776,9 @@ export async function executeAICommand(
           }
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
             toolArgs.tableId = contextTableId;
+          }
+          if (contextBlockId && blockIdTools.has(toolName) && !("blockId" in toolArgs)) {
+            toolArgs.blockId = contextBlockId;
           }
           if (
             toolName === "createTable" &&
@@ -1255,12 +1287,15 @@ export async function* executeAICommandStream(
   context: ExecutionContext,
   previousMessages: AIMessage[] = []
 ): AsyncGenerator<{
-  type: "thinking" | "tool_call" | "tool_result" | "response";
+  type: "thinking" | "tool_call" | "tool_result" | "response_delta" | "response";
   content: string;
   data?: unknown;
 }> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
+  const openAIKey = process.env.OPENAI_API_KEY;
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const providerPref = (process.env.AI_PROVIDER || "").toLowerCase();
+
+  if (!openAIKey && !deepseekKey) {
     yield {
       type: "response",
       content: "AI service is not configured.",
@@ -1268,7 +1303,28 @@ export async function* executeAICommandStream(
     return;
   }
 
-  const intent = classifyIntent(userCommand);
+  const intent = applyContextualToolGroups(classifyIntent(userCommand), context);
+  const contextTableId = context.contextTableId;
+  const contextBlockId = context.contextBlockId;
+  const tableIdTools = new Set([
+    "getTableSchema",
+    "searchTableRows",
+    "createField",
+    "updateField",
+    "deleteField",
+    "createRow",
+    "updateRow",
+    "updateCell",
+    "deleteRow",
+    "deleteRows",
+    "bulkInsertRows",
+    "bulkUpdateRows",
+    "bulkUpdateRowsByFieldNames",
+    "bulkDeleteRows",
+    "bulkDuplicateRows",
+    "updateTableRowsByFieldNames",
+  ]);
+  const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
   const simpleResult = await trySimpleCommand(userCommand, context);
@@ -1293,6 +1349,9 @@ export async function* executeAICommandStream(
     userId: context.userId,
     userName: context.userName,
     currentDate: new Date().toISOString().split("T")[0],
+    currentProjectId: context.currentProjectId,
+    currentTabId: context.currentTabId,
+    activeToolGroups: intent.toolGroups,
   }, promptMode);
 
   const messages: AIMessage[] = [
@@ -1307,6 +1366,18 @@ export async function* executeAICommandStream(
     intent
   );
   const tools = toOpenAIFormat(relevantTools);
+  const provider =
+    providerPref === "deepseek"
+      ? deepseekKey
+        ? "deepseek"
+        : "openai"
+      : providerPref === "openai"
+        ? openAIKey
+          ? "openai"
+          : "deepseek"
+        : openAIKey
+          ? "openai"
+          : "deepseek";
   let iterations = 0;
 
   while (iterations < MAX_TOOL_ITERATIONS) {
@@ -1321,9 +1392,40 @@ export async function* executeAICommandStream(
       const maxTokens = messages.some((message) => message.role === "tool")
         ? FINAL_RESPONSE_MAX_TOKENS
         : TOOL_CALL_MAX_TOKENS;
-      const response = await callDeepseek(apiKey, messages, tools, maxTokens);
-      const choice = response.choices[0];
-      const assistantMessage = choice.message;
+      const timingEnabled = isAITimingEnabled();
+      const llmStart = timingEnabled ? Date.now() : 0;
+      const stream = streamChatCompletion({
+        provider,
+        apiKey: provider === "openai" ? (openAIKey as string) : (deepseekKey as string),
+        messages,
+        tools,
+        maxTokens,
+      });
+      let streamedContent = "";
+      let streamedToolCalls: AIToolCall[] | undefined;
+
+      for await (const chunk of stream) {
+        if (chunk.type === "delta" && chunk.content) {
+          streamedContent += chunk.content;
+          yield {
+            type: "response_delta",
+            content: chunk.content,
+          };
+        } else if (chunk.type === "done") {
+          if (timingEnabled) {
+            aiTiming({
+              event: "llm_stream_complete",
+              t_llm_stream_ms: Date.now() - llmStart,
+            });
+          }
+          streamedContent = chunk.content || streamedContent;
+          streamedToolCalls = chunk.toolCalls;
+        }
+      }
+
+      const assistantMessage = streamedToolCalls
+        ? { role: "assistant", content: null, tool_calls: streamedToolCalls }
+        : { role: "assistant", content: streamedContent || "", tool_calls: undefined };
 
       messages.push({
         role: "assistant",
@@ -1342,6 +1444,12 @@ export async function* executeAICommandStream(
           } catch (e) {
             toolArgs = {};
           }
+          if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
+            toolArgs.tableId = contextTableId;
+          }
+          if (contextBlockId && blockIdTools.has(toolName) && !("blockId" in toolArgs)) {
+            toolArgs.blockId = contextBlockId;
+          }
 
           yield {
             type: "tool_call",
@@ -1356,6 +1464,7 @@ export async function* executeAICommandStream(
             workspaceId: context.workspaceId,
             userId: context.userId,
             contextTableId: context.contextTableId,
+            contextBlockId: context.contextBlockId,
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
           });
@@ -1426,4 +1535,137 @@ export async function* executeAICommandStream(
     type: "response",
     content: "The command required too many steps. Please try a simpler request.",
   };
+}
+
+type StreamChatCompletionArgs = {
+  provider: "openai" | "deepseek";
+  apiKey: string;
+  messages: AIMessage[];
+  tools: ReturnType<typeof toOpenAIFormat>;
+  maxTokens: number;
+};
+
+type StreamChatCompletionChunk =
+  | { type: "delta"; content: string }
+  | { type: "done"; content: string; toolCalls?: AIToolCall[] };
+
+async function* streamChatCompletion({
+  provider,
+  apiKey,
+  messages,
+  tools,
+  maxTokens,
+}: StreamChatCompletionArgs): AsyncGenerator<StreamChatCompletionChunk> {
+  const url = provider === "openai" ? OPENAI_API_URL : DEEPSEEK_API_URL;
+  const model =
+    provider === "openai"
+      ? process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL
+      : DEEPSEEK_MODEL;
+  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: messages.map((m) => {
+        const base: Record<string, unknown> = {
+          role: m.role,
+          content: m.content,
+          ...(m.tool_calls && { tool_calls: m.tool_calls }),
+          ...(m.tool_call_id && { tool_call_id: m.tool_call_id }),
+          ...(m.name && { name: m.name }),
+        };
+
+        if (provider === "deepseek" && m.role === "assistant") {
+          const reasoning = (m as any).reasoning_content;
+          base.reasoning_content = typeof reasoning === "string" ? reasoning : "";
+        }
+
+        return base;
+      }),
+      tools,
+      tool_choice: "auto",
+      parallel_tool_calls: true,
+      temperature: 0.1,
+      max_tokens: resolvedMaxTokens,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok || !response.body) {
+    const errorText = await response.text();
+    throw new Error(`${provider} API error: ${response.status} ${errorText}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const contentParts: string[] = [];
+  const toolCallAcc = new Map<number, AIToolCall>();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload) continue;
+      if (payload === "[DONE]") {
+        buffer = "";
+        break;
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      const choice = parsed?.choices?.[0];
+      const delta = choice?.delta;
+      if (!delta) continue;
+
+      if (typeof delta.content === "string" && delta.content.length > 0) {
+        contentParts.push(delta.content);
+        yield { type: "delta", content: delta.content };
+      }
+
+      const deltaToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+      for (const toolCall of deltaToolCalls) {
+        const index = typeof toolCall.index === "number" ? toolCall.index : 0;
+        const existing = toolCallAcc.get(index) || {
+          id: toolCall.id || "",
+          type: "function" as const,
+          function: { name: "", arguments: "" },
+        };
+        if (toolCall.id) existing.id = toolCall.id;
+        if (toolCall.type) existing.type = toolCall.type;
+        if (toolCall.function?.name) existing.function.name = toolCall.function.name;
+        if (toolCall.function?.arguments) {
+          existing.function.arguments += toolCall.function.arguments;
+        }
+        toolCallAcc.set(index, existing);
+      }
+    }
+  }
+
+  const toolCalls = Array.from(toolCallAcc.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, call]) => call)
+    .filter((call) => call.function?.name);
+
+  if (toolCalls.length > 0) {
+    yield { type: "done", content: "", toolCalls };
+    return;
+  }
+
+  yield { type: "done", content: contentParts.join("") };
 }

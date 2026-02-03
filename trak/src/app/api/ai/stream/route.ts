@@ -20,6 +20,7 @@ import { getBlockWithContext } from "@/app/actions/ai-context";
  * - thinking: AI is processing
  * - tool_call: AI is calling a tool
  * - tool_result: Tool execution result
+ * - response_delta: Streaming response chunk
  * - response: Final response from AI
  * - error: An error occurred
  */
@@ -80,15 +81,33 @@ export async function POST(request: NextRequest) {
 
     // 5. Handle context block if provided
     let contextTableId: string | undefined;
+    let contextMessages: AIMessage[] = [];
     if (contextBlockId) {
       const blockContext = await getBlockWithContext({ blockId: contextBlockId });
       if (blockContext.data) {
         const ctx = blockContext.data as any;
-        const block = ctx.block as { type: string; content?: Record<string, unknown> };
-        if (block.type === "table") {
-          const content = (block.content || {}) as Record<string, unknown>;
-          contextTableId = content.tableId ? String(content.tableId) : undefined;
+        const block = ctx.block as { id: string; type: string; content?: Record<string, unknown> };
+        const blockType = block.type;
+        const content = (block.content || {}) as Record<string, unknown>;
+        const tableId = blockType === "table" ? String(content.tableId || "") : "";
+        if (tableId) {
+          contextTableId = tableId;
         }
+
+        const tabName = ctx.tab?.name || "unknown tab";
+        const projectName = ctx.project?.name || "unknown project";
+        const contextLines = [
+          "Context: user selected a block. Use this as the target unless the user says otherwise.",
+          `- Block ID: ${block.id}`,
+          `- Block type: ${blockType}`,
+          `- Tab: ${tabName}`,
+          `- Project: ${projectName}`,
+        ];
+        if (tableId) {
+          contextLines.push(`- Table ID: ${tableId}`);
+        }
+
+        contextMessages = [{ role: "system", content: contextLines.join("\n") }];
       }
     }
 
@@ -119,7 +138,8 @@ export async function POST(request: NextRequest) {
             currentProjectId: projectId,
             currentTabId: tabId,
             contextTableId,
-          }, messages || []);
+            contextBlockId,
+          }, [...contextMessages, ...(messages || [])]);
 
           for await (const event of generator) {
             const data = JSON.stringify(event);

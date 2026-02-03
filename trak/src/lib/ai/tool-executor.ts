@@ -92,6 +92,7 @@ import { reindexWorkspaceContent } from "@/app/actions/indexing";
 // IMPORTS - Table Actions
 // ============================================================================
 import { createTable, getTable, updateTable, deleteTable } from "@/app/actions/tables/table-actions";
+import { createTableFullRpc, updateTableFullRpc } from "@/app/actions/tables/super-actions";
 import {
   createField,
   updateField,
@@ -170,7 +171,7 @@ import {
 // ============================================================================
 import { getCurrentWorkspaceId, setTestContext, clearTestContext } from "@/app/actions/workspace";
 import { getAuthContext, type AuthContext } from "@/lib/auth-context";
-import { aiDebug } from "./debug";
+import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 
 // ============================================================================
 // TYPES
@@ -1503,6 +1504,17 @@ export async function executeTool(
         );
 
       case "updateTableRowsByFieldNames": {
+        const timingEnabled = isAITimingEnabled();
+        const timingStart = timingEnabled ? Date.now() : 0;
+        let t_schema_ms = 0;
+        let t_resolve_updates_ms = 0;
+        let t_update_options_ms = 0;
+        let t_search_rows_ms = 0;
+        let t_filter_rows_ms = 0;
+        let t_bulk_update_ms = 0;
+        let matchedRowCount = 0;
+        let scannedRowCount = 0;
+
         const tableId = args.tableId as string | undefined;
         const filters = args.filters as Record<string, unknown> | undefined;
         const updates = args.updates as Record<string, unknown> | undefined;
@@ -1515,7 +1527,9 @@ export async function executeTool(
           return { success: false, error: "updates are required for updateTableRowsByFieldNames." };
         }
 
+        const schemaStart = timingEnabled ? Date.now() : 0;
         const schemaResult = await getTableSchema({ tableId });
+        if (timingEnabled) t_schema_ms = Date.now() - schemaStart;
         if (schemaResult.error || !schemaResult.data) {
           return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
         }
@@ -1540,6 +1554,7 @@ export async function executeTool(
         const updatesByFieldId: Record<string, unknown> = {};
         const pendingConfigUpdates = new Map<string, Record<string, unknown>>();
 
+        const resolveStart = timingEnabled ? Date.now() : 0;
         for (const [fieldKey, rawValue] of Object.entries(updates)) {
           const field = resolveField(fieldKey);
           if (!field) {
@@ -1551,26 +1566,35 @@ export async function executeTool(
             pendingConfigUpdates.set(field.id, resolved.updatedConfig);
           }
         }
+        if (timingEnabled) t_resolve_updates_ms = Date.now() - resolveStart;
 
         // Persist any new options before updating rows.
+        const updateOptionsStart = timingEnabled ? Date.now() : 0;
         for (const [fieldId, config] of pendingConfigUpdates.entries()) {
           const updateResult = await updateField(fieldId, { config });
           if ("error" in updateResult) {
             return { success: false, error: updateResult.error ?? "Failed to update field options." };
           }
         }
+        if (timingEnabled) t_update_options_ms = Date.now() - updateOptionsStart;
 
+        const searchRowsStart = timingEnabled ? Date.now() : 0;
         const rowsResult = await searchTableRows({ tableId, limit });
+        if (timingEnabled) t_search_rows_ms = Date.now() - searchRowsStart;
         if (rowsResult.error || !rowsResult.data) {
           return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
         }
 
         const applyAllRows = !filters || Object.keys(filters).length === 0;
+        const filterStart = timingEnabled ? Date.now() : 0;
         const matchedRowIds = applyAllRows
           ? rowsResult.data.map((row) => row.id)
           : rowsResult.data
             .filter((row) => matchesRowFilters(row.data, filters, resolveField))
             .map((row) => row.id);
+        if (timingEnabled) t_filter_rows_ms = Date.now() - filterStart;
+        matchedRowCount = matchedRowIds.length;
+        scannedRowCount = rowsResult.data.length;
 
         if (matchedRowIds.length === 0) {
           const filterSummary = filters
@@ -1587,6 +1611,7 @@ export async function executeTool(
           };
         }
 
+        const bulkUpdateStart = timingEnabled ? Date.now() : 0;
         const updateResult = await wrapResult(
           bulkUpdateRows({
             tableId,
@@ -1594,9 +1619,26 @@ export async function executeTool(
             updates: updatesByFieldId,
           })
         );
+        if (timingEnabled) t_bulk_update_ms = Date.now() - bulkUpdateStart;
 
         if (updateResult.success) {
           updateResult.data = { updated: matchedRowIds.length, rowIds: matchedRowIds };
+        }
+
+        if (timingEnabled) {
+          aiTiming({
+            event: "updateTableRowsByFieldNames",
+            tableId,
+            scanned_rows: scannedRowCount,
+            matched_rows: matchedRowCount,
+            t_schema_ms,
+            t_resolve_updates_ms,
+            t_update_options_ms,
+            t_search_rows_ms,
+            t_filter_rows_ms,
+            t_bulk_update_ms,
+            t_total_ms: Date.now() - timingStart,
+          });
         }
 
         return updateResult;
@@ -1740,6 +1782,37 @@ export async function executeTool(
             return { success: false, error: "createTableFull requires workspaceId and title." };
           }
 
+          // RPC fast-path: create table + fields + rows in one DB transaction
+          const rpcResult = await createTableFullRpc({
+            workspaceId,
+            title,
+            description,
+            projectId,
+            fields,
+            rows,
+            authContext: authContext ?? undefined,
+          });
+
+          if (!("error" in rpcResult)) {
+            const { tableId, fieldsCreated, rowsInserted } = rpcResult.data;
+
+            // Create table block (UI visibility) if needed
+            if (tabId) {
+              await createBlock({
+                tabId,
+                type: "table",
+                content: { tableId },
+                authContext: authContext ?? undefined,
+              });
+            }
+
+            return {
+              success: true,
+              data: { tableId, fieldsCreated, rowsInserted },
+              hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
+            };
+          }
+
           // Step 1: Create table
           const tableResult = await wrapResult(
             createTable({
@@ -1824,6 +1897,42 @@ export async function executeTool(
 
           if (!tableId) {
             return { success: false, error: "updateTableFull requires tableId or tableName." };
+          }
+
+          const hasRpcOps =
+            args.title !== undefined ||
+            args.description !== undefined ||
+            (Array.isArray(args.addFields) && args.addFields.length > 0) ||
+            (Array.isArray(args.updateFields) && args.updateFields.length > 0) ||
+            (Array.isArray(args.deleteFields) && args.deleteFields.length > 0) ||
+            (Array.isArray(args.insertRows) && args.insertRows.length > 0) ||
+            (args.updateRows && typeof args.updateRows === "object") ||
+            (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0);
+
+          if (hasRpcOps) {
+            // RPC fast-path: apply all operations in one DB transaction
+            const rpcResult = await updateTableFullRpc({
+              tableId,
+              title: args.title as string | undefined,
+              description: (args.description as string | null | undefined) ?? undefined,
+              addFields: Array.isArray(args.addFields) ? (args.addFields as Array<Record<string, unknown>>) : undefined,
+              updateFields: Array.isArray(args.updateFields) ? (args.updateFields as Array<Record<string, unknown>>) : undefined,
+              deleteFields: Array.isArray(args.deleteFields) ? (args.deleteFields as string[]) : undefined,
+              insertRows: Array.isArray(args.insertRows) ? (args.insertRows as Array<Record<string, unknown>>) : undefined,
+              updateRows: args.updateRows && typeof args.updateRows === "object"
+                ? (args.updateRows as Record<string, unknown>)
+                : undefined,
+              deleteRowIds: Array.isArray(args.deleteRowIds) ? (args.deleteRowIds as string[]) : undefined,
+              authContext: authContext ?? undefined,
+            });
+
+            if (!("error" in rpcResult)) {
+              return {
+                success: true,
+                data: rpcResult.data,
+                hint: `Updated table with ${Object.entries(rpcResult.data).map(([k, v]) => `${v} ${k}`).join(", ")}.`,
+              };
+            }
           }
 
           const operationSummary: Record<string, number> = {};

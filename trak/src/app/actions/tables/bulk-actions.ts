@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
+import { aiTiming, isAITimingEnabled } from "@/lib/ai/debug";
 import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import { recomputeFormulasForRow } from "./formula-actions";
@@ -28,26 +29,46 @@ export async function bulkUpdateRows(input: {
   rowIds: string[];
   updates: Record<string, unknown>;
 }): Promise<ActionResult<null>> {
+  const timingEnabled = isAITimingEnabled();
+  const timingStart = timingEnabled ? Date.now() : 0;
+  let t_access_ms = 0;
+  let t_fetch_fields_ms = 0;
+  let t_fetch_rows_ms = 0;
+  let t_fetch_rollup_fields_ms = 0;
+  let t_upsert_ms = 0;
+  let t_recompute_formulas_ms = 0;
+  let t_recompute_rollups_ms = 0;
+  let rowsCount = 0;
+  let skippedFormulas = false;
+  let skippedRollups = false;
+
+  const accessStart = timingEnabled ? Date.now() : 0;
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
 
   const access = await requireTableAccess(input.tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
+  if (timingEnabled) t_access_ms = Date.now() - accessStart;
 
   if (input.rowIds.length === 0) return { data: null };
 
+  const fetchFieldsStart = timingEnabled ? Date.now() : 0;
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id")
+    .select("id, type, config")
     .eq("table_id", input.tableId);
+  if (timingEnabled) t_fetch_fields_ms = Date.now() - fetchFieldsStart;
   const validIds = new Set((fields || []).map((f) => f.id));
 
+  const fetchRowsStart = timingEnabled ? Date.now() : 0;
   const { data: rows } = await supabase
     .from("table_rows")
     .select("id, data")
     .eq("table_id", input.tableId)
     .in("id", input.rowIds);
+  if (timingEnabled) t_fetch_rows_ms = Date.now() - fetchRowsStart;
+  rowsCount = rows?.length ?? 0;
 
   const payload = (rows || []).map((row) => {
     const cleanedData = sanitizeRowData((row.data as Record<string, unknown>) || {}, validIds);
@@ -58,21 +79,119 @@ export async function bulkUpdateRows(input: {
         ...cleanedData,
         ...input.updates,
       },
-      updated_by: userId,
+      updated_by: user.id,
     };
   });
 
+  const changedFieldIds = Object.keys(input.updates || {}).filter((key) => key.length > 0);
+  const changedFieldIdSet = new Set(changedFieldIds);
+  let shouldRecomputeFormulas = false;
+  let shouldRecomputeRollups = false;
+  let rollupTargetFieldIds: string[] = [];
+  let formulaHasUnknownDeps = false;
+
+  if (changedFieldIdSet.size > 0) {
+    const formulaFields = (fields || []).filter((field) => field.type === "formula");
+    if (formulaFields.length > 0) {
+      for (const field of formulaFields) {
+        const deps = (field.config as any)?.dependencies as string[] | undefined;
+        if (!deps || deps.length === 0) {
+          formulaHasUnknownDeps = true;
+          shouldRecomputeFormulas = true;
+          break;
+        }
+        if (deps.some((dep) => changedFieldIdSet.has(dep))) {
+          shouldRecomputeFormulas = true;
+          break;
+        }
+      }
+    }
+
+    const rollupFieldsStart = timingEnabled ? Date.now() : 0;
+    const { data: rollupFields } = await supabase
+      .from("table_fields")
+      .select("id, config")
+      .eq("type", "rollup");
+    if (timingEnabled) t_fetch_rollup_fields_ms = Date.now() - rollupFieldsStart;
+
+    if (rollupFields && rollupFields.length > 0) {
+      const targets = new Set<string>();
+      for (const field of rollupFields) {
+        const cfg = (field.config || {}) as Record<string, unknown>;
+        const targetFieldId =
+          (cfg.target_field_id as string | undefined) ||
+          (cfg.relatedFieldId as string | undefined) ||
+          (cfg.targetFieldId as string | undefined) ||
+          null;
+        if (targetFieldId && changedFieldIdSet.has(targetFieldId)) {
+          targets.add(targetFieldId);
+        }
+      }
+      if (targets.size > 0) {
+        rollupTargetFieldIds = Array.from(targets);
+        shouldRecomputeRollups = true;
+      }
+    }
+  }
+
   if (payload.length > 0) {
+    const upsertStart = timingEnabled ? Date.now() : 0;
     const { error } = await supabase.from("table_rows").upsert(payload, { onConflict: "id" });
     if (error) {
       console.error("bulkUpdateRows: failed to update rows:", error);
       return { error: error.message || "Failed to update rows" };
     }
+    if (timingEnabled) t_upsert_ms = Date.now() - upsertStart;
   }
 
-  for (const row of rows || []) {
-    await recomputeFormulasForRow(input.tableId, row.id);
-    await recomputeRollupsForTargetRowChanged(row.id, input.tableId);
+  const recomputeStart = timingEnabled ? Date.now() : 0;
+  if (shouldRecomputeFormulas) {
+    const changedFieldIdForFormula =
+      !formulaHasUnknownDeps && changedFieldIds.length === 1 ? changedFieldIds[0] : undefined;
+    for (const row of rows || []) {
+      await recomputeFormulasForRow(input.tableId, row.id, changedFieldIdForFormula);
+    }
+  } else {
+    skippedFormulas = true;
+  }
+  if (timingEnabled) t_recompute_formulas_ms = Date.now() - recomputeStart;
+
+  const rollupStart = timingEnabled ? Date.now() : 0;
+  if (shouldRecomputeRollups) {
+    for (const row of rows || []) {
+      if (rollupTargetFieldIds.length <= 1) {
+        await recomputeRollupsForTargetRowChanged(
+          row.id,
+          input.tableId,
+          rollupTargetFieldIds[0]
+        );
+      } else {
+        for (const targetFieldId of rollupTargetFieldIds) {
+          await recomputeRollupsForTargetRowChanged(row.id, input.tableId, targetFieldId);
+        }
+      }
+    }
+  } else {
+    skippedRollups = true;
+  }
+  if (timingEnabled) t_recompute_rollups_ms = Date.now() - rollupStart;
+
+  if (timingEnabled) {
+    aiTiming({
+      event: "bulkUpdateRows",
+      tableId: input.tableId,
+      rows: rowsCount,
+      t_access_ms,
+      t_fetch_fields_ms,
+      t_fetch_rows_ms,
+      t_fetch_rollup_fields_ms,
+      t_upsert_ms,
+      t_recompute_formulas_ms,
+      t_recompute_rollups_ms,
+      skipped_formulas: skippedFormulas,
+      skipped_rollups: skippedRollups,
+      t_total_ms: Date.now() - timingStart,
+    });
   }
 
   return { data: null };
@@ -179,8 +298,8 @@ export async function bulkDuplicateRows(input: {
     table_id: row.table_id,
     data: row.data,
     order: Number(row.order) + 0.001 * (idx + 1),
-    created_by: userId,
-    updated_by: userId,
+    created_by: user.id,
+    updated_by: user.id,
   }));
 
   const { error } = await supabase.from("table_rows").insert(payload);
@@ -222,8 +341,8 @@ export async function bulkInsertRows(input: {
     table_id: input.tableId,
     data: sanitizeRowData(row.data || {}, validIds),
     order: row.order ?? null,
-    created_by: userId,
-    updated_by: userId,
+    created_by: user.id,
+    updated_by: user.id,
   }));
 
   const chunkSize = 100;
