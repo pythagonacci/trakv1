@@ -142,6 +142,12 @@ Core features:
 - Tests validate parsing output (tool selection + partial args) without invoking server actions.
 - This keeps tests fast and deterministic while verifying the parsing layer.
 
+### Execution-level test (server actions)
+- Added a real execution harness that calls `executeTool` after a deterministic parse.
+- Creates a temporary project/tab, executes a small set of create/search commands, then cleans up.
+- Uses `.env.local` Supabase creds and `ENABLE_TEST_MODE=true` to provide workspace/user context.
+- Known limitation: `createDoc` calls `revalidatePath` and requires a Next.js request context; the harness skips it and logs a note.
+
 ### Test command diversity
 - Includes varied phrasing, typos, and parameter placement.
 - Includes explicit abstain cases (updates, deletes, multi-step commands).
@@ -163,6 +169,25 @@ node -e "require('jiti')(process.cwd())('./src/lib/ai/test-deterministic-layer.t
 - Coverage: 89.7%
 - Precision: 100.0%
 - Avg confidence: 0.953
+
+### Execution test command
+```
+node ./scripts/run-deterministic-exec-test.js
+```
+
+### Execution test coverage
+- createProject (setup only)
+- createTab (setup only)
+- createTable + bulkCreateFields
+- createTaskItem (with assignees/due date/priority)
+- createClient (with email)
+- searchTasks
+- searchTables
+- cleanup: deleteTaskItem, deleteTable, deleteClient, deleteProject
+
+### Execution test result (latest run)
+- All commands succeeded except `createDoc` (skipped due to `revalidatePath` requirement).
+- Cleanup completed successfully.
 
 ## Behavior notes
 - If confidence is too low or two intents are too close, the command is handed off to the LLM.
