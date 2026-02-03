@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAI } from "./ai-context";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import { usePathname } from "next/navigation";
@@ -58,6 +59,22 @@ interface SearchEntry {
   error?: string;
 }
 
+const isSearchLikeToolName = (name: string) =>
+  name.startsWith("search") ||
+  name.startsWith("get") ||
+  name.startsWith("resolve") ||
+  name === "requestToolGroups";
+
+const hasSuccessfulWriteToolCall = (toolCallsMade: unknown) => {
+  if (!Array.isArray(toolCallsMade)) return false;
+  return toolCallsMade.some((call) => {
+    if (!call || typeof call !== "object") return false;
+    const typed = call as { tool?: string; result?: { success?: boolean } };
+    if (!typed.tool || isSearchLikeToolName(typed.tool)) return false;
+    return Boolean(typed.result?.success);
+  });
+};
+
 export function AICommandPalette() {
   const {
     isOpen,
@@ -68,6 +85,7 @@ export function AICommandPalette() {
   } = useAI();
   const { currentWorkspace } = useWorkspace();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<FileAnalysisMessage[]>([]);
@@ -110,6 +128,14 @@ export function AICommandPalette() {
   }, [pathname]);
 
   const workspaceId = currentWorkspace?.id || null;
+  const scrollBackground = (deltaY: number, deltaX?: number) => {
+    const scroller = document.getElementById("dashboard-content");
+    if (scroller) {
+      scroller.scrollBy({ top: deltaY, left: deltaX ?? 0, behavior: "auto" });
+      return;
+    }
+    window.scrollBy({ top: deltaY, left: deltaX ?? 0, behavior: "auto" });
+  };
 
   const loadSession = async () => {
     if (!workspaceId) return;
@@ -372,7 +398,14 @@ export function AICommandPalette() {
       const decoder = new TextDecoder();
       let buffer = "";
       let finalResponse = "";
-      const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string } }> = [];
+      const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string }; isWrite: boolean }> = [];
+      let didWrite = false;
+      const markWrite = () => {
+        if (!didWrite) {
+          didWrite = true;
+          void queryClient.invalidateQueries();
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -410,14 +443,19 @@ export function AICommandPalette() {
                 setStreamingStatus(event.content || "Working on it...");
                 setStreamingResponse(null);
                 if (event.data && typeof event.data === "object" && "tool" in event.data) {
-                  toolCalls.push({ tool: (event.data as { tool: string }).tool });
+                  const toolName = (event.data as { tool: string }).tool;
+                  toolCalls.push({ tool: toolName, isWrite: !isSearchLikeToolName(toolName) });
                 }
                 break;
               case "tool_result":
                 if (event.data && typeof event.data === "object" && "success" in event.data) {
                   const result = event.data as { success: boolean; error?: string };
                   if (toolCalls.length > 0) {
-                    toolCalls[toolCalls.length - 1].result = result;
+                    const lastCall = toolCalls[toolCalls.length - 1];
+                    lastCall.result = result;
+                    if (result.success && lastCall.isWrite) {
+                      markWrite();
+                    }
                   }
                 }
                 setStreamingStatus(null); // Don't show "Processing..." - next tool_call or response will update
@@ -430,6 +468,12 @@ export function AICommandPalette() {
                 finalResponse = event.content || "";
                 setStreamingStatus(null);
                 setStreamingResponse(null);
+                if (event.data && typeof event.data === "object" && "toolCallsMade" in event.data) {
+                  const toolCallsMade = (event.data as { toolCallsMade?: unknown }).toolCallsMade;
+                  if (hasSuccessfulWriteToolCall(toolCallsMade)) {
+                    markWrite();
+                  }
+                }
                 break;
               case "error":
                 setToast({ message: event.content || "An error occurred", type: "error" });
@@ -451,7 +495,9 @@ export function AICommandPalette() {
           id: crypto.randomUUID(),
           role: "assistant",
           content: finalResponse,
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          toolCalls: toolCalls.length > 0
+            ? toolCalls.map(({ tool, result }) => ({ tool, result }))
+            : undefined,
         },
       ]);
     } catch (error) {
@@ -728,7 +774,14 @@ export function AICommandPalette() {
   return (
     <div className="fixed inset-0 z-[100] flex justify-end">
       {/* Overlay */}
-      <div className="absolute inset-0 bg-black/20" onClick={closeCommandPalette} />
+      <div
+        className="absolute inset-0 bg-black/20"
+        onClick={closeCommandPalette}
+        onWheel={(event) => {
+          event.preventDefault();
+          scrollBackground(event.deltaY, event.deltaX);
+        }}
+      />
 
       {/* Sidebar */}
       <div

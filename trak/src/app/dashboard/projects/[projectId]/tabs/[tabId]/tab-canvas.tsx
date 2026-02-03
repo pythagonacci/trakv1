@@ -81,6 +81,61 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     }
   }, [tabId, initialBlocks]);
 
+  useEffect(() => {
+    if (prevTabIdRef.current !== tabId) return;
+    if (isDragging || isCreatingBlock) return;
+    if (justDraggedRef.current) return;
+
+    setBlocks((prevBlocks) => {
+      if (!Array.isArray(initialBlocks)) return prevBlocks;
+
+      const prevById = new Map(prevBlocks.map((block) => [block.id, block]));
+      const nextBlocks: Block[] = [];
+      let changed = false;
+
+      for (const serverBlock of initialBlocks) {
+        const localBlock = prevById.get(serverBlock.id);
+        if (!localBlock) {
+          nextBlocks.push(serverBlock);
+          changed = true;
+          continue;
+        }
+
+        const localUpdated = localBlock.updated_at ? Date.parse(localBlock.updated_at) : 0;
+        const serverUpdated = serverBlock.updated_at ? Date.parse(serverBlock.updated_at) : 0;
+        if (serverUpdated > localUpdated) {
+          nextBlocks.push(serverBlock);
+          if (localBlock !== serverBlock) changed = true;
+        } else {
+          nextBlocks.push(localBlock);
+        }
+      }
+
+      const tempBlocks = prevBlocks.filter((block) => block.id.startsWith("temp-"));
+      for (const tempBlock of tempBlocks) {
+        if (!nextBlocks.find((block) => block.id === tempBlock.id)) {
+          nextBlocks.push(tempBlock);
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        if (nextBlocks.length !== prevBlocks.length) {
+          changed = true;
+        } else {
+          for (let i = 0; i < nextBlocks.length; i += 1) {
+            if (nextBlocks[i] !== prevBlocks[i]) {
+              changed = true;
+              break;
+            }
+          }
+        }
+      }
+
+      return changed ? nextBlocks : prevBlocks;
+    });
+  }, [tabId, initialBlocks, isDragging, isCreatingBlock]);
+
   // Configure sensors for drag and drop (mouse/touch only to avoid capturing typing keys)
   const sensors = useSensors(
     useSensor(PointerSensor, {
