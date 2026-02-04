@@ -631,7 +631,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             }
             syncContentFromHTML();
           }}
-          className="w-full resize-none rounded-lg bg-[var(--surface)] px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
+          className="w-full resize-none bg-transparent px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
           style={{ minHeight: '20px', height: 'auto' }}
         />
         {saveStatus !== "idle" && (
