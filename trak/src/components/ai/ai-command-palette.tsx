@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAI } from "./ai-context";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import Toast from "@/app/dashboard/projects/toast";
@@ -20,6 +20,7 @@ import {
   saveFileAnalysisAsComment,
   getFileAnalysisContextFiles,
 } from "@/app/actions/file-analysis";
+import { convertFileAnalysisToWorkflowPage, createWorkflowPage } from "@/app/actions/workflow-page";
 import { createFileRecord } from "@/app/actions/file";
 import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
@@ -75,6 +76,24 @@ const hasSuccessfulWriteToolCall = (toolCallsMade: unknown) => {
   });
 };
 
+const shouldSuggestWorkflowPage = (command: string) => {
+  const lower = command.toLowerCase();
+  if (lower.length < 20) return false;
+  if (/(across\s+(projects|tabs)|across\s+the\s+workspace|workspace-?wide|all\s+projects|compare|aggregate|cross-?project|cross-?tab)/.test(lower)) {
+    return true;
+  }
+  if (/(show|list|find)\s+all\s+.*\s+(across|in)\s+(projects|workspace)/.test(lower)) {
+    return true;
+  }
+  return false;
+};
+
+const defaultWorkflowTitleFromCommand = (command: string) => {
+  const trimmed = command.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= 48) return trimmed;
+  return `${trimmed.slice(0, 45)}…`;
+};
+
 export function AICommandPalette() {
   const {
     isOpen,
@@ -85,6 +104,7 @@ export function AICommandPalette() {
   } = useAI();
   const { currentWorkspace } = useWorkspace();
   const pathname = usePathname();
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -359,6 +379,39 @@ export function AICommandPalette() {
 
     if (assistantLoading) return;
     const messageText = input.trim();
+
+    if (mode === "assistant" && shouldSuggestWorkflowPage(messageText) && workspaceId) {
+      const ok = window.confirm("This looks like a workspace-wide request. Create a workflow page to keep the analysis as a permanent document?");
+      if (ok) {
+        setAssistantLoading(true);
+        try {
+          const created = await createWorkflowPage({
+            isWorkspaceLevel: true,
+            title: defaultWorkflowTitleFromCommand(messageText),
+          });
+          if ("error" in created) {
+            setToast({ message: created.error, type: "error" });
+            return;
+          }
+
+          const tabId = created.data.tabId;
+          sessionStorage.setItem(
+            `trak-workflow-autorun:${tabId}`,
+            JSON.stringify({ command: messageText })
+          );
+          closeCommandPalette();
+          router.push(`/dashboard/workflow/${tabId}`);
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to create workflow page";
+          setToast({ message, type: "error" });
+          return;
+        } finally {
+          setAssistantLoading(false);
+        }
+      }
+    }
+
     setInput("");
     const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: messageText };
     setAssistantMessages((prev) => [...prev, userMessage]);
@@ -506,6 +559,31 @@ export function AICommandPalette() {
       setAssistantLoading(false);
       setStreamingStatus(null);
       setStreamingResponse(null);
+    }
+  };
+
+  const handleConvertToWorkflowPage = async (messageId: string) => {
+    if (!sessionId) return;
+    setIsLoading(true);
+    try {
+      const result = await convertFileAnalysisToWorkflowPage({
+        fileAnalysisSessionId: sessionId,
+        messageId,
+        title: "Workflow Page",
+      });
+
+      if ("error" in result) {
+        setToast({ message: result.error, type: "error" });
+        return;
+      }
+
+      closeCommandPalette();
+      router.push(`/dashboard/workflow/${result.data.tabId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to convert to workflow page";
+      setToast({ message, type: "error" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1025,6 +1103,18 @@ export function AICommandPalette() {
                         Used: {message.citations && message.citations.length > 0
                           ? message.citations.map((citation) => citation.file_name).join(", ")
                           : "No files used"}
+                      </div>
+                    )}
+
+                    {message.role === "assistant" && (
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleConvertToWorkflowPage(message.id)}
+                          className="text-[11px] text-[#265b52] hover:underline"
+                        >
+                          Continue in a workflow page
+                        </button>
                       </div>
                     )}
 
