@@ -19,6 +19,7 @@ import { Bar, Line, Pie, Doughnut } from "react-chartjs-2";
 import type { Block } from "@/app/actions/block";
 import type { ChartBlockContent } from "@/types/chart";
 import { cn } from "@/lib/utils";
+import { applyChartCustomizationToCode } from "@/lib/chart-customization";
 import { Input } from "@/components/ui/input";
 import { updateChartCustomization } from "@/app/actions/chart-actions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -112,7 +113,6 @@ export default function ChartBlock({ block, className }: ChartBlockProps) {
   const isSimulation = Boolean(content.metadata?.isSimulation);
   const customization = content.metadata?.customization;
 
-  const jsx = useMemo(() => normalizeJsx(code), [code]);
   const [labelEditIndex, setLabelEditIndex] = useState<number | null>(null);
   const [colorEditIndex, setColorEditIndex] = useState<number | null>(null);
   const [title, setTitle] = useState(customization?.title ?? content.title ?? "");
@@ -127,6 +127,50 @@ export default function ChartBlock({ block, className }: ChartBlockProps) {
   const [isSaving, setIsSaving] = useState(false);
   const labelRefs = useRef<Array<HTMLInputElement | null>>([]);
   const chartRef = useRef<any>(null);
+
+  const parsedRowData = useMemo(() => {
+    const parsedLabels: string[] = [];
+    const parsedValues: number[] = [];
+    const parsedColors: string[] = [];
+
+    rows.forEach((row) => {
+      const label = row.label.trim();
+      const numeric = parseNumeric(row.value);
+      if (!label && numeric === null) return;
+      if (!label || numeric === null) return;
+      parsedLabels.push(label);
+      parsedValues.push(numeric);
+      parsedColors.push(row.color || "#3b82f6");
+    });
+
+    if (!parsedLabels.length || !parsedValues.length) return null;
+    return { labels: parsedLabels, values: parsedValues, colors: parsedColors };
+  }, [rows]);
+
+  const displayCode = useMemo(() => {
+    if (!code) return code;
+    if (!parsedRowData && !customization?.height && title === (customization?.title ?? content.title ?? "")) {
+      return code;
+    }
+
+    return applyChartCustomizationToCode(code, {
+      labels: parsedRowData?.labels,
+      values: parsedRowData?.values,
+      colors: parsedRowData?.colors,
+      title: title.trim() ? title.trim() : null,
+      previousTitle: customization?.title ?? content.title ?? null,
+      height: customization?.height ?? null,
+    });
+  }, [
+    code,
+    parsedRowData,
+    title,
+    customization?.height,
+    customization?.title,
+    content.title,
+  ]);
+
+  const jsx = useMemo(() => normalizeJsx(displayCode), [displayCode]);
 
   const handleChartElementClick = useCallback((event: unknown, chartInstance: any) => {
     if (!chartInstance) return;

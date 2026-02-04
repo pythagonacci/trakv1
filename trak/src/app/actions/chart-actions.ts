@@ -16,6 +16,7 @@ import { getSessionFiles, getTabAttachedFiles } from "@/lib/file-analysis/contex
 import { ensureFileArtifact, type FileRecord } from "@/lib/file-analysis/service";
 import type { ChartBlockContent, ChartType } from "@/types/chart";
 import type { TableField } from "@/types/table";
+import { applyChartCustomizationToCode } from "@/lib/chart-customization";
 
 export type ChartActionResult<T> = { data: T } | { error: string };
 
@@ -947,34 +948,38 @@ export async function updateChartCustomization(params: {
 
     const content = (block.content || {}) as ChartBlockContent;
     const chartType = content.chartType;
-    const title = params.title ?? content.title ?? undefined;
+    const currentCustomization = content.metadata?.customization;
+    const nextTitle = params.title ?? currentCustomization?.title ?? content.title ?? undefined;
+    const nextCustomization = {
+      title: nextTitle ?? null,
+      labels: params.labels ?? currentCustomization?.labels,
+      values: params.values ?? currentCustomization?.values,
+      colors: params.colors ?? currentCustomization?.colors,
+      height: params.height ?? currentCustomization?.height ?? null,
+    };
 
-    const explicitData: Record<string, unknown> = {};
-    if (params.labels && params.labels.length > 0) explicitData.labels = params.labels;
-    if (params.values && params.values.length > 0) explicitData.values = params.values;
-    if (params.colors && params.colors.length > 0) explicitData.colors = params.colors;
-    if (params.height) explicitData.height = params.height;
-
-    const generated = await generateChartCode({
-      prompt: "Update the chart with the provided customization data.",
-      chartType,
-      title,
-      dataContext: Object.keys(explicitData).length > 0 ? { explicitData } : null,
+    const updatedCode = applyChartCustomizationToCode(content.code ?? "", {
+      labels: nextCustomization.labels,
+      values: nextCustomization.values,
+      colors: nextCustomization.colors,
+      title: nextCustomization.title ?? undefined,
+      previousTitle: content.title ?? currentCustomization?.title ?? null,
+      height: nextCustomization.height ?? undefined,
     });
 
     const updatedContent: ChartBlockContent = {
       ...content,
-      code: generated.code,
+      code: updatedCode,
       chartType,
-      title,
+      title: nextTitle,
       metadata: {
         ...(content.metadata || {}),
         customization: {
-          title: title ?? null,
-          labels: params.labels,
-          values: params.values,
-          colors: params.colors,
-          height: params.height ?? null,
+          title: nextCustomization.title ?? null,
+          labels: nextCustomization.labels,
+          values: nextCustomization.values,
+          colors: nextCustomization.colors,
+          height: nextCustomization.height ?? null,
         },
       },
     };
