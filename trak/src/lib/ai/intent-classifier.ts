@@ -82,6 +82,10 @@ const ENTITY_PATTERNS: Record<string, RegExp[]> = {
     /\bsection(?:s)?\b/i,
     /\btext block/i,
     /\bimage block/i,
+    /\bchart(?:s)?\b/i,
+    /\bgraph(?:s)?\b/i,
+    /\bplot(?:s|ting)?\b/i,
+    /\bvisuali[sz]e\b/i,
   ],
   tab: [
     /\btab(?:s)?\b/i,

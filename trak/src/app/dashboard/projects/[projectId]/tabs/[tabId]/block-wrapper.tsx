@@ -133,6 +133,7 @@ export default function BlockWrapper({
     if (block.type === "section") return "Section block";
     if (block.type === "link") return "Link block";
     if (block.type === "pdf") return "PDF block";
+    if (block.type === "chart") return "Chart block";
     return `${block.type} block`;
   })();
 
@@ -819,6 +820,9 @@ function getBlockTitle(block: Block): string {
 
     case "pdf":
       return (content.filename as string) ?? "File";
+
+    case "chart":
+      return (content.title as string) ?? "Chart";
 
     default:
       return `${block.type} block`;

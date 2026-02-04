@@ -196,6 +196,8 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
         return { height: 400 };
       case "doc_reference":
         return { doc_id: "", doc_title: "" };
+      case "chart":
+        return { code: "", chartType: "bar", title: "Chart" };
       default:
         return {};
     }

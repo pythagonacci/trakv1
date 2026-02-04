@@ -85,6 +85,7 @@ import {
   deleteBlock,
   getTabBlocks,
 } from "@/app/actions/block";
+import { createChartBlock } from "@/app/actions/chart-actions";
 
 // ============================================================================
 // IMPORTS - File Actions
@@ -1167,6 +1168,44 @@ export async function executeTool(
       // ==================================================================
       // BLOCK ACTIONS
       // ==================================================================
+      case "createChartBlock": {
+        let tabId = args.tabId as string | undefined;
+        const isSimulation = args.isSimulation as boolean | undefined;
+        let originalChartId = args.originalChartId as string | undefined;
+
+        if (!tabId && args.tabName) {
+          const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
+          if (tabSearch.data && tabSearch.data.length > 0) {
+            tabId = tabSearch.data[0].id;
+          }
+        }
+
+        if (!tabId && context?.currentTabId) {
+          tabId = context.currentTabId;
+        }
+
+        if (!tabId) {
+          return { success: false, error: "createChartBlock: Missing tabId and could not infer from context" };
+        }
+
+        if (isSimulation && !originalChartId && context?.contextBlockId) {
+          originalChartId = context.contextBlockId;
+        }
+
+        return await wrapResult(
+          createChartBlock({
+            tabId,
+            prompt: args.prompt as string,
+            chartType: args.chartType as any,
+            title: args.title as string | undefined,
+            explicitData: args.explicitData as any,
+            isSimulation,
+            originalChartId,
+            simulationDescription: args.simulationDescription as string | undefined,
+            authContext: authContext ?? undefined,
+          })
+        );
+      }
       case "createBlock": {
         let tabId = args.tabId as string;
 

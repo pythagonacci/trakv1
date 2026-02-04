@@ -11,7 +11,7 @@ import { IndexingQueue } from "@/lib/search/job-queue";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "doc_reference";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "chart" | "doc_reference";
 
 export interface Block {
   id: string;
@@ -381,6 +381,9 @@ export async function createBlock(data: {
           break;
         case "section":
           content = { height: 400 }; // Default height in pixels
+          break;
+        case "chart":
+          content = { code: "", chartType: "bar", title: "Chart" };
           break;
       }
     }

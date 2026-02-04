@@ -238,7 +238,7 @@ const searchTools: ToolDefinition[] = [
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search by block content" },
-      type: { type: "string", description: "Filter by block type", enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "doc_reference"] },
+      type: { type: "string", description: "Filter by block type", enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "chart", "doc_reference"] },
       projectId: { type: "string", description: "Filter by project ID" },
       projectName: { type: "string", description: "Filter by project name (partial match)" },
       tabId: { type: "string", description: "Filter by tab ID" },
@@ -699,6 +699,26 @@ const tabActionTools: ToolDefinition[] = [
 
 const blockActionTools: ToolDefinition[] = [
   {
+    name: "createChartBlock",
+    description:
+      "Create a chart block by generating React/Chart.js JSX and saving it to the blocks table. " +
+      "Use ONLY when the user explicitly asks for a chart/graph/visualization, or after they confirm an implicit suggestion. " +
+      "If the user asks a what-if scenario, set isSimulation=true and provide originalChartId plus a short simulationDescription.",
+    category: "block",
+    parameters: {
+      tabId: { type: "string", description: "The tab ID to create the chart in. PREFER 'tabName' if target differs from current context." },
+      tabName: { type: "string", description: "Target Tab Name (e.g. 'Overview'). System finds fuzzy match." },
+      prompt: { type: "string", description: "The user's chart request (include any inline data or context needed)." },
+      chartType: { type: "string", description: "Optional chart type hint.", enum: ["bar", "line", "pie", "doughnut"] },
+      title: { type: "string", description: "Optional chart title override." },
+      explicitData: { type: "object", description: "Optional structured data to chart (labels/datasets or any JSON context)." },
+      isSimulation: { type: "boolean", description: "True if this is a what-if simulation (creates a new chart)." },
+      originalChartId: { type: "string", description: "Original chart block ID for simulations." },
+      simulationDescription: { type: "string", description: "Short description of the what-if change applied." },
+    },
+    requiredParams: ["prompt"],
+  },
+  {
     name: "createBlock",
     description:
       "Create a new block in a tab. Block type determines what content to provide.\n\n" +
@@ -712,7 +732,7 @@ const blockActionTools: ToolDefinition[] = [
       type: {
         type: "string",
         description: "Block type",
-        enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "doc_reference"],
+        enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "chart", "doc_reference"],
       },
       content: { type: "object", description: "Block content (varies by type)" },
       position: { type: "number", description: "Row position (0-based)" },

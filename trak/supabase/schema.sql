@@ -55,7 +55,8 @@ CREATE TYPE public.block_type AS ENUM (
     'stripe_payment',
     'file',
     'doc_reference',
-    'gallery'
+    'gallery',
+    'chart'
 );
 
 
@@ -65,7 +66,7 @@ ALTER TYPE public.block_type OWNER TO postgres;
 -- Name: TYPE block_type; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TYPE public.block_type IS 'Types of blocks that can be added to tabs: text, task, link, divider, table, timeline, file, video, image, gallery, embed, pdf, section, doc_reference';
+COMMENT ON TYPE public.block_type IS 'Types of blocks that can be added to tabs: text, task, link, divider, table, timeline, file, video, image, gallery, embed, pdf, section, doc_reference, chart';
 
 
 --
@@ -5996,4 +5997,3 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 --
 
 \unrestrict fDoqNd6imQSCYknFDSBD0nMLQPf3Jce0oxwfEC5r1yflz6P5cZtkKOIzhlo0Ha0
-

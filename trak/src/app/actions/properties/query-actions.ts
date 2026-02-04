@@ -645,6 +645,9 @@ function getBlockTitle(block: {
     case "pdf":
       return (content as any).filename ?? "PDF";
 
+    case "chart":
+      return (content as any).title ?? "Chart";
+
     default:
       return `${block.type} block`;
   }

@@ -16,6 +16,7 @@ import GalleryBlock from "./gallery-block";
 import EmbedBlock from "./embed-block";
 import PdfBlock from "./pdf-block";
 import SectionBlock from "./section-block";
+import ChartBlock from "@/components/blocks/ChartBlock";
 import { useRouter } from "next/navigation";
 
 interface BlockReferenceRendererProps {
@@ -118,6 +119,8 @@ export default function BlockReferenceRenderer({
         return <EmbedBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "pdf":
         return <PdfBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "chart":
+        return <ChartBlock block={originalBlock} />;
       case "section":
         return tabId ? (
           <SectionBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} tabId={tabId} onUpdate={onUpdate} />

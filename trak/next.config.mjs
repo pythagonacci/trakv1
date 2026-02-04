@@ -10,10 +10,16 @@ const withBundleAnalyzer = bundleAnalyzer({
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 
+const disableTurbopack = process.env.DISABLE_TURBOPACK === '1';
+
 const nextConfig = {
-  turbopack: {
-    root: projectRoot,
-  },
+  ...(disableTurbopack
+    ? {}
+    : {
+        turbopack: {
+          root: projectRoot,
+        },
+      }),
   
   // Performance optimizations
   experimental: {
@@ -39,4 +45,3 @@ const nextConfig = {
 };
 
 export default withBundleAnalyzer(nextConfig);
-

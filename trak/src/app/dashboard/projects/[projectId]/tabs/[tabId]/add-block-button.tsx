@@ -229,6 +229,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "embed": return { url: "", displayMode: "inline" };
       case "section": return { height: 400 };
       case "doc_reference": return { doc_id: "", doc_title: "" };
+      case "chart": return { code: "", chartType: "bar", title: "Chart" };
       default: return {};
     }
   };

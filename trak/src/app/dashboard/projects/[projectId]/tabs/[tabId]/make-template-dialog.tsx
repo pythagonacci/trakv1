@@ -63,6 +63,7 @@ export default function MakeTemplateDialog({ isOpen, onClose, blockId, blockType
       embed: "Embed",
       pdf: "File",
       section: "Section",
+      chart: "Chart",
     };
     return labels[blockType] || "Block";
   };
@@ -108,5 +109,4 @@ export default function MakeTemplateDialog({ isOpen, onClose, blockId, blockType
     </Dialog>
   );
 }
-
 

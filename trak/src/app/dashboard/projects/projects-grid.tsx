@@ -24,6 +24,7 @@ import {
   FileText as FileTextIcon,
   LayoutPanelTop,
   BookOpen,
+  BarChart3,
 } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
@@ -105,6 +106,7 @@ const blockIconLookup: Partial<Record<BlockType, LucideIcon>> = {
   pdf: FileTextIcon,
   section: LayoutPanelTop,
   doc_reference: BookOpen,
+  chart: BarChart3,
 };
 
 const getBlockPreviewIcon = (type: BlockType): LucideIcon => {

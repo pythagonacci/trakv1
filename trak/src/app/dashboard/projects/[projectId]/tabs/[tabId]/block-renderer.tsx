@@ -68,6 +68,11 @@ const PdfBlock = dynamic(() => import("./pdf-block"), {
   ssr: true,
 });
 
+const ChartBlock = dynamic(() => import("@/components/blocks/ChartBlock"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
 const SectionBlock = dynamic(() => import("./section-block"), {
   loading: () => <BlockLoadingState />,
   ssr: true,
@@ -162,6 +167,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
         return <EmbedBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "pdf":
         return <PdfBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+      case "chart":
+        return <ChartBlock block={block} />;
       case "section":
         return tabId ? (
           <SectionBlock block={block} workspaceId={workspaceId} projectId={projectId} tabId={tabId} onUpdate={onUpdate} />

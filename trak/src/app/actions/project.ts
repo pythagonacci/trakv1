@@ -192,6 +192,16 @@ function summarizeBlockPreview(
         ],
       };
     }
+    case "chart": {
+      const title = getTitle(content.title);
+      const chartType = typeof content.chartType === "string" ? content.chartType : "chart";
+      const detailLines: string[] = [];
+      if (content.metadata?.isSimulation) detailLines.push("Simulation");
+      return {
+        summary: title || `${chartType} chart`,
+        detailLines: detailLines.length ? detailLines : undefined,
+      };
+    }
     case "timeline": {
       const events = Array.isArray(content.events) ? content.events.length : 0;
       const title = getTitle(content.title);

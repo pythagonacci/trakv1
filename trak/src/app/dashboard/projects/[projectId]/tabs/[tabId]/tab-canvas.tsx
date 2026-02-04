@@ -359,6 +359,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       newContent = { layout: null, items: [] };
     } else if (newType === "doc_reference") {
       newContent = { doc_id: "", doc_title: "" };
+    } else if (newType === "chart") {
+      newContent = { code: "", chartType: "bar", title: "Chart" };
     }
 
     const result = await updateBlock({
@@ -416,6 +418,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         return { height: 400 };
       case "doc_reference":
         return { doc_id: "", doc_title: "" };
+      case "chart":
+        return { code: "", chartType: "bar", title: "Chart" };
       default:
         return {};
     }
