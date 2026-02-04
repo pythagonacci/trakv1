@@ -28,6 +28,7 @@ Styling rules:
 Data rules:
 - Prefer structured data provided in context.
 - If dataContext.tables is provided, infer label/value fields from table rows using the user prompt as guidance (do not fabricate labels or values).
+- If explicitData is provided, use its labels/values/colors/height verbatim (colors may be hex).
 - If data is partial, infer reasonable labels from the prompt.
 - Keep datasets small and readable (avoid clutter).
 

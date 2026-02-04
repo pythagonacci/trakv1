@@ -11,6 +11,13 @@ export interface ChartMetadata extends ChartSimulationMetadata {
   sourceBlockIds?: string[];
   sourceFileIds?: string[];
   dataNotes?: string;
+  customization?: {
+    title?: string | null;
+    labels?: string[];
+    values?: number[];
+    colors?: string[];
+    height?: number | null;
+  };
 }
 
 export interface ChartBlockContent {

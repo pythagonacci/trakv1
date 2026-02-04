@@ -920,6 +920,80 @@ export async function updateChartBlock(params: {
   return { data: { blockId: params.blockId } };
 }
 
+export async function updateChartCustomization(params: {
+  blockId: string;
+  title?: string | null;
+  labels?: string[];
+  values?: number[];
+  colors?: string[];
+  height?: number | null;
+  authContext?: AuthContext;
+}): Promise<ChartActionResult<{ blockId: string }>> {
+  try {
+    const authContext = params.authContext ?? (await getAuthContext());
+    if ("error" in authContext) return { error: authContext.error };
+
+    const { supabase, userId } = authContext;
+
+    const { data: block } = await supabase
+      .from("blocks")
+      .select("id, type, content")
+      .eq("id", params.blockId)
+      .single();
+
+    if (!block || block.type !== "chart") {
+      return { error: "Chart block not found" };
+    }
+
+    const content = (block.content || {}) as ChartBlockContent;
+    const chartType = content.chartType;
+    const title = params.title ?? content.title ?? undefined;
+
+    const explicitData: Record<string, unknown> = {};
+    if (params.labels && params.labels.length > 0) explicitData.labels = params.labels;
+    if (params.values && params.values.length > 0) explicitData.values = params.values;
+    if (params.colors && params.colors.length > 0) explicitData.colors = params.colors;
+    if (params.height) explicitData.height = params.height;
+
+    const generated = await generateChartCode({
+      prompt: "Update the chart with the provided customization data.",
+      chartType,
+      title,
+      dataContext: Object.keys(explicitData).length > 0 ? { explicitData } : null,
+    });
+
+    const updatedContent: ChartBlockContent = {
+      ...content,
+      code: generated.code,
+      chartType,
+      title,
+      metadata: {
+        ...(content.metadata || {}),
+        customization: {
+          title: title ?? null,
+          labels: params.labels,
+          values: params.values,
+          colors: params.colors,
+          height: params.height ?? null,
+        },
+      },
+    };
+
+    const result = await updateBlock({
+      blockId: params.blockId,
+      content: updatedContent as any,
+    });
+
+    if ("error" in result) {
+      return { error: result.error ?? "Failed to update chart" };
+    }
+
+    return { data: { blockId: params.blockId } };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to update chart" };
+  }
+}
+
 export async function deleteChartBlock(params: {
   blockId: string;
   authContext?: AuthContext;

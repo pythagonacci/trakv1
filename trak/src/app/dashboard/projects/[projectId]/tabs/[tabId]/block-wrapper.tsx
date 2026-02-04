@@ -21,6 +21,7 @@ import {
   Plus,
   Tags,
   Sparkles,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -45,6 +46,7 @@ import {
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
 import { useAI } from "@/components/ai";
+import ChartCustomizeDialog from "@/components/blocks/chart-customize-dialog";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -76,6 +78,7 @@ export default function BlockWrapper({
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [chartCustomizeOpen, setChartCustomizeOpen] = useState(false);
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
 
   // Fetch properties for this block
@@ -196,6 +199,11 @@ export default function BlockWrapper({
             ? "border-none bg-transparent px-0 py-0 shadow-none"
             : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
         )}
+        onDoubleClick={() => {
+          if (block.type === "chart" && !readOnly) {
+            setChartCustomizeOpen(true);
+          }
+        }}
         onMouseDown={(e) => {
           // Stop drag from starting if clicking on contenteditable or interactive elements
           const target = e.target as HTMLElement;
@@ -255,6 +263,28 @@ export default function BlockWrapper({
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                 </button>
+                {block.type === "chart" && (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setChartCustomizeOpen(true);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                      title="Customize chart"
+                      aria-label="Customize chart"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                    <ChartCustomizeDialog
+                      block={block}
+                      isOpen={chartCustomizeOpen}
+                      onClose={() => setChartCustomizeOpen(false)}
+                      onSuccess={onUpdate}
+                    />
+                  </>
+                )}
                 {block.type === "table" && (
                   <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                     <DropdownMenuTrigger asChild>
