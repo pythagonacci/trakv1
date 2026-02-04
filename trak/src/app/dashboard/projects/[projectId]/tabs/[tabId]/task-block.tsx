@@ -310,7 +310,7 @@ function BoardTaskCard({
       style={style}
       className={cn(
         "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow",
-        "hover:border-[var(--foreground)]/30 hover:shadow-sm",
+        "hover:border-[var(--secondary)]/30 hover:shadow-sm",
         isDragging && "opacity-60"
       )}
       {...attributes}
@@ -325,7 +325,7 @@ function BoardTaskCard({
               e.preventDefault();
               onToggleStatus();
             }}
-            className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]"
+            className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--secondary)]"
             aria-label="Toggle task"
           >
             {statusIcon}
@@ -1492,7 +1492,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
         </DropdownMenu>
       </div>
       {viewMode === "list" ? (
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {orderedTasks.map((task: Task) => {
           const taskSections = expandedSections[task.id] || {};
           const hasAnyExpanded = taskSections.comments || taskSections.references;
@@ -1520,10 +1520,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
             <div
               id={`task-${task.id}`}
               key={task.id}
-              className="group rounded-[6px] bg-[var(--surface)] transition-all duration-150 ease-out"
+              className={cn(
+                "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 transition-all duration-150 ease-out",
+                "hover:border-[var(--foreground)]/30 hover:shadow-sm"
+              )}
             >
               {/* Main Task Row */}
-              <div className="flex items-start gap-2 px-2.5 py-1.5">
+              <div className="flex items-start gap-2">
             {/* Status Icon */}
             {shouldShowIcons(task) ? (
             <button
@@ -1675,7 +1678,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
                               effectivePriority
                                 ? PRIORITY_COLORS[effectivePriority]
-                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                             )}
                             title={
                               effectivePriority
@@ -1725,7 +1728,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
                               effectiveAssigneeId
                                 ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                             )}
                             title={
                               assigneeName ? `Assignee: ${assigneeName}` : "Assign"
@@ -1930,7 +1933,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
 
         <button
           onClick={addTask}
-          className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+          className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
         >
           <Plus className="h-3 w-3" /> Add task
         </button>
@@ -1957,7 +1960,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                   <button
                     type="button"
                     onClick={() => addTaskForColumn(column)}
-                    className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                    className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                   >
                     <Plus className="h-3 w-3" /> Add task
                   </button>

@@ -595,7 +595,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
             return (
               <div
                 key={blockFile.id}
-                className="group relative overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 ease-out hover:border-[var(--foreground)]/20"
+                className="group relative overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 ease-out hover:border-[var(--secondary)]/20"
               >
                 {/* Image Thumbnail - only show for images */}
                 {isImage && imageUrl && !imageFailed ? (

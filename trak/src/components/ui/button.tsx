@@ -15,18 +15,18 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Primary: Coffee Patina - bronze/brown for main actions
+        // Primary: Secondary color for main actions
         default:
-          "rounded-[2px] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] active:bg-[#7A6348]",
+          "rounded-[2px] bg-[var(--secondary)] text-white hover:bg-[var(--secondary)]/90 active:bg-[var(--secondary)]/80",
         // Secondary: Flat with structural border
         secondary:
-          "rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
+          "rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--secondary)]",
         // Ghost: Minimal, text-only appearance
         ghost:
           "rounded-[2px] bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
         // Outline: Structural border, transparent bg
         outline:
-          "rounded-[2px] border border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
+          "rounded-[2px] border border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--secondary)]",
         // Destructive: Muted Rose (#B85C5C) - terra-cotta
         destructive:
           "rounded-[2px] bg-[var(--error)] text-[var(--error-foreground)] hover:bg-[#A54F4F] active:bg-[#944545]",

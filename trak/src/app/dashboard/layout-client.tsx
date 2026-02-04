@@ -92,9 +92,9 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
         onClick={openCommandPalette}
         className={cn(
           "flex items-center gap-2 rounded-md border transition-all duration-150",
-          "border-[var(--primary)]/20 bg-[var(--primary)]/5",
-          "hover:bg-[var(--primary)]/10 hover:border-[var(--primary)]/30",
-          "text-[var(--primary)]",
+          "border-[#ba7b84]/30 bg-[#ba7b84]/10",
+          "hover:bg-[#ba7b84]/15 hover:border-[#ba7b84]/40",
+          "text-white",
           collapsed
             ? "h-9 w-9 justify-center"
             : "w-full px-3 py-2"
@@ -104,8 +104,8 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
         <Sparkles className="h-4 w-4" />
         {!collapsed && (
           <>
-            <span className="flex-1 text-left text-sm font-medium">File Analysis</span>
-            <kbd className="text-[10px] font-mono bg-[var(--primary)]/10 px-1.5 py-0.5 rounded">
+            <span className="flex-1 text-left text-sm font-medium text-white">File Analysis</span>
+            <kbd className="text-[10px] font-mono bg-[#ba7b84]/10 text-white px-1.5 py-0.5 rounded">
               ⌘K
             </kbd>
           </>
@@ -177,7 +177,7 @@ function Sidebar({
     <aside
       className={cn(
         // SARAJEVO SIDEBAR: Matte, structural, no glass effects
-        "flex h-screen flex-col border-r border-[var(--border)] bg-[var(--background)] transition-all duration-200 ease-out flex-shrink-0 relative z-50",
+        "flex h-screen flex-col border-r border-[#ba7b84]/30 bg-[#173d4b] transition-all duration-200 ease-out flex-shrink-0 relative z-50",
         collapsed ? "w-16" : "w-56"
       )}
     >
@@ -186,7 +186,7 @@ function Sidebar({
         collapsed ? "justify-center px-2" : "justify-between px-4"
       )}>
         {!collapsed && (
-          <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-[var(--foreground)]/60">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-white/80">
             Trak
           </span>
         )}
@@ -197,7 +197,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] z-50 relative"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#ba7b84]/30 bg-[#ba7b84]/10 text-white transition-colors duration-150 hover:bg-[#ba7b84]/15 z-50 relative"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -226,7 +226,7 @@ function Sidebar({
               {workspaces.length > 1 && (
                 <ChevronDown
                   className={cn(
-                    "h-3.5 w-3.5 text-[var(--muted-foreground)] transition-transform duration-200",
+                    "h-3.5 w-3.5 text-white/70 transition-transform duration-200",
                     workspaceDropdownOpen && "rotate-180"
                   )}
                 />
@@ -331,11 +331,11 @@ function Sidebar({
       </div>
 
       {/* Theme Toggle - Arts Palette accent */}
-        <div className="border-t border-[var(--border)] px-3 py-2">
+        <div className="border-t border-[#ba7b84]/30 px-3 py-2">
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#ba7b84]/30 bg-[#ba7b84]/10 text-white transition-colors duration-150 hover:bg-[#ba7b84]/15"
             title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
           >
             <Palette className="h-4 w-4" />
@@ -343,39 +343,39 @@ function Sidebar({
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--tram-yellow)]/20 bg-[var(--tram-yellow)]/10 px-3 py-2 text-sm text-[var(--tram-yellow)] transition-colors duration-150 hover:bg-[var(--tram-yellow)]/15"
+              className="flex w-full items-center gap-2.5 rounded-md border border-[#ba7b84]/30 bg-[#ba7b84]/10 px-3 py-2 text-sm text-white transition-colors duration-150 hover:bg-[#ba7b84]/15"
           >
             <Palette className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
+            <span className="text-xs font-medium text-white">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
           </button>
         )}
       </div>
 
-      <div className="border-t border-[var(--border)] px-3 py-3" ref={userDropdownRef}>
+      <div className="border-t border-[#ba7b84]/30 px-3 py-3" ref={userDropdownRef}>
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--velvet-purple)]/15"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[#ba7b84]/30 bg-[#ba7b84]/10 text-white text-xs font-semibold transition-colors duration-150 hover:bg-[#ba7b84]/15"
           >
             {getUserInitials()}
           </button>
         ) : (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]"
+            className="flex w-full items-center justify-between rounded-md border border-[#ba7b84]/30 bg-[#ba7b84]/10 px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#ba7b84]/15"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--velvet-purple)]/10 border border-[var(--velvet-purple)]/20 text-[var(--velvet-purple)] text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#ba7b84]/15 border border-[#ba7b84]/30 text-white text-xs font-semibold">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
-                <p className="truncate text-sm font-semibold">{currentUser?.name || "User"}</p>
-                <p className="truncate text-xs text-[var(--muted-foreground)]">{currentUser?.email}</p>
+                <p className="truncate text-sm font-semibold text-white">{currentUser?.name || "User"}</p>
+                <p className="truncate text-xs text-white/70">{currentUser?.email}</p>
               </div>
             </div>
             <ChevronDown
               className={cn(
-                "h-3.5 w-3.5 text-[var(--muted-foreground)] transition-transform duration-150",
+                "h-3.5 w-3.5 text-white/70 transition-transform duration-150",
                 userDropdownOpen && "rotate-180"
               )}
             />
@@ -422,8 +422,8 @@ function NavLink({
         "group flex w-full items-center rounded-md text-sm font-medium transition-colors duration-150",
         collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
         active
-          ? "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border-l-2 border-[var(--dome-teal)]"
-          : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          ? "bg-[#ba7b84]/10 text-white border-l-2 border-[#ba7b84]/50"
+          : "text-white/70 hover:bg-[#ba7b84]/10 hover:text-white"
       )}
       title={collapsed ? (children as string) : undefined}
     >
@@ -431,8 +431,8 @@ function NavLink({
         className={cn(
           "flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150",
           active
-            ? "bg-[var(--dome-teal)]/15 text-[var(--dome-teal)]"
-            : "text-[var(--river-indigo)] group-hover:text-[var(--dome-teal)]"
+            ? "bg-[#ba7b84]/15 text-white"
+            : "text-white/70 group-hover:text-white"
         )}
       >
         {icon}

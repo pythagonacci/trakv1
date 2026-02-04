@@ -1079,7 +1079,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           {!hasBlocks ? (
           <div
             onClick={handleEmptyCanvasClick}
-            className="cursor-text rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--foreground)]"
+            className="cursor-text rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--secondary)]"
             role="button"
             tabIndex={0}
             onKeyDown={(e) => {

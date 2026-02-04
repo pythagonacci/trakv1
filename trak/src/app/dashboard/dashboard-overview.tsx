@@ -190,7 +190,7 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
           </Button>
           <button 
             onClick={() => router.push("/dashboard/projects")}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
+            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--secondary)] hover:bg-[var(--secondary)]/90 rounded-[2px] transition-colors"
           >
             New project
           </button>
@@ -326,7 +326,7 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
                           ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
                           : undefined
                       }
-                      className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--surface-hover)] text-[var(--foreground)]"
+                      className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-medium text-[13px] line-clamp-1">{task.text}</p>
@@ -474,7 +474,7 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
                   <button
                     key={doc.id}
                     onClick={() => router.push(`/dashboard/docs/${doc.id}`)}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border/60 px-3 py-2 text-left text-xs transition hover:bg-[var(--surface-hover)] text-[var(--foreground)]"
+                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border/60 px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
                   >
                     <div className="flex min-w-0 items-center gap-2">
                       <FileText className="h-3.5 w-3.5 flex-none text-[var(--muted-foreground)]" />
@@ -513,7 +513,7 @@ function StatCard({ label, value, onClick }: StatCardProps) {
       className={cn(
         "group flex flex-col gap-1 rounded-xl border border-transparent bg-[var(--surface)] px-4 py-4 text-left transition-colors",
         onClick
-          ? "hover:border-[var(--border)] hover:bg-[var(--surface-hover)] cursor-pointer"
+          ? "hover:border-[var(--secondary)] hover:bg-[var(--secondary)]/5 cursor-pointer"
           : "cursor-default"
       )}
     >
@@ -586,7 +586,7 @@ function UpdateRow({
   return (
     <button
       onClick={onClick}
-      className="group flex w-full items-start gap-2 rounded-md border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--surface-hover)]"
+      className="group flex w-full items-start gap-2 rounded-md border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
     >
       {icon ? (
         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--foreground)]">
@@ -650,7 +650,7 @@ function SimpleProgress({ value }: { value: number }) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
       <div
-        className="h-full rounded-full bg-[var(--foreground)] transition-all"
+        className="h-full rounded-full bg-[var(--secondary)] transition-all"
         style={{ width: `${clamped}%` }}
       />
     </div>

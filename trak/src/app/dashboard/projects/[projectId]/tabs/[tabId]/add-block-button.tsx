@@ -306,7 +306,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
           variant === "large"
             ? "px-3 py-1.75 text-sm font-medium"
             : "px-3 py-1.5 text-sm",
-          "flex items-center gap-2 border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+          "flex items-center gap-2 border border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all duration-150 ease-out hover:border-[var(--secondary)] hover:text-[var(--foreground)] disabled:opacity-50"
         )}
       >
         <Plus className={variant === "large" ? "h-3.5 w-3.5" : "h-3 w-3"} />

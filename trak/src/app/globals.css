@@ -22,7 +22,7 @@
     
     /* Borders - Structural, visible but light */
     --border: #D1D4D6; /* River Mist - structural dividers */
-    --border-strong: #B8BCBF; /* Stronger river mist for emphasis */
+    --border-strong: #ba7b84; /* Secondary color for emphasis */
     
     /* Typography Colors */
     --foreground: #2D3236; /* Miljacka Slate - deep iron grey, not black */
@@ -33,8 +33,11 @@
     --primary: #9C7C58; /* Coffee Patina - bronze/brown for buttons, active tabs */
     --primary-foreground: #FFFFFF;
     --primary-hover: #8A6D4C; /* Darker coffee for hover */
-    --focus-ring: rgba(156, 124, 88, 0.3); /* Coffee with transparency */
+    --focus-ring: rgba(186, 123, 132, 0.3); /* Secondary color with transparency */
     --ring-offset: #F2F0EB;
+    
+    /* Secondary Color - Rose Dust */
+    --secondary: #ba7b84; /* Secondary color for accents, borders, hover states */
 
     /* Semantic Colors - Muted, low saturation */
     --success: #6B827D; /* Oxidized Sage - muted copper green */
@@ -77,13 +80,16 @@
     --surface-hover: #2D2C2A;
     --surface-muted: #323130;
     --border: #3D3B39;
-    --border-strong: #504D4A;
+    --border-strong: #c98d96; /* Secondary color for dark mode */
     --foreground: #E8E6E1;
     --muted-foreground: #9CA3AF;
     --tertiary-foreground: #6B7280;
     --ring-offset: #1A1918;
     --primary: #B89A74; /* Lighter coffee for dark mode */
     --primary-hover: #C9AB85;
+    
+    /* Secondary Color - Rose Dust (lighter for dark mode) */
+    --secondary: #c98d96;
     
     /* Arts palette - slightly lighter for dark mode */
     --tile-orange: #D98E74;

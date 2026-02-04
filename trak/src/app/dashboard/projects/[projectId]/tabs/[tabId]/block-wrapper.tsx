@@ -197,7 +197,7 @@ export default function BlockWrapper({
           "relative flex min-w-0 flex-col w-full rounded-lg transition-all duration-150 ease-out",
           borderless
             ? "border-none bg-transparent px-0 py-0 shadow-none"
-            : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--foreground)]/20"
+            : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--secondary)]/20"
         )}
         onDoubleClick={() => {
           if (block.type === "chart" && !readOnly) {
