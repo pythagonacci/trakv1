@@ -70,6 +70,11 @@ export interface ExecuteAICommandOptions {
    * Disable deterministic fast-path execution (always allow the LLM/tool loop).
    */
   disableDeterministic?: boolean;
+  /**
+   * Disable optimistic early exits (search/write) that skip a second LLM pass.
+   * Useful when you want the model to see tool results and synthesize a response.
+   */
+  disableOptimisticEarlyExit?: boolean;
 }
 
 interface ChatCompletionResponse {
@@ -1109,6 +1114,7 @@ export async function executeAICommand(
         // discrete action.  Multi-step commands ("create X and assign to Y") need
         // to continue so the LLM can issue the remaining tool calls.
         if (
+          !options.disableOptimisticEarlyExit &&
           EARLY_EXIT_WRITES &&
           SKIP_SECOND_LLM &&
           allToolCallsSuccessful &&
@@ -1131,7 +1137,7 @@ export async function executeAICommand(
         const WRITE_ACTIONS = ["create", "update", "delete", "organize", "move", "copy", "insert"];
         const hasWriteIntent = activeIntent.actions.some(a => WRITE_ACTIONS.includes(a));
 
-        if (SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps && !hasWriteIntent) {
+        if (!options.disableOptimisticEarlyExit && SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps && !hasWriteIntent) {
           return withTiming({
             success: true,
             response: buildToolSummary(toolCallsThisRound),

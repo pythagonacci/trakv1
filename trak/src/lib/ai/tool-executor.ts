@@ -1986,20 +1986,25 @@ export async function executeTool(
 
           if (!("error" in rpcResult)) {
             const { tableId, fieldsCreated, rowsInserted } = rpcResult.data;
+            let blockId: string | null = null;
 
             // Create table block (UI visibility) if needed
             if (tabId) {
-              await createBlock({
+              const blockResult = await createBlock({
                 tabId,
                 type: "table",
                 content: { tableId },
                 authContext: authContext ?? undefined,
               });
+              if ("error" in blockResult) {
+                return { success: false, error: blockResult.error ?? "Failed to create table block." };
+              }
+              blockId = blockResult.data.id;
             }
 
             return {
               success: true,
-              data: { tableId, fieldsCreated, rowsInserted },
+              data: { tableId, fieldsCreated, rowsInserted, blockId },
               hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
             };
           }
@@ -2021,15 +2026,20 @@ export async function executeTool(
 
           const tableData = tableResult.data as { table: { id: string } };
           const tableId = tableData.table.id;
+          let blockId: string | null = null;
 
           // Step 1b: Create table block if tabId provided
           if (tabId) {
-            await createBlock({
+            const blockResult = await createBlock({
               tabId,
               type: "table",
               content: { tableId },
               authContext: authContext ?? undefined,
             });
+            if ("error" in blockResult) {
+              return { success: false, error: blockResult.error ?? "Failed to create table block." };
+            }
+            blockId = blockResult.data.id;
           }
 
           // Step 2: Create fields if provided
@@ -2066,6 +2076,7 @@ export async function executeTool(
               tableId,
               fieldsCreated: createdFields.length,
               rowsInserted: insertedRows.length,
+              blockId,
             },
             hint: `Created table "${title}" with ${createdFields.length} fields and ${insertedRows.length} rows.`,
           };
