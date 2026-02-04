@@ -1029,3 +1029,59 @@ export async function getTabBlocksPublic(tabId: string, publicToken: string) {
     return { error: "Failed to fetch blocks" };
   }
 }
+
+// Public workflow page blocks - no auth required, but requires a valid public token
+export async function getWorkflowTabBlocksPublic(tabId: string, publicToken: string) {
+  try {
+    const { createServiceClient } = await import("@/lib/supabase/service");
+    const supabase = await createServiceClient();
+
+    // 1. Verify token + enabled project
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, workspace_id, client_page_enabled")
+      .eq("public_token", publicToken)
+      .eq("client_page_enabled", true)
+      .single();
+
+    if (projectError || !project) {
+      console.error("Public token validation failed (workflow):", projectError);
+      return { error: "Invalid or disabled client page" };
+    }
+
+    // 2. Verify the tab belongs to this project and is a workflow page
+    const { data: tab, error: tabError } = await supabase
+      .from("tabs")
+      .select("id, project_id, is_workflow_page")
+      .eq("id", tabId)
+      .eq("project_id", project.id)
+      .eq("is_workflow_page", true)
+      .single();
+
+    if (tabError || !tab) {
+      console.error("Workflow tab validation failed:", tabError);
+      return { error: "Workflow page not found" };
+    }
+
+    // 3. Fetch blocks (service role bypasses RLS)
+    const { data: blocks, error: blocksError } = await supabase
+      .from("blocks")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
+      .eq("tab_id", tabId)
+      .is("parent_block_id", null)
+      .order("column", { ascending: true })
+      .order("position", { ascending: true })
+      .limit(BLOCKS_PER_TAB_LIMIT);
+
+    if (blocksError) {
+      console.error("Get public workflow blocks error:", blocksError);
+      return { error: "Failed to fetch blocks" };
+    }
+
+    console.log(`✅ Public access: Fetched ${blocks?.length || 0} blocks for workflow tab ${tabId}`);
+    return { data: blocks || [] };
+  } catch (error) {
+    console.error("Get workflow tab blocks public exception:", error);
+    return { error: "Failed to fetch blocks" };
+  }
+}

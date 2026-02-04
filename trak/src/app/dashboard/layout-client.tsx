@@ -93,7 +93,7 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
         className={cn(
           "flex items-center gap-2 rounded-md border transition-all duration-150",
           "border-[#265b52]/30 bg-[#265b52]/10",
-          "hover:bg-[#265b52]/15 hover:border-[#265b52]/40",
+          "hover:bg-[#2e6b62]/90 hover:border-[#2e6b62]/50",
           "text-white",
           collapsed
             ? "h-9 w-9 justify-center"
@@ -197,7 +197,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white transition-colors duration-150 hover:bg-[#265b52]/15 z-50 relative"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white transition-colors duration-150 hover:bg-[#2e6b62]/90 z-50 relative"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -343,7 +343,7 @@ function Sidebar({
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white transition-colors duration-150 hover:bg-[#265b52]/15"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white transition-colors duration-150 hover:bg-[#2e6b62]/90"
             title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
           >
             <Palette className="h-4 w-4" />
@@ -351,7 +351,7 @@ function Sidebar({
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex w-full items-center gap-2.5 rounded-md border border-[#265b52]/30 bg-[#265b52]/10 px-3 py-2 text-sm text-white transition-colors duration-150 hover:bg-[#265b52]/15"
+              className="flex w-full items-center gap-2.5 rounded-md border border-[#265b52]/30 bg-[#265b52]/10 px-3 py-2 text-sm text-white transition-colors duration-150 hover:bg-[#2e6b62]/90"
           >
             <Palette className="h-3.5 w-3.5" />
             <span className="text-xs font-medium text-white">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
@@ -363,14 +363,14 @@ function Sidebar({
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white text-xs font-semibold transition-colors duration-150 hover:bg-[#265b52]/15"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white text-xs font-semibold transition-colors duration-150 hover:bg-[#2e6b62]/90"
           >
             {getUserInitials()}
           </button>
         ) : (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-md border border-[#265b52]/30 bg-[#265b52]/10 px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#265b52]/15"
+            className="flex w-full items-center justify-between rounded-md border border-[#265b52]/30 bg-[#265b52]/10 px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#2e6b62]/90"
           >
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#265b52]/15 border border-[#265b52]/30 text-white text-xs font-semibold">
@@ -431,7 +431,7 @@ function NavLink({
         collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
         active
           ? "bg-[#265b52]/10 text-white border-l-2 border-[#265b52]/50"
-          : "text-white/70 hover:bg-[#265b52]/10 hover:text-white"
+          : "text-white/70 hover:bg-[#2e6b62]/90 hover:text-white"
       )}
       title={collapsed ? (children as string) : undefined}
     >

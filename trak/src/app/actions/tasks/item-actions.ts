@@ -15,6 +15,7 @@ export async function createTaskItem(
     description?: string | null;
     dueDate?: string | null;
     dueTime?: string | null;
+    dueTimeEnd?: string | null;
     startDate?: string | null;
     hideIcons?: boolean;
     recurring?: {
@@ -44,6 +45,7 @@ export async function createTaskItem(
       description: input.description ?? null,
       due_date: input.dueDate ?? null,
       due_time: input.dueTime ?? null,
+      due_time_end: input.dueTimeEnd ?? null,
       start_date: input.startDate ?? null,
       hide_icons: input.hideIcons ?? false,
       display_order: 0,
@@ -73,6 +75,7 @@ export async function updateTaskItem(
     description: string | null;
     dueDate: string | null;
     dueTime: string | null;
+    dueTimeEnd: string | null;
     startDate: string | null;
     hideIcons: boolean;
     recurringEnabled: boolean;
@@ -95,6 +98,7 @@ export async function updateTaskItem(
   if (updates.description !== undefined) payload.description = updates.description;
   if (updates.dueDate !== undefined) payload.due_date = updates.dueDate;
   if (updates.dueTime !== undefined) payload.due_time = updates.dueTime;
+  if (updates.dueTimeEnd !== undefined) payload.due_time_end = updates.dueTimeEnd;
   if (updates.startDate !== undefined) payload.start_date = updates.startDate;
   if (updates.hideIcons !== undefined) payload.hide_icons = updates.hideIcons;
   if (updates.recurringEnabled !== undefined) payload.recurring_enabled = updates.recurringEnabled;
@@ -121,6 +125,7 @@ export async function bulkUpdateTaskItems(input: {
     description: string | null;
     dueDate: string | null;
     dueTime: string | null;
+    dueTimeEnd: string | null;
     startDate: string | null;
     hideIcons: boolean;
     recurringEnabled: boolean;
@@ -163,6 +168,7 @@ export async function bulkUpdateTaskItems(input: {
   if (input.updates.description !== undefined) payload.description = input.updates.description;
   if (input.updates.dueDate !== undefined) payload.due_date = input.updates.dueDate;
   if (input.updates.dueTime !== undefined) payload.due_time = input.updates.dueTime;
+  if (input.updates.dueTimeEnd !== undefined) payload.due_time_end = input.updates.dueTimeEnd;
   if (input.updates.startDate !== undefined) payload.start_date = input.updates.startDate;
   if (input.updates.hideIcons !== undefined) payload.hide_icons = input.updates.hideIcons;
   if (input.updates.recurringEnabled !== undefined) payload.recurring_enabled = input.updates.recurringEnabled;
@@ -365,6 +371,7 @@ export async function duplicateTasksToBlock(input: {
         description: task.description ?? null,
         due_date: task.due_date ?? null,
         due_time: task.due_time ?? null,
+        due_time_end: task.due_time_end ?? null,
         start_date: task.start_date ?? null,
         hide_icons: task.hide_icons ?? false,
         display_order: nextOrder,

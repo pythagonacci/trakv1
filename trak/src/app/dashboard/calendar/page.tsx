@@ -11,6 +11,7 @@ interface CalendarEvent {
   title: string;
   date: string;
   time?: string;
+  timeEnd?: string;
   type: "task" | "project";
   projectId?: string;
   tabId?: string;
@@ -48,6 +49,7 @@ export default async function CalendarPage() {
       title,
       due_date,
       due_time,
+      due_time_end,
       priority,
       task_block_id,
       tab:tabs!task_items_tab_id_fkey(
@@ -75,11 +77,14 @@ export default async function CalendarPage() {
   const taskEvents: CalendarEvent[] = [];
   taskItems?.forEach((task: any) => {
     if (task.due_date) {
+      const dueTime = task.due_time ? String(task.due_time).slice(0, 5) : undefined;
+      const dueTimeEnd = task.due_time_end ? String(task.due_time_end).slice(0, 5) : undefined;
       taskEvents.push({
         id: `task-${task.task_block_id}-${task.id}`,
         title: task.title || "Untitled Task",
         date: task.due_date,
-        time: task.due_time || undefined,
+        time: dueTime,
+        timeEnd: dueTimeEnd,
         type: "task",
         projectId: task.tab?.project?.id,
         tabId: task.tab?.id,

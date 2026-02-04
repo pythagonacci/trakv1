@@ -134,11 +134,11 @@ export default function DayDetailsPanel({
             <div className="space-y-3">
               {events
                 .sort((a, b) => {
-                  if (a.time && b.time) {
-                    return a.time.localeCompare(b.time);
-                  }
-                  if (a.time) return -1;
-                  if (b.time) return 1;
+                  const aTime = a.time ?? "";
+                  const bTime = b.time ?? "";
+                  if (aTime && bTime) return aTime.localeCompare(bTime);
+                  if (aTime) return -1;
+                  if (bTime) return 1;
                   return 0;
                 })
                 .map((event) => (
@@ -173,9 +173,11 @@ export default function DayDetailsPanel({
                             </span>
                           )}
                         </div>
-                        {event.time && (
+                        {(event.time || event.timeEnd) && (
                           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                            {event.time}
+                            {event.timeEnd
+                              ? `${event.time ?? "—"} – ${event.timeEnd}`
+                              : (event.time ?? event.timeEnd)}
                           </p>
                         )}
                         {event.type === "task" && event.projectName && (

@@ -1,5 +1,6 @@
 import { getAllProjects } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
+import { getAllFolders } from "@/app/actions/folder";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import ProjectsTable from "./projects-table";
 import ProjectsGrid from "./projects-grid";
@@ -40,12 +41,13 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     sort_order: (params.sort_order as 'asc' | 'desc') || 'desc',
   };
 
-  // 🚀 PARALLEL QUERIES - Fetch projects and clients simultaneously
+  // 🚀 PARALLEL QUERIES - Fetch projects, clients, and folders simultaneously
   const includePreview = view === "grid";
 
-  const [projectsResult, clientsResult] = await Promise.all([
+  const [projectsResult, clientsResult, foldersResult] = await Promise.all([
     getAllProjects(workspaceId, filters, { includeFirstTabPreview: includePreview }),
     getAllClients(workspaceId),
+    getAllFolders(workspaceId),
   ]);
   
   if (projectsResult.error) {
@@ -59,6 +61,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   }
 
   const clients = clientsResult.data || [];
+  const folders = foldersResult.data || [];
 
   // Map nested client object to the shape expected by the table
   const mappedProjects = (projectsResult.data || []).map((project: any) => {
@@ -73,6 +76,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       due_date_text: project.due_date_text,
       client_id: project.client_id,
       client_name: client?.name || null,
+      folder_id: project.folder_id || null,
       created_at: project.created_at,
       first_tab_preview: project.first_tab_preview || null,
     };
@@ -89,11 +93,13 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         <ProjectsGrid 
           projects={mappedProjects} 
           workspaceId={workspaceId}
+          folders={folders}
         />
       ) : (
         <ProjectsTable 
           projects={mappedProjects} 
           workspaceId={workspaceId}
+          folders={folders}
           currentSort={{
             sort_by: filters.sort_by,
             sort_order: filters.sort_order,

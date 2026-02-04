@@ -245,7 +245,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, currentSort 
         <Button onClick={handleCreateNew} size="sm">New Document</Button>
       </div>
 
-      <Table className="text-sm">
+      <Table className="text-sm [&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
         <TableHeader>
           <TableRow>
             <TableHead>

@@ -60,6 +60,18 @@ export interface ExecutionContext {
   contextBlockId?: string;
 }
 
+export interface ExecuteAICommandOptions {
+  /**
+   * Force a tool group set regardless of intent classification.
+   * Useful for Workflow Pages where unified multi-tool access is required.
+   */
+  forcedToolGroups?: ToolGroup[];
+  /**
+   * Disable deterministic fast-path execution (always allow the LLM/tool loop).
+   */
+  disableDeterministic?: boolean;
+}
+
 interface ChatCompletionResponse {
   id: string;
   object: string;
@@ -600,7 +612,8 @@ function narrowToolsForSingleAction(
 export async function executeAICommand(
   userCommand: string,
   context: ExecutionContext,
-  conversationHistory: AIMessage[] = []
+  conversationHistory: AIMessage[] = [],
+  options: ExecuteAICommandOptions = {}
 ): Promise<ExecutionResult> {
   const timingEnabled = isAITimingEnabled();
   const timingStart = timingEnabled ? Date.now() : 0;
@@ -683,13 +696,20 @@ export async function executeAICommand(
   if (chartIntent.explicit && !intent.toolGroups.includes("block")) {
     intent.toolGroups = [...intent.toolGroups, "block"];
   }
+  if (options.forcedToolGroups && options.forcedToolGroups.length > 0) {
+    const toolGroups = new Set<ToolGroup>(options.forcedToolGroups);
+    toolGroups.add("core");
+    intent.toolGroups = Array.from(toolGroups);
+  }
   if (timing) {
     timing.t_intent_ms = Date.now() - intentStart;
   }
 
   // Fast path: simple pattern-matched commands skip the LLM entirely
-  const simpleResult = await tryDeterministicCommand(userCommand, context);
-  if (simpleResult) return withTiming(simpleResult);
+  if (!options.disableDeterministic) {
+    const simpleResult = await tryDeterministicCommand(userCommand, context);
+    if (simpleResult) return withTiming(simpleResult);
+  }
 
   // Detect multi-step commands (used later to prevent premature early-exit on writes).
   // "then / also / after that / next" are unambiguous multi-step connectors.

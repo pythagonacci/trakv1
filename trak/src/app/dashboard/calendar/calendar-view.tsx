@@ -64,6 +64,7 @@ export interface CalendarEvent {
   title: string;
   date: string;
   time?: string;
+  timeEnd?: string;
   type: "task" | "project";
   projectId?: string;
   tabId?: string;
@@ -91,6 +92,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
   const [addEventDialogOpen, setAddEventDialogOpen] = useState(false);
   const [addEventDate, setAddEventDate] = useState<Date | undefined>(undefined);
   const [addEventTime, setAddEventTime] = useState<string | undefined>(undefined);
+  const [addEventTimeEnd, setAddEventTimeEnd] = useState<string | undefined>(undefined);
   const [calendarTheme, setCalendarTheme] = useState<string>("default");
 
   // SARAJEVO ARTS PALETTE for calendar events
@@ -317,6 +319,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
               onClick={() => {
                 setAddEventDate(undefined);
                 setAddEventTime(undefined);
+                setAddEventTimeEnd(undefined);
                 setAddEventDialogOpen(true);
               }}
               className="gap-2 text-xs"
@@ -466,7 +469,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
                           getEventClassName(event, "text-[10px]")
                         )}
                       >
-                        {event.time && `${event.time} `}
+                        {(event.time || event.timeEnd) && `${event.timeEnd ? `${event.time ?? "—"} – ${event.timeEnd} ` : `${event.time ?? event.timeEnd} `}`}
                         {event.title}
                       </div>
                     ))}
@@ -538,8 +541,10 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
                         )}
                       >
                         <div className="font-medium">{event.title}</div>
-                        {event.time && (
-                          <div className="text-[10px] opacity-75">{event.time}</div>
+                        {(event.time || event.timeEnd) && (
+                          <div className="text-[10px] opacity-75">
+                            {event.timeEnd ? `${event.time ?? "—"} – ${event.timeEnd}` : (event.time ?? event.timeEnd)}
+                          </div>
                         )}
                       </div>
                     ))}
@@ -596,8 +601,10 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
                             )}
                           >
                             <div className="font-medium">{event.title}</div>
-                            {event.time && (
-                              <div className="text-[10px] opacity-75">{event.time}</div>
+                            {(event.time || event.timeEnd) && (
+                              <div className="text-[10px] opacity-75">
+                                {event.timeEnd ? `${event.time ?? "—"} – ${event.timeEnd}` : (event.time ?? event.timeEnd)}
+                              </div>
                             )}
                           </div>
                         ))}
@@ -639,9 +646,11 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
           setAddEventDialogOpen(false);
           setAddEventDate(undefined);
           setAddEventTime(undefined);
+          setAddEventTimeEnd(undefined);
         }}
         initialDate={addEventDate}
         initialTime={addEventTime}
+        initialTimeEnd={addEventTimeEnd}
         workspaceId={workspaceId}
         onEventAdded={handleEventAdded}
       />

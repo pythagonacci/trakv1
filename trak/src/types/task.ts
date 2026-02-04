@@ -15,6 +15,7 @@ export interface TaskItem {
   description: string | null;
   due_date: string | null;
   due_time: string | null;
+  due_time_end: string | null;
   start_date: string | null;
   hide_icons: boolean;
   display_order: number;

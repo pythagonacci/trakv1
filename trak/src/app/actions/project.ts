@@ -485,6 +485,7 @@ export async function getAllProjects(
       due_date_date,
       due_date_text,
       client_id,
+      folder_id,
       created_at,
       updated_at,
       client:clients (

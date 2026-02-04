@@ -77,6 +77,20 @@ const controlTools: ToolDefinition[] = [
 
 const searchTools: ToolDefinition[] = [
   {
+    name: "unstructuredSearchWorkspace",
+    description:
+      "SEMANTIC workspace search across blocks, docs, and files using embeddings (unstructured/RAG). " +
+      "Use when the user asks to find information 'across the workspace/projects/tabs' or when keyword/structured filters aren't enough. " +
+      "Returns top matching sources with the most relevant text chunks.",
+    category: "search",
+    parameters: {
+      query: { type: "string", description: "The semantic query to search for" },
+      limitParents: { type: "number", description: "Maximum number of source parents to return (default 10)" },
+      limitChunks: { type: "number", description: "Maximum chunks per parent (default 5)" },
+    },
+    requiredParams: ["query"],
+  },
+  {
     name: "searchTasks",
     description: "SEARCH for task items (read-only). Use this when you need to FIND or VIEW tasks, not modify them. Filters: title, status, priority, assignee, tags, due date, project. Returns: Array of task objects with IDs, titles, and all properties. Use task IDs from results for subsequent update/delete operations.",
     category: "search",
@@ -1336,6 +1350,22 @@ const docActionTools: ToolDefinition[] = [
 
 const fileActionTools: ToolDefinition[] = [
   {
+    name: "fileAnalysisQuery",
+    description:
+      "Analyze one or more files (PDF/CSV/etc.) for a specific question. " +
+      "This uses the existing file analysis artifacts (extracted text/tables) and RAG chunks when needed. " +
+      "Returns relevant excerpts and table previews you can use to answer or to create blocks/tables.",
+    category: "file",
+    parameters: {
+      fileIds: { type: "array", description: "Array of file IDs to analyze", items: { type: "string" } },
+      query: { type: "string", description: "The question to answer using the file contents" },
+      includeTables: { type: "boolean", description: "Whether to include extracted table previews (default true)" },
+      maxTextChars: { type: "number", description: "Max characters of extracted text to return per file (default 8000)" },
+      maxTableRows: { type: "number", description: "Max rows to return per extracted table (default 50)" },
+    },
+    requiredParams: ["fileIds", "query"],
+  },
+  {
     name: "renameFile",
     description:
       "Rename a file (display name only). Does not change storage path or contents. Required: fileId, fileName.",
@@ -1527,7 +1557,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
     "setEntityProperty",
     "removeEntityProperty",
   ]),
-  file: pickTools(["searchFiles", "renameFile"]),
+  file: pickTools(["searchFiles", "fileAnalysisQuery", "renameFile"]),
   member: pickTools(["searchWorkspaceMembers"]),
   tag: pickTools(["searchTags"]),
   cross_entity: pickTools(["searchAll", "resolveEntityByName", "getEntityById", "getEntityContext"]),
@@ -1545,6 +1575,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
 export const coreTools: ToolDefinition[] = pickTools([
   // Cross-entity search and resolution
   "searchAll",
+  "unstructuredSearchWorkspace",
   "resolveEntityByName",
   "getEntityById",
   "getEntityContext",

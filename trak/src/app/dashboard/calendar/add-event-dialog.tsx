@@ -20,6 +20,7 @@ interface AddEventDialogProps {
   onClose: () => void;
   initialDate?: Date;
   initialTime?: string;
+  initialTimeEnd?: string;
   workspaceId: string;
   onEventAdded?: () => void;
 }
@@ -39,6 +40,7 @@ export default function AddEventDialog({
   onClose,
   initialDate,
   initialTime,
+  initialTimeEnd,
   workspaceId,
   onEventAdded,
 }: AddEventDialogProps) {
@@ -46,6 +48,7 @@ export default function AddEventDialog({
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(initialDate ? initialDate.toISOString().split("T")[0] : "");
   const [time, setTime] = useState(initialTime || "");
+  const [timeEnd, setTimeEnd] = useState(initialTimeEnd || "");
   const [projectId, setProjectId] = useState<string>("");
   const [tabId, setTabId] = useState<string>("");
   const [priority, setPriority] = useState<"urgent" | "high" | "medium" | "low" | "none">("none");
@@ -69,8 +72,11 @@ export default function AddEventDialog({
       if (initialTime) {
         setTime(initialTime);
       }
+      if (initialTimeEnd) {
+        setTimeEnd(initialTimeEnd);
+      }
     }
-  }, [open, initialDate, initialTime]);
+  }, [open, initialDate, initialTime, initialTimeEnd]);
 
   const fetchProjects = async () => {
     try {
@@ -149,6 +155,7 @@ export default function AddEventDialog({
           status: "todo",
           dueDate: date,
           dueTime: time || undefined,
+          dueTimeEnd: timeEnd || undefined,
           priority: priority !== "none" ? priority : undefined,
         });
         if ("error" in taskResult) {
@@ -162,6 +169,7 @@ export default function AddEventDialog({
       setTitle("");
       setDate("");
       setTime("");
+      setTimeEnd("");
       setProjectId("");
       setTabId("");
       setPriority("none");
@@ -226,7 +234,7 @@ export default function AddEventDialog({
           </div>
 
           {/* Date and Time */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--muted-foreground)]">
                 Date
@@ -239,16 +247,29 @@ export default function AddEventDialog({
                 required
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">
-                Time
-              </label>
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[var(--muted-foreground)]">
+                  Start time
+                </label>
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[var(--muted-foreground)]">
+                  End time
+                </label>
+                <input
+                  type="time"
+                  value={timeEnd}
+                  onChange={(e) => setTimeEnd(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
             </div>
           </div>
 

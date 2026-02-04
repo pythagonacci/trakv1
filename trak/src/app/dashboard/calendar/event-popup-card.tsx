@@ -76,7 +76,8 @@ export default function EventPopupCard({
             </div>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
               {formatDate(event.date)}
-              {event.time && ` at ${event.time}`}
+              {(event.time || event.timeEnd) &&
+                ` at ${event.timeEnd ? `${event.time ?? "—"} – ${event.timeEnd}` : (event.time ?? event.timeEnd)}`}
             </p>
           </div>
           <Button

@@ -91,6 +91,8 @@ import { createChartBlock } from "@/app/actions/chart-actions";
 // IMPORTS - File Actions
 // ============================================================================
 import { renameFile } from "@/app/actions/file";
+import { ensureFileArtifact, ensureFileChunks, retrieveRelevantChunks, shouldUseRag, type FileRecord as FileAnalysisFileRecord } from "@/lib/file-analysis/service";
+import { UnstructuredSearch } from "@/lib/search/query";
 
 // ============================================================================
 // IMPORTS - Indexing Actions
@@ -419,6 +421,22 @@ export async function executeTool(
 
       case "searchFiles":
         return await wrapResult(searchFiles(args as any));
+
+      case "unstructuredSearchWorkspace": {
+        const query = String((args as any)?.query || "").trim();
+        if (!query) return { success: false, error: "Missing query for unstructuredSearchWorkspace" };
+        const limitParents = typeof (args as any)?.limitParents === "number" ? (args as any).limitParents : 10;
+        const limitChunks = typeof (args as any)?.limitChunks === "number" ? (args as any).limitChunks : 5;
+        if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
+
+        const searcher = new UnstructuredSearch(authContext.supabase);
+        const results = await searcher.searchWorkspace(workspaceId, query);
+        const trimmed = (results || []).slice(0, Math.max(1, limitParents)).map((result) => ({
+          ...result,
+          chunks: Array.isArray(result.chunks) ? result.chunks.slice(0, Math.max(1, limitChunks)) : [],
+        }));
+        return { success: true, data: trimmed };
+      }
 
       case "searchTags":
         return await wrapResult(searchTags(args as any));
@@ -2486,6 +2504,91 @@ export async function executeTool(
       // ==================================================================
       // FILE ACTIONS
       // ==================================================================
+      case "fileAnalysisQuery": {
+        if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
+        const fileIds = Array.isArray((args as any)?.fileIds)
+          ? ((args as any).fileIds as unknown[]).map((id) => String(id)).filter(Boolean)
+          : [];
+        const query = String((args as any)?.query || "").trim();
+        if (fileIds.length === 0) return { success: false, error: "Missing fileIds for fileAnalysisQuery" };
+        if (!query) return { success: false, error: "Missing query for fileAnalysisQuery" };
+
+        const includeTables = (args as any)?.includeTables !== false;
+        const maxTextChars = typeof (args as any)?.maxTextChars === "number" ? (args as any).maxTextChars : 8000;
+        const maxTableRows = typeof (args as any)?.maxTableRows === "number" ? (args as any).maxTableRows : 50;
+
+        const { data: files, error } = await authContext.supabase
+          .from("files")
+          .select("id, file_name, file_size, file_type, storage_path, workspace_id, project_id")
+          .in("id", fileIds);
+
+        if (error) {
+          return { success: false, error: error.message || "Failed to load files" };
+        }
+
+        const resolved = (files || []) as unknown as FileAnalysisFileRecord[];
+        const results: any[] = [];
+        for (const file of resolved) {
+          try {
+            const artifact = await ensureFileArtifact(authContext.supabase, file);
+            const useRag = shouldUseRag({
+              fileSize: file.file_size,
+              tokenEstimate: artifact.token_estimate || 0,
+              rowCount: artifact.row_count,
+              pageCount: artifact.page_count,
+            });
+
+            let chunks: Array<{ id: string; chunk_index: number; content: string }> = [];
+            if (useRag && artifact.status === "ready") {
+              await ensureFileChunks(authContext.supabase, file, artifact);
+              const retrieved = await retrieveRelevantChunks(authContext.supabase, [file.id], query);
+              chunks = (retrieved || []).slice(0, 10).map((chunk) => ({
+                id: chunk.id,
+                chunk_index: chunk.chunk_index,
+                content: chunk.content,
+              }));
+            }
+
+            const extractedText = String(artifact.extracted_text || "");
+            const textPreview = extractedText.length > maxTextChars ? extractedText.slice(0, maxTextChars) : extractedText;
+            const tables = includeTables && Array.isArray(artifact.extracted_tables)
+              ? (artifact.extracted_tables as any[]).slice(0, 5).map((table) => ({
+                ...table,
+                rows: Array.isArray(table?.rows) ? table.rows.slice(0, Math.max(1, maxTableRows)) : [],
+              }))
+              : [];
+
+            results.push({
+              file: {
+                id: file.id,
+                file_name: file.file_name,
+                file_type: file.file_type,
+                file_size: file.file_size,
+              },
+              artifact: {
+                id: artifact.id,
+                status: artifact.status,
+                page_count: artifact.page_count,
+                row_count: artifact.row_count,
+                column_count: artifact.column_count,
+                token_estimate: artifact.token_estimate,
+              },
+              textPreview,
+              tablesPreview: tables,
+              chunks,
+            });
+          } catch (e) {
+            const message = e instanceof Error ? e.message : "Failed to analyze file";
+            results.push({
+              file: { id: file.id, file_name: (file as any).file_name },
+              error: message,
+            });
+          }
+        }
+
+        return { success: true, data: { query, results } };
+      }
+
       case "renameFile":
         return await wrapResult(
           renameFile(args.fileId as string, args.fileName as string, { authContext: authContext ?? undefined })

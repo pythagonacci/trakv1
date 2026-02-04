@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -25,6 +25,10 @@ import {
   LayoutPanelTop,
   BookOpen,
   BarChart3,
+  Folder,
+  ChevronDown,
+  ChevronRight,
+  Plus,
 } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
@@ -38,6 +42,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { BlockType } from "@/app/actions/block";
@@ -50,6 +55,7 @@ interface Project {
   due_date_text: string | null;
   client_id: string | null;
   client_name?: string | null;
+  folder_id: string | null;
   created_at: string;
   first_tab_preview?: FirstTabPreview | null;
 }
@@ -60,9 +66,16 @@ interface Client {
   company?: string;
 }
 
+interface Folder {
+  id: string;
+  name: string;
+  position: number;
+}
+
 interface ProjectsGridProps {
   projects: Project[];
   workspaceId: string;
+  folders: Folder[];
 }
 
 interface FormData {
@@ -187,7 +200,7 @@ const renderFirstTabSnapshot = (preview?: FirstTabPreview | null) => {
   );
 };
 
-export default function ProjectsGrid({ projects: initialProjects, workspaceId }: ProjectsGridProps) {
+export default function ProjectsGrid({ projects: initialProjects, workspaceId, folders: initialFolders }: ProjectsGridProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -196,6 +209,12 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId }:
     setProjects(initialProjects);
   }, [initialProjects]);
 
+  const [folders, setFolders] = useState(initialFolders);
+  useEffect(() => {
+    setFolders(initialFolders);
+  }, [initialFolders]);
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
@@ -203,6 +222,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId }:
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // Load clients on mount
@@ -417,6 +437,180 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId }:
     return null;
   };
 
+  const handleCreateFolder = () => {
+    setCreateFolderDialogOpen(true);
+  };
+
+  const handleFolderCreated = () => {
+    startTransition(() => {
+      router.refresh();
+    });
+  };
+
+  const handleMoveToFolder = (project: Project, folderId: string | null) => {
+    startTransition(async () => {
+      const result = await moveProjectToFolder(project.id, folderId);
+      if (result.error) {
+        setToast({ message: result.error, type: "error" });
+      } else {
+        setProjects((prev) =>
+          prev.map((p) => (p.id === project.id ? { ...p, folder_id: folderId } : p))
+        );
+        setToast({ message: folderId ? "Project moved to folder" : "Project removed from folder", type: "success" });
+        router.refresh();
+      }
+    });
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    startTransition(async () => {
+      const result = await deleteFolder(folderId);
+      if (result.error) {
+        setToast({ message: result.error, type: "error" });
+      } else {
+        setFolders((prev) => prev.filter((f) => f.id !== folderId));
+        setProjects((prev) => prev.map((p) => (p.folder_id === folderId ? { ...p, folder_id: null } : p)));
+        setToast({ message: "Folder deleted", type: "success" });
+        router.refresh();
+      }
+    });
+  };
+
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderId)) {
+        newSet.delete(folderId);
+      } else {
+        newSet.add(folderId);
+      }
+      return newSet;
+    });
+  };
+
+  // Organize projects by folders
+  const projectsByFolder = useMemo(() => {
+    const organized: { [key: string]: Project[] } = { ungrouped: [] };
+    
+    projects.forEach((project) => {
+      const folderKey = project.folder_id || "ungrouped";
+      if (!organized[folderKey]) {
+        organized[folderKey] = [];
+      }
+      organized[folderKey].push(project);
+    });
+
+    return organized;
+  }, [projects]);
+
+  const renderProjectCard = (project: Project) => {
+    const isTemp = project.id.startsWith("temp-");
+    const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
+
+    return (
+      <div
+        key={project.id}
+        onClick={() => handleProjectClick(project.id)}
+        className={cn(
+          "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
+          isTemp && "pointer-events-none opacity-70"
+        )}
+      >
+        <div className="border-b border-[var(--border)] bg-[var(--surface-muted)]/70">
+          {renderFirstTabSnapshot(project.first_tab_preview)}
+        </div>
+
+        {/* Project Card */}
+        <div className="flex flex-1 flex-col p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="mb-1 truncate text-sm font-semibold text-[var(--foreground)]">
+                {project.name}
+              </h3>
+              {project.client_name && (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                  <Building2 className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{project.client_name}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Menu */}
+            {!isTemp && (
+              <DropdownMenu
+                open={openMenuId === project.id}
+                onOpenChange={(open) => setOpenMenuId(open ? project.id : null)}
+              >
+                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <button className="rounded-[2px] p-1 opacity-0 transition-opacity hover:bg-[var(--surface-hover)] group-hover:opacity-100">
+                    <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={(e) => handleOpenEdit(project, e)}>
+                    <Edit className="h-4 w-4" /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1.5 text-xs font-semibold text-[var(--muted-foreground)] uppercase">Move to Folder</div>
+                  <DropdownMenuItem onClick={(e) => {
+                    e.stopPropagation();
+                    handleMoveToFolder(project, null);
+                  }}>
+                    No Folder
+                  </DropdownMenuItem>
+                  {folders.map((f) => (
+                    <DropdownMenuItem
+                      key={f.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveToFolder(project, f.id);
+                      }}
+                    >
+                      {f.name}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e) => handleOpenDeleteConfirm(project, e)}
+                    className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+
+          {/* Status Badge */}
+          <div className="mb-3">
+            <StatusBadge status={project.status} />
+          </div>
+
+          {/* Due Date */}
+          {dueDate && (
+            <div
+              className={cn(
+                "flex items-center gap-1.5 text-xs",
+                dueDate.isOverdue ? "text-[var(--error)]" : "text-[var(--muted-foreground)]"
+              )}
+            >
+              <Calendar className="h-3 w-3 flex-shrink-0" />
+              <span>{dueDate.text}</span>
+            </div>
+          )}
+
+          {/* View Project Link */}
+          <div className="mt-auto pt-3">
+            <div className="flex items-center gap-1.5 border-t border-[var(--border)] pt-3 text-xs text-[var(--primary)] opacity-0 transition-opacity group-hover:opacity-100">
+              <span>View project</span>
+              <ArrowRight className="h-3 w-3" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       {projects.length === 0 && dialogMode === null ? (
@@ -574,6 +768,13 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId }:
           confirmText="Delete Project"
           confirmButtonVariant="danger"
           isLoading={isDeleting}
+        />
+
+        <CreateFolderDialog
+          isOpen={createFolderDialogOpen}
+          onClose={() => setCreateFolderDialogOpen(false)}
+          workspaceId={workspaceId}
+          onFolderCreated={handleFolderCreated}
         />
 
         {toast && (

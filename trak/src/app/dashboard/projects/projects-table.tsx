@@ -1,21 +1,25 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
+import { moveProjectToFolder, deleteFolder } from "@/app/actions/folder";
 import ProjectDialog from "./project-dialog";
+import CreateFolderDialog from "./create-folder-dialog";
 import ConfirmDialog from "./confirm-dialog";
 import Toast from "./toast";
 import EmptyState from "./empty-state";
 import StatusBadge from "./status-badge";
+import { Folder, Plus, ChevronDown, ChevronRight, Trash2 as TrashIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Table,
@@ -35,6 +39,7 @@ interface Project {
   due_date_text: string | null;
   client_id: string | null;
   client_name?: string | null;
+  folder_id: string | null;
   created_at: string;
 }
 
@@ -44,9 +49,16 @@ interface Client {
   company?: string;
 }
 
+interface Folder {
+  id: string;
+  name: string;
+  position: number;
+}
+
 interface ProjectsTableProps {
   projects: Project[];
   workspaceId: string;
+  folders: Folder[];
   currentSort: {
     sort_by: string;
     sort_order: "asc" | "desc";
@@ -61,7 +73,7 @@ interface FormData {
   due_date: string;
 }
 
-export default function ProjectsTable({ projects: initialProjects, workspaceId, currentSort }: ProjectsTableProps) {
+export default function ProjectsTable({ projects: initialProjects, workspaceId, folders: initialFolders, currentSort }: ProjectsTableProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const searchParams = useSearchParams();
@@ -71,6 +83,12 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     setProjects(initialProjects);
   }, [initialProjects]);
 
+  const [folders, setFolders] = useState(initialFolders);
+  useEffect(() => {
+    setFolders(initialFolders);
+  }, [initialFolders]);
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
@@ -78,6 +96,9 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
+  const [moveProjectDialogOpen, setMoveProjectDialogOpen] = useState(false);
+  const [projectToMove, setProjectToMove] = useState<Project | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const handleSort = (column: string) => {
@@ -287,6 +308,72 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     }
   };
 
+  const handleCreateFolder = () => {
+    setCreateFolderDialogOpen(true);
+  };
+
+  const handleFolderCreated = () => {
+    startTransition(() => {
+      router.refresh();
+    });
+  };
+
+  const handleMoveToFolder = (project: Project, folderId: string | null) => {
+    startTransition(async () => {
+      const result = await moveProjectToFolder(project.id, folderId);
+      if (result.error) {
+        setToast({ message: result.error, type: "error" });
+      } else {
+        setProjects((prev) =>
+          prev.map((p) => (p.id === project.id ? { ...p, folder_id: folderId } : p))
+        );
+        setToast({ message: folderId ? "Project moved to folder" : "Project removed from folder", type: "success" });
+        router.refresh();
+      }
+    });
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    startTransition(async () => {
+      const result = await deleteFolder(folderId);
+      if (result.error) {
+        setToast({ message: result.error, type: "error" });
+      } else {
+        setFolders((prev) => prev.filter((f) => f.id !== folderId));
+        setProjects((prev) => prev.map((p) => (p.folder_id === folderId ? { ...p, folder_id: null } : p)));
+        setToast({ message: "Folder deleted", type: "success" });
+        router.refresh();
+      }
+    });
+  };
+
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderId)) {
+        newSet.delete(folderId);
+      } else {
+        newSet.add(folderId);
+      }
+      return newSet;
+    });
+  };
+
+  // Organize projects by folders
+  const projectsByFolder = React.useMemo(() => {
+    const organized: { [key: string]: Project[] } = { ungrouped: [] };
+    
+    projects.forEach((project) => {
+      const folderKey = project.folder_id || "ungrouped";
+      if (!organized[folderKey]) {
+        organized[folderKey] = [];
+      }
+      organized[folderKey].push(project);
+    });
+
+    return organized;
+  }, [projects]);
+
   const formatDueDate = (dateString: string | null, textDate: string | null) => {
     if (textDate) {
       return { text: textDate, isOverdue: false };
@@ -353,6 +440,13 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
           isLoading={isDeleting}
         />
 
+        <CreateFolderDialog
+          isOpen={createFolderDialogOpen}
+          onClose={() => setCreateFolderDialogOpen(false)}
+          workspaceId={workspaceId}
+          onFolderCreated={handleFolderCreated}
+        />
+
         {toast && (
           <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
         )}
@@ -367,15 +461,24 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
           <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
           <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
         </div>
-        <button 
-          onClick={handleOpenCreate} 
-          className="px-3 py-1.5 text-sm font-medium text-[var(--secondary)] border border-[var(--secondary)] hover:bg-[var(--secondary)]/10 transition-colors"
-        >
-          New project
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleCreateFolder} 
+            className="px-3 py-1.5 text-sm font-medium text-[var(--muted-foreground)] border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors flex items-center gap-1.5"
+          >
+            <Folder className="h-3.5 w-3.5" />
+            New Folder
+          </button>
+          <button 
+            onClick={handleOpenCreate} 
+            className="px-3 py-1.5 text-sm font-medium text-[var(--secondary)] border border-[var(--secondary)] hover:bg-[var(--secondary)]/10 transition-colors"
+          >
+            New project
+          </button>
+        </div>
       </div>
 
-      <Table>
+      <Table className="[&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
           <TableHeader>
             <TableRow>
               <TableHead>
@@ -416,51 +519,202 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
             </TableRow>
           </TableHeader>
           <TableBody>
-            {projects.map((project) => {
-              const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
-              const isTemp = project.id.startsWith("temp-");
-
+            {/* Render folders first */}
+            {folders.map((folder) => {
+              const folderProjects = projectsByFolder[folder.id] || [];
+              const isExpanded = expandedFolders.has(folder.id);
+              
               return (
-                <TableRow
-                  key={project.id}
-                  className={cn("cursor-pointer", isTemp && "opacity-70")}
-                  onClick={() => handleRowClick(project.id)}
-                >
-                  <TableCell>
-                    <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm font-medium text-[var(--foreground)]">{project.name}</span>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={project.status} />
-                  </TableCell>
-                  <TableCell className={cn("text-sm", dueDate.isOverdue && "text-red-500 font-medium")}>{dueDate.text}</TableCell>
-                  <TableCell className="text-right">
-                    {!isTemp && (
-                      <DropdownMenu open={openMenuId === project.id} onOpenChange={(open) => setOpenMenuId(open ? project.id : null)}>
-                        <DropdownMenuTrigger asChild>
+                <React.Fragment key={folder.id}>
+                  {/* Folder Header Row */}
+                  <TableRow className="bg-[var(--secondary)]/5 hover:bg-[var(--secondary)]/5">
+                    <TableCell colSpan={5} className="py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
                           <button
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFolder(folder.id);
+                            }}
+                            className="p-0.5 hover:bg-[var(--surface-hover)] rounded transition-colors"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)]" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)]" />
+                            )}
                           </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={(e) => handleOpenEdit(project, e)}>
-                            <Edit className="h-4 w-4" /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(project, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
-                            <Trash2 className="h-4 w-4" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </TableCell>
-                </TableRow>
+                          <Folder className="h-4 w-4 text-[var(--secondary)]" />
+                          <span className="text-sm font-semibold text-[var(--foreground)]">{folder.name}</span>
+                          <span className="text-xs text-[var(--tertiary-foreground)]">({folderProjects.length})</span>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Delete folder "${folder.name}"? Projects will be moved out of the folder.`)) {
+                                  handleDeleteFolder(folder.id);
+                                }
+                              }}
+                              className="text-red-500 focus:bg-red-50 focus:text-red-600"
+                            >
+                              <TrashIcon className="h-4 w-4" /> Delete Folder
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {/* Folder Projects */}
+                  {isExpanded && folderProjects.map((project) => {
+                    const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
+                    const isTemp = project.id.startsWith("temp-");
+
+                    return (
+                      <TableRow
+                        key={project.id}
+                        className={cn("cursor-pointer", isTemp && "opacity-70")}
+                        onClick={() => handleRowClick(project.id)}
+                      >
+                        <TableCell className="pl-8">
+                          <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm font-medium text-[var(--foreground)]">{project.name}</span>
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge status={project.status} />
+                        </TableCell>
+                        <TableCell className={cn("text-sm", dueDate.isOverdue && "text-red-500 font-medium")}>{dueDate.text}</TableCell>
+                        <TableCell className="text-right">
+                          {!isTemp && (
+                            <DropdownMenu open={openMenuId === project.id} onOpenChange={(open) => setOpenMenuId(open ? project.id : null)}>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem onClick={(e) => handleOpenEdit(project, e)}>
+                                  <Edit className="h-4 w-4" /> Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <div className="px-2 py-1.5 text-xs font-semibold text-[var(--muted-foreground)] uppercase">Move to Folder</div>
+                                <DropdownMenuItem onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveToFolder(project, null);
+                                }}>
+                                  No Folder
+                                </DropdownMenuItem>
+                                {folders.map((f) => (
+                                  <DropdownMenuItem
+                                    key={f.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveToFolder(project, f.id);
+                                    }}
+                                  >
+                                    {f.name}
+                                  </DropdownMenuItem>
+                                ))}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(project, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                                  <Trash2 className="h-4 w-4" /> Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </React.Fragment>
               );
             })}
+            {/* Render ungrouped projects */}
+            {projectsByFolder.ungrouped && projectsByFolder.ungrouped.length > 0 && (
+              <>
+                {folders.length > 0 && (
+                  <TableRow className="bg-[var(--secondary)]/5 hover:bg-[var(--secondary)]/5">
+                    <TableCell colSpan={5} className="py-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">No Folder</span>
+                      <span className="text-xs text-[var(--tertiary-foreground)] ml-2">({projectsByFolder.ungrouped.length})</span>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {projectsByFolder.ungrouped.map((project) => {
+                  const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
+                  const isTemp = project.id.startsWith("temp-");
+
+                  return (
+                    <TableRow
+                      key={project.id}
+                      className={cn("cursor-pointer", isTemp && "opacity-70", folders.length > 0 && "pl-8")}
+                      onClick={() => handleRowClick(project.id)}
+                    >
+                      <TableCell className={folders.length > 0 ? "pl-8" : ""}>
+                        <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm font-medium text-[var(--foreground)]">{project.name}</span>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={project.status} />
+                      </TableCell>
+                      <TableCell className={cn("text-sm", dueDate.isOverdue && "text-red-500 font-medium")}>{dueDate.text}</TableCell>
+                      <TableCell className="text-right">
+                        {!isTemp && (
+                          <DropdownMenu open={openMenuId === project.id} onOpenChange={(open) => setOpenMenuId(open ? project.id : null)}>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem onClick={(e) => handleOpenEdit(project, e)}>
+                                <Edit className="h-4 w-4" /> Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <div className="px-2 py-1.5 text-xs font-semibold text-[var(--muted-foreground)] uppercase">Move to Folder</div>
+                              {folders.map((f) => (
+                                <DropdownMenuItem
+                                  key={f.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveToFolder(project, f.id);
+                                  }}
+                                >
+                                  {f.name}
+                                </DropdownMenuItem>
+                              ))}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(project, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
+                                <Trash2 className="h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </>
+            )}
           </TableBody>
         </Table>
 

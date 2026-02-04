@@ -14,6 +14,7 @@ export interface TaskItemView {
   assignees?: string[];
   dueDate?: string;
   dueTime?: string;
+  dueTimeEnd?: string;
   startDate?: string;
   tags?: string[];
   description?: string;
@@ -149,6 +150,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     assignees: assigneesByTask.get(item.id) || [],
     dueDate: item.due_date || undefined,
     dueTime: item.due_time ? item.due_time.slice(0, 5) : undefined,
+    dueTimeEnd: item.due_time_end ? item.due_time_end.slice(0, 5) : undefined,
     startDate: item.start_date || undefined,
     tags: tagsByTask.get(item.id) || [],
     description: item.description || undefined,
