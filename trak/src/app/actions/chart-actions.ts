@@ -9,7 +9,7 @@ import { getTableRows } from "@/app/actions/tables/query-actions";
 import { getTaskItemsByBlock } from "@/app/actions/tasks/query-actions";
 import { getTimelineItems } from "@/app/actions/timelines/query-actions";
 import { getOrCreateFileAnalysisSession } from "@/app/actions/file-analysis";
-import { searchAll } from "@/app/actions/ai-search";
+import { searchAll, searchBlocks, searchTables } from "@/app/actions/ai-search";
 import { generateChartCode } from "@/lib/ai/chart-generator";
 import { detectFileKind } from "@/lib/file-analysis/extractor";
 import { getSessionFiles, getTabAttachedFiles } from "@/lib/file-analysis/context";
@@ -27,7 +27,7 @@ interface InlineSeries {
 interface ChartDataContext {
   inlineSeries?: InlineSeries;
   tables?: Array<{
-    blockId: string;
+    blockId?: string;
     tableId: string;
     title?: string | null;
     fields: Array<{ id: string; name: string; type: string }>;
@@ -105,6 +105,13 @@ const PROMPT_STOP_WORDS = new Set([
   "percent",
   "percentage",
 ]);
+
+function sanitizeSearchText(text: string) {
+  return text
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function extractPromptKeywords(prompt: string) {
   const phrases: string[] = [];
@@ -479,7 +486,7 @@ async function buildChartContext(params: {
   const hasPromptHints = tokens.length > 0 || phrases.length > 0;
   const allowAllFiles = /(csv|xlsx|excel|spreadsheet|upload|uploaded|attachment|file)/i.test(prompt);
 
-  const { data: blocks } = await supabase
+  let { data: blocks } = await supabase
     .from("blocks")
     .select("id, type, content")
     .eq("tab_id", tabId)
@@ -491,14 +498,14 @@ async function buildChartContext(params: {
   const taskBlocks: Array<NonNullable<ChartDataContext["taskBlocks"]>[number] & { matchScore: number }> = [];
   const timelineBlocks: Array<NonNullable<ChartDataContext["timelineBlocks"]>[number] & { matchScore: number }> = [];
 
-  for (const block of blocks || []) {
+  const pushBlockData = async (block: { id: string; type: string; content: unknown }) => {
     if (block.type === "table") {
       const tableId = (block.content as any)?.tableId;
-      if (!tableId) continue;
+      if (!tableId) return;
       const tableResult = await getTable(tableId, { authContext });
-      if ("error" in tableResult) continue;
+      if ("error" in tableResult) return;
       const rowsResult = await getTableRows(tableId, { limit: MAX_TABLE_ROWS, authContext });
-      if ("error" in rowsResult) continue;
+      if ("error" in rowsResult) return;
 
       const fields = tableResult.data.fields;
       const fieldMap = new Map(fields.map((field) => [field.id, field]));
@@ -535,7 +542,7 @@ async function buildChartContext(params: {
 
     if (block.type === "task") {
       const tasksResult = await getTaskItemsByBlock(block.id);
-      if ("error" in tasksResult) continue;
+      if ("error" in tasksResult) return;
       const title = (block.content as any)?.title ?? null;
       const taskSample = tasksResult.data.slice(0, 6).map((task) => task.text).join(" ");
       const matchScore = scoreTextMatch(`${title || ""} ${taskSample}`, tokens, phrases);
@@ -557,7 +564,7 @@ async function buildChartContext(params: {
 
     if (block.type === "timeline") {
       const timelineResult = await getTimelineItems(block.id, { authContext });
-      if ("error" in timelineResult) continue;
+      if ("error" in timelineResult) return;
       const title = (block.content as any)?.title ?? null;
       const eventSample = timelineResult.data.events.slice(0, 6).map((event) => event.title).join(" ");
       const matchScore = scoreTextMatch(`${title || ""} ${eventSample}`, tokens, phrases);
@@ -575,6 +582,76 @@ async function buildChartContext(params: {
         })),
         matchScore,
       });
+    }
+  };
+
+  if (hasPromptHints && /\btable\b/i.test(prompt)) {
+    const searchResult = await searchBlocks({
+      searchText: sanitizeSearchText(prompt),
+      type: "table",
+      projectId: projectId ?? undefined,
+      limit: 3,
+    });
+
+    if (searchResult.data && searchResult.data.length > 0) {
+      const supplementalBlocks = searchResult.data.map((entry) => ({
+        id: entry.id,
+        type: "table" as const,
+        content: entry.content,
+      }));
+      blocks = [...(blocks || []), ...supplementalBlocks];
+    }
+  }
+
+  for (const block of blocks || []) {
+    await pushBlockData(block);
+  }
+
+  const hadLocalTableMatches = tables.some((table) => table.matchScore > 0);
+  if (hasPromptHints && /\btable\b/i.test(prompt) && !hadLocalTableMatches) {
+    const sanitized = sanitizeSearchText(prompt);
+    const tablesResult = await searchTables({
+      searchText: sanitized || prompt,
+      limit: 5,
+    });
+
+    if (tablesResult.data && tablesResult.data.length > 0) {
+      const scored = tablesResult.data.map((table) => ({
+        table,
+        score: scoreTextMatch(`${table.title || ""} ${table.description || ""}`, tokens, phrases),
+      }));
+      const ranked = scored
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2);
+
+      for (const entry of ranked) {
+        const tableId = entry.table.id;
+        const tableResult = await getTable(tableId, { authContext });
+        if ("error" in tableResult) continue;
+        const rowsResult = await getTableRows(tableId, { limit: MAX_TABLE_ROWS, authContext });
+        if ("error" in rowsResult) continue;
+
+        const fields = tableResult.data.fields;
+        const fieldMap = new Map(fields.map((field) => [field.id, field]));
+        const formattedRows = rowsResult.data.rows.map((row) => {
+          const mapped: Record<string, unknown> = { id: row.id };
+          Object.entries(row.data || {}).forEach(([fieldId, value]) => {
+            const field = fieldMap.get(fieldId);
+            const key = field?.name ?? fieldId;
+            mapped[key] = field ? mapSelectValue(value, field) : value;
+          });
+          return mapped;
+        });
+
+        tables.push({
+          tableId,
+          title: tableResult.data.table.title,
+          fields: fields.map((field) => ({ id: field.id, name: field.name, type: field.type })),
+          rows: formattedRows,
+          matchScore: entry.score,
+        });
+      }
     }
   }
 
@@ -798,7 +875,7 @@ export async function createChartBlock(params: {
           ...(dataContext.tables || []).map((table) => table.blockId),
           ...(dataContext.taskBlocks || []).map((task) => task.blockId),
           ...(dataContext.timelineBlocks || []).map((timeline) => timeline.blockId),
-        ].filter(Boolean),
+        ].filter(Boolean) as string[],
         sourceFileIds: dataContext.fileTables?.map((file) => file.fileId),
         isSimulation: params.isSimulation,
         originalChartId: params.originalChartId ?? null,
