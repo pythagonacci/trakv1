@@ -466,8 +466,9 @@ function Header() {
   const isClientsPage = pathname?.startsWith("/dashboard/clients");
   const isInternalPage = pathname?.startsWith("/dashboard/internal");
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
+  const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
 
-  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isCalendarPage) {
+  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isCalendarPage || isWorkflowPage) {
     return null;
   }
 
@@ -487,7 +488,12 @@ function Header() {
           <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--tertiary-foreground)]">
             Overview
           </span>
-          <h1 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{getPageTitle()}</h1>
+          <h1 
+            className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair"
+            style={{ fontFamily: 'var(--font-playfair)' }}
+          >
+            {getPageTitle()}
+          </h1>
         </div>
         <div className="flex items-center gap-2">
           <button className="hidden rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] md:inline-flex">

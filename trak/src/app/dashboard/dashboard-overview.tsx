@@ -170,7 +170,10 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
           <p className="text-xs font-medium uppercase tracking-[0.32em] text-[var(--muted-foreground)]">
             Overview
           </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
+          <h1 
+            className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl font-playfair"
+            style={{ fontFamily: 'var(--font-playfair)' }}
+          >
             Run your service business from one place.
           </h1>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">

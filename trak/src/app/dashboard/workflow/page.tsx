@@ -7,6 +7,7 @@ import { Plus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createWorkflowPage, getWorkspaceWorkflowPages, type WorkflowPageTab } from "@/app/actions/workflow-page";
 import Toast from "@/app/dashboard/projects/toast";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
@@ -57,18 +58,14 @@ export default function WorkflowPagesIndex() {
             Permanent, AI-powered analysis documents.
           </p>
         </div>
-        <button
-          type="button"
+        <Button 
           onClick={() => void onCreate()}
           disabled={creating}
-          className={cn(
-            "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors",
-            "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15 disabled:opacity-50"
-          )}
+          size="sm"
         >
-          {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
           Create
-        </button>
+        </Button>
       </div>
 
       {loading ? (

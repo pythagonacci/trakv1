@@ -166,19 +166,19 @@
   }
 
 
-  /* Headings - Serif font for "historic studio" feel */
+  /* Headings - Use Inter for consistency */
   h1 {
-    font-family: var(--font-serif);
+    font-family: var(--font-sans);
     @apply text-[26px] font-semibold text-[var(--foreground)] leading-tight tracking-tight;
   }
 
   h2 {
-    font-family: var(--font-serif);
+    font-family: var(--font-sans);
     @apply text-[22px] font-semibold text-[var(--foreground)] leading-tight tracking-tight;
   }
 
   h3 {
-    font-family: var(--font-serif);
+    font-family: var(--font-sans);
     @apply text-[18px] font-medium text-[var(--foreground)] leading-snug;
   }
 
@@ -342,6 +342,12 @@
 
   .rounded-sm {
     border-radius: var(--radius-sm) !important;
+  }
+
+  /* Playfair Display font utility */
+  .font-playfair {
+    font-family: var(--font-playfair) !important;
+    letter-spacing: 0.03em;
   }
 }
 

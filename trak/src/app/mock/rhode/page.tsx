@@ -41,7 +41,7 @@ export default function RhodePeptideLipShapeMock() {
                 <span className="text-[#D4C8C3]">•</span>
                 <span>Lip Category</span>
               </div>
-              <h1 className="text-[32px] font-light tracking-tight text-[#3D3937]" style={{ fontFamily: "'Newsreader', Georgia, serif" }}>
+              <h1 className="text-[32px] font-light tracking-tight text-[#3D3937]">
                 Peptide Lip Shape
               </h1>
               <p className="text-sm text-[#8A7E79] max-w-xl">
