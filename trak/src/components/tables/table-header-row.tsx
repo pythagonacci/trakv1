@@ -388,7 +388,7 @@ function FieldHeader({
   };
 
   return (
-    <div className="px-3 py-2 flex items-center gap-2 border-r border-[var(--border)] bg-[var(--surface-muted)] relative">
+    <div className="px-3 py-1 flex items-center gap-2 border-r border-[var(--border)] bg-[var(--surface-muted)] relative">
       <div className="flex-1 overflow-hidden">
         <input
           className="w-full bg-transparent text-sm font-semibold text-[var(--foreground)] outline-none truncate border border-transparent focus:border-[var(--border-strong)] rounded-[2px] px-2 py-1"

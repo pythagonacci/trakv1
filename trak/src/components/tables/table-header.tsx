@@ -27,7 +27,7 @@ export function TableHeader({
   const [editingView, setEditingView] = useState<string | null>(null);
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-white/5 backdrop-blur-sm">
+    <div className="flex items-center justify-between px-3 py-1 border-b border-white/10 bg-white/5 backdrop-blur-sm">
       <div className="flex items-center gap-3">
         <div className="text-sm font-semibold text-white">{tableTitle ?? "Table"}</div>
         <div className="flex items-center gap-1">
