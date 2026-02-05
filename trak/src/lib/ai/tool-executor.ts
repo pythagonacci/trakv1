@@ -1858,11 +1858,19 @@ export async function executeTool(
             }
           }
 
-          // Build a set of available default columns (non-primary, default-named)
-          // that can be reused by renaming.  We consume them in order so each
-          // field gets a unique candidate.
+          // Build a set of available default columns that can be reused by renaming.
+          // Include both the primary "Name" field and default non-primary columns
+          // ("Column 2", "Column 3") when the table is empty.
+          // We consume them in order so each field gets a unique candidate.
           const defaultCandidates = isEmpty
-            ? existingFields.filter((f) => !f.is_primary && isDefaultFieldName(f.name))
+            ? existingFields.filter((f) => {
+                // Include primary field only if it has the default name "Name"
+                if (f.is_primary) {
+                  return normalizeFieldName(f.name) === "name";
+                }
+                // Include non-primary default columns (Column 2, Column 3)
+                return isDefaultFieldName(f.name);
+              })
             : [];
           const availableDefaults = new Map(
             defaultCandidates.map((f) => [normalizeFieldName(f.name), f])
@@ -1888,7 +1896,12 @@ export async function executeTool(
 
             // Try to claim a default column for reuse
             if (isEmpty && !field.isPrimary && !(CONFIG_REQUIRED_TYPES.has(field.type) && !field.config)) {
-              const preferred = field.type === "text" ? ["column 2", "column 3"] : ["column 3", "column 2"];
+              // For text fields, prioritize: "name" (primary) > "column 2" > "column 3"
+              // For other types, prioritize: "column 3" > "column 2" > "name"
+              // This ensures the first custom field typically reuses "Name" instead of leaving it empty
+              const preferred = field.type === "text"
+                ? ["name", "column 2", "column 3"]
+                : ["column 3", "column 2", "name"];
               const candidate = preferred
                 .map((name) => availableDefaults.get(name))
                 .find(Boolean) ?? [...availableDefaults.values()][0];
@@ -2442,12 +2455,16 @@ export async function executeTool(
           const description = args.description as string | undefined;
           const projectId = args.projectId as string | undefined;
           const tabId = args.tabId as string | undefined;
-          const fields = Array.isArray(args.fields) ? (args.fields as Array<Record<string, unknown>>) : [];
-          const rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
+          let fields = Array.isArray(args.fields) ? (args.fields as Array<Record<string, unknown>>) : [];
+          let rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
 
           if (!workspaceId || !title) {
             return { success: false, error: "createTableFull requires workspaceId and title." };
           }
+
+          // Enhance field types with smart inference from row data
+          fields = enhanceFieldsWithInference(fields, rows);
+          rows = normalizeRowsForSelectFields(fields, rows);
 
           // RPC fast-path: create table + fields + rows in one DB transaction
           const rpcResult = await createTableFullRpc({
@@ -3315,6 +3332,356 @@ async function resolveTaskBlockIdForCreateTask(
     }
   }
   return null;
+}
+
+/**
+ * Infer proper field types from column data patterns
+ * Detects: priority, status, select, date, number, email, url, phone
+ */
+function normalizeOptionId(value: string): string {
+  return String(value).trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function inferFieldTypeFromData(
+  fieldName: string,
+  fieldType: string | undefined,
+  values: unknown[],
+  existingConfig?: Record<string, unknown>
+): { type: string; config?: Record<string, unknown> } {
+  const normalizedName = fieldName.toLowerCase().trim();
+  const normalizedType = fieldType ? String(fieldType).toLowerCase().trim() : undefined;
+  const nonNullValues = values.filter((v) => v !== null && v !== undefined && v !== "");
+  if (nonNullValues.length === 0) {
+    return { type: normalizedType || "text", config: existingConfig };
+  }
+
+  // If already has config, preserve it
+  if (existingConfig) {
+    return { type: normalizedType || "text", config: existingConfig };
+  }
+
+  // Respect explicit non-text, non-select-like types
+  if (
+    normalizedType &&
+    normalizedType !== "text" &&
+    !["priority", "status", "select", "multi_select"].includes(normalizedType)
+  ) {
+    return { type: normalizedType, config: existingConfig };
+  }
+
+  // If type is specified but no config, infer config from data
+  // This handles cases where AI specifies type but not config
+
+  // If fieldType is "priority" but no config, generate from data
+  if (normalizedType === "priority") {
+    const uniqueValues = new Map<string, string>();
+    nonNullValues.forEach((v) => {
+      const raw = String(v).trim();
+      if (!raw) return;
+      const id = normalizeOptionId(raw);
+      if (!uniqueValues.has(id)) uniqueValues.set(id, raw);
+    });
+    const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
+
+    Array.from(uniqueValues.entries()).forEach(([id, raw], index) => {
+      const normalized = id;
+      const label = raw.charAt(0).toUpperCase() + raw.slice(1);
+      let color = "gray";
+      if (normalized === "high" || normalized === "urgent" || normalized === "critical") color = "red";
+      else if (normalized === "medium") color = "yellow";
+      else if (normalized === "low") color = "green";
+
+      levels.push({ id, label, color, order: index });
+    });
+
+    return { type: "priority", config: { levels } };
+  }
+
+  // If fieldType is "status" but no config, generate from data
+  if (normalizedType === "status") {
+    const uniqueValues = new Map<string, string>();
+    nonNullValues.forEach((v) => {
+      const raw = String(v).trim();
+      if (!raw) return;
+      const id = normalizeOptionId(raw);
+      if (!uniqueValues.has(id)) uniqueValues.set(id, raw);
+    });
+    const options: Array<{ id: string; label: string; color: string; order: number }> = [];
+
+    Array.from(uniqueValues.entries()).forEach(([id, raw], index) => {
+      const normalized = id;
+      const label = raw
+        .split(/[\s-]+/)
+        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+        .join(" ");
+      let color = "gray";
+      if (normalized === "done" || normalized === "complete" || normalized === "completed") color = "green";
+      else if (normalized === "in-progress") color = "blue";
+      else if (normalized === "blocked") color = "red";
+      else if (normalized === "cancelled") color = "gray";
+
+      options.push({ id, label, color, order: index });
+    });
+
+    return { type: "status", config: { options } };
+  }
+
+  // If fieldType is "select" but no config, generate from data
+  if (normalizedType === "select" || normalizedType === "multi_select") {
+    const uniqueValues = new Map<string, string>();
+    nonNullValues.forEach((v) => {
+      const raw = String(v).trim();
+      if (!raw) return;
+      const id = normalizeOptionId(raw);
+      if (!uniqueValues.has(id)) uniqueValues.set(id, raw);
+    });
+    const options: Array<{ id: string; label: string; color: string; order: number }> = [];
+    const colors = ["gray", "blue", "green", "yellow", "red", "purple", "pink", "orange"];
+
+    Array.from(uniqueValues.entries()).forEach(([id, raw], index) => {
+      const color = colors[index % colors.length];
+      options.push({ id, label: raw, color, order: index });
+    });
+
+    return { type: normalizedType ?? "select", config: { options } };
+  }
+
+  // Priority detection (by field name)
+  if (normalizedName.includes("priority") || normalizedName === "pri") {
+    const uniqueValues = Array.from(new Set(nonNullValues.map((v) => normalizeOptionId(String(v)))));
+    const priorityPatterns = ["high", "medium", "low", "urgent", "critical", "unspecified"];
+    const isPriority = uniqueValues.every((v) => priorityPatterns.includes(v));
+
+    if (isPriority) {
+      const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
+      const seenLabels = new Set<string>();
+
+      uniqueValues.forEach((value, index) => {
+        const normalized = value.toLowerCase();
+        if (!seenLabels.has(normalized)) {
+          seenLabels.add(normalized);
+          const label = value.charAt(0).toUpperCase() + value.slice(1);
+          let color = "gray";
+          if (normalized === "high" || normalized === "urgent" || normalized === "critical") color = "red";
+          else if (normalized === "medium") color = "yellow";
+          else if (normalized === "low") color = "green";
+
+          levels.push({ id: normalized, label, color, order: index });
+        }
+      });
+
+      return { type: "priority", config: { levels } };
+    }
+  }
+
+  // Status detection
+  if (normalizedName.includes("status") || normalizedName === "state") {
+    const uniqueValues = Array.from(new Set(nonNullValues.map((v) => normalizeOptionId(String(v)))));
+    const statusPatterns = ["todo", "to-do", "to do", "in-progress", "in progress", "done", "complete", "completed", "blocked", "cancelled", "unspecified"];
+    const isStatus = uniqueValues.length >= 2 && uniqueValues.length <= 10;
+
+    if (isStatus) {
+      const options: Array<{ id: string; label: string; color: string; order: number }> = [];
+      const seenLabels = new Set<string>();
+
+      uniqueValues.forEach((value, index) => {
+        const normalized = value.toLowerCase().replace(/\s+/g, "-");
+        if (!seenLabels.has(normalized)) {
+          seenLabels.add(normalized);
+          const label = value.split(/[\s-]+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+          let color = "gray";
+          if (normalized === "done" || normalized === "complete" || normalized === "completed") color = "green";
+          else if (normalized === "in-progress" || normalized === "in-progress") color = "blue";
+          else if (normalized === "blocked") color = "red";
+          else if (normalized === "cancelled") color = "gray";
+
+          options.push({ id: normalized, label, color, order: index });
+        }
+      });
+
+      return { type: "status", config: { options } };
+    }
+  }
+
+  // Select detection (categorical data with 2-20 unique values)
+  const uniqueValues = Array.from(new Set(nonNullValues.map((v) => String(v).trim())));
+  if (uniqueValues.length >= 2 && uniqueValues.length <= 20 && uniqueValues.length < nonNullValues.length * 0.8) {
+    const options: Array<{ id: string; label: string; color: string; order: number }> = [];
+    const colors = ["gray", "blue", "green", "yellow", "red", "purple", "pink", "orange"];
+
+    uniqueValues.forEach((value, index) => {
+      const id = value.toLowerCase().replace(/\s+/g, "-");
+      const color = colors[index % colors.length];
+      options.push({ id, label: value, color, order: index });
+    });
+
+    return { type: "select", config: { options } };
+  }
+
+  // Date detection
+  if (normalizedName.includes("date") || normalizedName.includes("due") || normalizedName.includes("deadline")) {
+    return { type: "date", config: { includeTime: false, format: "MMM d, yyyy" } };
+  }
+
+  // Number detection
+  const allNumbers = nonNullValues.every((v) => {
+    const num = Number(v);
+    return !isNaN(num) && isFinite(num);
+  });
+  if (allNumbers) {
+    return { type: "number", config: { format: "number" } };
+  }
+
+  // Email detection
+  if (normalizedName.includes("email") || nonNullValues.some((v) => String(v).includes("@"))) {
+    const allEmails = nonNullValues.every((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v)));
+    if (allEmails) {
+      return { type: "email" };
+    }
+  }
+
+  // URL detection
+  if (normalizedName.includes("url") || normalizedName.includes("link") || normalizedName.includes("website")) {
+    const allUrls = nonNullValues.every((v) => /^https?:\/\/.+/.test(String(v)));
+    if (allUrls) {
+      return { type: "url" };
+    }
+  }
+
+  // Phone detection
+  if (normalizedName.includes("phone") || normalizedName.includes("tel")) {
+    return { type: "phone" };
+  }
+
+  // Default to text
+  return { type: "text" };
+}
+
+/**
+ * Enhance field definitions with inferred types based on row data
+ */
+function enhanceFieldsWithInference(
+  fields: Array<Record<string, unknown>>,
+  rows: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  if (fields.length === 0 || rows.length === 0) {
+    return fields;
+  }
+
+  // Extract values for each field from rows
+  const fieldValues = new Map<string, unknown[]>();
+
+  rows.forEach((row) => {
+    const data = (row.data || {}) as Record<string, unknown>;
+    Object.entries(data).forEach(([key, value]) => {
+      if (!fieldValues.has(key)) {
+        fieldValues.set(key, []);
+      }
+      fieldValues.get(key)?.push(value);
+    });
+  });
+
+  // Enhance each field
+  return fields.map((field) => {
+    const fieldName = String(field.name || "");
+    const fieldType = field.type as string | undefined;
+    const values = fieldValues.get(fieldName) || [];
+
+    // Skip if field already has usable config
+    if (hasUsableFieldConfig(fieldType, field.config as Record<string, unknown> | undefined)) {
+      return field;
+    }
+
+    // Infer type and config
+    const inferred = inferFieldTypeFromData(fieldName, fieldType, values);
+
+    return {
+      ...field,
+      type: inferred.type,
+      ...(inferred.config ? { config: inferred.config } : {}),
+    };
+  });
+}
+
+function hasUsableFieldConfig(
+  fieldType: string | undefined,
+  config?: Record<string, unknown>
+): boolean {
+  if (!config) return false;
+  const normalizedType = fieldType ? String(fieldType).toLowerCase().trim() : undefined;
+  if (normalizedType === "priority") {
+    const levels = (config as any)?.levels;
+    return Array.isArray(levels) && levels.length > 0;
+  }
+  if (normalizedType === "status" || normalizedType === "select" || normalizedType === "multi_select") {
+    const options = (config as any)?.options;
+    return Array.isArray(options) && options.length > 0;
+  }
+  return Object.keys(config).length > 0;
+}
+
+function normalizeRowsForSelectFields(
+  fields: Array<Record<string, unknown>>,
+  rows: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  if (fields.length === 0 || rows.length === 0) return rows;
+
+  const fieldByName = new Map(
+    fields.map((field) => [normalizeFieldName(field.name as string), field])
+  );
+
+  return rows.map((row) => {
+    const data = (row as { data?: Record<string, unknown> }).data;
+    if (!data || typeof data !== "object") return row;
+
+    let changed = false;
+    const nextData: Record<string, unknown> = { ...data };
+
+    for (const [key, rawValue] of Object.entries(data)) {
+      const field = fieldByName.get(normalizeFieldName(key));
+      if (!field) continue;
+      const fieldType = String(field.type ?? "");
+      if (!isSelectLike(fieldType)) continue;
+      const config = field.config as Record<string, unknown> | undefined;
+      if (!config) continue;
+
+      const { options } = getOptionEntries({ type: fieldType, config });
+      if (!options.length) continue;
+
+      const optionById = new Map(options.map((opt) => [normalizeOptionId(opt.id), opt.id]));
+      const optionByLabel = new Map(options.map((opt) => [normalizeOptionId(opt.label), opt.id]));
+
+      const mapValue = (value: unknown): unknown => {
+        if (value && typeof value === "object") {
+          const asObj = value as Record<string, unknown>;
+          const id = typeof asObj.id === "string" ? asObj.id : undefined;
+          if (id) return id;
+        }
+        const raw = String(value ?? "").trim();
+        if (!raw) return value;
+        const normalized = normalizeOptionId(raw);
+        return optionById.get(normalized) ?? optionByLabel.get(normalized) ?? value;
+      };
+
+      if (fieldType === "multi_select" && Array.isArray(rawValue)) {
+        const mapped = rawValue.map(mapValue);
+        const differs = mapped.some((value, index) => value !== rawValue[index]);
+        if (differs) {
+          nextData[key] = mapped;
+          changed = true;
+        }
+        continue;
+      }
+
+      const mapped = mapValue(rawValue);
+      if (mapped !== rawValue) {
+        nextData[key] = mapped;
+        changed = true;
+      }
+    }
+
+    return changed ? { ...row, data: nextData } : row;
+  });
 }
 
 const DEFAULT_FIELD_NAMES = new Set(["column 2", "column 3"]);
