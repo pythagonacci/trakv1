@@ -46,6 +46,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { BlockType } from "@/app/actions/block";
 
@@ -622,12 +623,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
               <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
               <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
             </div>
-            <button 
-              onClick={handleOpenCreate} 
-              className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
-            >
-              New project
-            </button>
+            <Button onClick={handleOpenCreate} size="sm">New project</Button>
           </div>
           <EmptyState onCreateClick={handleOpenCreate} />
           {renderDialogs()}
@@ -639,12 +635,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
               <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
               <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
             </div>
-            <button 
-              onClick={handleOpenCreate} 
-              className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
-            >
-              New project
-            </button>
+            <Button onClick={handleOpenCreate} size="sm">New project</Button>
           </div>
 
           {projects.length === 0 ? (

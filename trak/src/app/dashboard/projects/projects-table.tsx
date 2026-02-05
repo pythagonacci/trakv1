@@ -402,12 +402,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
             <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
             <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
           </div>
-          <button 
-            onClick={handleOpenCreate} 
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--secondary)] hover:bg-[var(--secondary)]/90 rounded-[2px] transition-colors"
-          >
-            New project
-          </button>
+          <Button onClick={handleOpenCreate} size="sm">New project</Button>
         </div>
         <EmptyState onCreateClick={handleOpenCreate} />
         {renderDialogs()}
@@ -462,19 +457,16 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
           <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button 
+          <Button 
             onClick={handleCreateFolder} 
-            className="px-3 py-1.5 text-sm font-medium text-[var(--muted-foreground)] border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors flex items-center gap-1.5"
+            variant="secondary"
+            size="sm"
+            className="bg-white text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
           >
             <Folder className="h-3.5 w-3.5" />
             New Folder
-          </button>
-          <button 
-            onClick={handleOpenCreate} 
-            className="px-3 py-1.5 text-sm font-medium text-[var(--secondary)] border border-[var(--secondary)] hover:bg-[var(--secondary)]/10 transition-colors"
-          >
-            New project
-          </button>
+          </Button>
+          <Button onClick={handleOpenCreate} size="sm">New project</Button>
         </div>
       </div>
 
