@@ -16,6 +16,7 @@ import { classifyIntent, type IntentClassification, type ToolGroup } from "./int
 import { tryDeterministicCommand } from "./simple-commands";
 import { getChartSuggestion } from "@/app/actions/chart-actions";
 import type { ChartType } from "@/types/chart";
+import { createUndoTracker, type UndoBatch } from "@/lib/ai/undo";
 
 // ============================================================================
 // TYPES
@@ -46,6 +47,8 @@ export interface ExecutionResult {
     arguments: Record<string, unknown>;
     result: ToolCallResult;
   }>;
+  undoBatches?: UndoBatch[];
+  undoSkippedTools?: string[];
   error?: string;
 }
 
@@ -66,6 +69,20 @@ export interface ExecuteAICommandOptions {
    * Useful for Workflow Pages where unified multi-tool access is required.
    */
   forcedToolGroups?: ToolGroup[];
+  /**
+   * Enforce read-only behavior for this command (no data mutations).
+   * Non-search tools are blocked unless explicitly allowlisted.
+   */
+  readOnly?: boolean;
+  /**
+   * Allowlist of non-search tools that are permitted when readOnly is true.
+   */
+  allowedWriteTools?: string[];
+  /**
+   * Whether to enforce batch completion for task updates.
+   * Defaults to true in general, but can be disabled for read-only commands.
+   */
+  enforceBatchUpdateCompletion?: boolean;
   /**
    * Disable deterministic fast-path execution (always allow the LLM/tool loop).
    */
@@ -119,6 +136,7 @@ const COMPACT_TOOL_RESULTS = process.env.AI_COMPACT_TOOL_RESULTS !== "0";
 const PROMPT_MODE = (process.env.AI_PROMPT_MODE || "auto").toLowerCase();
 const TRIM_CORE_TO_INTENT = process.env.AI_TRIM_CORE_TO_INTENT !== "0";
 const EARLY_EXIT_WRITES = process.env.AI_EARLY_EXIT_WRITES !== "0";
+const WRITE_ACTIONS = ["create", "update", "delete", "organize", "move", "copy", "insert"];
 
 type ToolFormatCacheEntry = {
   tools: ReturnType<typeof toOpenAIFormat>;
@@ -183,6 +201,60 @@ function isSearchLikeToolName(name: string) {
     name.startsWith("resolve") ||
     name === "requestToolGroups"
   );
+}
+
+function looksLikeSemanticQuery(command: string): boolean {
+  const text = command.toLowerCase();
+  if (text.length < 4) return false;
+  if (text.includes("?")) return true;
+  if (/\b(what|why|how|where|which|who|when)\b/.test(text)) return true;
+  if (/\b(find|search|lookup|look up|show me|list|summarize|recap|compare|match|fit)\b/.test(text)) return true;
+  if (looksLikeKnowledgeQuery(text)) return true;
+  return false;
+}
+
+function looksLikeKnowledgeQuery(text: string): boolean {
+  return /\b(doc|docs|documentation|note|notes|spec|specs|specification|plan|policy|strategy|icp|requirement|requirements|diet|meal|nutrition|roadmap|brief)\b/i.test(
+    text
+  );
+}
+
+function looksLikeStructuredEntityQuery(command: string): boolean {
+  return /\b(task|tasks|project|projects|client|clients|table|tables|row|rows|tab|tabs|file|files|member|members|timeline|event|events|tag|tags|comment|comments)\b/i.test(
+    command
+  );
+}
+
+const STRUCTURED_SEARCH_FALLBACK_TOOLS = new Set([
+  "searchDocs",
+  "searchDocContent",
+  "searchBlocks",
+  "searchFiles",
+  "searchAll",
+  "searchTasks",
+  "searchProjects",
+  "searchTabs",
+  "searchClients",
+  "searchTables",
+  "searchTableRows",
+  "searchTimelineEvents",
+  "searchWorkspaceMembers",
+  "searchTags",
+]);
+
+function isEmptySearchResult(result: ToolCallResult): boolean {
+  if (!result || !result.success) return true;
+  const data = result.data as any;
+  if (!data) return true;
+  if (Array.isArray(data)) return data.length === 0;
+  if (typeof data === "object") {
+    const nested = (data as { data?: unknown }).data;
+    if (Array.isArray(nested)) return nested.length === 0;
+    if (typeof (data as { count?: number }).count === "number") {
+      return (data as { count?: number }).count === 0;
+    }
+  }
+  return false;
 }
 
 function shouldUseFastPrompt(
@@ -636,6 +708,7 @@ export async function executeAICommand(
       tool_timings_ms: {} as Record<string, number>,
     }
     : null;
+  const undoTracker = createUndoTracker();
   let timingLogged = false;
   const logTiming = () => {
     if (!timing || timingLogged) return;
@@ -660,6 +733,10 @@ export async function executeAICommand(
     });
   };
   const withTiming = (result: ExecutionResult) => {
+    result.undoBatches = undoTracker.batches;
+    if (undoTracker.skippedTools.length > 0) {
+      result.undoSkippedTools = undoTracker.skippedTools;
+    }
     logTiming();
     if (timing) {
       (result as any)._timing = {
@@ -712,7 +789,7 @@ export async function executeAICommand(
 
   // Fast path: simple pattern-matched commands skip the LLM entirely
   if (!options.disableDeterministic) {
-    const simpleResult = await tryDeterministicCommand(userCommand, context);
+    const simpleResult = await tryDeterministicCommand(userCommand, context, { undoTracker });
     if (simpleResult) return withTiming(simpleResult);
   }
 
@@ -819,6 +896,7 @@ export async function executeAICommand(
   let lastToolRepeatCount = 0;
   let lastToolName: string | null = null;
   let lastSearchTaskIds: string[] | null = null;
+  let autoUnstructuredFallbackUsed = false;
   let llmCallIndex = 0;
   const contextTableId = context.contextTableId;
   const contextBlockId = context.contextBlockId;
@@ -829,6 +907,18 @@ export async function executeAICommand(
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   const updatedItemIds = new Set<string>();
+  let sawTaskMutationTool = false;
+  const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
+  const taskMutationTools = new Set([
+    "updateTaskItem",
+    "bulkUpdateTaskItems",
+    "bulkMoveTaskItems",
+    "setTaskAssignees",
+    "bulkSetTaskAssignees",
+    "deleteTaskItem",
+    "updateTaskSubtask",
+    "deleteTaskSubtask",
+  ]);
   const tableIdTools = new Set([
     "getTableSchema",
     "searchTableRows",
@@ -846,6 +936,7 @@ export async function executeAICommand(
     "bulkDeleteRows",
     "bulkDuplicateRows",
     "updateTableRowsByFieldNames",
+    "updateTableFull",
   ]);
   const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
@@ -947,6 +1038,17 @@ export async function executeAICommand(
             argKeys: Object.keys(toolArgs).slice(0, 10),
           });
 
+          if (options.readOnly && !isSearchLikeToolName(toolName) && !readOnlyAllowedWriteTools.has(toolName)) {
+            const error = `Write tool "${toolName}" is not allowed for this read-only request. Use search/analysis tools and create display blocks only.`;
+            return {
+              toolCall,
+              toolName,
+              toolArgs,
+              result: { success: false, error },
+              toolDuration: 0,
+            };
+          }
+
           // Execute the tool
           const toolStart = timingEnabled ? Date.now() : 0;
           const result = await executeTool({
@@ -958,6 +1060,7 @@ export async function executeAICommand(
             contextTableId,
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
+            undoTracker,
           });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
 
@@ -1047,9 +1150,24 @@ export async function executeAICommand(
             }
           }
 
+          if (taskMutationTools.has(toolName)) {
+            sawTaskMutationTool = true;
+          }
+
           // Track which tasks/items have been updated
           if (toolName === "updateTaskItem" && result.success && toolArgs.taskId) {
             updatedItemIds.add(toolArgs.taskId as string);
+          }
+          if (toolName === "bulkUpdateTaskItems" && result.success) {
+            const taskIds = Array.isArray(toolArgs.taskIds) ? (toolArgs.taskIds as string[]) : [];
+            const skipped = Array.isArray((result.data as any)?.skipped)
+              ? ((result.data as any).skipped as string[])
+              : [];
+            for (const taskId of taskIds) {
+              if (!skipped.includes(taskId)) {
+                updatedItemIds.add(taskId);
+              }
+            }
           }
 
           const toolSignature = `${toolName}:${JSON.stringify(toolArgs)}`;
@@ -1105,6 +1223,85 @@ export async function executeAICommand(
           continue;
         }
 
+        const onlySearchOps = toolNamesThisRound.every(isSearchLikeToolName);
+        const structuredSearchesThisRound = toolCallsThisRound.filter((call) =>
+          STRUCTURED_SEARCH_FALLBACK_TOOLS.has(call.tool)
+        );
+        const hasStructuredSearchThisRound = structuredSearchesThisRound.length > 0;
+        const structuredSearchEmpty = structuredSearchesThisRound.every((call) =>
+          isEmptySearchResult(call.result)
+        );
+        const semanticQuery = looksLikeSemanticQuery(userCommand);
+        const knowledgeQuery = looksLikeKnowledgeQuery(userCommand);
+        const entityQuery = looksLikeStructuredEntityQuery(userCommand);
+        const unstructuredAlready =
+          toolNamesThisRound.includes("unstructuredSearchWorkspace") ||
+          allToolCallsMade.some((call) => call.tool === "unstructuredSearchWorkspace");
+
+        if (
+          !autoUnstructuredFallbackUsed &&
+          onlySearchOps &&
+          hasStructuredSearchThisRound &&
+          (knowledgeQuery || (semanticQuery && (structuredSearchEmpty || !entityQuery))) &&
+          !unstructuredAlready &&
+          userCommand.trim().length >= 4
+        ) {
+          const autoToolArgs = { query: userCommand };
+          const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          aiDebug("executeAICommand:autoUnstructuredFallback", {
+            query: autoToolArgs.query,
+            toolsAttempted: structuredSearchesThisRound.map((call) => call.tool),
+          });
+
+          const autoToolResult = await executeTool(
+            { name: "unstructuredSearchWorkspace", arguments: autoToolArgs },
+            {
+              workspaceId: context.workspaceId,
+              userId: context.userId,
+              contextTableId,
+              currentTabId: context.currentTabId,
+              currentProjectId: context.currentProjectId,
+              undoTracker,
+            }
+          );
+
+          allToolCallsMade.push({
+            tool: "unstructuredSearchWorkspace",
+            arguments: autoToolArgs,
+            result: autoToolResult,
+          });
+
+          const compactedForMetrics = compactToolResult(autoToolResult);
+          const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : autoToolResult;
+          if (timing) {
+            timing.tool_result_chars_total += JSON.stringify(compactedForMetrics).length;
+          }
+
+          messages.push({
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: autoToolCallId,
+                type: "function",
+                function: {
+                  name: "unstructuredSearchWorkspace",
+                  arguments: JSON.stringify(autoToolArgs),
+                },
+              },
+            ],
+          });
+          messages.push({
+            role: "tool",
+            content: JSON.stringify(toolResultForModel),
+            tool_call_id: autoToolCallId,
+            name: "unstructuredSearchWorkspace",
+          });
+
+          autoUnstructuredFallbackUsed = true;
+          continue;
+        }
+
         const writeToolsThisRound = toolNamesThisRound.filter(
           (name) => !isSearchLikeToolName(name)
         );
@@ -1131,10 +1328,8 @@ export async function executeAICommand(
         // NEW: Optimistic early exit for searches - skip the 2nd LLM call
         // OPTIMIZATION: Only exit if the intent is PURELY search.
         // If the user wanted to "create", "update", etc., we must continue even if the first step was just a search.
-        const onlySearchOps = toolNamesThisRound.every(isSearchLikeToolName);
         // Only consider actions, not toolGroups - having entity toolGroups loaded
         // doesn't mean we intend to write. The LLM can request tools if it needs to write.
-        const WRITE_ACTIONS = ["create", "update", "delete", "organize", "move", "copy", "insert"];
         const hasWriteIntent = activeIntent.actions.some(a => WRITE_ACTIONS.includes(a));
 
         if (!options.disableOptimisticEarlyExit && SKIP_SECOND_LLM && allToolCallsSuccessful && onlySearchOps && !hasWriteIntent) {
@@ -1151,7 +1346,9 @@ export async function executeAICommand(
 
       // Check if we have incomplete batch operations before returning final response
       const tasksSearch = searchResults.get("tasks");
-      if (tasksSearch && tasksSearch.count > 1) {
+      const shouldCheckIncompleteBatch =
+        (options.enforceBatchUpdateCompletion ?? true) && sawTaskMutationTool;
+      if (tasksSearch && tasksSearch.count > 1 && shouldCheckIncompleteBatch) {
         const updatedTasks = tasksSearch.itemIds.filter((id) => updatedItemIds.has(id));
         const remainingTasks = tasksSearch.itemIds.filter((id) => !updatedItemIds.has(id));
 
@@ -1175,6 +1372,69 @@ export async function executeAICommand(
       }
 
       // No more tool calls - we have a final response
+      const hasAnySearchTool = allToolCallsMade.some((call) => isSearchLikeToolName(call.tool));
+      const hasWriteIntent = activeIntent.actions.some((a) => WRITE_ACTIONS.includes(a));
+      if (
+        !autoUnstructuredFallbackUsed &&
+        !hasAnySearchTool &&
+        !hasWriteIntent &&
+        looksLikeSemanticQuery(userCommand)
+      ) {
+        const autoToolArgs = { query: userCommand };
+        const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        aiDebug("executeAICommand:autoUnstructuredNoSearch", {
+          query: autoToolArgs.query,
+        });
+
+        const autoToolResult = await executeTool(
+          { name: "unstructuredSearchWorkspace", arguments: autoToolArgs },
+          {
+            workspaceId: context.workspaceId,
+            userId: context.userId,
+            contextTableId,
+            currentTabId: context.currentTabId,
+            currentProjectId: context.currentProjectId,
+            undoTracker,
+          }
+        );
+
+        allToolCallsMade.push({
+          tool: "unstructuredSearchWorkspace",
+          arguments: autoToolArgs,
+          result: autoToolResult,
+        });
+
+        const compactedForMetrics = compactToolResult(autoToolResult);
+        const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : autoToolResult;
+        if (timing) {
+          timing.tool_result_chars_total += JSON.stringify(compactedForMetrics).length;
+        }
+
+        messages.push({
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: autoToolCallId,
+              type: "function",
+              function: {
+                name: "unstructuredSearchWorkspace",
+                arguments: JSON.stringify(autoToolArgs),
+              },
+            },
+          ],
+        });
+        messages.push({
+          role: "tool",
+          content: JSON.stringify(toolResultForModel),
+          tool_call_id: autoToolCallId,
+          name: "unstructuredSearchWorkspace",
+        });
+
+        autoUnstructuredFallbackUsed = true;
+        continue;
+      }
+
       const upgradeGroups = detectToolGroupUpgrade(assistantMessage.content, activeIntent.toolGroups);
       if (!toolUpgradeAttempted && upgradeGroups.length > 0) {
         toolUpgradeAttempted = true;
@@ -1431,7 +1691,8 @@ function getHumanFriendlyToolMessage(toolName: string): string {
 export async function* executeAICommandStream(
   userCommand: string,
   context: ExecutionContext,
-  previousMessages: AIMessage[] = []
+  previousMessages: AIMessage[] = [],
+  options: ExecuteAICommandOptions = {}
 ): AsyncGenerator<{
   type: "thinking" | "tool_call" | "tool_result" | "response_delta" | "response";
   content: string;
@@ -1440,6 +1701,10 @@ export async function* executeAICommandStream(
   const openAIKey = process.env.OPENAI_API_KEY;
   const deepseekKey = process.env.DEEPSEEK_API_KEY;
   const providerPref = (process.env.AI_PROVIDER || "").toLowerCase();
+  const undoTracker = createUndoTracker();
+  const toolCallsMade: ExecutionResult["toolCallsMade"] = [];
+  const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
+  let autoUnstructuredFallbackUsed = false;
 
   if (!openAIKey && !deepseekKey) {
     yield {
@@ -1471,28 +1736,25 @@ export async function* executeAICommandStream(
     const combinedPrompt = pendingChartSuggestion.originalPrompt
       ? `${pendingChartSuggestion.originalPrompt}\nUser confirmation: ${userCommand}`
       : userCommand;
+    const chartArgs = {
+      tabId: context.currentTabId,
+      prompt: combinedPrompt,
+      chartType: requestedType,
+    };
 
     yield {
       type: "tool_call",
       content: getHumanFriendlyToolMessage("createChartBlock"),
       data: {
         tool: "createChartBlock",
-        arguments: {
-          tabId: context.currentTabId,
-          prompt: combinedPrompt,
-          chartType: requestedType,
-        },
+        arguments: chartArgs,
       },
     };
 
     const result = await executeTool(
       {
         name: "createChartBlock",
-        arguments: {
-          tabId: context.currentTabId,
-          prompt: combinedPrompt,
-          chartType: requestedType,
-        },
+        arguments: chartArgs,
       },
       {
         workspaceId: context.workspaceId,
@@ -1501,8 +1763,10 @@ export async function* executeAICommandStream(
         contextBlockId: context.contextBlockId,
         currentTabId: context.currentTabId,
         currentProjectId: context.currentProjectId,
+        undoTracker,
       }
     );
+    toolCallsMade.push({ tool: "createChartBlock", arguments: chartArgs, result });
 
     yield {
       type: "tool_result",
@@ -1515,7 +1779,11 @@ export async function* executeAICommandStream(
       content: result.success
         ? "Chart created."
         : `Couldn't create the chart: ${result.error || "Unknown error"}`,
-      data: result,
+      data: {
+        toolCallsMade,
+        undoBatches: undoTracker.batches,
+        undoSkippedTools: undoTracker.skippedTools,
+      },
     };
     return;
   }
@@ -1547,34 +1815,28 @@ export async function* executeAICommandStream(
     }
 
     const requestedType = extractChartTypeFromText(userCommand);
+    const simulationArgs = {
+      tabId: context.currentTabId,
+      prompt: userCommand,
+      chartType: requestedType,
+      isSimulation: true,
+      originalChartId: context.contextBlockId,
+      simulationDescription: userCommand,
+    };
 
     yield {
       type: "tool_call",
       content: getHumanFriendlyToolMessage("createChartBlock"),
       data: {
         tool: "createChartBlock",
-        arguments: {
-          tabId: context.currentTabId,
-          prompt: userCommand,
-          chartType: requestedType,
-          isSimulation: true,
-          originalChartId: context.contextBlockId,
-          simulationDescription: userCommand,
-        },
+        arguments: simulationArgs,
       },
     };
 
     const result = await executeTool(
       {
         name: "createChartBlock",
-        arguments: {
-          tabId: context.currentTabId,
-          prompt: userCommand,
-          chartType: requestedType,
-          isSimulation: true,
-          originalChartId: context.contextBlockId,
-          simulationDescription: userCommand,
-        },
+        arguments: simulationArgs,
       },
       {
         workspaceId: context.workspaceId,
@@ -1583,8 +1845,10 @@ export async function* executeAICommandStream(
         contextBlockId: context.contextBlockId,
         currentTabId: context.currentTabId,
         currentProjectId: context.currentProjectId,
+        undoTracker,
       }
     );
+    toolCallsMade.push({ tool: "createChartBlock", arguments: simulationArgs, result });
 
     yield {
       type: "tool_result",
@@ -1597,7 +1861,11 @@ export async function* executeAICommandStream(
       content: result.success
         ? "Simulation chart created."
         : `Couldn't create the simulation chart: ${result.error || "Unknown error"}`,
-      data: result,
+      data: {
+        toolCallsMade,
+        undoBatches: undoTracker.batches,
+        undoSkippedTools: undoTracker.skippedTools,
+      },
     };
     return;
   }
@@ -1613,27 +1881,24 @@ export async function* executeAICommandStream(
     }
 
     const requestedType = chartIntent.chartType;
+    const chartArgs = {
+      tabId: context.currentTabId,
+      prompt: userCommand,
+      chartType: requestedType,
+    };
     yield {
       type: "tool_call",
       content: getHumanFriendlyToolMessage("createChartBlock"),
       data: {
         tool: "createChartBlock",
-        arguments: {
-          tabId: context.currentTabId,
-          prompt: userCommand,
-          chartType: requestedType,
-        },
+        arguments: chartArgs,
       },
     };
 
     const result = await executeTool(
       {
         name: "createChartBlock",
-        arguments: {
-          tabId: context.currentTabId,
-          prompt: userCommand,
-          chartType: requestedType,
-        },
+        arguments: chartArgs,
       },
       {
         workspaceId: context.workspaceId,
@@ -1642,8 +1907,10 @@ export async function* executeAICommandStream(
         contextBlockId: context.contextBlockId,
         currentTabId: context.currentTabId,
         currentProjectId: context.currentProjectId,
+        undoTracker,
       }
     );
+    toolCallsMade.push({ tool: "createChartBlock", arguments: chartArgs, result });
 
     yield {
       type: "tool_result",
@@ -1656,7 +1923,11 @@ export async function* executeAICommandStream(
       content: result.success
         ? "Chart created."
         : `Couldn't create the chart: ${result.error || "Unknown error"}`,
-      data: result,
+      data: {
+        toolCallsMade,
+        undoBatches: undoTracker.batches,
+        undoSkippedTools: undoTracker.skippedTools,
+      },
     };
     return;
   }
@@ -1691,7 +1962,12 @@ export async function* executeAICommandStream(
     return;
   }
 
-  const intent = applyContextualToolGroups(classifyIntent(userCommand), context);
+  let intent = applyContextualToolGroups(classifyIntent(userCommand), context);
+  if (options.forcedToolGroups && options.forcedToolGroups.length > 0) {
+    const toolGroups = new Set<ToolGroup>(options.forcedToolGroups);
+    toolGroups.add("core");
+    intent = { ...intent, toolGroups: Array.from(toolGroups) };
+  }
   const contextTableId = context.contextTableId;
   const contextBlockId = context.contextBlockId;
   const tableIdTools = new Set([
@@ -1715,14 +1991,16 @@ export async function* executeAICommandStream(
   const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
-  const simpleResult = await tryDeterministicCommand(userCommand, context);
-  if (simpleResult) {
-    yield {
-      type: "response",
-      content: simpleResult.response,
-      data: simpleResult,
-    };
-    return;
+  if (!options.disableDeterministic) {
+    const simpleResult = await tryDeterministicCommand(userCommand, context);
+    if (simpleResult) {
+      yield {
+        type: "response",
+        content: simpleResult.response,
+        data: simpleResult,
+      };
+      return;
+    }
   }
 
   // Fix D: Detect multi-step commands to prevent premature early-exit on writes
@@ -1845,6 +2123,28 @@ export async function* executeAICommandStream(
             data: { tool: toolName, arguments: toolArgs },
           };
 
+          if (options.readOnly && !isSearchLikeToolName(toolName) && !readOnlyAllowedWriteTools.has(toolName)) {
+            const result = {
+              success: false,
+              error: `Write tool "${toolName}" is not allowed for this read-only request. Use search/analysis tools and create display blocks only.`,
+            };
+            toolCallsThisRound.push({ tool: toolName, result });
+            toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
+            yield {
+              type: "tool_result",
+              content: result.error || "Error",
+              data: result,
+            };
+            const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(result) : result;
+            messages.push({
+              role: "tool",
+              content: JSON.stringify(compactedResult),
+              tool_call_id: toolCall.id,
+              name: toolName,
+            });
+            continue;
+          }
+
           const result = await executeTool({
             name: toolName,
             arguments: toolArgs,
@@ -1855,9 +2155,11 @@ export async function* executeAICommandStream(
             contextBlockId: context.contextBlockId,
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
+            undoTracker,
           });
 
           toolCallsThisRound.push({ tool: toolName, result });
+          toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
 
           yield {
             type: "tool_result",
@@ -1883,6 +2185,7 @@ export async function* executeAICommandStream(
           (c) => !isSearchLikeToolName(c.tool)
         );
         if (
+          !options.disableOptimisticEarlyExit &&
           EARLY_EXIT_WRITES &&
           SKIP_SECOND_LLM &&
           !isMultiStepCommand &&
@@ -1893,6 +2196,11 @@ export async function* executeAICommandStream(
           yield {
             type: "response",
             content: summary,
+            data: {
+              toolCallsMade,
+              undoBatches: undoTracker.batches,
+              undoSkippedTools: undoTracker.skippedTools,
+            },
           };
           return;
         }
@@ -1901,6 +2209,165 @@ export async function* executeAICommandStream(
           // (continue to next iteration so the model can reply with the error)
         }
 
+        // Auto-fallback to unstructured search for semantic/knowledge queries
+        const toolNamesThisRound = toolCallsThisRound.map((c) => c.tool);
+        const onlySearchOps = toolNamesThisRound.every(isSearchLikeToolName);
+        const structuredSearchesThisRound = toolCallsThisRound.filter((call) =>
+          STRUCTURED_SEARCH_FALLBACK_TOOLS.has(call.tool)
+        );
+        const hasStructuredSearchThisRound = structuredSearchesThisRound.length > 0;
+        const structuredSearchEmpty = structuredSearchesThisRound.every((call) =>
+          isEmptySearchResult(call.result)
+        );
+        const semanticQuery = looksLikeSemanticQuery(userCommand);
+        const knowledgeQuery = looksLikeKnowledgeQuery(userCommand);
+        const entityQuery = looksLikeStructuredEntityQuery(userCommand);
+        const unstructuredAlready =
+          toolNamesThisRound.includes("unstructuredSearchWorkspace") ||
+          toolCallsMade.some((call) => call.tool === "unstructuredSearchWorkspace");
+
+        if (
+          !autoUnstructuredFallbackUsed &&
+          onlySearchOps &&
+          hasStructuredSearchThisRound &&
+          (knowledgeQuery || (semanticQuery && (structuredSearchEmpty || !entityQuery))) &&
+          !unstructuredAlready &&
+          userCommand.trim().length >= 4
+        ) {
+          const autoToolArgs = { query: userCommand };
+          const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          aiDebug("executeAICommandStream:autoUnstructuredFallback", {
+            query: autoToolArgs.query,
+            toolsAttempted: structuredSearchesThisRound.map((call) => call.tool),
+          });
+
+          yield {
+            type: "tool_call",
+            content: "Searching workspace content...",
+            data: { tool: "unstructuredSearchWorkspace", arguments: autoToolArgs },
+          };
+
+          const autoToolResult = await executeTool(
+            { name: "unstructuredSearchWorkspace", arguments: autoToolArgs },
+            {
+              workspaceId: context.workspaceId,
+              userId: context.userId,
+              contextTableId: context.contextTableId,
+              currentTabId: context.currentTabId,
+              currentProjectId: context.currentProjectId,
+              undoTracker,
+            }
+          );
+
+          toolCallsMade.push({
+            tool: "unstructuredSearchWorkspace",
+            arguments: autoToolArgs,
+            result: autoToolResult,
+          });
+
+          yield {
+            type: "tool_result",
+            content: autoToolResult.success ? "Found workspace content" : autoToolResult.error || "Error",
+            data: autoToolResult,
+          };
+
+          const compactedForModel = COMPACT_TOOL_RESULTS ? compactToolResult(autoToolResult) : autoToolResult;
+          messages.push({
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: autoToolCallId,
+                type: "function",
+                function: {
+                  name: "unstructuredSearchWorkspace",
+                  arguments: JSON.stringify(autoToolArgs),
+                },
+              },
+            ],
+          });
+          messages.push({
+            role: "tool",
+            content: JSON.stringify(compactedForModel),
+            tool_call_id: autoToolCallId,
+            name: "unstructuredSearchWorkspace",
+          });
+
+          autoUnstructuredFallbackUsed = true;
+          continue;
+        }
+
+        continue;
+      }
+
+      // Auto-fallback when no search tools were called but query looks semantic
+      const hasAnySearchTool = toolCallsMade.some((call) => isSearchLikeToolName(call.tool));
+      const hasWriteIntent = intent.actions.some((a) => WRITE_ACTIONS.includes(a));
+      if (
+        !autoUnstructuredFallbackUsed &&
+        !hasAnySearchTool &&
+        !hasWriteIntent &&
+        looksLikeSemanticQuery(userCommand)
+      ) {
+        const autoToolArgs = { query: userCommand };
+        const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        aiDebug("executeAICommandStream:autoUnstructuredNoSearch", {
+          query: autoToolArgs.query,
+        });
+
+        yield {
+          type: "tool_call",
+          content: "Searching workspace content...",
+          data: { tool: "unstructuredSearchWorkspace", arguments: autoToolArgs },
+        };
+
+        const autoToolResult = await executeTool(
+          { name: "unstructuredSearchWorkspace", arguments: autoToolArgs },
+          {
+            workspaceId: context.workspaceId,
+            userId: context.userId,
+            contextTableId: context.contextTableId,
+            currentTabId: context.currentTabId,
+            currentProjectId: context.currentProjectId,
+            undoTracker,
+          }
+        );
+
+        toolCallsMade.push({
+          tool: "unstructuredSearchWorkspace",
+          arguments: autoToolArgs,
+          result: autoToolResult,
+        });
+
+        yield {
+          type: "tool_result",
+          content: autoToolResult.success ? "Found workspace content" : autoToolResult.error || "Error",
+          data: autoToolResult,
+        };
+
+        const compactedForModel = COMPACT_TOOL_RESULTS ? compactToolResult(autoToolResult) : autoToolResult;
+        messages.push({
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: autoToolCallId,
+              type: "function",
+              function: {
+                name: "unstructuredSearchWorkspace",
+                arguments: JSON.stringify(autoToolArgs),
+              },
+            },
+          ],
+        });
+        messages.push({
+          role: "tool",
+          content: JSON.stringify(compactedForModel),
+          tool_call_id: autoToolCallId,
+          name: "unstructuredSearchWorkspace",
+        });
+
+        autoUnstructuredFallbackUsed = true;
         continue;
       }
 
@@ -1908,6 +2375,11 @@ export async function* executeAICommandStream(
       yield {
         type: "response",
         content: assistantMessage.content || "Done.",
+        data: {
+          toolCallsMade,
+          undoBatches: undoTracker.batches,
+          undoSkippedTools: undoTracker.skippedTools,
+        },
       };
       return;
     } catch (error) {
