@@ -91,7 +91,7 @@ export default function WorkflowPageLayout(props: {
 
           {chatOpen && (
             <div className="w-[420px] max-w-[45vw] min-w-[340px]">
-              <WorkflowAIChatPanel tabId={props.tabId} />
+              <WorkflowAIChatPanel tabId={props.tabId} workspaceId={props.workspaceId} />
             </div>
           )}
         </div>

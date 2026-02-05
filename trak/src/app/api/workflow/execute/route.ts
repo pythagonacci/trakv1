@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
           sessionId: result.sessionId,
           toolCallsMade: result.toolCallsMade,
           createdBlockIds: result.createdBlockIds,
+          undoBatches: result.undoBatches,
+          undoSkippedTools: result.undoSkippedTools,
         },
         { status: 400 }
       );
@@ -41,4 +43,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unexpected error" }, { status: 500 });
   }
 }
-

@@ -188,6 +188,9 @@ import {
 import { getCurrentWorkspaceId, setTestContext, clearTestContext } from "@/app/actions/workspace";
 import { getAuthContext, type AuthContext } from "@/lib/auth-context";
 import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
+import { createClient as createSupabaseClient } from "@/lib/supabase/server";
+import type { UndoStep, UndoTracker } from "@/lib/ai/undo";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ============================================================================
 // TYPES
@@ -213,6 +216,7 @@ export interface ToolExecutionContext {
   contextBlockId?: string;
   currentTabId?: string;
   currentProjectId?: string;
+  undoTracker?: UndoTracker;
 }
 
 const shouldUseTestContext =
@@ -256,6 +260,457 @@ function summarizeToolResult(result: ToolCallResult) {
 }
 
 // ============================================================================
+// UNDO HELPERS (Best-effort for AI tool writes)
+// ============================================================================
+
+function isWriteToolName(name: string) {
+  return !(
+    name.startsWith("search") ||
+    name.startsWith("get") ||
+    name.startsWith("resolve") ||
+    name === "requestToolGroups" ||
+    name === "unstructuredSearchWorkspace" ||
+    name === "fileAnalysisQuery" ||
+    name === "reindexWorkspaceContent"
+  );
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((v) => String(v)).filter(Boolean);
+  if (typeof value === "string") return [value];
+  return [];
+}
+
+async function fetchRowsByIds(
+  supabase: SupabaseClient,
+  table: string,
+  ids: string[],
+  idColumn = "id"
+): Promise<Record<string, unknown>[]> {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (unique.length === 0) return [];
+  const { data } = await supabase.from(table).select("*").in(idColumn, unique);
+  return (data as Record<string, unknown>[] | null) ?? [];
+}
+
+async function fetchTableRowsForFieldFilters(params: {
+  supabase: SupabaseClient;
+  tableId: string;
+  filtersList: Array<Record<string, unknown> | undefined>;
+  limit: number;
+}): Promise<Record<string, unknown>[]> {
+  const { supabase, tableId, filtersList, limit } = params;
+
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config")
+    .eq("table_id", tableId);
+  const fieldList = (fields as Array<{ id: string; name: string; type: string; config: Record<string, unknown> }> | null) ?? [];
+  if (fieldList.length === 0) return [];
+
+  const fieldMap = new Map(fieldList.map((f) => [normalizeFieldKey(f.name), f]));
+  const fieldIdMap = new Map(fieldList.map((f) => [f.id, f]));
+  const resolveField = (key: string) => {
+    const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
+    if (direct) return direct;
+
+    const normalized = normalizeFieldKey(key);
+    const startsWith = fieldList.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
+    if (startsWith) return startsWith;
+    const includes = fieldList.find((f) => normalizeFieldKey(f.name).includes(normalized));
+    if (includes) return includes;
+    return undefined;
+  };
+
+  const { data: rows } = await supabase
+    .from("table_rows")
+    .select("*")
+    .eq("table_id", tableId)
+    .order("order", { ascending: true })
+    .limit(limit);
+  const rowList = (rows as Record<string, unknown>[] | null) ?? [];
+  if (rowList.length === 0) return [];
+
+  const matchedIds = new Set<string>();
+  const applyAll = filtersList.some((filters) => !filters || Object.keys(filters).length === 0);
+
+  if (applyAll) {
+    for (const row of rowList) {
+      const id = String(row.id ?? "");
+      if (id) matchedIds.add(id);
+    }
+  } else {
+    for (const filters of filtersList) {
+      if (!filters || Object.keys(filters).length === 0) continue;
+      for (const row of rowList) {
+        const id = String(row.id ?? "");
+        if (!id) continue;
+        const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
+        if (matchesRowFilters(data, filters, resolveField)) {
+          matchedIds.add(id);
+        }
+      }
+    }
+  }
+
+  if (matchedIds.size === 0) return [];
+  return rowList.filter((row) => matchedIds.has(String(row.id ?? "")));
+}
+
+async function captureUndoStepsBefore(params: {
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  supabase: SupabaseClient;
+  workspaceId?: string;
+}): Promise<UndoStep[]> {
+  const { toolName, toolArgs, supabase, workspaceId } = params;
+
+  const singleRowMap: Record<string, { table: string; idArg: string; idColumn?: string }> = {
+    updateProject: { table: "projects", idArg: "projectId" },
+    deleteProject: { table: "projects", idArg: "projectId" },
+    updateTab: { table: "tabs", idArg: "tabId" },
+    deleteTab: { table: "tabs", idArg: "tabId" },
+    updateBlock: { table: "blocks", idArg: "blockId" },
+    deleteBlock: { table: "blocks", idArg: "blockId" },
+    updateTaskItem: { table: "task_items", idArg: "taskId" },
+    deleteTaskItem: { table: "task_items", idArg: "taskId" },
+    updateTaskSubtask: { table: "task_subtasks", idArg: "subtaskId" },
+    deleteTaskSubtask: { table: "task_subtasks", idArg: "subtaskId" },
+    updateField: { table: "table_fields", idArg: "fieldId" },
+    deleteField: { table: "table_fields", idArg: "fieldId" },
+    updateRow: { table: "table_rows", idArg: "rowId" },
+    updateCell: { table: "table_rows", idArg: "rowId" },
+    deleteRow: { table: "table_rows", idArg: "rowId" },
+    updateTable: { table: "tables", idArg: "tableId" },
+    deleteTable: { table: "tables", idArg: "tableId" },
+    updateTimelineEvent: { table: "timeline_events", idArg: "eventId" },
+    deleteTimelineEvent: { table: "timeline_events", idArg: "eventId" },
+    deleteTimelineDependency: { table: "timeline_dependencies", idArg: "dependencyId" },
+    updatePropertyDefinition: { table: "property_definitions", idArg: "definitionId" },
+    deletePropertyDefinition: { table: "property_definitions", idArg: "definitionId" },
+    updateClient: { table: "clients", idArg: "clientId" },
+    deleteClient: { table: "clients", idArg: "clientId" },
+    updateDoc: { table: "docs", idArg: "docId" },
+    archiveDoc: { table: "docs", idArg: "docId" },
+    deleteDoc: { table: "docs", idArg: "docId" },
+    renameFile: { table: "files", idArg: "fileId" },
+    updateComment: { table: "table_comments", idArg: "commentId" },
+    deleteComment: { table: "table_comments", idArg: "commentId" },
+  };
+
+  if (toolName in singleRowMap) {
+    const mapping = singleRowMap[toolName];
+    const id = String(toolArgs[mapping.idArg] ?? "");
+    const rows = await fetchRowsByIds(supabase, mapping.table, id ? [id] : [], mapping.idColumn ?? "id");
+    if (rows.length > 0) {
+      return [
+        {
+          action: "upsert",
+          table: mapping.table,
+          rows,
+          onConflict: mapping.idColumn ?? "id",
+        },
+      ];
+    }
+    return [];
+  }
+
+  if (toolName === "bulkUpdateTaskItems" || toolName === "bulkMoveTaskItems") {
+    const ids = toStringArray(toolArgs.taskIds);
+    const rows = await fetchRowsByIds(supabase, "task_items", ids);
+    return rows.length > 0
+      ? [{ action: "upsert", table: "task_items", rows, onConflict: "id" }]
+      : [];
+  }
+
+  if (toolName === "deleteRows") {
+    const ids = toStringArray(toolArgs.rowIds);
+    const rows = await fetchRowsByIds(supabase, "table_rows", ids);
+    return rows.length > 0
+      ? [{ action: "upsert", table: "table_rows", rows, onConflict: "id" }]
+      : [];
+  }
+
+  if (toolName === "bulkUpdateRows") {
+    const ids = toStringArray(toolArgs.rowIds);
+    const rows = await fetchRowsByIds(supabase, "table_rows", ids);
+    return rows.length > 0
+      ? [{ action: "upsert", table: "table_rows", rows, onConflict: "id" }]
+      : [];
+  }
+
+  if (toolName === "updateTableRowsByFieldNames") {
+    const tableId = String(toolArgs.tableId ?? "");
+    if (!tableId) return [];
+    const limit = typeof toolArgs.limit === "number" ? toolArgs.limit : 500;
+    const filters = (toolArgs.filters as Record<string, unknown> | undefined) ?? undefined;
+    const rows = await fetchTableRowsForFieldFilters({
+      supabase,
+      tableId,
+      filtersList: [filters],
+      limit,
+    });
+    return rows.length > 0
+      ? [{ action: "upsert", table: "table_rows", rows, onConflict: "id" }]
+      : [];
+  }
+
+  if (toolName === "bulkUpdateRowsByFieldNames") {
+    const tableId = String(toolArgs.tableId ?? "");
+    if (!tableId) return [];
+    const limit = typeof toolArgs.limit === "number" ? toolArgs.limit : 500;
+    const rowsArg = Array.isArray(toolArgs.rows) ? (toolArgs.rows as Array<Record<string, unknown>>) : [];
+    const filtersList = rowsArg.map((entry) => (entry as Record<string, unknown>).filters as Record<string, unknown> | undefined);
+    const rows = await fetchTableRowsForFieldFilters({
+      supabase,
+      tableId,
+      filtersList: filtersList.length > 0 ? filtersList : [undefined],
+      limit,
+    });
+    return rows.length > 0
+      ? [{ action: "upsert", table: "table_rows", rows, onConflict: "id" }]
+      : [];
+  }
+
+  if (toolName === "setTaskAssignees" || toolName === "bulkSetTaskAssignees") {
+    const ids = toolName === "bulkSetTaskAssignees"
+      ? toStringArray(toolArgs.taskIds)
+      : toStringArray(toolArgs.taskId);
+    const steps: UndoStep[] = [];
+    if (ids.length === 0) return steps;
+
+    // Capture current task_assignees rows.
+    const { data: assignees } = await supabase
+      .from("task_assignees")
+      .select("*")
+      .in("task_id", ids);
+
+    // Reset assignees to previous snapshot.
+    steps.push({
+      action: "delete",
+      table: "task_assignees",
+      ids,
+      idColumn: "task_id",
+    });
+
+    if (Array.isArray(assignees) && assignees.length > 0) {
+      steps.push({
+        action: "upsert",
+        table: "task_assignees",
+        rows: assignees as Record<string, unknown>[],
+        onConflict: "task_id,assignee_id",
+      });
+    }
+
+    if (workspaceId) {
+      const { data: def } = await supabase
+        .from("property_definitions")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("name", "Assignee")
+        .eq("type", "person")
+        .maybeSingle();
+      const defId = def?.id as string | undefined;
+      if (defId) {
+        const { data: props } = await supabase
+          .from("entity_properties")
+          .select("*")
+          .eq("workspace_id", workspaceId)
+          .eq("entity_type", "task")
+          .eq("property_definition_id", defId)
+          .in("entity_id", ids);
+
+        steps.push({
+          action: "delete",
+          table: "entity_properties",
+          ids,
+          idColumn: "entity_id",
+          where: {
+            workspace_id: workspaceId,
+            entity_type: "task",
+            property_definition_id: defId,
+          },
+        });
+
+        if (Array.isArray(props) && props.length > 0) {
+          steps.push({
+            action: "upsert",
+            table: "entity_properties",
+            rows: props as Record<string, unknown>[],
+            onConflict: "entity_type,entity_id,property_definition_id",
+          });
+        }
+      }
+    }
+
+    return steps;
+  }
+
+  if (toolName === "setTaskTags") {
+    const taskId = String(toolArgs.taskId ?? "");
+    if (!taskId) return [];
+    const steps: UndoStep[] = [];
+    const { data: links } = await supabase
+      .from("task_tag_links")
+      .select("*")
+      .eq("task_id", taskId);
+
+    steps.push({
+      action: "delete",
+      table: "task_tag_links",
+      where: { task_id: taskId },
+    });
+
+    if (Array.isArray(links) && links.length > 0) {
+      steps.push({
+        action: "upsert",
+        table: "task_tag_links",
+        rows: links as Record<string, unknown>[],
+        onConflict: "task_id,tag_id",
+      });
+    }
+
+    return steps;
+  }
+
+  if (toolName === "setEntityProperty" || toolName === "removeEntityProperty") {
+    const entityType = String(toolArgs.entityType ?? "");
+    const entityId = String(toolArgs.entityId ?? "");
+    const propertyDefinitionId = String(toolArgs.propertyDefinitionId ?? "");
+    if (!entityType || !entityId || !propertyDefinitionId || !workspaceId) return [];
+    const { data } = await supabase
+      .from("entity_properties")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("entity_type", entityType)
+      .eq("entity_id", entityId)
+      .eq("property_definition_id", propertyDefinitionId);
+    const rows = (data as Record<string, unknown>[] | null) ?? [];
+    if (rows.length > 0) {
+      return [
+        {
+          action: "upsert",
+          table: "entity_properties",
+          rows,
+          onConflict: "entity_type,entity_id,property_definition_id",
+        },
+      ];
+    }
+    return [
+      {
+        action: "delete",
+        table: "entity_properties",
+        where: {
+          workspace_id: workspaceId,
+          entity_type: entityType,
+          entity_id: entityId,
+          property_definition_id: propertyDefinitionId,
+        },
+      },
+    ];
+  }
+
+  return [];
+}
+
+function buildUndoStepsAfter(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+  result: ToolCallResult
+): UndoStep[] {
+  if (!result.success) return [];
+  const data = result.data as Record<string, unknown> | null | undefined;
+
+  const deleteById = (table: string, id?: unknown): UndoStep[] => {
+    const idStr = typeof id === "string" ? id : "";
+    if (!idStr) return [];
+    return [{ action: "delete", table, ids: [idStr], idColumn: "id" }];
+  };
+
+  switch (toolName) {
+    case "createProject":
+      return deleteById("projects", data?.id);
+    case "createTab":
+      return deleteById("tabs", data?.id);
+    case "createBlock":
+      return deleteById("blocks", data?.id);
+    case "createChartBlock":
+      return deleteById("blocks", data?.id);
+    case "createTaskItem":
+      return deleteById("task_items", data?.id);
+    case "createTaskSubtask":
+      return deleteById("task_subtasks", data?.id);
+    case "createClient":
+      return deleteById("clients", data?.id);
+    case "createDoc":
+      return deleteById("docs", data?.id);
+    case "createTaskComment":
+      return deleteById("task_comments", data?.id);
+    case "createComment":
+      return deleteById("table_comments", data?.id);
+    case "createTimelineEvent":
+      return deleteById("timeline_events", data?.id);
+    case "createTimelineDependency":
+      return deleteById("timeline_dependencies", data?.id);
+    case "createPropertyDefinition":
+      return deleteById("property_definitions", data?.id);
+    case "createRow":
+      return deleteById("table_rows", data?.id);
+    case "createField":
+      return deleteById("table_fields", data?.id);
+    case "bulkCreateFields": {
+      const rows = Array.isArray(result.data) ? (result.data as Record<string, unknown>[]) : [];
+      const ids = rows.map((row) => String(row.id || "")).filter(Boolean);
+      return ids.length > 0 ? [{ action: "delete", table: "table_fields", ids, idColumn: "id" }] : [];
+    }
+    case "bulkInsertRows": {
+      const insertedIds = Array.isArray((data as any)?.insertedIds)
+        ? ((data as any).insertedIds as string[])
+        : [];
+      return insertedIds.length > 0 ? [{ action: "delete", table: "table_rows", ids: insertedIds, idColumn: "id" }] : [];
+    }
+    case "duplicateTasksToBlock": {
+      const createdIds = Array.isArray((data as any)?.createdTaskIds)
+        ? ((data as any).createdTaskIds as string[])
+        : [];
+      return createdIds.length > 0 ? [{ action: "delete", table: "task_items", ids: createdIds, idColumn: "id" }] : [];
+    }
+    case "createTaskBoardFromTasks": {
+      const steps: UndoStep[] = [];
+      const createdIds = Array.isArray((data as any)?.createdTaskIds)
+        ? ((data as any).createdTaskIds as string[])
+        : [];
+      if (createdIds.length > 0) {
+        steps.push({ action: "delete", table: "task_items", ids: createdIds, idColumn: "id" });
+      }
+      const taskBlockId = (data as any)?.taskBlockId;
+      if (typeof taskBlockId === "string" && taskBlockId.length > 0) {
+        steps.push({ action: "delete", table: "blocks", ids: [taskBlockId], idColumn: "id" });
+      }
+      return steps;
+    }
+    case "createTable": {
+      const tableId = (data as any)?.table?.id;
+      return deleteById("tables", tableId);
+    }
+    case "createTableFull": {
+      const steps: UndoStep[] = [];
+      const blockId = (data as any)?.blockId;
+      if (typeof blockId === "string" && blockId.length > 0) {
+        steps.push({ action: "delete", table: "blocks", ids: [blockId], idColumn: "id" });
+      }
+      const tableId = (data as any)?.tableId;
+      if (typeof tableId === "string" && tableId.length > 0) {
+        steps.push({ action: "delete", table: "tables", ids: [tableId], idColumn: "id" });
+      }
+      return steps;
+    }
+    default:
+      return [];
+  }
+}
+
+// ============================================================================
 // TOOL EXECUTOR
 // ============================================================================
 
@@ -286,7 +741,22 @@ export async function executeTool(
     const authContext: AuthContext | null =
       authResult && !("error" in authResult) ? authResult : null;
 
-    switch (name) {
+    const undoTracker = context?.undoTracker;
+    const shouldCaptureUndo = Boolean(undoTracker) && isWriteToolName(name);
+    const supabaseForUndo = shouldCaptureUndo
+      ? (authContext?.supabase ?? await createSupabaseClient())
+      : null;
+    const preUndoSteps = shouldCaptureUndo && supabaseForUndo
+      ? await captureUndoStepsBefore({
+        toolName: name,
+        toolArgs: args,
+        supabase: supabaseForUndo,
+        workspaceId,
+      })
+      : [];
+
+    const runTool = async (): Promise<ToolCallResult> => {
+      switch (name) {
       // ==================================================================
       // CONTROL TOOLS
       // ==================================================================
@@ -1750,8 +2220,11 @@ export async function executeTool(
         // Persist any new options before updating rows.
         const updateOptionsStart = timingEnabled ? Date.now() : 0;
         for (const [fieldId, config] of pendingConfigUpdates.entries()) {
-          const updateResult = await updateField(fieldId, { config });
-          if ("error" in updateResult) {
+          const updateResult = await executeTool(
+            { name: "updateField", arguments: { fieldId, config } },
+            context
+          );
+          if (!updateResult.success) {
             return { success: false, error: updateResult.error ?? "Failed to update field options." };
           }
         }
@@ -1900,8 +2373,11 @@ export async function executeTool(
             const resolved = resolveUpdateValue(field, rawValue, true);
             updatesByFieldId[field.id] = resolved.value;
             if (resolved.updatedConfig) {
-              const updateResult = await updateField(field.id, { config: resolved.updatedConfig });
-              if ("error" in updateResult) {
+              const updateResult = await executeTool(
+                { name: "updateField", arguments: { fieldId: field.id, config: resolved.updatedConfig } },
+                context
+              );
+              if (!updateResult.success) {
                 return { success: false, error: updateResult.error ?? "Failed to update field options." };
               }
               field.config = resolved.updatedConfig;
@@ -1997,6 +2473,7 @@ export async function executeTool(
                 authContext: authContext ?? undefined,
               });
               if ("error" in blockResult) {
+                await deleteTable(tableId, { authContext: authContext ?? undefined });
                 return { success: false, error: blockResult.error ?? "Failed to create table block." };
               }
               blockId = blockResult.data.id;
@@ -2037,6 +2514,7 @@ export async function executeTool(
               authContext: authContext ?? undefined,
             });
             if ("error" in blockResult) {
+              await deleteTable(tableId, { authContext: authContext ?? undefined });
               return { success: false, error: blockResult.error ?? "Failed to create table block." };
             }
             blockId = blockResult.data.id;
@@ -2050,6 +2528,10 @@ export async function executeTool(
               context
             );
             if (!fieldsResult.success) {
+              if (blockId) {
+                await deleteBlock(blockId, { authContext: authContext ?? undefined });
+              }
+              await deleteTable(tableId, { authContext: authContext ?? undefined });
               return { success: false, error: fieldsResult.error ?? "Failed to create fields." };
             }
             createdFields = Array.isArray(fieldsResult.data) ? fieldsResult.data : [];
@@ -2063,6 +2545,10 @@ export async function executeTool(
               context
             );
             if (!rowsResult.success) {
+              if (blockId) {
+                await deleteBlock(blockId, { authContext: authContext ?? undefined });
+              }
+              await deleteTable(tableId, { authContext: authContext ?? undefined });
               return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
             }
             insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
@@ -2111,7 +2597,7 @@ export async function executeTool(
             (args.updateRows && typeof args.updateRows === "object") ||
             (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0);
 
-          if (hasRpcOps) {
+          if (hasRpcOps && !context?.undoTracker) {
             // RPC fast-path: apply all operations in one DB transaction
             const rpcResult = await updateTableFullRpc({
               tableId,
@@ -2145,8 +2631,9 @@ export async function executeTool(
             if (args.title !== undefined) updates.title = args.title;
             if (args.description !== undefined) updates.description = args.description;
 
-            const tableResult = await wrapResult(
-              updateTable(tableId, updates, { authContext: authContext ?? undefined })
+            const tableResult = await executeTool(
+              { name: "updateTable", arguments: { tableId, ...updates } },
+              context
             );
             if (!tableResult.success) {
               return { success: false, error: tableResult.error ?? "Failed to update table metadata." };
@@ -2181,11 +2668,18 @@ export async function executeTool(
               }
 
               if (fieldId) {
-                const result = await updateField(fieldId, {
-                  name: fieldUpdate.name as string | undefined,
-                  config: fieldUpdate.config as Record<string, unknown> | undefined,
-                }, { authContext: authContext ?? undefined });
-                if ("error" in result) {
+                const result = await executeTool(
+                  {
+                    name: "updateField",
+                    arguments: {
+                      fieldId,
+                      name: fieldUpdate.name as string | undefined,
+                      config: fieldUpdate.config as Record<string, unknown> | undefined,
+                    },
+                  },
+                  context
+                );
+                if (!result.success) {
                   return { success: false, error: result.error ?? "Failed to update field." };
                 }
               }
@@ -2209,8 +2703,11 @@ export async function executeTool(
               }
 
               if (fieldId) {
-                const result = await deleteField(fieldId, { authContext: authContext ?? undefined });
-                if ("error" in result) {
+                const result = await executeTool(
+                  { name: "deleteField", arguments: { fieldId } },
+                  context
+                );
+                if (!result.success) {
                   return { success: false, error: result.error ?? "Failed to delete field." };
                 }
               }
@@ -2252,8 +2749,11 @@ export async function executeTool(
 
           // Delete rows
           if (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0) {
-            const result = await deleteRows(args.deleteRowIds as string[], { authContext: authContext ?? undefined });
-            if ("error" in result) {
+            const result = await executeTool(
+              { name: "deleteRows", arguments: { rowIds: args.deleteRowIds } },
+              context
+            );
+            if (!result.success) {
               return { success: false, error: result.error ?? "Failed to delete rows." };
             }
             operationSummary.rowsDeleted = (args.deleteRowIds as unknown[]).length;
@@ -2636,6 +3136,19 @@ export async function executeTool(
           error: `Unknown tool: ${name}`,
         };
     }
+    };
+
+    const result = await runTool();
+    if (shouldCaptureUndo && undoTracker && result.success) {
+      const postUndoSteps = buildUndoStepsAfter(name, args, result);
+      const combined = [...postUndoSteps, ...preUndoSteps];
+      if (combined.length > 0) {
+        undoTracker.addBatch(combined);
+      } else {
+        undoTracker.skipTool(name);
+      }
+    }
+    return result;
   } catch (error) {
     aiDebug("executeTool:error", { tool: name, error });
     console.error(`[executeTool] Error executing ${name}:`, error);

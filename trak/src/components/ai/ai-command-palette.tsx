@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText } from "lucide-react";
+import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText, RotateCcw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,6 +25,7 @@ import { createFileRecord } from "@/app/actions/file";
 import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
 import { formatBlockText } from "@/lib/format-block-text";
+import type { UndoBatch } from "@/lib/ai/undo";
 
 interface UploadingFile {
   id: string;
@@ -64,7 +65,10 @@ const isSearchLikeToolName = (name: string) =>
   name.startsWith("search") ||
   name.startsWith("get") ||
   name.startsWith("resolve") ||
-  name === "requestToolGroups";
+  name === "requestToolGroups" ||
+  name === "unstructuredSearchWorkspace" ||
+  name === "fileAnalysisQuery" ||
+  name === "reindexWorkspaceContent";
 
 const hasSuccessfulWriteToolCall = (toolCallsMade: unknown) => {
   if (!Array.isArray(toolCallsMade)) return false;
@@ -117,9 +121,16 @@ export function AICommandPalette() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<"assistant" | "file" | "search">("assistant");
-  const [assistantMessages, setAssistantMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; toolCalls?: Array<{ tool: string; result?: { success: boolean; error?: string } }> }>>([]);
+  const [assistantMessages, setAssistantMessages] = useState<Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    toolCalls?: Array<{ tool: string; result?: { success: boolean; error?: string } }>;
+    undoBatches?: UndoBatch[];
+  }>>([]);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
   const [contextFiles, setContextFiles] = useState<Array<{ id: string; file_name: string }>>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -452,6 +463,7 @@ export function AICommandPalette() {
       let buffer = "";
       let finalResponse = "";
       const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string }; isWrite: boolean }> = [];
+      let responseUndoBatches: UndoBatch[] = [];
       let didWrite = false;
       const markWrite = () => {
         if (!didWrite) {
@@ -521,10 +533,16 @@ export function AICommandPalette() {
                 finalResponse = event.content || "";
                 setStreamingStatus(null);
                 setStreamingResponse(null);
-                if (event.data && typeof event.data === "object" && "toolCallsMade" in event.data) {
-                  const toolCallsMade = (event.data as { toolCallsMade?: unknown }).toolCallsMade;
-                  if (hasSuccessfulWriteToolCall(toolCallsMade)) {
-                    markWrite();
+                if (event.data && typeof event.data === "object") {
+                  const payload = event.data as { toolCallsMade?: unknown; undoBatches?: unknown };
+                  if (Array.isArray(payload.undoBatches)) {
+                    responseUndoBatches = payload.undoBatches as UndoBatch[];
+                  }
+                  if ("toolCallsMade" in payload) {
+                    const toolCallsMade = payload.toolCallsMade;
+                    if (hasSuccessfulWriteToolCall(toolCallsMade)) {
+                      markWrite();
+                    }
                   }
                 }
                 break;
@@ -551,6 +569,7 @@ export function AICommandPalette() {
           toolCalls: toolCalls.length > 0
             ? toolCalls.map(({ tool, result }) => ({ tool, result }))
             : undefined,
+          undoBatches: responseUndoBatches,
         },
       ]);
     } catch (error) {
@@ -845,6 +864,45 @@ export function AICommandPalette() {
       setContextFiles(refreshed.data.map((file) => ({ id: file.id, file_name: file.file_name })));
     }
     setIsClearing(false);
+  };
+
+  const handleUndo = async (messageId: string, batches: UndoBatch[]) => {
+    if (!currentWorkspace?.id) {
+      setToast({ message: "No workspace selected.", type: "error" });
+      return;
+    }
+    if (!Array.isArray(batches) || batches.length === 0) {
+      setToast({ message: "Nothing to undo.", type: "error" });
+      return;
+    }
+    if (undoingMessageId) return;
+    setUndoingMessageId(messageId);
+    try {
+      const response = await fetch("/api/ai/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: currentWorkspace.id,
+          batches,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.error || "Undo failed");
+      }
+      setAssistantMessages((prev) =>
+        prev.map((message) =>
+          message.id === messageId ? { ...message, undoBatches: [] } : message
+        )
+      );
+      setToast({ message: "Undid the AI changes.", type: "success" });
+      void queryClient.invalidateQueries();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Undo failed";
+      setToast({ message, type: "error" });
+    } finally {
+      setUndoingMessageId(null);
+    }
   };
 
   if (!isOpen) return null;
@@ -1157,6 +1215,23 @@ export function AICommandPalette() {
                             {call.tool}: {call.result?.success ? "Done" : call.result?.error || "Failed"}
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {message.role === "assistant" && message.undoBatches && message.undoBatches.length > 0 && (
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUndo(message.id, message.undoBatches || [])}
+                          disabled={undoingMessageId === message.id}
+                          className={cn(
+                            "inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            "border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]",
+                            undoingMessageId === message.id && "opacity-60"
+                          )}
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Undo AI changes
+                        </button>
                       </div>
                     )}
                   </div>

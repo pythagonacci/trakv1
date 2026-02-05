@@ -12,12 +12,14 @@ import {
   type DeterministicToolCallResult,
 } from "./deterministic-parser";
 import { aiDebug } from "./debug";
+import type { UndoTracker } from "@/lib/ai/undo";
 
 export { parseDeterministicCommand } from "./deterministic-parser";
 
 type ParseOptions = {
   now?: Date;
   minConfidence?: number;
+  undoTracker?: UndoTracker;
 };
 
 export async function tryDeterministicCommand(
@@ -47,6 +49,7 @@ export async function tryDeterministicCommand(
         contextTableId: context.contextTableId,
         currentTabId: context.currentTabId,
         currentProjectId: context.currentProjectId,
+        undoTracker: options.undoTracker,
       }
     );
 
