@@ -12,13 +12,15 @@ interface CalendarEvent {
   date: string;
   time?: string;
   timeEnd?: string;
-  type: "task" | "project";
+  type: "task" | "project" | "google";
   projectId?: string;
   tabId?: string;
   taskId?: string;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   projectName?: string;
   tabName?: string;
+  externalUrl?: string;
+  location?: string;
 }
 
 export default async function CalendarPage() {

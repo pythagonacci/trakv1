@@ -35,7 +35,7 @@ export default function CreateFolderDialog({
 
     startTransition(async () => {
       const result = await createFolder(workspaceId, name.trim());
-      if (result.error) {
+      if ("error" in result) {
         setError(result.error);
       } else {
         setName("");

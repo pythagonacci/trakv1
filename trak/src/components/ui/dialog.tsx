@@ -115,7 +115,6 @@ const DialogTitle = React.forwardRef<
     ref={ref}
     className={cn(
       "text-lg font-semibold leading-tight text-[var(--foreground)]",
-      "font-[var(--font-serif)]", // Serif for headings
       className
     )}
     {...props}

@@ -160,9 +160,9 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     setProjects((prev) => prev.filter((p) => p.id !== deletingProject.id));
     const result = await deleteProject(deletingProject.id);
 
-    if (result.error) {
+    if ("error" in result) {
       setProjects(previousProjects);
-      setToast({ message: result.error, type: "error" });
+      setToast({ message: result.error!, type: "error" });
     } else {
       setToast({ message: "Project deleted successfully", type: "success" });
       startTransition(() => {
@@ -211,10 +211,10 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       due_date_text,
     });
 
-    if (result.error) {
+    if ("error" in result) {
       setProjects(projects);
-      setToast({ message: result.error, type: "error" });
-      throw new Error(result.error);
+      setToast({ message: result.error!, type: "error" });
+      throw new Error(result.error!);
     } else {
       // Transform the returned project data to match our interface
       const createdProject = {
@@ -281,10 +281,10 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
 
     const result = await updateProject(editingProject.id, updates);
 
-    if (result.error) {
+    if ("error" in result) {
       setProjects(previousProjects);
-      setToast({ message: result.error, type: "error" });
-      throw new Error(result.error);
+      setToast({ message: result.error!, type: "error" });
+      throw new Error(result.error!);
     } else {
       setToast({ message: "Project updated", type: "success" });
       handleCloseDialog();
@@ -321,8 +321,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   const handleMoveToFolder = (project: Project, folderId: string | null) => {
     startTransition(async () => {
       const result = await moveProjectToFolder(project.id, folderId);
-      if (result.error) {
-        setToast({ message: result.error, type: "error" });
+      if ("error" in result) {
+        setToast({ message: result.error!, type: "error" });
       } else {
         setProjects((prev) =>
           prev.map((p) => (p.id === project.id ? { ...p, folder_id: folderId } : p))
@@ -336,8 +336,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   const handleDeleteFolder = async (folderId: string) => {
     startTransition(async () => {
       const result = await deleteFolder(folderId);
-      if (result.error) {
-        setToast({ message: result.error, type: "error" });
+      if ("error" in result) {
+        setToast({ message: result.error!, type: "error" });
       } else {
         setFolders((prev) => prev.filter((f) => f.id !== folderId));
         setProjects((prev) => prev.map((p) => (p.folder_id === folderId ? { ...p, folder_id: null } : p)));

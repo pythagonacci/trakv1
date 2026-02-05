@@ -170,7 +170,7 @@ export default function ProjectDialog({
       <div className="w-full max-w-lg overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.05)]">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <h2 className="text-lg font-semibold text-[var(--foreground)] font-[var(--font-serif)]">
+          <h2 className="text-lg font-semibold text-[var(--foreground)]">
             {mode === "create" ? "New Project" : "Edit Project"}
           </h2>
           <button

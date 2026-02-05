@@ -32,8 +32,10 @@ import {
 } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
+import { moveProjectToFolder, deleteFolder } from "@/app/actions/folder";
 import ProjectDialog from "./project-dialog";
 import ConfirmDialog from "./confirm-dialog";
+import CreateFolderDialog from "./create-folder-dialog";
 import Toast from "./toast";
 import EmptyState from "./empty-state";
 import StatusBadge from "./status-badge";
@@ -450,7 +452,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   const handleMoveToFolder = (project: Project, folderId: string | null) => {
     startTransition(async () => {
       const result = await moveProjectToFolder(project.id, folderId);
-      if (result.error) {
+      if ("error" in result) {
         setToast({ message: result.error, type: "error" });
       } else {
         setProjects((prev) =>
@@ -465,7 +467,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   const handleDeleteFolder = async (folderId: string) => {
     startTransition(async () => {
       const result = await deleteFolder(folderId);
-      if (result.error) {
+      if ("error" in result) {
         setToast({ message: result.error, type: "error" });
       } else {
         setFolders((prev) => prev.filter((f) => f.id !== folderId));

@@ -50,7 +50,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     getAllFolders(workspaceId),
   ]);
   
-  if (projectsResult.error) {
+  if ("error" in projectsResult) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -60,8 +60,8 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     );
   }
 
-  const clients = clientsResult.data || [];
-  const folders = foldersResult.data || [];
+  const clients = "data" in clientsResult ? clientsResult.data ?? [] : [];
+  const folders = "data" in foldersResult ? foldersResult.data ?? [] : [];
 
   // Map nested client object to the shape expected by the table
   const mappedProjects = (projectsResult.data || []).map((project: any) => {

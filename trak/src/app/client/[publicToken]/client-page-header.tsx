@@ -72,7 +72,7 @@ export default function ClientPageHeader({ project, tabId }: ClientPageHeaderPro
           {project.client.company && <span className="text-[var(--velvet-purple)]/70">· {project.client.company}</span>}
         </span>
       )}
-      <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)] font-[var(--font-serif)]">
+      <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
         {project.name}
       </h1>
       <div className="flex flex-wrap items-center gap-2 text-xs">

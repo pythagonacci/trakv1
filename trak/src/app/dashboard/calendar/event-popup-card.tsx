@@ -34,6 +34,8 @@ export default function EventPopupCard({
       router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}?taskId=${event.taskId}`);
     } else if (event.type === "project" && event.projectId) {
       router.push(`/dashboard/projects/${event.projectId}`);
+    } else if (event.type === "google" && event.externalUrl) {
+      window.open(event.externalUrl, "_blank", "noopener,noreferrer");
     }
     onClose();
   };
@@ -50,7 +52,8 @@ export default function EventPopupCard({
           event.type === "task" && event.priority === "urgent" && "border-red-200/50",
           event.type === "task" && event.priority === "high" && "border-orange-200/50",
           event.type === "task" && (!event.priority || event.priority === "none") && "border-blue-200/50",
-          event.type === "project" && "border-purple-200/50"
+          event.type === "project" && "border-purple-200/50",
+          event.type === "google" && "border-[#4285F4]/40"
         )}
       >
         {/* Header */}
@@ -98,7 +101,7 @@ export default function EventPopupCard({
                 Type
               </p>
               <p className="mt-1 text-sm text-[var(--foreground)] capitalize">
-                {event.type}
+                {event.type === "google" ? "Google Calendar" : event.type}
               </p>
             </div>
 
@@ -117,6 +120,15 @@ export default function EventPopupCard({
                 )}
               </>
             )}
+
+            {event.type === "google" && event.location && (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                  Location
+                </p>
+                <p className="mt-1 text-sm text-[var(--foreground)]">{event.location}</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -125,17 +137,16 @@ export default function EventPopupCard({
           <Button variant="outline" size="sm" onClick={onClose}>
             Close
           </Button>
-          <Button
-            size="sm"
-            onClick={handleNavigate}
-            className="gap-2"
-          >
-            Open {event.type === "task" ? "Task" : "Project"}
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Button>
+          {(event.type === "task" || event.type === "project" || event.externalUrl) && (
+            <Button size="sm" onClick={handleNavigate} className="gap-2">
+              {event.type === "google"
+                ? "Open in Google Calendar"
+                : `Open ${event.type === "task" ? "Task" : "Project"}`}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

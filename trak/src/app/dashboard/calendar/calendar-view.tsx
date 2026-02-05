@@ -65,16 +65,27 @@ export interface CalendarEvent {
   date: string;
   time?: string;
   timeEnd?: string;
-  type: "task" | "project";
+  type: "task" | "project" | "google";
   projectId?: string;
   tabId?: string;
   taskId?: string;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   projectName?: string;
   tabName?: string;
+  externalUrl?: string;
+  location?: string;
 }
 
 type ViewType = "month" | "week" | "day";
+
+interface GoogleCalendarApiEvent {
+  id: string;
+  title: string;
+  start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
+  htmlLink?: string | null;
+  location?: string | null;
+}
 
 interface CalendarViewProps {
   initialEvents: CalendarEvent[];
@@ -89,6 +100,13 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
+  const [googleEvents, setGoogleEvents] = useState<CalendarEvent[]>([]);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [googleAvailable, setGoogleAvailable] = useState(true);
+  const [showGoogleEvents, setShowGoogleEvents] = useState(true);
   const [addEventDialogOpen, setAddEventDialogOpen] = useState(false);
   const [addEventDate, setAddEventDate] = useState<Date | undefined>(undefined);
   const [addEventTime, setAddEventTime] = useState<string | undefined>(undefined);
@@ -100,6 +118,12 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
     const isBrutalist = theme === "brutalist";
     const baseClasses = `rounded-[2px] px-2 py-1 ${textSize} font-medium cursor-pointer transition-all hover:scale-[1.01] hover:shadow-sm`;
     
+    if (event.type === "google") {
+      return isBrutalist
+        ? `${baseClasses} text-white bg-[#4285F4]/80`
+        : `${baseClasses} bg-[#4285F4]/10 text-[#1a73e8] border border-[#4285F4]/25`;
+    }
+
     if (event.type === "project") {
       return isBrutalist
         ? `${baseClasses} text-white bg-[var(--velvet-purple)]/70`
@@ -157,10 +181,32 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
     [calendarTheme]
   );
 
+  const toLocalDateString = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const toLocalTimeString = (date: Date) => {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  useEffect(() => {
+    setEvents(initialEvents);
+  }, [initialEvents]);
+
+  const mergedEvents = useMemo(
+    () => (showGoogleEvents ? [...events, ...googleEvents] : events),
+    [events, googleEvents, showGoogleEvents]
+  );
+
   // Get events for a specific date
   const getEventsForDate = (date: Date): CalendarEvent[] => {
-    const dateStr = date.toISOString().split("T")[0];
-    return events.filter((event) => event.date === dateStr);
+    const dateStr = toLocalDateString(date);
+    return mergedEvents.filter((event) => event.date === dateStr);
   };
 
   // Navigate to previous/next period
@@ -307,6 +353,121 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
     }
   }, [currentDate, viewType]);
 
+  const getVisibleRange = () => {
+    if (viewType === "month") {
+      const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1, 0, 0, 0, 0);
+      const end = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { start, end };
+    }
+    if (viewType === "week") {
+      const start = getWeekStart(currentDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    const start = new Date(currentDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(currentDate);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  };
+
+  const mapGoogleEvent = (event: GoogleCalendarApiEvent): CalendarEvent | null => {
+    if (!event.start?.date && !event.start?.dateTime) return null;
+    if (event.start?.date) {
+      return {
+        id: `google-${event.id}`,
+        title: event.title || "Untitled Event",
+        date: event.start.date,
+        type: "google",
+        externalUrl: event.htmlLink || undefined,
+        location: event.location || undefined,
+      };
+    }
+
+    const startDate = new Date(event.start.dateTime as string);
+    const endDate = event.end?.dateTime ? new Date(event.end.dateTime) : null;
+
+    return {
+      id: `google-${event.id}`,
+      title: event.title || "Untitled Event",
+      date: toLocalDateString(startDate),
+      time: toLocalTimeString(startDate),
+      timeEnd: endDate ? toLocalTimeString(endDate) : undefined,
+      type: "google",
+      externalUrl: event.htmlLink || undefined,
+      location: event.location || undefined,
+    };
+  };
+
+  const fetchGoogleEvents = async () => {
+    setGoogleLoading(true);
+    setGoogleError(null);
+    try {
+      const { start, end } = getVisibleRange();
+      const response = await fetch(
+        `/api/integrations/google-calendar/events?rangeStart=${encodeURIComponent(
+          start.toISOString()
+        )}&rangeEnd=${encodeURIComponent(end.toISOString())}`
+      );
+
+      const data = await response.json();
+      setGoogleAvailable(data.available ?? true);
+      setGoogleConnected(Boolean(data.connected));
+      setGoogleAccountEmail(data.accountEmail ?? null);
+
+      if (!response.ok) {
+        setGoogleEvents([]);
+        setGoogleError(data.error || "Failed to load Google Calendar");
+        return;
+      }
+
+      if (!data.connected) {
+        setGoogleEvents([]);
+        return;
+      }
+
+      const mappedEvents = (data.events || [])
+        .map((event: GoogleCalendarApiEvent) => mapGoogleEvent(event))
+        .filter(Boolean) as CalendarEvent[];
+
+      setGoogleEvents(mappedEvents);
+    } catch (err) {
+      console.error("Failed to load Google events:", err);
+      setGoogleEvents([]);
+      setGoogleError("Failed to load Google Calendar");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGoogleEvents();
+  }, [currentDate, viewType]);
+
+  const handleDisconnectGoogle = async () => {
+    setGoogleLoading(true);
+    setGoogleError(null);
+    try {
+      const response = await fetch("/api/integrations/google-calendar", { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json();
+        setGoogleError(data.error || "Failed to disconnect Google Calendar");
+        return;
+      }
+      setGoogleConnected(false);
+      setGoogleAccountEmail(null);
+      setGoogleEvents([]);
+    } catch (err) {
+      console.error("Failed to disconnect Google Calendar:", err);
+      setGoogleError("Failed to disconnect Google Calendar");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
@@ -391,6 +552,46 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
                 </Button>
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              {googleAvailable ? (
+                googleConnected ? (
+                  <>
+                    <span className="hidden xl:inline text-xs text-[var(--muted-foreground)]">
+                      Google: {googleAccountEmail || "Connected"}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowGoogleEvents((prev) => !prev)}
+                      disabled={googleLoading}
+                      className="text-xs"
+                    >
+                      {showGoogleEvents ? "Hide Google" : "Show Google"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleDisconnectGoogle}
+                      disabled={googleLoading}
+                      className="text-xs"
+                    >
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="outline" size="sm" className="gap-2 text-xs" asChild>
+                    <a href="/api/integrations/google-calendar/connect">
+                      <CalendarIcon className="h-3.5 w-3.5" />
+                      Connect Google
+                    </a>
+                  </Button>
+                )
+              ) : (
+                <span className="text-xs text-[var(--muted-foreground)]">
+                  Google Calendar not configured
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -414,6 +615,9 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
             </Button>
           </div>
         </div>
+        {googleError && (
+          <div className="mt-2 text-xs text-red-500">{googleError}</div>
+        )}
       </div>
 
       {/* Calendar Grid */}
@@ -657,4 +861,3 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
     </div>
   );
 }
-

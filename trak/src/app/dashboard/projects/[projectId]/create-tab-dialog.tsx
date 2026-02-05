@@ -184,7 +184,7 @@ export default function CreateTabDialog({
       <div className="bg-[var(--surface)] rounded-[2px] border border-[var(--border)] shadow-[0_4px_24px_rgba(0,0,0,0.05)] max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <h2 className="text-xl font-semibold text-[var(--foreground)] font-[var(--font-serif)]">
+          <h2 className="text-xl font-semibold text-[var(--foreground)]">
             Create New Tab
           </h2>
           <button

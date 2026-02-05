@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import ClientPageHeader from "../../client-page-header";
 import ClientPageContent from "../../client-page-content";
 import AutoRefresh from "../../auto-refresh";
-import { getWorkflowTabBlocksPublic } from "@/app/actions/block";
+import { getWorkflowTabBlocksPublic, type Block } from "@/app/actions/block";
 import { getBatchFileUrlsPublic } from "@/app/actions/file";
 import type { ClientPageProject } from "@/app/actions/client-page";
 
@@ -123,7 +123,7 @@ export default async function PublicWorkflowPage({
 
         <div className="py-3 md:py-4 lg:py-5">
           <ClientPageContent
-            blocks={blocks}
+            blocks={blocks as Block[]}
             publicToken={publicToken}
             allowComments={false}
             initialFileUrls={initialFileUrls}

@@ -165,7 +165,7 @@ export default function PersonalMockup() {
       <main className="flex-1 overflow-auto">
         {/* Header */}
         <header className="border-b border-[var(--border)] bg-[var(--surface)] px-8 py-5">
-          <h1 className="text-xl font-semibold text-[var(--foreground)] font-serif">{formattedDate}</h1>
+          <h1 className="text-xl font-semibold text-[var(--foreground)]">{formattedDate}</h1>
         </header>
 
         <div className="p-8 max-w-5xl">

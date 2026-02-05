@@ -145,7 +145,11 @@ export default function DayDetailsPanel({
                   <div
                     key={event.id}
                     onClick={(e) => {
-                      handleEventNavigate(event);
+                      if (event.type !== "google") {
+                        handleEventNavigate(event);
+                      } else {
+                        onClose();
+                      }
                       onEventClick(event, e);
                     }}
                     className={cn(
@@ -153,7 +157,8 @@ export default function DayDetailsPanel({
                       event.type === "task" && event.priority === "urgent" && "border-red-200/50 bg-red-50/60 dark:bg-red-950/30 dark:border-red-800/30",
                       event.type === "task" && event.priority === "high" && "border-orange-200/50 bg-orange-50/60 dark:bg-orange-950/30 dark:border-orange-800/30",
                       event.type === "task" && (!event.priority || event.priority === "none") && "border-blue-200/50 bg-blue-50/60 dark:bg-blue-950/30 dark:border-blue-800/30",
-                      event.type === "project" && "border-purple-200/50 bg-purple-50/60 dark:bg-purple-950/30 dark:border-purple-800/30"
+                      event.type === "project" && "border-purple-200/50 bg-purple-50/60 dark:bg-purple-950/30 dark:border-purple-800/30",
+                      event.type === "google" && "border-[#4285F4]/40 bg-[#4285F4]/5"
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -187,7 +192,11 @@ export default function DayDetailsPanel({
                           </p>
                         )}
                         <p className="mt-2 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                          {event.type === "task" ? "Task" : "Project"}
+                          {event.type === "task"
+                            ? "Task"
+                            : event.type === "project"
+                              ? "Project"
+                              : "Google Calendar"}
                         </p>
                       </div>
                     </div>
@@ -201,4 +210,3 @@ export default function DayDetailsPanel({
     </>
   );
 }
-

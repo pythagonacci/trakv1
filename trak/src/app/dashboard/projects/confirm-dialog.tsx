@@ -48,7 +48,7 @@ export default function ConfirmDialog({
               <AlertTriangle className="w-5 h-5 text-[var(--error)]" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-[var(--foreground)] font-[var(--font-serif)]">{title}</h2>
+              <h2 className="text-lg font-semibold text-[var(--foreground)]">{title}</h2>
             </div>
           </div>
           <button
