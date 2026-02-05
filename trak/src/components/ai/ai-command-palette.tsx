@@ -469,6 +469,7 @@ export function AICommandPalette() {
         if (!didWrite) {
           didWrite = true;
           void queryClient.invalidateQueries();
+          router.refresh();
         }
       };
 
@@ -954,7 +955,7 @@ export function AICommandPalette() {
                 className={cn(
                   "rounded-full px-2 py-0.5 transition-colors",
                   mode === "assistant"
-                    ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                    ? "bg-[var(--secondary)] text-[var(--primary-foreground)]"
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 )}
               >
@@ -966,7 +967,7 @@ export function AICommandPalette() {
                 className={cn(
                   "rounded-full px-2 py-0.5 transition-colors",
                   mode === "file"
-                    ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                    ? "bg-[var(--secondary)] text-[var(--primary-foreground)]"
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 )}
               >
@@ -978,7 +979,7 @@ export function AICommandPalette() {
                 className={cn(
                   "rounded-full px-2 py-0.5 transition-colors",
                   mode === "search"
-                    ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                    ? "bg-[var(--secondary)] text-[var(--primary-foreground)]"
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 )}
               >
@@ -1070,7 +1071,7 @@ export function AICommandPalette() {
                     className={cn(
                       "max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2",
                       isUser
-                        ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                        ? "bg-[#3080a6]/20 text-black"
                         : "bg-[var(--muted)] text-[var(--foreground)]"
                     )}
                   >
@@ -1203,7 +1204,7 @@ export function AICommandPalette() {
                     className={cn(
                       "max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2",
                       isUser
-                        ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                        ? "bg-[#3080a6]/20 text-black"
                         : "bg-[var(--muted)] text-[var(--foreground)]"
                     )}
                   >
@@ -1247,7 +1248,7 @@ export function AICommandPalette() {
               return (
                 <React.Fragment key={entry.id}>
                   <div className="flex justify-end">
-                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2 bg-[var(--primary)] text-[var(--primary-foreground)]">
+                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2 bg-[#3080a6]/20 text-black">
                       <p className="whitespace-pre-wrap">{entry.query}</p>
                     </div>
                   </div>
