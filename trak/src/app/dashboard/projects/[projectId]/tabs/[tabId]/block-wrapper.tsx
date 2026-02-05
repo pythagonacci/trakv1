@@ -198,7 +198,7 @@ export default function BlockWrapper({
           borderless
             ? "border-none bg-transparent px-0 py-0 shadow-none"
             : isTextBlock
-              ? "border-y border-[#265b52]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
+              ? "border-y border-[#3080a6]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
               : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--secondary)]/20"
         )}
         onDoubleClick={() => {

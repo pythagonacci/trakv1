@@ -22,7 +22,7 @@
     
     /* Borders - Structural, visible but light */
     --border: #D1D4D6; /* River Mist - structural dividers */
-    --border-strong: #265b52; /* Secondary color for emphasis (matches sidebar) */
+    --border-strong: #3080a6; /* Secondary color for emphasis (matches sidebar) */
     
     /* Typography Colors */
     --foreground: #2D3236; /* Miljacka Slate - deep iron grey, not black */
@@ -37,7 +37,7 @@
     --ring-offset: #F2F0EB;
     
     /* Secondary Color */
-    --secondary: #265b52; /* Secondary color for accents, borders, hover states (matches sidebar) */
+    --secondary: #3080a6; /* Secondary color for accents, borders, hover states (matches sidebar) */
 
     /* Semantic Colors - Muted, low saturation */
     --success: #6B827D; /* Oxidized Sage - muted copper green */
@@ -80,7 +80,7 @@
     --surface-hover: #2D2C2A;
     --surface-muted: #323130;
     --border: #3D3B39;
-    --border-strong: #2d6b5f; /* Secondary color for dark mode */
+    --border-strong: #3890b6; /* Secondary color for dark mode */
     --foreground: #E8E6E1;
     --muted-foreground: #9CA3AF;
     --tertiary-foreground: #6B7280;
@@ -89,7 +89,7 @@
     --primary-hover: #C9AB85;
     
     /* Secondary Color (lighter for dark mode) */
-    --secondary: #2d6b5f;
+    --secondary: #3890b6;
     
     /* Arts palette - slightly lighter for dark mode */
     --tile-orange: #D98E74;
@@ -132,14 +132,39 @@
     border-color: var(--border);
   }
 
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
   body {
     font-family: var(--font-sans);
     @apply bg-[var(--background)] text-[var(--foreground)] antialiased transition-colors duration-200 ease-out;
     font-feature-settings: "rlig" 1, "calt" 1;
-    min-height: 100vh;
     font-size: 14px;
     line-height: 1.6;
   }
+
+  /* App-wide zoom scale - adjust to zoom in/out (smaller = more zoomed out) */
+  #app-scale-wrapper {
+    --zoom-scale: 0.85;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: calc(100vw / var(--zoom-scale));
+    height: calc(100vh / var(--zoom-scale));
+    transform: scale(var(--zoom-scale));
+    transform-origin: top left;
+    overflow: hidden;
+  }
+
+  /* Ensure all children of the scale wrapper fill height */
+  #app-scale-wrapper > * {
+    height: 100%;
+  }
+
 
   /* Headings - Serif font for "historic studio" feel */
   h1 {

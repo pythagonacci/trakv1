@@ -1169,7 +1169,7 @@ export function AICommandPalette() {
                         <button
                           type="button"
                           onClick={() => handleConvertToWorkflowPage(message.id)}
-                          className="text-[11px] text-[#265b52] hover:underline"
+                          className="text-[11px] text-[#3080a6] hover:underline"
                         >
                           Continue in a workflow page
                         </button>

@@ -71,7 +71,7 @@ export default function DashboardLayoutClient({
 
   return (
     <DashboardHeaderProvider>
-      <div className="flex h-screen bg-[var(--surface)] text-[var(--foreground)]">
+      <div className="flex h-full bg-[var(--surface)] text-[var(--foreground)]">
         <Sidebar collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -92,8 +92,8 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
         onClick={openCommandPalette}
         className={cn(
           "flex items-center gap-2 rounded-md border transition-all duration-150",
-          "border-[#265b52]/30 bg-[#265b52]/10",
-          "hover:bg-[#2e6b62]/90 hover:border-[#2e6b62]/50",
+          "border-[#3080a6]/30 bg-[#3080a6]/10",
+          "hover:bg-[#3890b6]/90 hover:border-[#3890b6]/50",
           "text-white",
           collapsed
             ? "h-9 w-9 justify-center"
@@ -105,7 +105,7 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
         {!collapsed && (
           <>
             <span className="flex-1 text-left text-sm font-medium text-white">File Analysis</span>
-            <kbd className="text-[10px] font-mono bg-[#265b52]/10 text-white px-1.5 py-0.5 rounded">
+            <kbd className="text-[10px] font-mono bg-[#3080a6]/10 text-white px-1.5 py-0.5 rounded">
               ⌘K
             </kbd>
           </>
@@ -177,7 +177,7 @@ function Sidebar({
     <aside
       className={cn(
         // SARAJEVO SIDEBAR: Matte, structural, no glass effects
-        "flex h-screen flex-col border-r border-[#265b52]/30 bg-[#265b52] transition-all duration-200 ease-out flex-shrink-0 relative z-50",
+        "flex h-full flex-col border-r border-[#3080a6]/30 bg-[#3080a6]/65 backdrop-blur-sm transition-all duration-200 ease-out flex-shrink-0 relative z-50 font-semibold",
         collapsed ? "w-16" : "w-56"
       )}
     >
@@ -197,7 +197,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white transition-colors duration-150 hover:bg-[#2e6b62]/90 z-50 relative"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 text-white transition-colors duration-150 hover:bg-[#3890b6]/90 z-50 relative"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -339,11 +339,11 @@ function Sidebar({
       </div>
 
       {/* Theme Toggle - Arts Palette accent */}
-        <div className="border-t border-[#265b52]/30 px-3 py-2">
+        <div className="border-t border-[#3080a6]/30 px-3 py-2">
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white transition-colors duration-150 hover:bg-[#2e6b62]/90"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 text-white transition-colors duration-150 hover:bg-[#3890b6]/90"
             title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
           >
             <Palette className="h-4 w-4" />
@@ -351,7 +351,7 @@ function Sidebar({
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex w-full items-center gap-2.5 rounded-md border border-[#265b52]/30 bg-[#265b52]/10 px-3 py-2 text-sm text-white transition-colors duration-150 hover:bg-[#2e6b62]/90"
+              className="flex w-full items-center gap-2.5 rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 px-3 py-2 text-sm text-white transition-colors duration-150 hover:bg-[#3890b6]/90"
           >
             <Palette className="h-3.5 w-3.5" />
             <span className="text-xs font-medium text-white">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
@@ -359,21 +359,21 @@ function Sidebar({
         )}
       </div>
 
-      <div className="border-t border-[#265b52]/30 px-3 py-3" ref={userDropdownRef}>
+      <div className="border-t border-[#3080a6]/30 px-3 py-3" ref={userDropdownRef}>
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[#265b52]/30 bg-[#265b52]/10 text-white text-xs font-semibold transition-colors duration-150 hover:bg-[#2e6b62]/90"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 text-white text-xs font-semibold transition-colors duration-150 hover:bg-[#3890b6]/90"
           >
             {getUserInitials()}
           </button>
         ) : (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-md border border-[#265b52]/30 bg-[#265b52]/10 px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#2e6b62]/90"
+            className="flex w-full items-center justify-between rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#3890b6]/90"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#265b52]/15 border border-[#265b52]/30 text-white text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#3080a6]/15 border border-[#3080a6]/30 text-white text-xs font-semibold">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
@@ -430,8 +430,8 @@ function NavLink({
         "group flex w-full items-center rounded-md text-sm font-medium transition-colors duration-150",
         collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
         active
-          ? "bg-[#265b52]/10 text-white border-l-2 border-[#265b52]/50"
-          : "text-white/70 hover:bg-[#2e6b62]/90 hover:text-white"
+          ? "bg-black/15 text-white border-l-2 border-white/30"
+          : "bg-black/5 text-white hover:bg-black/20 hover:text-white"
       )}
       title={collapsed ? (children as string) : undefined}
     >
@@ -439,7 +439,7 @@ function NavLink({
         className={cn(
           "flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150",
           active
-            ? "bg-[#265b52]/15 text-white"
+            ? "bg-[#3080a6]/15 text-white"
             : "text-white/70 group-hover:text-white"
         )}
       >

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { MessageSquare, Share2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { MessageSquare, Share2, X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import TabCanvasWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/tab-canvas-wrapper";
 import type { Block } from "@/app/actions/block";
 import WorkflowAIChatPanel from "./workflow-ai-chat-panel";
-import { enableWorkflowPageSharing } from "@/app/actions/workflow-page";
+import { enableWorkflowPageSharing, createWorkflowPage } from "@/app/actions/workflow-page";
 
 export default function WorkflowPageLayout(props: {
   tabId: string;
@@ -16,8 +17,28 @@ export default function WorkflowPageLayout(props: {
   blocks: Block[];
   initialFileUrls: Record<string, string>;
 }) {
+  const router = useRouter();
   const [chatOpen, setChatOpen] = useState(true);
   const [shareLoading, setShareLoading] = useState(false);
+  const [newPageLoading, setNewPageLoading] = useState(false);
+
+  const onCreate = async () => {
+    if (newPageLoading) return;
+    setNewPageLoading(true);
+    try {
+      const result = await createWorkflowPage({ isWorkspaceLevel: true });
+      if ("error" in result) {
+        alert(result.error);
+        return;
+      }
+      router.push(`/dashboard/workflow/${result.data.tabId}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to create workflow page";
+      alert(message);
+    } finally {
+      setNewPageLoading(false);
+    }
+  };
 
   const onShare = async () => {
     if (shareLoading) return;
@@ -42,7 +63,7 @@ export default function WorkflowPageLayout(props: {
   return (
     <div className="h-[calc(100vh-64px)] w-full">
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-[#265b52]/20 bg-[var(--surface)] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-[#3080a6]/20 bg-[var(--surface)] px-4 py-3">
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold text-[var(--foreground)]">
               {props.title}
@@ -52,11 +73,24 @@ export default function WorkflowPageLayout(props: {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => void onCreate()}
+              disabled={newPageLoading}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
+                "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15 disabled:opacity-50"
+              )}
+              title="Create a new workflow page"
+            >
+              <Plus className="h-4 w-4" />
+              New
+            </button>
+            <button
+              type="button"
               onClick={() => void onShare()}
               disabled={shareLoading}
               className={cn(
                 "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-                "border-[#265b52]/30 bg-[#265b52]/10 text-white hover:bg-[#265b52]/15 disabled:opacity-50"
+                "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15 disabled:opacity-50"
               )}
             >
               <Share2 className="h-4 w-4" />
@@ -67,7 +101,7 @@ export default function WorkflowPageLayout(props: {
               onClick={() => setChatOpen((v) => !v)}
               className={cn(
                 "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-                "border-[#265b52]/30 bg-[#265b52]/10 text-white hover:bg-[#265b52]/15"
+                "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15"
               )}
             >
               {chatOpen ? <X className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
@@ -77,7 +111,7 @@ export default function WorkflowPageLayout(props: {
         </div>
 
         <div className="flex min-h-0 flex-1">
-          <div className={cn("min-w-0 flex-1", chatOpen && "border-r border-[#265b52]/20")}>
+          <div className={cn("min-w-0 flex-1", chatOpen && "border-r border-[#3080a6]/20")}>
             <div className="h-full overflow-auto px-2 md:px-3 lg:px-4 py-3">
               <TabCanvasWrapper
                 tabId={props.tabId}

@@ -63,7 +63,7 @@ export default function WorkflowPagesIndex() {
           disabled={creating}
           className={cn(
             "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors",
-            "border-[#265b52]/30 bg-[#265b52]/10 text-white hover:bg-[#265b52]/15 disabled:opacity-50"
+            "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15 disabled:opacity-50"
           )}
         >
           {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -77,7 +77,7 @@ export default function WorkflowPagesIndex() {
           Loading…
         </div>
       ) : pages.length === 0 ? (
-        <div className="rounded-md border border-[#265b52]/20 bg-[#265b52]/5 p-4 text-sm text-[var(--muted-foreground)]">
+        <div className="rounded-md border border-[#3080a6]/20 bg-[#3080a6]/5 p-4 text-sm text-[var(--muted-foreground)]">
           No workflow pages yet.
         </div>
       ) : (
@@ -87,8 +87,8 @@ export default function WorkflowPagesIndex() {
               key={page.id}
               href={`/dashboard/workflow/${page.id}`}
               className={cn(
-                "block rounded-md border border-[#265b52]/20 bg-[var(--surface)] px-4 py-3",
-                "hover:bg-[#265b52]/5 transition-colors"
+                "block rounded-md border border-[#3080a6]/20 bg-[var(--surface)] px-4 py-3",
+                "hover:bg-[#3080a6]/5 transition-colors"
               )}
             >
               <div className="text-sm font-semibold text-[var(--foreground)]">{page.name}</div>

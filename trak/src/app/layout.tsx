@@ -37,11 +37,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={`bg-[var(--background)] text-[var(--foreground)]`}
-      >
-        {children}
-        <P2AWarmup />
+      <body className={`bg-[var(--background)] text-[var(--foreground)]`}>
+        <div id="app-scale-wrapper">
+          {children}
+          <P2AWarmup />
+        </div>
       </body>
     </html>
   );
