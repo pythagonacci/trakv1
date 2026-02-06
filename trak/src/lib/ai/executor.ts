@@ -14,8 +14,6 @@ import { executeTool, type ToolCallResult } from "./tool-executor";
 import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 import { classifyIntent, type IntentClassification, type ToolGroup } from "./intent-classifier";
 import { tryDeterministicCommand } from "./simple-commands";
-import { getChartSuggestion } from "@/app/actions/chart-actions";
-import type { ChartType } from "@/types/chart";
 import { createUndoTracker, type UndoBatch } from "@/lib/ai/undo";
 
 // ============================================================================
@@ -300,69 +298,8 @@ function applyContextualToolGroups(
     reasoning: `${intent.reasoning} + context`,
   };
 }
-
-function extractChartTypeFromText(text: string): ChartType | undefined {
-  const lower = text.toLowerCase();
-  if (/(doughnut|donut)/.test(lower)) return "doughnut";
-  if (/pie/.test(lower)) return "pie";
-  if (/line/.test(lower)) return "line";
-  if (/bar/.test(lower)) return "bar";
-  return undefined;
-}
-
-function detectChartIntent(text: string) {
-  const lower = text.toLowerCase();
-  const explicit = /(chart|graph|plot|visualize|histogram|doughnut|donut|pie|bar|line)\b/.test(lower);
-  const implicit = /\b(compare|comparison|vs|versus|trend|growth|increase|decrease|completion|breakdown|distribution|share|proportion|composition|rate)\b|over time/.test(lower);
-  return {
-    explicit,
-    implicit: !explicit && implicit,
-    chartType: extractChartTypeFromText(lower),
-  };
-}
-
-function detectSimulationIntent(text: string) {
-  const lower = text.toLowerCase();
-  const whatIf = /\bwhat if\b/.test(lower);
-  const simulate = /\bsimulat(e|ion)\b/.test(lower);
-  const hasInstead = /\binstead\b/.test(lower);
-  const hasAdjustment = /\b(increase|decrease|grow|growth|drop|reduce|raise|boost|cut|change|adjust)\b/.test(lower);
-  const hasNumbers = /\b\d+%?\b/.test(lower);
-  const ifWithNumbers = /\bif\b/.test(lower) && hasNumbers;
-  const adjustmentWithNumbers = hasAdjustment && hasNumbers;
-  return whatIf || simulate || hasInstead || ifWithNumbers || adjustmentWithNumbers;
-}
-
-function isAffirmative(text: string) {
-  const lower = text.trim().toLowerCase();
-  if (!lower) return false;
-  if (/(^|\\b)(yes|yeah|yep|sure|ok|okay|please|do it|go ahead|sounds good|looks good|make it)(\\b|$)/.test(lower)) return true;
-  return Boolean(extractChartTypeFromText(lower));
-}
-
-function isNegative(text: string) {
-  const lower = text.trim().toLowerCase();
-  return /(^|\\b)(no|nope|nah|not now|don't|do not)(\\b|$)/.test(lower);
-}
-
-function findPendingChartSuggestion(previousMessages: AIMessage[]) {
-  for (let i = previousMessages.length - 1; i >= 0; i -= 1) {
-    const message = previousMessages[i];
-    if (message.role !== "assistant" || !message.content) continue;
-    const match = message.content.match(/visualize this as a\\s+(bar|line|pie|doughnut)\\s+chart/i);
-    if (!match) continue;
-    const suggestedChartType = match[1].toLowerCase() as ChartType;
-
-    for (let j = i - 1; j >= 0; j -= 1) {
-      const prev = previousMessages[j];
-      if (prev.role === "user" && prev.content) {
-        return { originalPrompt: prev.content, suggestedChartType };
-      }
-    }
-    return { originalPrompt: "", suggestedChartType };
-  }
-  return null;
-}
+// All chart-related deterministic helper functions removed
+// Charts are now handled entirely by the LLM via tool calls
 
 const TOOL_GROUP_NAMES = new Set([
   "task",
@@ -770,14 +707,9 @@ export async function executeAICommand(
     });
   }
 
-  const chartIntent = detectChartIntent(userCommand);
-
   // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
   const intent = applyContextualToolGroups(classifyIntent(userCommand), context);
-  if (chartIntent.explicit && !intent.toolGroups.includes("block")) {
-    intent.toolGroups = [...intent.toolGroups, "block"];
-  }
   if (options.forcedToolGroups && options.forcedToolGroups.length > 0) {
     const toolGroups = new Set<ToolGroup>(options.forcedToolGroups);
     toolGroups.add("core");
@@ -903,6 +835,9 @@ export async function executeAICommand(
 
   // Track consecutive errors per tool to prevent extensive retry loops
   const consecutiveErrorCount = new Map<string, number>();
+
+  // Track empty argument calls to prevent infinite loops when LLM calls tools with no args
+  const emptyArgCallCount = new Map<string, number>();
 
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
@@ -1091,6 +1026,25 @@ export async function executeAICommand(
             result,
           });
           toolCallsThisRound.push({ tool: toolName, result });
+
+          // Check for empty argument calls (potential infinite loop)
+          const hasEmptyArgs = !toolArgs || Object.keys(toolArgs).length === 0;
+          if (hasEmptyArgs && !result.success) {
+            const emptyCallCount = (emptyArgCallCount.get(toolName) || 0) + 1;
+            emptyArgCallCount.set(toolName, emptyCallCount);
+
+            if (emptyCallCount >= 2) {
+              return withTiming({
+                success: false,
+                response: `The ${toolName} tool was called ${emptyCallCount} times with no arguments. This tool requires specific parameters to work. Please check the tool definition and provide the required arguments, or try rephrasing your request.`,
+                toolCallsMade: allToolCallsMade,
+                error: "Tool called repeatedly with empty arguments"
+              });
+            }
+          } else if (!hasEmptyArgs || result.success) {
+            emptyArgCallCount.set(toolName, 0);
+          }
+
           if (!result.success) {
             allToolCallsSuccessful = false;
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
@@ -1714,253 +1668,8 @@ export async function* executeAICommandStream(
     return;
   }
 
-  const pendingChartSuggestion = findPendingChartSuggestion(previousMessages);
-  if (pendingChartSuggestion && isNegative(userCommand)) {
-    yield {
-      type: "response",
-      content: "Okay — let me know if you want a chart later.",
-    };
-    return;
-  }
-
-  if (pendingChartSuggestion && isAffirmative(userCommand)) {
-    if (!context.currentTabId) {
-      yield {
-        type: "response",
-        content: "Open a tab first so I know where to create the chart.",
-      };
-      return;
-    }
-
-    const requestedType = extractChartTypeFromText(userCommand) || pendingChartSuggestion.suggestedChartType;
-    const combinedPrompt = pendingChartSuggestion.originalPrompt
-      ? `${pendingChartSuggestion.originalPrompt}\nUser confirmation: ${userCommand}`
-      : userCommand;
-    const chartArgs = {
-      tabId: context.currentTabId,
-      prompt: combinedPrompt,
-      chartType: requestedType,
-    };
-
-    yield {
-      type: "tool_call",
-      content: getHumanFriendlyToolMessage("createChartBlock"),
-      data: {
-        tool: "createChartBlock",
-        arguments: chartArgs,
-      },
-    };
-
-    const result = await executeTool(
-      {
-        name: "createChartBlock",
-        arguments: chartArgs,
-      },
-      {
-        workspaceId: context.workspaceId,
-        userId: context.userId,
-        contextTableId: context.contextTableId,
-        contextBlockId: context.contextBlockId,
-        currentTabId: context.currentTabId,
-        currentProjectId: context.currentProjectId,
-        undoTracker,
-      }
-    );
-    toolCallsMade.push({ tool: "createChartBlock", arguments: chartArgs, result });
-
-    yield {
-      type: "tool_result",
-      content: result.success ? "Success" : result.error || "Error",
-      data: result,
-    };
-
-    yield {
-      type: "response",
-      content: result.success
-        ? "Chart created."
-        : `Couldn't create the chart: ${result.error || "Unknown error"}`,
-      data: {
-        toolCallsMade,
-        undoBatches: undoTracker.batches,
-        undoSkippedTools: undoTracker.skippedTools,
-      },
-    };
-    return;
-  }
-
-  const simulationIntent = detectSimulationIntent(userCommand);
-  const chartSignal =
-    /(chart|graph|plot|visuali[sz]e)/i.test(userCommand) ||
-    previousMessages.some(
-      (message) =>
-        message.role === "assistant" &&
-        typeof message.content === "string" &&
-        /(chart|graph|plot|visuali[sz]e)/i.test(message.content)
-    );
-
-  if (simulationIntent && chartSignal) {
-    if (!context.currentTabId) {
-      yield {
-        type: "response",
-        content: "Open a tab first so I can create the simulation chart.",
-      };
-      return;
-    }
-    if (!context.contextBlockId) {
-      yield {
-        type: "response",
-        content: "Select the chart you want to simulate, then ask again with your what-if change.",
-      };
-      return;
-    }
-
-    const requestedType = extractChartTypeFromText(userCommand);
-    const simulationArgs = {
-      tabId: context.currentTabId,
-      prompt: userCommand,
-      chartType: requestedType,
-      isSimulation: true,
-      originalChartId: context.contextBlockId,
-      simulationDescription: userCommand,
-    };
-
-    yield {
-      type: "tool_call",
-      content: getHumanFriendlyToolMessage("createChartBlock"),
-      data: {
-        tool: "createChartBlock",
-        arguments: simulationArgs,
-      },
-    };
-
-    const result = await executeTool(
-      {
-        name: "createChartBlock",
-        arguments: simulationArgs,
-      },
-      {
-        workspaceId: context.workspaceId,
-        userId: context.userId,
-        contextTableId: context.contextTableId,
-        contextBlockId: context.contextBlockId,
-        currentTabId: context.currentTabId,
-        currentProjectId: context.currentProjectId,
-        undoTracker,
-      }
-    );
-    toolCallsMade.push({ tool: "createChartBlock", arguments: simulationArgs, result });
-
-    yield {
-      type: "tool_result",
-      content: result.success ? "Success" : result.error || "Error",
-      data: result,
-    };
-
-    yield {
-      type: "response",
-      content: result.success
-        ? "Simulation chart created."
-        : `Couldn't create the simulation chart: ${result.error || "Unknown error"}`,
-      data: {
-        toolCallsMade,
-        undoBatches: undoTracker.batches,
-        undoSkippedTools: undoTracker.skippedTools,
-      },
-    };
-    return;
-  }
-
-  const chartIntent = detectChartIntent(userCommand);
-  if (chartIntent.explicit) {
-    if (!context.currentTabId) {
-      yield {
-        type: "response",
-        content: "Open a tab first so I know where to create the chart.",
-      };
-      return;
-    }
-
-    const requestedType = chartIntent.chartType;
-    const chartArgs = {
-      tabId: context.currentTabId,
-      prompt: userCommand,
-      chartType: requestedType,
-    };
-    yield {
-      type: "tool_call",
-      content: getHumanFriendlyToolMessage("createChartBlock"),
-      data: {
-        tool: "createChartBlock",
-        arguments: chartArgs,
-      },
-    };
-
-    const result = await executeTool(
-      {
-        name: "createChartBlock",
-        arguments: chartArgs,
-      },
-      {
-        workspaceId: context.workspaceId,
-        userId: context.userId,
-        contextTableId: context.contextTableId,
-        contextBlockId: context.contextBlockId,
-        currentTabId: context.currentTabId,
-        currentProjectId: context.currentProjectId,
-        undoTracker,
-      }
-    );
-    toolCallsMade.push({ tool: "createChartBlock", arguments: chartArgs, result });
-
-    yield {
-      type: "tool_result",
-      content: result.success ? "Success" : result.error || "Error",
-      data: result,
-    };
-
-    yield {
-      type: "response",
-      content: result.success
-        ? "Chart created."
-        : `Couldn't create the chart: ${result.error || "Unknown error"}`,
-      data: {
-        toolCallsMade,
-        undoBatches: undoTracker.batches,
-        undoSkippedTools: undoTracker.skippedTools,
-      },
-    };
-    return;
-  }
-
-  if (chartIntent.implicit) {
-    if (!context.currentTabId) {
-      yield {
-        type: "response",
-        content: "Open a tab first so I can pull the data for a chart suggestion.",
-      };
-      return;
-    }
-
-    const suggestion = await getChartSuggestion({
-      tabId: context.currentTabId,
-      prompt: userCommand,
-    });
-
-    if ("error" in suggestion) {
-      yield {
-        type: "response",
-        content: `I couldn't gather chart data yet: ${suggestion.error}`,
-      };
-      return;
-    }
-
-    const suggestedType = suggestion.data.suggestedChartType;
-    yield {
-      type: "response",
-      content: `${suggestion.data.summary}\n\nWould you like me to visualize this as a ${suggestedType} chart?`,
-    };
-    return;
-  }
+  // All chart creation is now handled by the LLM via tool calls
+  // Removed all deterministic chart detection to prevent false positives
 
   let intent = applyContextualToolGroups(classifyIntent(userCommand), context);
   if (options.forcedToolGroups && options.forcedToolGroups.length > 0) {

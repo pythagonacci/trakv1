@@ -922,7 +922,7 @@ function trimTrailingClause(value: string) {
   return trimmed.trim();
 }
 
-function extractSearchText(cleaned: string, normalized: string, tokens: string[]) {
+function extractSearchText(cleaned: string, _normalized: string, tokens: string[]) {
   const explicit = extractExplicitSearchText(cleaned);
   if (explicit) return explicit;
 
@@ -1102,6 +1102,7 @@ function inferFieldType(name: string) {
   const lower = name.toLowerCase();
   if (/(status|state|stage)/.test(lower)) return "status";
   if (/(priority|importance)/.test(lower)) return "priority";
+  if (/(category|categories|type|types|tag|tags)/.test(lower)) return "select";
   if (/(date|due|deadline)/.test(lower)) return "date";
   if (/(email)/.test(lower)) return "email";
   if (/(phone|tel)/.test(lower)) return "phone";
@@ -1121,9 +1122,30 @@ function isMultiStepCommand(value: string) {
 }
 
 function isLikelyRankedDataRequest(value: string) {
-  return /\btable\s+of\s+(?:the\s+)?(?:last|top|most|latest|recent|best|highest|lowest)\s+\d+\b/i.test(
-    value
-  );
+  // Check for "table of [ranked/numbered data]" patterns
+  const rankedPattern = /\btable\s+of\s+(?:the\s+)?(?:last|top|most|latest|recent|best|highest|lowest)\s+\d+\b/i;
+  if (rankedPattern.test(value)) return true;
+
+  // Check for "table of the X" where X is descriptive content (not just a simple name)
+  // This catches cases like "table of the fifty states and their capitals"
+  const contentPattern = /\btable\s+of\s+(?:the\s+)?(?:\w+\s+){2,}/i;
+  if (contentPattern.test(value)) {
+    // Exclude simple naming patterns like "table of contents" or "table of users"
+    const simpleNaming = /\btable\s+of\s+(?:the\s+)?(?:contents|users?|clients?|projects?|tasks?|items?)\s*$/i;
+    if (!simpleNaming.test(value)) return true;
+  }
+
+  // Check for patterns that indicate data population (with, containing, including)
+  // Examples: "table with all countries", "table containing employees and salaries"
+  const populationPattern = /\btable\s+(?:with|containing|including)\s+(?:all|the|some)\s+\w+/i;
+  if (populationPattern.test(value)) return true;
+
+  // Check for "and" patterns that indicate multiple data points
+  // Examples: "table of X and Y", "table with A and B" (where these aren't just column names)
+  const multiDataPattern = /\btable\s+of\s+(?:the\s+)?\w+\s+(?:and|&)\s+(?:their|its)\s+\w+/i;
+  if (multiDataPattern.test(value)) return true;
+
+  return false;
 }
 
 function escapeRegExp(value: string) {

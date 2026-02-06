@@ -1979,10 +1979,16 @@ export async function executeTool(
 
         if (!tableId) return { success: false, error: "Missing tableId for createRow. Provide tableId or tableName." };
 
+        // Enhance fields and normalize select field values before creating the row
+        const normalizedData = await enhanceFieldsAndNormalizeSelectValues(
+          tableId,
+          [{ data: args.data as Record<string, unknown> }]
+        );
+
         return await wrapResult(
           createRow({
             tableId,
-            data: args.data as Record<string, unknown>,
+            data: normalizedData[0].data,
             authContext: authContext ?? undefined,
           })
         );
@@ -2084,10 +2090,16 @@ export async function executeTool(
             };
           }
 
+          // Enhance fields and normalize select field values (same as createTableFull)
+          const rowsWithNormalizedSelects = await enhanceFieldsAndNormalizeSelectValues(
+            resolvedTableId,
+            mappingResult.rows
+          );
+
           const result = await wrapResult(
             bulkInsertRows({
               tableId: resolvedTableId,
-              rows: mappingResult.rows,
+              rows: rowsWithNormalizedSelects,
             })
           );
 
@@ -2451,6 +2463,14 @@ export async function executeTool(
       // ==================================================================
       case "createTableFull":
         {
+          // Check if args is empty or missing critical info
+          if (!args || Object.keys(args).length === 0) {
+            return {
+              success: false,
+              error: "createTableFull was called with no arguments. You MUST provide workspaceId (from context) and title (table name) at minimum. Check the tool schema and try again with proper arguments."
+            };
+          }
+
           const workspaceId = args.workspaceId as string;
           const title = args.title as string;
           const description = args.description as string | undefined;
@@ -2460,7 +2480,13 @@ export async function executeTool(
           let rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
 
           if (!workspaceId || !title) {
-            return { success: false, error: "createTableFull requires workspaceId and title." };
+            const missing = [];
+            if (!workspaceId) missing.push("workspaceId (get from system context)");
+            if (!title) missing.push("title (the name of the table)");
+            return {
+              success: false,
+              error: `createTableFull missing required parameters: ${missing.join(", ")}. You MUST provide these arguments when calling this tool.`
+            };
           }
 
           // Enhance field types with smart inference from row data
@@ -4161,6 +4187,94 @@ function resolveUpdateValue(
   }
 
   return { value: rawValue };
+}
+
+async function enhanceFieldsAndNormalizeSelectValues(
+  tableId: string,
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>
+): Promise<Array<{ data: Record<string, unknown>; order?: number | string | null }>> {
+  if (!tableId || rows.length === 0) return rows;
+
+  const tableResult = await getTable(tableId);
+  if ("error" in tableResult || !tableResult.data?.fields) return rows;
+
+  const fields = tableResult.data.fields;
+
+  // Extract all values for each field from the rows
+  const fieldValues = new Map<string, unknown[]>();
+  rows.forEach((row) => {
+    const data = row.data || {};
+    Object.entries(data).forEach(([fieldId, value]) => {
+      if (!fieldValues.has(fieldId)) {
+        fieldValues.set(fieldId, []);
+      }
+      fieldValues.get(fieldId)?.push(value);
+    });
+  });
+
+  // Enhance select fields that have no options configured
+  const fieldsToUpdate: Array<{ fieldId: string; config: Record<string, unknown> }> = [];
+
+  for (const field of fields) {
+    if (!isSelectLike(field.type)) continue;
+
+    const config = (field.config || {}) as Record<string, unknown>;
+    const { options } = getOptionEntries({ type: field.type, config });
+
+    // If field has no options, infer them from the data
+    if (options.length === 0) {
+      const values = fieldValues.get(field.id) || [];
+      const nonNullValues = values.filter(v => v !== null && v !== undefined && v !== "");
+
+      if (nonNullValues.length > 0) {
+        const inferred = inferFieldTypeFromData(field.name, field.type, nonNullValues, config);
+        if (inferred.config && Object.keys(inferred.config).length > 0) {
+          fieldsToUpdate.push({ fieldId: field.id, config: inferred.config });
+        }
+      }
+    }
+  }
+
+  // Update field configs with inferred options
+  for (const { fieldId, config } of fieldsToUpdate) {
+    await updateField(fieldId, { config });
+  }
+
+  // Re-fetch fields to get updated configs
+  const updatedTableResult = fieldsToUpdate.length > 0 ? await getTable(tableId) : tableResult;
+  if ("error" in updatedTableResult || !updatedTableResult.data?.fields) return rows;
+
+  const updatedFields = updatedTableResult.data.fields;
+  const selectFieldsById = new Map(
+    updatedFields.filter((f) => isSelectLike(f.type)).map((f) => [f.id, f])
+  );
+
+  // Now normalize the row values to option IDs
+  return rows.map((row) => {
+    const data = row.data || {};
+    const normalized: Record<string, unknown> = {};
+
+    for (const [fieldId, rawValue] of Object.entries(data)) {
+      const field = selectFieldsById.get(fieldId);
+      if (!field) {
+        normalized[fieldId] = rawValue;
+        continue;
+      }
+
+      // Field is a select-like field - normalize the value to option ID
+      const config = (field.config || {}) as Record<string, unknown>;
+      const { ids } = resolveSelectValues({ type: field.type, config }, rawValue, false);
+
+      if (ids.length > 0) {
+        normalized[fieldId] = field.type === "multi_select" ? ids : ids[0];
+      } else {
+        // Keep original if no match (shouldn't happen after enhancement)
+        normalized[fieldId] = rawValue;
+      }
+    }
+
+    return { ...row, data: normalized };
+  });
 }
 
 function parseNumericValue(value: unknown): number | null {
