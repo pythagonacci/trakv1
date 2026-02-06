@@ -313,7 +313,7 @@ function extractChartTypeFromText(text: string): ChartType | undefined {
 function detectChartIntent(text: string) {
   const lower = text.toLowerCase();
   const explicit = /(chart|graph|plot|visualize|histogram|doughnut|donut|pie|bar|line)\b/.test(lower);
-  const implicit = /(compare|comparison|vs\.?|versus|trend|over time|growth|increase|decrease|rate|completion|breakdown|distribution|share|proportion|composition)\b/.test(lower);
+  const implicit = /\b(compare|comparison|vs|versus|trend|growth|increase|decrease|completion|breakdown|distribution|share|proportion|composition|rate)\b|over time/.test(lower);
   return {
     explicit,
     implicit: !explicit && implicit,

@@ -751,7 +751,7 @@ export async function executeTool(
         toolName: name,
         toolArgs: args,
         supabase: supabaseForUndo,
-        workspaceId,
+        workspaceId: workspaceId ?? undefined,
       })
       : [];
 
@@ -898,6 +898,7 @@ export async function executeTool(
         const limitParents = typeof (args as any)?.limitParents === "number" ? (args as any).limitParents : 10;
         const limitChunks = typeof (args as any)?.limitChunks === "number" ? (args as any).limitChunks : 5;
         if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
+        if (!workspaceId) return { success: false, error: "No workspace selected" };
 
         const searcher = new UnstructuredSearch(authContext.supabase);
         const results = await searcher.searchWorkspace(workspaceId, query);

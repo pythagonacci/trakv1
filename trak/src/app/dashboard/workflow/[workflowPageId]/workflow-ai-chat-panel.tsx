@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
 import Toast from "@/app/dashboard/projects/toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { queryKeys } from "@/lib/react-query/query-client";
 import type { UndoBatch } from "@/lib/ai/undo";
 
 type WorkflowMessage = {
@@ -43,6 +45,7 @@ function getText(content: Record<string, unknown> | null | undefined) {
 
 export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId: string }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkflowMessage[]>([]);
   const [input, setInput] = useState("");
@@ -146,7 +149,12 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
       const markWrite = () => {
         if (!didWrite) {
           didWrite = true;
+          // Invalidate tabBlocks cache specifically to ensure new blocks appear
+          void queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(props.tabId) });
+          // Also invalidate all queries as a fallback
           void queryClient.invalidateQueries();
+          // Refresh the router to ensure Next.js cache is also updated
+          router.refresh();
         }
       };
 
@@ -270,7 +278,12 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
       ]);
 
       if (responseCreatedBlockIds.length > 0) {
+        // Invalidate tabBlocks cache specifically to ensure new blocks appear
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(props.tabId) });
+        // Also invalidate all queries as a fallback
         void queryClient.invalidateQueries();
+        // Refresh the router to ensure Next.js cache is also updated
+        router.refresh();
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to run workflow AI";
@@ -314,7 +327,12 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
         )
       );
       setToast({ message: "Undid the AI changes.", type: "success" });
+      // Invalidate tabBlocks cache specifically
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(props.tabId) });
+      // Also invalidate all queries as a fallback
       void queryClient.invalidateQueries();
+      // Refresh the router
+      router.refresh();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Undo failed";
       setToast({ message, type: "error" });

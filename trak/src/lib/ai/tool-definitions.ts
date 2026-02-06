@@ -785,7 +785,7 @@ const blockActionTools: ToolDefinition[] = [
 const tableActionTools: ToolDefinition[] = [
   {
     name: "createTable",
-    description: "CREATE a new table. Use when user wants to create a table. Creates table with 3 default columns and 3 blank rows. Required: workspaceId, title. Optional: tabId (makes table visible in tab UI). Returns: tableId. ⚠️ Use bulkInsertRows to add data. Workflow: createTable → createField (for custom columns) → bulkInsertRows (for data).",
+    description: "⚠️ DEPRECATED - DO NOT USE THIS TOOL ⚠️\n\nUse createTableFull instead for ALL table creation.\n\nThis atomic tool exists only for backwards compatibility. Using this tool instead of createTableFull is INEFFICIENT and creates unnecessary latency (3+ API calls instead of 1).\n\n🚨 ALWAYS USE createTableFull FOR TABLE CREATION 🚨",
     category: "table",
     parameters: {
       workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
@@ -1016,9 +1016,17 @@ const tableActionTools: ToolDefinition[] = [
   {
     name: "createTableFull",
     description:
-      "★ CREATE TABLE with schema + data in ONE call ★ Use this when creating a table with columns AND initial rows.\n\n" +
-      "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n\n" +
-      "⚠️ SUPER TOOL: Prefer this over createTable + createField + bulkInsertRows sequence.\n\n" +
+      "🚨 PRIMARY TABLE CREATION TOOL - ALWAYS USE THIS FOR ANY TABLE CREATION 🚨\n\n" +
+      "★ CREATE TABLE with schema + data in ONE call ★\n\n" +
+      "THIS IS THE ONLY TOOL YOU SHOULD USE FOR TABLE CREATION. Do NOT use createTable.\n\n" +
+      "Use this for:\n" +
+      "- Creating a table with columns AND initial rows\n" +
+      "- Creating a table with just columns (no rows)\n" +
+      "- Creating a table with just a title (no columns or rows)\n" +
+      "- ANY table creation scenario\n\n" +
+      "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n" +
+      "Example: 'Create a table called Q1 Targets'\n\n" +
+      "⚠️ SUPER TOOL: This is 3-5x faster than createTable + bulkCreateFields + bulkInsertRows sequence.\n\n" +
       "Auto-creates table → creates fields → inserts rows in one atomic operation.",
     category: "table",
     parameters: {

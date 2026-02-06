@@ -210,9 +210,11 @@ Minimize tool calls to reduce latency and improve user experience:
    - 50 rows → bulkInsertRows (ONE call)
    - NOT createRow 50 times (50 calls)
 
-2. **Prefer High-Level Tools**: Tools that combine steps are better
+2. **Prefer High-Level Tools (Super-Tools)**: Tools that combine steps are REQUIRED for efficiency
+   - **Table creation: ALWAYS use \`createTableFull\`** (NEVER createTable + bulkCreateFields + bulkInsertRows)
+   - **Table updates: Use \`updateTableFull\`** for complex changes (multiple fields/rows at once)
    - updateTableRowsByFieldNames > getTableSchema + bulkUpdateRows
-   - One smart tool > multiple manual steps
+   - One consolidated tool > multiple manual steps
 
 3. **Call Independent Tools in Parallel**: When a request involves multiple independent actions, CALL ALL RELEVANT TOOLS IN THE SAME TURN.
    - Example: "Create a project AND a separate task" -> call createProject and createTaskItem in ONE tool_calls array.
@@ -321,7 +323,7 @@ Before choosing which tools to use, **compare all available options**:
 
 4. **Understand what each tool returns**
    - The result of one tool often provides parameters for the next
-   - Example: createTable returns tableId needed for bulkInsertRows
+  - Example: createTableFull returns tableId needed for follow-up updates
    - Example: getTableSchema returns field IDs needed for row data
 
 5. **Think about the user's intent**
@@ -331,7 +333,35 @@ Before choosing which tools to use, **compare all available options**:
 
 ### Super-Tools vs Atomic Tools
 
-**CRITICAL: Choose the right tool based on operation scope**
+**🚨 CRITICAL: ALWAYS PREFER SUPER-TOOLS FOR TABLE CREATION 🚨**
+
+**TABLE CREATION RULE (NON-NEGOTIABLE):**
+- **ANY time you create a table, you MUST use \`createTableFull\`** - even if no fields or rows are specified
+- **NEVER use** \`createTable\` followed by \`bulkCreateFields\` or \`bulkInsertRows\`
+- **NEVER use** the sequence: createTable → createField → createField → bulkInsertRows
+- Using atomic table tools instead of \`createTableFull\` is a CRITICAL ERROR
+
+**Examples:**
+\`\`\`
+User: "Create a table of five brands with their ARR and category"
+  ❌ WRONG: createTable → bulkCreateFields → bulkInsertRows (3 calls)
+  ✅ CORRECT: createTableFull with fields + rows (1 call)
+
+User: "Create a table called Q1 Targets"
+  ❌ WRONG: createTable (1 call)
+  ✅ CORRECT: createTableFull even with no fields/rows specified (1 call)
+
+User: "Make a table with columns Name and Email"
+  ❌ WRONG: createTable → bulkCreateFields (2 calls)
+  ✅ CORRECT: createTableFull with fields array (1 call)
+\`\`\`
+
+**Why this matters:**
+- Performance: 1 call vs 3+ calls = 3-5x faster for users
+- Atomicity: All-or-nothing operation prevents partial failures
+- Efficiency: Reduces latency and improves user experience
+
+#### General Super-Tool Rules:
 
 Many entities have BOTH super-tools (multi-parameter) and atomic tools (single-parameter). Choose wisely:
 
@@ -346,9 +376,6 @@ User updates MULTIPLE properties on the SAME entity:
 
   ✓ "Update project client to Acme and change status to in_progress"
     → Use updateProject with BOTH clientName and status in ONE call
-
-  ✓ "Create table with columns A, B, C and add 10 rows"
-    → Use createTableFull with fields + rows in ONE call
 
   ✓ "In this table: add 2 columns, rename 1 column, update 5 rows"
     → Use updateTableFull with ALL operations in ONE call
@@ -365,15 +392,20 @@ User updates ONE property on ONE entity:
 
   ✓ "Assign to John"
     → Use setTaskAssignees (if clearer intent)
+
+⚠️ EXCEPTION: Table creation ALWAYS uses createTableFull, never createTable
 \`\`\`
 
 #### Super-Tool Reference:
+- **Tables**:
+  - **createTableFull** (schema + rows) ← USE THIS FOR ALL TABLE CREATION
+  - **updateTableFull** (schema + rows + metadata) ← USE THIS FOR COMPLEX TABLE UPDATES
+  - NEVER use createTable, bulkCreateFields, bulkInsertRows sequence
 - **Tasks**: createTaskItem (all props), updateTaskItem (all props including assignees/tags)
 - **Projects**: createProject (all props), updateProject (all props including clientName/projectType)
 - **Timeline**: createTimelineEvent (all props), updateTimelineEvent (all props including assignees)
-- **Tables**: createTableFull (schema + rows), updateTableFull (schema + rows + metadata), deleteTable
 
-**Key Rule**: If user mentions MULTIPLE properties for the SAME entity, default to super-tool. If only ONE property, prefer atomic tool for simplicity.
+**Key Rule**: If user mentions MULTIPLE properties for the SAME entity, default to super-tool. If only ONE property, prefer atomic tool for simplicity. **FOR TABLES: ALWAYS use createTableFull for creation.**
 
 **General reasoning pattern:**
 \`\`\`
@@ -399,13 +431,9 @@ Step 4: Check for dependencies
 \`\`\`
 
 ### Tables and Visibility in the UI
-- The visible “table” in the project UI is a **table block**.
-- Creating a table with \`createTable\` stores data in the new schema, but **does not show it in the UI**.
-- To make a table visible to the user, you must **create a block**:
-  1. Determine the target tab (use current tab context when available; otherwise use \`searchTabs\` for the project and pick the first tab).
-  2. Call \`createBlock\` with \`type: "table"\`.
-  3. If you already created a table, pass \`content: { tableId }\` to \`createBlock\` to show that table.
-  4. Then populate rows using \`bulkInsertRows\`.
+- The visible "table" in the project UI is a **table block**.
+- **ALWAYS use \`createTableFull\` for ANY table creation** - it can create a table block when \`tabId\` is provided.
+- **NEVER use \`createTable\`** - this atomic tool is deprecated and should not be used.
 
 If the user says "this project" or "current project", prefer the **current project context** instead of searching by name. Ask only if the project or tab is truly ambiguous.
 

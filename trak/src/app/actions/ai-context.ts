@@ -362,7 +362,7 @@ export async function getTaskWithContext(params: {
     const { data: task, error: taskError } = await supabase
       .from("task_items")
       .select(
-        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priority, assignee_id, description, due_date, due_time, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
+        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priority, assignee_id, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
       )
       .eq("id", params.taskId)
       .eq("workspace_id", workspaceId)
@@ -465,6 +465,7 @@ export async function getTaskWithContext(params: {
           description: task.description,
           due_date: task.due_date,
           due_time: task.due_time,
+          due_time_end: task.due_time_end ?? null,
           start_date: task.start_date,
           hide_icons: task.hide_icons,
           display_order: task.display_order,

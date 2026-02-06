@@ -640,7 +640,7 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
     // 2. Get block and verify it exists
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id")
+      .select("id, tab_id, type, content")
       .eq("id", blockId)
       .single();
 
@@ -684,7 +684,19 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
       return { error: "Not a member of this workspace" };
     }
 
-    // 6. Delete the block
+    // 6. Delete the linked table if this is a table block
+    if (block.type === "table") {
+      const content = (block.content || {}) as { tableId?: string };
+      if (content.tableId) {
+        const { deleteTable } = await import("./tables/table-actions");
+        const deleteResult = await deleteTable(content.tableId, { authContext: { supabase, userId } });
+        if ("error" in deleteResult) {
+          return { error: deleteResult.error ?? "Failed to delete table" };
+        }
+      }
+    }
+
+    // 7. Delete the block
     const { error: deleteError } = await supabase
       .from("blocks")
       .delete()
@@ -695,7 +707,7 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
       return { error: deleteError.message || "Failed to delete block" };
     }
 
-    // 7. Revalidate the tab page path
+    // 8. Revalidate the tab page path
     await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
     await revalidateClientPages(projectId, block.tab_id, {
       publicToken: project.public_token ?? undefined,

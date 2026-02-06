@@ -50,7 +50,7 @@ export async function getOrCreateWorkflowSession(params: {
   if (!user) return { error: "Unauthorized" };
 
   const tabCheck = await assertWorkflowTab(params.tabId);
-  if ("error" in tabCheck) return { error: tabCheck.error };
+  if ("error" in tabCheck) return { error: tabCheck.error || "Failed to assert workflow tab" };
 
   const workspaceId = tabCheck.data.workspaceId;
 

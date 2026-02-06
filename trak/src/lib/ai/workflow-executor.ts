@@ -37,12 +37,21 @@ function extractCreatedBlockIds(toolCallsMade: ExecutionResult["toolCallsMade"])
   for (const call of toolCallsMade || []) {
     if (!call?.result?.success) continue;
     const tool = call.tool;
-    if (!["createBlock", "createChartBlock", "createTaskBoardFromTasks", "createTableFull"].includes(tool)) continue;
+    if (!["createBlock", "createChartBlock", "createTaskBoardFromTasks", "createTableFull", "createTable"].includes(tool)) continue;
     const data = call.result.data;
     const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
     if (tool === "createTableFull") {
       const blockId = obj?.blockId;
       if (typeof blockId === "string" && blockId.length > 0) ids.push(blockId);
+      continue;
+    }
+    if (tool === "createTable") {
+      // createTable returns { block: { id } } when a block is created
+      const block = obj?.block;
+      const blockId = (block && typeof block === "object" && "id" in block && typeof block.id === "string")
+        ? block.id
+        : (typeof obj?.blockId === "string" ? obj.blockId : null);
+      if (blockId) ids.push(blockId);
       continue;
     }
 

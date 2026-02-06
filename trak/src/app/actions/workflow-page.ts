@@ -98,7 +98,7 @@ export async function createWorkflowPage(params: {
     projectId: params.projectId || null,
     isWorkspaceLevel: params.isWorkspaceLevel,
   });
-  if ("error" in projectIdResult) return { error: projectIdResult.error };
+  if ("error" in projectIdResult) return { error: projectIdResult.error || "Failed to resolve project ID" };
   const projectId = projectIdResult.data;
 
   // Verify the project belongs to this workspace (RLS should also enforce).
@@ -125,7 +125,7 @@ export async function createWorkflowPage(params: {
     },
   });
 
-  if ("error" in tabResult) return { error: tabResult.error };
+  if ("error" in tabResult) return { error: tabResult.error || "Failed to create workflow tab" };
 
   await safeRevalidatePath(`/dashboard/projects/${projectId}`);
   await safeRevalidatePath(`/dashboard/workflow/${tabResult.data.id}`);
@@ -196,7 +196,7 @@ export async function convertFileAnalysisToWorkflowPage(params: {
     projectId: session.project_id,
     isWorkspaceLevel: params.isWorkspaceLevel || (!session.project_id && !session.tab_id),
   });
-  if ("error" in projectIdResult) return { error: projectIdResult.error };
+  if ("error" in projectIdResult) return { error: projectIdResult.error || "Failed to resolve project ID" };
   const projectId = projectIdResult.data;
 
   const title = (params.title || "Workflow Page").trim() || "Workflow Page";
@@ -212,7 +212,7 @@ export async function convertFileAnalysisToWorkflowPage(params: {
     },
   });
 
-  if ("error" in tabResult) return { error: tabResult.error };
+  if ("error" in tabResult) return { error: tabResult.error || "Failed to create workflow tab" };
   const tabId = tabResult.data.id;
 
   // Seed blocks from file analysis message.
@@ -259,7 +259,7 @@ export async function enableWorkflowPageSharing(params: {
   if (!tab.is_workflow_page) return { error: "Tab is not a workflow page" };
 
   const enabled = await enableClientPage(tab.project_id);
-  if ("error" in enabled) return { error: enabled.error };
+  if ("error" in enabled) return { error: enabled.error || "Failed to enable client page" };
 
   const publicToken = String(enabled.data.public_token);
   const urlPath = `/client/${publicToken}/workflow/${params.tabId}`;

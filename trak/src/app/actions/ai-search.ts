@@ -385,6 +385,36 @@ function coerceRelation<T>(value: unknown): T | null {
 }
 
 /**
+ * Escapes a value for safe use inside PostgREST .or() filter expressions.
+ * PostgREST treats commas/parentheses as syntax unless the value is quoted.
+ */
+function escapePostgrestOrValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Builds a safe OR expression for ilike across multiple columns.
+ */
+function buildOrIlikeFilter(columns: string[], text: string): string {
+  const pattern = escapePostgrestOrValue(`%${text}%`);
+  return columns.map((column) => `${column}.ilike.${pattern}`).join(",");
+}
+
+/**
+ * Stringifies unknown data for broad text matching.
+ */
+function toSearchableText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Applies date filters to a Supabase query.
  */
 function applyDateFilter<T extends { gte: (col: string, val: string) => T; lte: (col: string, val: string) => T; eq: (col: string, val: string) => T; is: (col: string, val: null) => T }>(
@@ -921,7 +951,7 @@ export async function searchTasks(params: {
     // Apply text search filter (search both title and description)
     if (params.searchText) {
       const text = params.searchText;
-      query = query.or(`title.ilike.%${text}%,description.ilike.%${text}%`);
+      query = query.or(buildOrIlikeFilter(["title", "description"], text));
     }
 
     // Apply date filters (column-based)
@@ -973,7 +1003,7 @@ export async function searchTasks(params: {
 
         if (params.searchText) {
           const text = params.searchText;
-          dueDateQuery = dueDateQuery.or(`title.ilike.%${text}%,description.ilike.%${text}%`);
+          dueDateQuery = dueDateQuery.or(buildOrIlikeFilter(["title", "description"], text));
         }
 
         const projectFilter = normalizeArrayFilter(params.projectId);
@@ -1188,7 +1218,7 @@ export async function searchClients(params: {
 
     if (params.searchText) {
       const text = params.searchText;
-      query = query.or(`name.ilike.%${text}%,email.ilike.%${text}%,company.ilike.%${text}%`);
+      query = query.or(buildOrIlikeFilter(["name", "email", "company"], text));
     }
 
     const { data, error } = await query.order("name").limit(limit);
@@ -1516,7 +1546,8 @@ export async function searchBlocks(
 
     // Determine if we need post-query filtering for project
     const projectFilter = normalizeArrayFilter(params.projectId);
-    const hasPostFilters = !!(projectFilter || params.projectName);
+    const searchLower = params.searchText?.trim().toLowerCase();
+    const hasPostFilters = !!(projectFilter || params.projectName || searchLower);
     const fetchLimit = hasPostFilters ? limit * 10 : limit;
 
     let query = supabase
@@ -1531,10 +1562,6 @@ export async function searchBlocks(
     // Apply entity ID filter from property pre-filtering
     if (matchingBlockIds !== null) {
       query = query.in("id", matchingBlockIds);
-    }
-
-    if (params.searchText) {
-      query = query.ilike("content::text", `%${params.searchText}%`);
     }
 
     const typeFilter = normalizeArrayFilter(params.type);
@@ -1575,6 +1602,13 @@ export async function searchBlocks(
         const tabs = coerceRelation<{ projects: { name: string } | null }>(b.tabs);
         return tabs?.projects?.name.toLowerCase().includes(searchName);
       });
+    }
+
+    // Filter block JSON content in JS to avoid unsupported jsonb ILIKE in SQL.
+    if (searchLower) {
+      results = results.filter((b: Record<string, unknown>) =>
+        toSearchableText(b.content).toLowerCase().includes(searchLower)
+      );
     }
 
     // Trim to requested limit after filtering
@@ -1665,6 +1699,10 @@ export async function searchDocs(params: {
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
+  const shouldSearchBoth = !!(params.searchBoth && params.searchText);
+  const shouldSearchContentOnly = !!params.contentSearch;
+  const needsContentPostFilter = shouldSearchBoth || shouldSearchContentOnly;
+  const fetchLimit = needsContentPostFilter ? limit * 10 : limit;
 
   try {
     let query = supabase
@@ -1672,20 +1710,9 @@ export async function searchDocs(params: {
       .select("*")
       .eq("workspace_id", workspaceId);
 
-    // Handle different search modes
-    if (params.searchBoth && params.searchText) {
-      // Search both title and content
-      const text = params.searchText;
-      query = query.or(`title.ilike.%${text}%,content::text.ilike.%${text}%`);
-    } else {
-      // Separate title and content search
-      if (params.searchText) {
-        query = query.ilike("title", `%${params.searchText}%`);
-      }
-
-      if (params.contentSearch) {
-        query = query.ilike("content::text", `%${params.contentSearch}%`);
-      }
+    // SQL-filter only when title-only search is requested.
+    if (!needsContentPostFilter && params.searchText) {
+      query = query.ilike("title", `%${params.searchText}%`);
     }
 
     if (params.isArchived !== undefined) {
@@ -1696,22 +1723,36 @@ export async function searchDocs(params: {
       query = query.eq("created_by", params.createdBy);
     }
 
-    const { data, error } = await query.order("updated_at", { ascending: false }).limit(limit);
+    const { data, error } = await query.order("updated_at", { ascending: false }).limit(fetchLimit);
 
     if (error) {
       console.error("searchDocs error:", error);
       return { data: null, error: error.message };
     }
 
+    let filteredDocs = data ?? [];
+    if (needsContentPostFilter) {
+      const titleSearch = params.searchText?.toLowerCase();
+      const contentSearch = (params.contentSearch ?? params.searchText)?.toLowerCase();
+      filteredDocs = filteredDocs.filter((d) => {
+        const titleMatch = titleSearch ? (d.title ?? "").toLowerCase().includes(titleSearch) : false;
+        const contentMatch = contentSearch
+          ? toSearchableText(d.content).toLowerCase().includes(contentSearch)
+          : false;
+        return shouldSearchBoth ? (titleMatch || contentMatch) : contentMatch;
+      });
+    }
+    filteredDocs = filteredDocs.slice(0, limit);
+
     // Get creator names
-    const creatorIds = [...new Set((data ?? []).map((d) => d.created_by))];
+    const creatorIds = [...new Set(filteredDocs.map((d) => d.created_by))];
     const { data: profiles } = creatorIds.length > 0
       ? await supabase.from("profiles").select("id, name").in("id", creatorIds)
       : { data: [] };
 
     const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.name]));
 
-    const mapped: DocResult[] = (data ?? []).map((d) => ({
+    const mapped: DocResult[] = filteredDocs.map((d) => ({
       id: d.id,
       title: d.title,
       content: d.content,
@@ -1966,7 +2007,7 @@ export async function searchTables(params: {
 
     if (params.searchText) {
       const text = params.searchText;
-      query = query.or(`title.ilike.%${text}%,description.ilike.%${text}%`);
+      query = query.or(buildOrIlikeFilter(["title", "description"], text));
     }
 
     const projectFilter = normalizeArrayFilter(params.projectId);
@@ -2980,7 +3021,7 @@ export async function searchPayments(params: {
 
     if (params.searchText) {
       const text = params.searchText;
-      query = query.or(`description.ilike.%${text}%,notes.ilike.%${text}%,payment_number.ilike.%${text}%`);
+      query = query.or(buildOrIlikeFilter(["description", "notes", "payment_number"], text));
     }
 
     const statusFilter = normalizeArrayFilter(params.status);
@@ -4876,7 +4917,7 @@ export async function resolveEntityByName(params: {
           .from("payments")
           .select("id, payment_number, description, project_id, projects(name), client_id, clients(name)")
           .eq("workspace_id", workspaceId)
-          .or(`payment_number.ilike.%${searchName}%,description.ilike.%${searchName}%`)
+          .or(buildOrIlikeFilter(["payment_number", "description"], searchName))
           .limit(limit * 2);
 
         for (const payment of data ?? []) {

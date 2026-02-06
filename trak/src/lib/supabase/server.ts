@@ -91,7 +91,13 @@ export async function createClient() {
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Not in request context and missing service role key");
+      const missing = [
+        !supabaseUrl && "NEXT_PUBLIC_SUPABASE_URL",
+        !supabaseKey && "SUPABASE_SERVICE_ROLE_KEY",
+      ].filter(Boolean);
+      throw new Error(
+        `Not in request context and missing env: ${missing.join(", ")}. Set these in .env.local.`
+      );
     }
 
     const client = createServiceClient(supabaseUrl, supabaseKey, {

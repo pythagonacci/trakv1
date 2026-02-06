@@ -289,6 +289,7 @@ function matchCreateTableWithColumns(
   context: ExecutionContext
 ): DeterministicParseResult | null {
   if (!context.workspaceId) return null;
+  if (isLikelyRankedDataRequest(cleaned)) return null;
 
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("table", normalized, tokens);
@@ -302,10 +303,10 @@ function matchCreateTableWithColumns(
     /table\s+(?:called|named|titled|for|to\s+track)\s+["']?(.+?)["']?\s*(?:\s+(?:with|w\/|columns?|fields?|cols?|including)|[:\->])\s+(.+)$/i
   );
   const matchB = cleaned.match(
-    /^(?:.*?\b)?["']?(.+?)["']?\s+table\s*(?:\.?\s+(?:with|w\/|columns?|fields?|cols?|including|are|is)|[:\->])\s+(.+)$/i
+    /^(?:.*?\b)?["']?(.+?)["']?\s+table\s*(?:\.?\s+(?:with|w\/|columns?|fields?|cols?|including)|[:\->])\s+(.+)$/i
   );
   const matchC = cleaned.match(
-    /table\s+["']?(.+?)["']?\s*(?:\s+(?:with|w\/|columns?|fields?|cols?|including|are|is)|[:\->])\s+(.+)$/i
+    /table\s+["']?(.+?)["']?\s*(?:\s+(?:with|w\/|columns?|fields?|cols?|including)|[:\->])\s+(.+)$/i
   );
   const matchD = cleaned.match(/^['"]?(.+?)['"]?\s*[:]\s+(?:columns?|fields?|cols?)\s+(.+)$/i);
 
@@ -316,7 +317,9 @@ function matchCreateTableWithColumns(
   const columnsPart = match[2].trim();
 
   tableTitle = cleanTitle(tableTitle);
+  if (/[.!?]/.test(tableTitle)) return null;
   if (!tableTitle || tableTitle.length < 2) return null;
+  if (/[.!?]/.test(columnsPart)) return null;
 
   const columnNames = parseColumnList(columnsPart);
   if (!columnNames || columnNames.length === 0) return null;
@@ -326,24 +329,18 @@ function matchCreateTableWithColumns(
     workspaceId: context.workspaceId,
     projectId: context.currentProjectId,
     tabId: context.currentTabId,
-  };
-
-  const fieldsArgs = {
     fields: columnNames.map((name) => ({ name, type: inferFieldType(name) })),
   };
 
   const confidence = computeConfidence(actionScore, entityScore, 1, 0.08);
 
   return {
-    toolCalls: [
-      { name: "createTable", arguments: tableArgs },
-      { name: "bulkCreateFields", arguments: fieldsArgs },
-    ],
+    toolCalls: [{ name: "createTableFull", arguments: tableArgs }],
     confidence,
     reason: "create table with columns",
     responseTemplate: (results) => {
       const createResult = results[0];
-      if (!createResult.success) return buildErrorResponse("createTable", createResult);
+      if (!createResult.success) return buildErrorResponse("createTableFull", createResult);
       return `Created table "${tableTitle}" with columns: ${columnNames.join(", ")}.`;
     },
   };
@@ -356,12 +353,14 @@ function matchCreateTable(
   context: ExecutionContext
 ): DeterministicParseResult | null {
   if (!context.workspaceId) return null;
+  if (isLikelyRankedDataRequest(cleaned)) return null;
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("table", normalized, tokens);
   if (actionScore < 0.55 || entityScore < 0.55) return null;
 
   const title = extractTitle(cleaned, ENTITY_SYNONYMS.table);
   if (!title) return null;
+  if (/[.!?]/.test(title)) return null;
 
   const args = {
     title,
@@ -373,13 +372,13 @@ function matchCreateTable(
   const confidence = computeConfidence(actionScore, entityScore, 1, 0.02);
 
   return {
-    toolCalls: [{ name: "createTable", arguments: args }],
+    toolCalls: [{ name: "createTableFull", arguments: args }],
     confidence,
     reason: "create table",
     responseTemplate: (results) =>
       results[0]?.success
         ? `Created table "${title}".`
-        : buildErrorResponse("createTable", results[0]),
+        : buildErrorResponse("createTableFull", results[0]),
   };
 }
 
@@ -1119,6 +1118,12 @@ function isMultiStepCommand(value: string) {
   const actionAfterAnd =
     /\b(?:and)\s+(?:assign|add|set|tag|move|delete|remove|update|rename|change|populate|fill|insert|attach|link|copy|duplicate|archive|complete|close|open|share|export|import)\b/i;
   return multiStep.test(value) || actionAfterAnd.test(value);
+}
+
+function isLikelyRankedDataRequest(value: string) {
+  return /\btable\s+of\s+(?:the\s+)?(?:last|top|most|latest|recent|best|highest|lowest)\s+\d+\b/i.test(
+    value
+  );
 }
 
 function escapeRegExp(value: string) {
