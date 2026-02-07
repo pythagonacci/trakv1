@@ -40,27 +40,40 @@ export async function createTableFullRpc(input: {
   aiDebug("rpc:start", { name: RPC_CREATE_TABLE_FULL, table: "tables" });
   const { data, error } = await supabase.rpc(RPC_CREATE_TABLE_FULL, {
     p_workspace_id: input.workspaceId,
-    p_project_id: input.projectId ?? null,
     p_title: input.title,
-    p_description: input.description ?? null,
     p_created_by: userId,
+    p_project_id: input.projectId ?? null,
+    p_description: input.description ?? null,
     p_fields: input.fields ?? [],
     p_rows: input.rows ?? [],
   });
-  aiDebug("rpc:result", { name: RPC_CREATE_TABLE_FULL, ok: !error, ms: Math.round(performance.now() - t0) });
+
+  // Log full error details for debugging
+  aiDebug("rpc:result", {
+    name: RPC_CREATE_TABLE_FULL,
+    ok: !error,
+    ms: Math.round(performance.now() - t0),
+    error: error ? {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    } : undefined,
+    dataReceived: !!data
+  });
 
   if (error) {
     return { error: error.message || "RPC create_table_full failed" };
   }
 
   const payload = unwrapRpcData<Record<string, unknown>>(data as any);
-  const tableId = (payload?.table_id ?? payload?.tableId) as string | undefined;
+  const tableId = (payload?.result_table_id ?? payload?.table_id ?? payload?.tableId) as string | undefined;
   if (!tableId) {
     return { error: "RPC create_table_full returned invalid table_id" };
   }
 
-  const fieldsCreatedRaw = payload?.fields_created ?? payload?.fieldsCreated ?? 0;
-  const rowsInsertedRaw = payload?.rows_inserted ?? payload?.rowsInserted ?? 0;
+  const fieldsCreatedRaw = payload?.result_fields_created ?? payload?.fields_created ?? payload?.fieldsCreated ?? 0;
+  const rowsInsertedRaw = payload?.result_rows_inserted ?? payload?.rows_inserted ?? payload?.rowsInserted ?? 0;
 
   return {
     data: {
@@ -106,7 +119,12 @@ export async function updateTableFullRpc(input: {
     p_update_rows: input.updateRows ?? null,
     p_delete_row_ids: input.deleteRowIds ?? [],
   });
-  aiDebug("rpc:result", { name: RPC_UPDATE_TABLE_FULL, ok: !error, ms: Math.round(performance.now() - t0) });
+  aiDebug("rpc:result", {
+    name: RPC_UPDATE_TABLE_FULL,
+    ok: !error,
+    ms: Math.round(performance.now() - t0),
+    error: error ? error.message : undefined
+  });
 
   if (error) {
     return { error: error.message || "RPC update_table_full failed" };
@@ -150,7 +168,12 @@ export async function updateTableRowsByFieldNamesRpc(input: {
     p_limit: input.limit ?? null,
     p_updated_by: userId,
   });
-  aiDebug("rpc:result", { name: RPC_UPDATE_ROWS_BY_FIELD_NAMES, ok: !error, ms: Math.round(performance.now() - t0) });
+  aiDebug("rpc:result", {
+    name: RPC_UPDATE_ROWS_BY_FIELD_NAMES,
+    ok: !error,
+    ms: Math.round(performance.now() - t0),
+    error: error ? error.message : undefined
+  });
 
   if (error) {
     return { error: error.message || "RPC update_table_rows_by_field_names failed" };
@@ -188,7 +211,12 @@ export async function bulkUpdateRowsByFieldNamesRpc(input: {
     p_limit: input.limit ?? null,
     p_updated_by: userId,
   });
-  aiDebug("rpc:result", { name: RPC_BULK_UPDATE_ROWS_BY_FIELD_NAMES, ok: !error, ms: Math.round(performance.now() - t0) });
+  aiDebug("rpc:result", {
+    name: RPC_BULK_UPDATE_ROWS_BY_FIELD_NAMES,
+    ok: !error,
+    ms: Math.round(performance.now() - t0),
+    error: error ? error.message : undefined
+  });
 
   if (error) {
     return { error: error.message || "RPC bulk_update_rows_by_field_names failed" };

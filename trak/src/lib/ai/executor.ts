@@ -553,7 +553,7 @@ const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
   create: {
     task: ["createTaskItem"],
     project: ["createProject"],
-    table: ["createTable", "createField", "bulkCreateFields", "createRow", "bulkInsertRows"],
+    table: ["createTableFull", "createTable", "createField", "bulkCreateFields", "createRow", "bulkInsertRows"],
     tab: ["createTab"],
     block: ["createBlock"],
     doc: ["createDoc"],
@@ -1033,12 +1033,13 @@ export async function executeAICommand(
             const emptyCallCount = (emptyArgCallCount.get(toolName) || 0) + 1;
             emptyArgCallCount.set(toolName, emptyCallCount);
 
-            if (emptyCallCount >= 2) {
+            // Stop immediately on first empty-arg failure to prevent loops
+            if (emptyCallCount >= 1) {
               return withTiming({
                 success: false,
-                response: `The ${toolName} tool was called ${emptyCallCount} times with no arguments. This tool requires specific parameters to work. Please check the tool definition and provide the required arguments, or try rephrasing your request.`,
+                response: `I tried to call the ${toolName} tool but didn't provide the required arguments. This usually means I don't have enough information from context to complete this request. Please provide more details about what you'd like to create, or try a different approach.`,
                 toolCallsMade: allToolCallsMade,
-                error: "Tool called repeatedly with empty arguments"
+                error: "Tool called with empty arguments - missing required context or information"
               });
             }
           } else if (!hasEmptyArgs || result.success) {

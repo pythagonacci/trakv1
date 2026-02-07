@@ -2475,7 +2475,8 @@ export async function executeTool(
           const title = args.title as string;
           const description = args.description as string | undefined;
           const projectId = args.projectId as string | undefined;
-          const tabId = args.tabId as string | undefined;
+          // Auto-inject tabId from context if not provided (workflow context)
+          const tabId = (args.tabId as string | undefined) ?? context?.currentTabId;
           let fields = Array.isArray(args.fields) ? (args.fields as Array<Record<string, unknown>>) : [];
           let rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
 
@@ -3369,6 +3370,23 @@ function normalizeOptionId(value: string): string {
   return String(value).trim().toLowerCase().replace(/\s+/g, "-");
 }
 
+/**
+ * Convert color names to hex codes that match the UI's color palette
+ */
+function colorNameToHex(colorName: string): string {
+  const colorMap: Record<string, string> = {
+    gray: "#6b7280",
+    blue: "#3b82f6",
+    green: "#10b981",
+    yellow: "#f59e0b",
+    red: "#ef4444",
+    purple: "#8b5cf6",
+    pink: "#ec4899",
+    orange: "#f97316",
+  };
+  return colorMap[colorName] || colorMap.gray;
+}
+
 function inferFieldTypeFromData(
   fieldName: string,
   fieldType: string | undefined,
@@ -3382,9 +3400,58 @@ function inferFieldTypeFromData(
     return { type: normalizedType || "text", config: existingConfig };
   }
 
-  // If already has config, preserve it
-  if (existingConfig) {
+  // If already has config that passed validation, preserve it
+  // (If config exists but didn't pass hasUsableFieldConfig, it needs fixing)
+  if (existingConfig && hasUsableFieldConfig(normalizedType, existingConfig)) {
     return { type: normalizedType || "text", config: existingConfig };
+  }
+
+  // If config exists but is invalid (e.g., AI provided options without proper IDs),
+  // we need to fix it by extracting labels and regenerating with proper IDs
+  if (existingConfig && (normalizedType === "select" || normalizedType === "multi_select" || normalizedType === "status")) {
+    const existingOptions = (existingConfig as any)?.options;
+    if (Array.isArray(existingOptions) && existingOptions.length > 0) {
+      const options: Array<{ id: string; label: string; color: string; order: number }> = [];
+      const colors = ["gray", "blue", "green", "yellow", "red", "purple", "pink", "orange"];
+
+      existingOptions.forEach((opt: any, index: number) => {
+        const label = opt.label || opt.name || String(opt);
+        const colorName = colors[index % colors.length];
+        options.push({
+          id: generateOptionId(),
+          label: String(label).trim(),
+          color: colorNameToHex(colorName),
+          order: index
+        });
+      });
+
+      return { type: normalizedType, config: { options } };
+    }
+  }
+
+  if (existingConfig && normalizedType === "priority") {
+    const existingLevels = (existingConfig as any)?.levels;
+    if (Array.isArray(existingLevels) && existingLevels.length > 0) {
+      const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
+
+      existingLevels.forEach((level: any, index: number) => {
+        const label = level.label || level.name || String(level);
+        const normalized = normalizeOptionId(label);
+        let colorName = "gray";
+        if (normalized === "high" || normalized === "urgent" || normalized === "critical") colorName = "red";
+        else if (normalized === "medium") colorName = "yellow";
+        else if (normalized === "low") colorName = "green";
+
+        levels.push({
+          id: generateOptionId(),
+          label: String(label).trim(),
+          color: colorNameToHex(colorName),
+          order: index
+        });
+      });
+
+      return { type: "priority", config: { levels } };
+    }
   }
 
   // Respect explicit non-text, non-select-like types
@@ -3405,20 +3472,24 @@ function inferFieldTypeFromData(
     nonNullValues.forEach((v) => {
       const raw = String(v).trim();
       if (!raw) return;
-      const id = normalizeOptionId(raw);
-      if (!uniqueValues.has(id)) uniqueValues.set(id, raw);
+      const normalized = normalizeOptionId(raw);
+      if (!uniqueValues.has(normalized)) uniqueValues.set(normalized, raw);
     });
     const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
 
-    Array.from(uniqueValues.entries()).forEach(([id, raw], index) => {
-      const normalized = id;
+    Array.from(uniqueValues.entries()).forEach(([normalized, raw], index) => {
       const label = raw.charAt(0).toUpperCase() + raw.slice(1);
-      let color = "gray";
-      if (normalized === "high" || normalized === "urgent" || normalized === "critical") color = "red";
-      else if (normalized === "medium") color = "yellow";
-      else if (normalized === "low") color = "green";
+      let colorName = "gray";
+      if (normalized === "high" || normalized === "urgent" || normalized === "critical") colorName = "red";
+      else if (normalized === "medium") colorName = "yellow";
+      else if (normalized === "low") colorName = "green";
 
-      levels.push({ id, label, color, order: index });
+      levels.push({
+        id: generateOptionId(),
+        label,
+        color: colorNameToHex(colorName),
+        order: index
+      });
     });
 
     return { type: "priority", config: { levels } };
@@ -3430,24 +3501,28 @@ function inferFieldTypeFromData(
     nonNullValues.forEach((v) => {
       const raw = String(v).trim();
       if (!raw) return;
-      const id = normalizeOptionId(raw);
-      if (!uniqueValues.has(id)) uniqueValues.set(id, raw);
+      const normalized = normalizeOptionId(raw);
+      if (!uniqueValues.has(normalized)) uniqueValues.set(normalized, raw);
     });
     const options: Array<{ id: string; label: string; color: string; order: number }> = [];
 
-    Array.from(uniqueValues.entries()).forEach(([id, raw], index) => {
-      const normalized = id;
+    Array.from(uniqueValues.entries()).forEach(([normalized, raw], index) => {
       const label = raw
         .split(/[\s-]+/)
         .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
         .join(" ");
-      let color = "gray";
-      if (normalized === "done" || normalized === "complete" || normalized === "completed") color = "green";
-      else if (normalized === "in-progress") color = "blue";
-      else if (normalized === "blocked") color = "red";
-      else if (normalized === "cancelled") color = "gray";
+      let colorName = "gray";
+      if (normalized === "done" || normalized === "complete" || normalized === "completed") colorName = "green";
+      else if (normalized === "in-progress") colorName = "blue";
+      else if (normalized === "blocked") colorName = "red";
+      else if (normalized === "cancelled") colorName = "gray";
 
-      options.push({ id, label, color, order: index });
+      options.push({
+        id: generateOptionId(),
+        label,
+        color: colorNameToHex(colorName),
+        order: index
+      });
     });
 
     return { type: "status", config: { options } };
@@ -3459,15 +3534,21 @@ function inferFieldTypeFromData(
     nonNullValues.forEach((v) => {
       const raw = String(v).trim();
       if (!raw) return;
-      const id = normalizeOptionId(raw);
-      if (!uniqueValues.has(id)) uniqueValues.set(id, raw);
+      const normalized = normalizeOptionId(raw);
+      if (!uniqueValues.has(normalized)) uniqueValues.set(normalized, raw);
     });
     const options: Array<{ id: string; label: string; color: string; order: number }> = [];
     const colors = ["gray", "blue", "green", "yellow", "red", "purple", "pink", "orange"];
 
-    Array.from(uniqueValues.entries()).forEach(([id, raw], index) => {
-      const color = colors[index % colors.length];
-      options.push({ id, label: raw, color, order: index });
+    Array.from(uniqueValues.entries()).forEach(([_, raw], index) => {
+      const colorName = colors[index % colors.length];
+      const hexColor = colorNameToHex(colorName);
+      options.push({
+        id: generateOptionId(),
+        label: raw,
+        color: hexColor,
+        order: index
+      });
     });
 
     return { type: normalizedType ?? "select", config: { options } };
@@ -3488,12 +3569,17 @@ function inferFieldTypeFromData(
         if (!seenLabels.has(normalized)) {
           seenLabels.add(normalized);
           const label = value.charAt(0).toUpperCase() + value.slice(1);
-          let color = "gray";
-          if (normalized === "high" || normalized === "urgent" || normalized === "critical") color = "red";
-          else if (normalized === "medium") color = "yellow";
-          else if (normalized === "low") color = "green";
+          let colorName = "gray";
+          if (normalized === "high" || normalized === "urgent" || normalized === "critical") colorName = "red";
+          else if (normalized === "medium") colorName = "yellow";
+          else if (normalized === "low") colorName = "green";
 
-          levels.push({ id: normalized, label, color, order: index });
+          levels.push({
+            id: generateOptionId(),
+            label,
+            color: colorNameToHex(colorName),
+            order: index
+          });
         }
       });
 
@@ -3516,13 +3602,18 @@ function inferFieldTypeFromData(
         if (!seenLabels.has(normalized)) {
           seenLabels.add(normalized);
           const label = value.split(/[\s-]+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-          let color = "gray";
-          if (normalized === "done" || normalized === "complete" || normalized === "completed") color = "green";
-          else if (normalized === "in-progress" || normalized === "in-progress") color = "blue";
-          else if (normalized === "blocked") color = "red";
-          else if (normalized === "cancelled") color = "gray";
+          let colorName = "gray";
+          if (normalized === "done" || normalized === "complete" || normalized === "completed") colorName = "green";
+          else if (normalized === "in-progress" || normalized === "in-progress") colorName = "blue";
+          else if (normalized === "blocked") colorName = "red";
+          else if (normalized === "cancelled") colorName = "gray";
 
-          options.push({ id: normalized, label, color, order: index });
+          options.push({
+            id: generateOptionId(),
+            label,
+            color: colorNameToHex(colorName),
+            order: index
+          });
         }
       });
 
@@ -3537,9 +3628,13 @@ function inferFieldTypeFromData(
     const colors = ["gray", "blue", "green", "yellow", "red", "purple", "pink", "orange"];
 
     uniqueValues.forEach((value, index) => {
-      const id = value.toLowerCase().replace(/\s+/g, "-");
-      const color = colors[index % colors.length];
-      options.push({ id, label: value, color, order: index });
+      const colorName = colors[index % colors.length];
+      options.push({
+        id: generateOptionId(),
+        label: value,
+        color: colorNameToHex(colorName),
+        order: index
+      });
     });
 
     return { type: "select", config: { options } };
@@ -3638,11 +3733,26 @@ function hasUsableFieldConfig(
   const normalizedType = fieldType ? String(fieldType).toLowerCase().trim() : undefined;
   if (normalizedType === "priority") {
     const levels = (config as any)?.levels;
-    return Array.isArray(levels) && levels.length > 0;
+    if (!Array.isArray(levels) || levels.length === 0) return false;
+    // Validate that levels have proper IDs (not semantic IDs)
+    return levels.every((level: any) =>
+      level.id &&
+      typeof level.id === "string" &&
+      level.id.startsWith("opt_")
+    );
   }
   if (normalizedType === "status" || normalizedType === "select" || normalizedType === "multi_select") {
     const options = (config as any)?.options;
-    return Array.isArray(options) && options.length > 0;
+    if (!Array.isArray(options) || options.length === 0) return false;
+    // Validate that options have proper IDs (not semantic IDs) and hex colors
+    return options.every((opt: any) =>
+      opt.id &&
+      typeof opt.id === "string" &&
+      opt.id.startsWith("opt_") &&
+      opt.color &&
+      typeof opt.color === "string" &&
+      opt.color.startsWith("#")
+    );
   }
   return Object.keys(config).length > 0;
 }

@@ -509,14 +509,18 @@ function Header() {
 }
 
 function LayoutMain({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const { headerHidden } = useDashboardHeader();
+  const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
+  const isWorkflowCanvas = pathname?.match(/^\/dashboard\/workflow\/[^/]+$/);
 
   return (
     <main
       id="dashboard-content"
       className={cn(
-        "flex-1 overflow-y-auto px-3 md:px-4 lg:px-5",
-        headerHidden ? "py-0" : "py-4 lg:py-5"
+        "flex-1 min-h-0 px-3 md:px-4 lg:px-5",
+        isWorkflowCanvas ? "overflow-hidden py-0" : "overflow-y-auto",
+        headerHidden || isWorkflowPage ? "py-0" : "py-4 lg:py-5"
       )}
     >
       {children}

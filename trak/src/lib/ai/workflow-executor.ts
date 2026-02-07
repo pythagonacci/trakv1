@@ -95,7 +95,7 @@ function isTaskMutationCommand(command: string, historyText: string) {
 function isExplicitEntityMutationCommand(command: string) {
   const cmd = command.toLowerCase();
   const verb = /\b(create|update|delete|archive|unarchive|rename|move|copy|duplicate)\b/;
-  const entity = /\b(project|client|tab|document|doc|file|folder|workspace)\b/;
+  const entity = /\b(table|project|client|tab|document|doc|file|folder|workspace)\b/;
   return verb.test(cmd) && entity.test(cmd);
 }
 

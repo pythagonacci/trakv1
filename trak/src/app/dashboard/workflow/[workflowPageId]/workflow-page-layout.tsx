@@ -61,9 +61,9 @@ export default function WorkflowPageLayout(props: {
   };
 
   return (
-    <div className="h-[calc(100vh-64px)] w-full">
-      <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-[#3080a6]/20 bg-[var(--surface)] px-4 py-3">
+    <div className="h-full w-full flex flex-col min-h-0">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center justify-between border-b border-[#3080a6]/20 bg-[var(--surface)] px-4 py-3">
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold text-[var(--foreground)]">
               {props.title}
@@ -111,8 +111,8 @@ export default function WorkflowPageLayout(props: {
         </div>
 
         <div className="flex min-h-0 flex-1">
-          <div className={cn("min-w-0 flex-1", chatOpen && "border-r border-[#3080a6]/20")}>
-            <div className="h-full overflow-auto px-2 md:px-3 lg:px-4 py-3">
+          <div className={cn("min-w-0 flex-1 min-h-0", chatOpen && "border-r border-[#3080a6]/20")}>
+            <div className="h-full min-h-0 overflow-auto px-2 md:px-3 lg:px-4 pt-3">
               <TabCanvasWrapper
                 tabId={props.tabId}
                 projectId={props.projectId}

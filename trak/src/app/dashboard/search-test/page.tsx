@@ -65,7 +65,12 @@ export default function SearchTestPage() {
     const triggerWorker = async () => {
         setProcessing(true);
         try {
-            const res = await fetch("/api/internal/indexing/worker", { method: "POST" });
+            const res = await fetch("/api/internal/indexing/worker", {
+                method: "POST",
+                headers: {
+                    "x-manual-trigger": "true" // For manual testing, bypasses cron secret check
+                }
+            });
             const data = await res.json();
             setProcessResult(JSON.stringify(data, null, 2));
         } catch (e: any) {
@@ -156,7 +161,12 @@ export default function SearchTestPage() {
                                     let processed = 0;
                                     try {
                                         while (true) {
-                                            const res = await fetch("/api/internal/indexing/worker", { method: "POST" });
+                                            const res = await fetch("/api/internal/indexing/worker", {
+                                                method: "POST",
+                                                headers: {
+                                                    "x-manual-trigger": "true"
+                                                }
+                                            });
                                             const data = await res.json();
 
                                             // Break if no jobs were processed
