@@ -214,10 +214,10 @@ export function TableHeaderRow({
   return (
     <div className={`relative w-full ${className ?? ""}`}>
       <div
-        className="grid border-b border-l border-[var(--border)] bg-[var(--background)] w-full"
+        className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
         style={{ gridTemplateColumns: template }}
       >
-        <div className="flex items-center justify-center border-r border-[var(--border)] bg-[var(--surface-muted)] sticky left-0 z-30">
+        <div className="flex items-center justify-center border-r border-black/10 bg-[#d8d8d8]/20 sticky left-0 z-30">
           <input
             type="checkbox"
             checked={allSelected}
@@ -225,16 +225,16 @@ export function TableHeaderRow({
               if (el) el.indeterminate = someSelected;
             }}
             onChange={() => onToggleAllRows?.()}
-            className="h-4 w-4 accent-[var(--primary)]"
+            className="h-3.5 w-3.5 accent-[var(--primary)]"
           />
         </div>
         {fields.map((field, idx) => {
           const isPinned = pinnedFields.includes(field.id);
           return (
-            <div
+              <div
               key={field.id}
               ref={columnRefs?.[field.id]}
-              className={`${isPinned ? "sticky z-20 bg-[var(--background)]" : ""}`}
+              className={`${isPinned ? "sticky z-20 bg-[#d8d8d8]/20" : ""}`}
               style={isPinned ? { 
                 left: `${pinnedOffsets[field.id]}px`,
                 boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -271,10 +271,10 @@ export function TableHeaderRow({
         </div>
       );
     })}
-        <div className="flex items-center justify-center border-l border-[var(--border)] bg-[var(--surface-muted)] min-w-[40px]">
+        <div className="flex items-center justify-center border-l border-black/10 bg-[#d8d8d8]/20 min-w-[40px]">
           <button
             onClick={onAddField}
-            className="inline-flex items-center justify-center w-8 h-7 rounded-[2px] border border-dashed border-[var(--border)] bg-transparent text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 text-sm"
+            className="inline-flex items-center justify-center w-8 h-6 rounded-[2px] border border-dashed border-black/25 bg-transparent text-[var(--muted-foreground)] hover:border-black/40 hover:bg-black/5 hover:text-[var(--foreground)] transition-colors duration-150 text-sm"
             title="Add column"
           >
             +
@@ -388,10 +388,10 @@ function FieldHeader({
   };
 
   return (
-    <div className="px-3 py-1 flex items-center gap-2 border-r border-[var(--border)] bg-[var(--surface-muted)] relative">
-      <div className="flex-1 overflow-hidden">
+    <div className="px-2 py-0.5 flex items-center gap-1.5 border-r border-black/10 bg-[#d8d8d8]/20 relative min-h-0">
+      <div className="flex-1 overflow-hidden min-w-0">
         <input
-          className="w-full bg-transparent text-sm font-semibold text-[var(--foreground)] outline-none truncate border border-transparent focus:border-[var(--border-strong)] rounded-[2px] px-2 py-1"
+          className="w-full bg-transparent text-xs font-semibold text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none truncate border border-transparent focus:border-black/30 rounded-[2px] px-1.5 py-0.5"
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
           onBlur={commitName}
@@ -401,12 +401,12 @@ function FieldHeader({
             }
           }}
         />
-        <div className="mt-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] flex items-center gap-1">
+        <div className="mt-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)] flex items-center gap-1">
           {field.type !== "text" && (
-            <span className="rounded-[2px] px-1.5 py-[2px] bg-[var(--surface)] border border-[var(--border)] text-[10px]">{field.type}</span>
+            <span className="rounded-[1px] px-1 py-[1px] bg-black/10 border border-black/15 text-[9px] text-[var(--foreground)]">{field.type}</span>
           )}
           {sort && (
-            <span className="text-[var(--dome-teal)] flex items-center gap-1">
+            <span className="text-[var(--foreground)] flex items-center gap-0.5">
               {sort.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
               {sort.direction}
             </span>
@@ -417,7 +417,7 @@ function FieldHeader({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="relative z-20 h-7 w-7 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
+            className="relative z-20 h-6 w-6 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
             aria-label="Field actions"
           >
             <Settings className="h-3.5 w-3.5" />

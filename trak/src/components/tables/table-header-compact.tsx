@@ -159,12 +159,12 @@ export function TableHeaderCompact({
   }, [openSearchTick, searchInputRef]);
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--background)] relative z-50">
+    <div className="flex items-center justify-between px-4 py-2 border-b border-[#d8d8d8]/30 bg-[#d8d8d8]/20 relative z-50">
       {/* Left: Title */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {editingTitle ? (
           <input
-            className="text-base font-semibold text-[var(--foreground)] bg-[var(--surface)] outline-none border border-[var(--border-strong)] rounded-[2px] px-2 py-1 flex-1 min-w-0"
+            className="text-base font-semibold text-[var(--foreground)] bg-white/60 outline-none border border-black/20 rounded-[2px] px-2 py-1 flex-1 min-w-0 placeholder:text-[var(--muted-foreground)]"
             value={draftTitle}
             onChange={(e) => setDraftTitle(e.target.value)}
             onBlur={commitTitle}
@@ -208,8 +208,8 @@ export function TableHeaderCompact({
                   key={view.id}
                   className={`group inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-1 transition-colors duration-150 ${
                     isActive
-                      ? "bg-[var(--surface-muted)] border-[var(--border-strong)] text-[var(--foreground)]"
-                      : "border-transparent text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                      ? "bg-black/10 border-black/20 text-[var(--foreground)]"
+                      : "border-transparent text-[var(--muted-foreground)] hover:bg-black/5 hover:text-[var(--foreground)]"
                   }`}
                   title={tabMeta}
                 >
@@ -219,7 +219,7 @@ export function TableHeaderCompact({
                   >
                     <span className="text-xs">{view.name}</span>
                     {view.type === "board" && groupField && (
-                      <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                      <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
                         {groupLabel}
                       </span>
                     )}
@@ -285,7 +285,7 @@ export function TableHeaderCompact({
               setColumnSearch("");
               onSearch?.("");
             }}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150"
+            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150"
             title="Close search"
           >
             <X className="h-4 w-4" />
@@ -300,7 +300,7 @@ export function TableHeaderCompact({
           <button
             ref={groupButtonRef}
             onClick={() => setShowGroupBy(!showGroupBy)}
-            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150 text-xs"
+            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:border-black/25 transition-colors duration-150 text-xs"
             title="Group by"
           >
             Group {groupBy?.fieldId ? "•" : ""}
@@ -386,8 +386,8 @@ export function TableHeaderCompact({
         {/* Search icon */}
         <button
           onClick={() => setShowSearch(!showSearch)}
-          className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150"
-          title="Search"
+          className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150"
+            title="Search"
         >
           <Search className="h-4 w-4" />
         </button>
@@ -397,7 +397,7 @@ export function TableHeaderCompact({
           <button
             ref={viewsButtonRef}
             onClick={() => setShowViews(!showViews)}
-            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150 text-xs"
+            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:border-black/25 transition-colors duration-150 text-xs"
             title="Views"
           >
             <span>{viewLabel}</span>
@@ -510,7 +510,7 @@ export function TableHeaderCompact({
               e.stopPropagation();
               setShowFilters(!showFilters);
             }}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 relative"
+            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150 relative"
             title="Filters"
           >
             <Filter className="h-4 w-4" />
