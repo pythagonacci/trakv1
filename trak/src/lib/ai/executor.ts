@@ -197,7 +197,8 @@ function isSearchLikeToolName(name: string) {
     name.startsWith("search") ||
     name.startsWith("get") ||
     name.startsWith("resolve") ||
-    name === "requestToolGroups"
+    name === "requestToolGroups" ||
+    name === "unstructuredSearchWorkspace"
   );
 }
 
@@ -212,14 +213,8 @@ function looksLikeSemanticQuery(command: string): boolean {
 }
 
 function looksLikeKnowledgeQuery(text: string): boolean {
-  return /\b(doc|docs|documentation|note|notes|spec|specs|specification|plan|policy|strategy|icp|requirement|requirements|diet|meal|nutrition|roadmap|brief)\b/i.test(
+  return /\b(doc|docs|documentation|note|notes|spec|specs|specification|plan|policy|strategy|icp|requirement|requirements|diet|meal|nutrition|roadmap|brief|target|targets|goal|goals|objective|objectives|guideline|guidelines|process|processes|workflow|workflows|about|details?|information|info|summary|summaries|overview|how|why)\b/i.test(
     text
-  );
-}
-
-function looksLikeStructuredEntityQuery(command: string): boolean {
-  return /\b(task|tasks|project|projects|client|clients|table|tables|row|rows|tab|tabs|file|files|member|members|timeline|event|events|tag|tags|comment|comments)\b/i.test(
-    command
   );
 }
 
@@ -1188,16 +1183,21 @@ export async function executeAICommand(
         );
         const semanticQuery = looksLikeSemanticQuery(userCommand);
         const knowledgeQuery = looksLikeKnowledgeQuery(userCommand);
-        const entityQuery = looksLikeStructuredEntityQuery(userCommand);
+        // Only count successful unstructured search calls, not blocked/failed attempts
         const unstructuredAlready =
-          toolNamesThisRound.includes("unstructuredSearchWorkspace") ||
-          allToolCallsMade.some((call) => call.tool === "unstructuredSearchWorkspace");
+          toolCallsThisRound.some((call) => call.tool === "unstructuredSearchWorkspace" && call.result.success) ||
+          allToolCallsMade.some((call) => call.tool === "unstructuredSearchWorkspace" && call.result.success);
 
+        // Auto-fallback to unstructured search when:
+        // 1. Only search operations were performed
+        // 2. Structured searches returned empty OR query looks like knowledge/semantic query
+        // 3. Haven't already used unstructured search
+        // This is MORE AGGRESSIVE to ensure unstructured search is tried for semantic queries
         if (
           !autoUnstructuredFallbackUsed &&
           onlySearchOps &&
           hasStructuredSearchThisRound &&
-          (knowledgeQuery || (semanticQuery && (structuredSearchEmpty || !entityQuery))) &&
+          (structuredSearchEmpty || knowledgeQuery || semanticQuery) &&
           !unstructuredAlready &&
           userCommand.trim().length >= 4
         ) {
@@ -1206,6 +1206,10 @@ export async function executeAICommand(
           aiDebug("executeAICommand:autoUnstructuredFallback", {
             query: autoToolArgs.query,
             toolsAttempted: structuredSearchesThisRound.map((call) => call.tool),
+            structuredSearchEmpty,
+            knowledgeQuery,
+            semanticQuery,
+            readOnly: options.readOnly,
           });
 
           const autoToolResult = await executeTool(
@@ -1255,6 +1259,20 @@ export async function executeAICommand(
 
           autoUnstructuredFallbackUsed = true;
           continue;
+        } else if (onlySearchOps && hasStructuredSearchThisRound && !unstructuredAlready) {
+          // Log why auto-fallback was skipped
+          aiDebug("executeAICommand:autoUnstructuredFallbackSkipped", {
+            autoUnstructuredFallbackUsed,
+            structuredSearchEmpty,
+            knowledgeQuery,
+            semanticQuery,
+            commandLength: userCommand.trim().length,
+            reason: !structuredSearchEmpty && !knowledgeQuery && !semanticQuery
+              ? "Query not semantic/knowledge-based and structured search had results"
+              : userCommand.trim().length < 4
+                ? "Query too short"
+                : "Unknown",
+          });
         }
 
         const writeToolsThisRound = toolNamesThisRound.filter(
@@ -1931,16 +1949,21 @@ export async function* executeAICommandStream(
         );
         const semanticQuery = looksLikeSemanticQuery(userCommand);
         const knowledgeQuery = looksLikeKnowledgeQuery(userCommand);
-        const entityQuery = looksLikeStructuredEntityQuery(userCommand);
+        // Only count successful unstructured search calls, not blocked/failed attempts
         const unstructuredAlready =
-          toolNamesThisRound.includes("unstructuredSearchWorkspace") ||
-          toolCallsMade.some((call) => call.tool === "unstructuredSearchWorkspace");
+          toolCallsThisRound.some((call) => call.tool === "unstructuredSearchWorkspace" && call.result.success) ||
+          toolCallsMade.some((call) => call.tool === "unstructuredSearchWorkspace" && call.result.success);
 
+        // Auto-fallback to unstructured search when:
+        // 1. Only search operations were performed
+        // 2. Structured searches returned empty OR query looks like knowledge/semantic query
+        // 3. Haven't already used unstructured search
+        // This is MORE AGGRESSIVE to ensure unstructured search is tried for semantic queries
         if (
           !autoUnstructuredFallbackUsed &&
           onlySearchOps &&
           hasStructuredSearchThisRound &&
-          (knowledgeQuery || (semanticQuery && (structuredSearchEmpty || !entityQuery))) &&
+          (structuredSearchEmpty || knowledgeQuery || semanticQuery) &&
           !unstructuredAlready &&
           userCommand.trim().length >= 4
         ) {
@@ -1949,6 +1972,10 @@ export async function* executeAICommandStream(
           aiDebug("executeAICommandStream:autoUnstructuredFallback", {
             query: autoToolArgs.query,
             toolsAttempted: structuredSearchesThisRound.map((call) => call.tool),
+            structuredSearchEmpty,
+            knowledgeQuery,
+            semanticQuery,
+            readOnly: options.readOnly,
           });
 
           yield {
@@ -2005,6 +2032,20 @@ export async function* executeAICommandStream(
 
           autoUnstructuredFallbackUsed = true;
           continue;
+        } else if (onlySearchOps && hasStructuredSearchThisRound && !unstructuredAlready) {
+          // Log why auto-fallback was skipped
+          aiDebug("executeAICommandStream:autoUnstructuredFallbackSkipped", {
+            autoUnstructuredFallbackUsed,
+            structuredSearchEmpty,
+            knowledgeQuery,
+            semanticQuery,
+            commandLength: userCommand.trim().length,
+            reason: !structuredSearchEmpty && !knowledgeQuery && !semanticQuery
+              ? "Query not semantic/knowledge-based and structured search had results"
+              : userCommand.trim().length < 4
+                ? "Query too short"
+                : "Unknown",
+          });
         }
 
         continue;

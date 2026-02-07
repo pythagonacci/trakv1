@@ -324,7 +324,7 @@ IMPORTANT SAFETY:
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
 
-SEARCH STRATEGY - Use BOTH search types for comprehensive results:
+SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for comprehensive results. ALWAYS READ THE QUERY, AND DECIDE WHETHER ITS ASKING ABOUT STRUCTURED, UNSTRUCTURED, OR A COMBINATION OF BOTH:
 1. STRUCTURED SEARCH (searchTasks, searchProjects, searchDocs, searchTables, etc.)
    - Use when looking for specific entities by name, status, date, assignee
    - Good for: "overdue tasks", "projects for client X", "tasks assigned to Sarah"
@@ -340,7 +340,7 @@ FALLBACK BEHAVIOR:
 - For ambiguous queries like "Q1 campaigns", try BOTH: searchProjects + unstructuredSearchWorkspace
 
 RESPONSE PATTERN:
-1. Search/analyze data as needed (use fallback if no results)
+1. Search/analyze data as needed. Always use the tools to find the information you need. Do not eer come back with no results without using all the search tools available. 
 2. CREATE BLOCKS on the page with findings
 3. Your chat response should briefly summarize what you added: "I've added a table showing 12 campaigns and a summary of top performers."`,
     },
@@ -490,9 +490,13 @@ RESPONSE PATTERN:
     }
   }
 
-  // Guarantee the workflow page renders something: if the AI didn't create any blocks,
-  // persist the assistant response as a text block.
-  if (createdBlockIds.length === 0 && finalResponse.trim().length > 0) {
+  // Guarantee the workflow page renders something: if the AI didn't create any blocks
+  // AND didn't execute any successful tool calls, persist the assistant response as a text block.
+  // Skip this if the LLM performed actions (like deleting a table) - those should only show in chat.
+  const hadSuccessfulToolCall = (result.toolCallsMade || []).some(
+    (call) => call?.result?.success
+  );
+  if (createdBlockIds.length === 0 && finalResponse.trim().length > 0 && !hadSuccessfulToolCall) {
     const blockResult = await createBlock({
       tabId: params.tabId,
       type: "text",
@@ -616,7 +620,7 @@ IMPORTANT SAFETY:
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
 
-SEARCH STRATEGY - Use BOTH search types for comprehensive results:
+SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for comprehensive results. ALWAYS READ THE QUERY, AND DECIDE WHETHER ITS ASKING ABOUT STRUCTURED, UNSTRUCTURED, OR A COMBINATION OF BOTH:
 1. STRUCTURED SEARCH (searchTasks, searchProjects, searchDocs, searchTables, etc.)
    - Use when looking for specific entities by name, status, date, assignee
    - Good for: "overdue tasks", "projects for client X", "tasks assigned to Sarah"
@@ -632,7 +636,7 @@ FALLBACK BEHAVIOR:
 - For ambiguous queries like "Q1 campaigns", try BOTH: searchProjects + unstructuredSearchWorkspace
 
 RESPONSE PATTERN:
-1. Search/analyze data as needed (use fallback if no results)
+1. Search/analyze data as needed. Always use the tools to find the information you need. Do not eer come back with no results without using all the search tools available. 
 2. CREATE BLOCKS on the page with findings
 3. Your chat response should briefly summarize what you added: "I've added a table showing 12 campaigns and a summary of top performers."`,
     },
@@ -808,7 +812,11 @@ RESPONSE PATTERN:
     }
   }
 
-  if (createdBlockIds.length === 0 && finalResponse.trim().length > 0) {
+  // Only create a text block if the AI didn't create blocks AND didn't execute any actions
+  const hadSuccessfulToolCall = (toolCallsMade || []).some(
+    (call) => call?.result?.success
+  );
+  if (createdBlockIds.length === 0 && finalResponse.trim().length > 0 && !hadSuccessfulToolCall) {
     const blockResult = await createBlock({
       tabId: params.tabId,
       type: "text",

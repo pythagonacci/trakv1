@@ -152,3 +152,30 @@ The `deleteTable` tool exists and is properly defined in tool-definitions.ts, bu
 **Files Modified:**
 - `trak/src/lib/ai/executor.ts` (line 589: added "deleteTable" to SINGLE_ACTION_TOOLS delete.table list)
 - `trak/src/lib/ai/workflow-executor.ts` (lines 361 and 652: added "deleteTable" to allowedWriteTools in both execution paths)
+
+---
+
+## Fix 10: Conversational Responses Added as Text Blocks After Tool Execution
+
+**Issue:** When the LLM performed actions like deleting a table, the conversational response (e.g., "I found the 'Skincare Brands Only' table and successfully deleted it...") was being added to the workflow page as a text block in addition to appearing in the chat. The fallback logic in workflow-executor.ts only checked if blocks were created (`createdBlockIds.length === 0`), not whether any tool calls were executed, so action confirmations were incorrectly persisted as page content.
+
+**Root Cause:** The workflow page rendering guarantee at lines 493-507 and 811-823 created a text block for any assistant response when no blocks were created, regardless of whether the LLM had executed successful tool calls (like `deleteTable`, `updateTableFull`, etc.). This was intended as a fallback for pure conversational responses but incorrectly triggered for action confirmations.
+
+**Fix:** Added a check for successful tool calls (`hadSuccessfulToolCall`) before creating the fallback text block. Now conversational responses only become text blocks when the LLM hasn't executed any actions—if any tool was successfully called, the response stays in the chat panel only.
+
+**Files Modified:**
+- `trak/src/lib/ai/workflow-executor.ts` (lines 493-499: added `hadSuccessfulToolCall` check in non-streaming execution)
+- `trak/src/lib/ai/workflow-executor.ts` (lines 811-815: added `hadSuccessfulToolCall` check in streaming execution)
+
+---
+
+## Fix 11: Unstructured RAG Search Never Called in Read-Only Workflow Queries
+
+**Issue:** For read-only workflow queries like "What is the list of skincare brands we have", the AI never successfully called `unstructuredSearchWorkspace` (the semantic RAG search tool) because the `isSearchLikeToolName()` function didn't include it in the allowed search tool patterns, causing read-only enforcement to block it as a "write tool", and the auto-fallback mechanism counted blocked attempts as "already ran" which suppressed the fallback.
+
+**Fix:** Added `unstructuredSearchWorkspace` to `isSearchLikeToolName()` to allow it in read-only mode, updated the `unstructuredAlready` checks in both execution paths to only count successful executions (not blocked/failed attempts), and enhanced debug logging to show auto-fallback trigger conditions and skip reasons.
+
+**Files Modified:**
+- `trak/src/lib/ai/executor.ts` (lines 195-202: added unstructuredSearchWorkspace to isSearchLikeToolName)
+- `trak/src/lib/ai/executor.ts` (lines 1186-1189, 1933-1935: fixed unstructuredAlready to only count successful executions)
+- `trak/src/lib/ai/executor.ts` (lines 1204-1211, 1256-1270, 1951-1958, 2010-2024: enhanced debug logging for auto-fallback)
