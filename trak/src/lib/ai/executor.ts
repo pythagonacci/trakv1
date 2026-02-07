@@ -586,7 +586,7 @@ const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
   delete: {
     task: ["deleteTaskItem"],
     project: ["deleteProject"],
-    table: ["deleteRow", "deleteRows", "deleteField"],
+    table: ["deleteTable", "deleteRow", "deleteRows", "deleteField"],
     tab: ["deleteTab"],
     block: ["deleteBlock"],
     doc: ["deleteDoc", "archiveDoc"],

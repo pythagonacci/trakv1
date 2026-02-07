@@ -129,3 +129,26 @@ First attempted to fix only the data inference path by updating `inferFieldTypeF
 
 **Files Modified:**
 - `trak/supabase/migrations/20260206150000_fix_create_table_full_skip_defaults_when_fields_provided.sql` (new migration, lines 47-52 and 68-85)
+
+---
+
+## Fix 9: LLM Cannot Delete Tables (Only Rows and Fields)
+
+**Issue:** When users asked to delete an entire table (e.g., "delete the Skincare Brands Only table"), the LLM correctly identified the intent (`actions: ['delete']`, entity `'table'`, confidence 0.89) but only responded with text confirmation without actually deleting the table. The table remained in the database.
+
+**Root Cause:** The `SINGLE_ACTION_TOOLS` configuration for `delete` + `table` actions only included tools for deleting rows and fields:
+```typescript
+table: ["deleteRow", "deleteRows", "deleteField"]
+```
+
+The `deleteTable` tool exists and is properly defined in tool-definitions.ts, but it was missing from the allowed tools list. When the LLM's tool set was narrowed for "delete table" intents, it didn't have access to `deleteTable`, so it could only acknowledge the request in text without executing the deletion.
+
+**Fix:** Added `deleteTable` to the allowed tools lists:
+1. Added to `SINGLE_ACTION_TOOLS` delete.table list in executor.ts: `["deleteTable", "deleteRow", "deleteRows", "deleteField"]`
+2. Added to workflow `allowedWriteTools` in workflow-executor.ts (both streaming and non-streaming paths) for consistency
+
+**Result:** The LLM can now delete entire tables when requested. Commands like "delete the table" or "remove the old data table" will properly call the `deleteTable` tool and execute the deletion.
+
+**Files Modified:**
+- `trak/src/lib/ai/executor.ts` (line 589: added "deleteTable" to SINGLE_ACTION_TOOLS delete.table list)
+- `trak/src/lib/ai/workflow-executor.ts` (lines 361 and 652: added "deleteTable" to allowedWriteTools in both execution paths)

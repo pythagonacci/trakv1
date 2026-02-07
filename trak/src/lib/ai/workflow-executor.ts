@@ -358,6 +358,7 @@ RESPONSE PATTERN:
     "createChartBlock",
   ];
   allowedWriteTools.push("createTableFull");
+  allowedWriteTools.push("deleteTable");
   const result = await executeAICommand(
     params.command,
     {
@@ -649,6 +650,7 @@ RESPONSE PATTERN:
     "createChartBlock",
   ];
   allowedWriteTools.push("createTableFull");
+  allowedWriteTools.push("deleteTable");
 
   const stream = executeAICommandStream(
     params.command,
