@@ -179,3 +179,123 @@ The `deleteTable` tool exists and is properly defined in tool-definitions.ts, bu
 - `trak/src/lib/ai/executor.ts` (lines 195-202: added unstructuredSearchWorkspace to isSearchLikeToolName)
 - `trak/src/lib/ai/executor.ts` (lines 1186-1189, 1933-1935: fixed unstructuredAlready to only count successful executions)
 - `trak/src/lib/ai/executor.ts` (lines 1204-1211, 1256-1270, 1951-1958, 2010-2024: enhanced debug logging for auto-fallback)
+
+---
+
+## Fix 12: Missing Circuit Breakers in Streaming Execution Path (Regression of Fix #2)
+
+**Issue:** The `createTableFull` tool was being called repeatedly with empty arguments (argCount: 0) in workflow contexts, causing an infinite loop. This was a regression of Fix #2 — THREE circuit breakers that prevent infinite loops were only implemented in the non-streaming `executeAICommand` function, but not in the streaming `executeAICommandStream` function. Workflow pages use the streaming endpoint (`POST /api/workflow/stream`), so they bypassed all circuit breakers entirely.
+
+**Root Cause:** The streaming function at line 1664 was missing three critical safety mechanisms:
+1. **Empty argument circuit breaker**: Stops after first call with no arguments
+2. **Consecutive error circuit breaker**: Stops after 3 consecutive failures of the same tool
+3. **Tool repeat detector**: Stops after calling the same tool twice with identical arguments
+
+**Fix:** Added all three circuit breakers from the non-streaming path to the streaming path:
+
+1. **Tool Repeat Detector** (lines 1683-1684, 1902-1925):
+   - Tracks tool signature (tool name + arguments) for each call
+   - Stops execution if the same tool is called twice with identical arguments
+   - Exempts search-like tools from this check (they may legitimately be called multiple times)
+
+2. **Empty Argument Circuit Breaker** (line 1688, lines 1927-1948):
+   - Detects when a tool is called with no arguments (`Object.keys(toolArgs).length === 0`)
+   - Stops execution immediately on the first empty-argument failure
+   - Returns helpful error message indicating missing context
+
+3. **Consecutive Error Circuit Breaker** (line 1685, lines 1950-1967):
+   - Tracks consecutive failures per tool name
+   - Stops execution after 3 consecutive failures of the same tool
+   - Resets counter when tool succeeds
+
+**Result:** Workflow commands now have the same infinite loop protection as regular commands. All three circuit breakers work consistently in both streaming and non-streaming execution paths.
+
+**Files Modified:**
+- `trak/src/lib/ai/executor.ts` (lines 1683-1688: added all three circuit breaker tracking variables for streaming path)
+- `trak/src/lib/ai/executor.ts` (lines 1902-1967: added all three circuit breaker checks after tool execution in streaming path)
+
+---
+
+## Fix 13: LLM Calling createTableFull with Empty Arguments for Data Generation Requests
+
+**Issue:** When users requested tables with generated data (e.g., "create a table of cuisines and their dishes"), the LLM was calling `createTableFull` with zero arguments (argCount: 0), triggering the circuit breaker. The circuit breaker correctly prevented the infinite loop, but the user received an unhelpful error message instead of getting their table created.
+
+**Root Cause:** The tool definition for `createTableFull` lacked a concrete JSON example showing the exact structure for `fields` and `rows` parameters. The system prompt referenced the outdated `bulkInsertRows` pattern instead of `createTableFull`, causing the LLM to be confused about how to structure data generation requests.
+
+**Fix:** Enhanced tool documentation and system prompt to provide clear guidance on data generation:
+
+1. **Added concrete JSON example to createTableFull definition** showing exact structure:
+   - Example request: "Create a table of top 5 programming languages and their creators"
+   - Shows fields array with name/type structure: `[{ name: 'Language', type: 'text' }]`
+   - Shows rows array with data objects: `[{ data: { 'Language': 'Python', 'Creator': 'Guido van Rossum' } }]`
+
+2. **Updated system prompt** to reference createTableFull for data generation:
+   - Changed from "use bulkInsertRows" to "use createTableFull with fields AND rows in one call"
+   - Added explicit DO/DON'T examples for common data generation requests
+   - Added example matching user's query type: "Create a table of cuisines and their dishes"
+
+3. **Added JSON parse error logging** to help debug future argument issues:
+   - Logs raw arguments string when JSON.parse fails
+   - Shows parse error message for debugging
+
+**Result:** LLM now understands how to structure createTableFull calls with generated data. When users request tables like "all cuisines and their dishes", the LLM generates the data from its knowledge and properly formats it as fields + rows.
+
+**Files Modified:**
+- `trak/src/lib/ai/tool-definitions.ts` (lines 1027-1041: added concrete JSON example with fields and rows structure)
+- `trak/src/lib/ai/system-prompt.ts` (lines 37-51: updated to reference createTableFull and added data generation examples)
+- `trak/src/lib/ai/executor.ts` (both streaming and non-streaming paths: added JSON parse error logging for debugging)
+
+---
+
+## Fix 14: JSON Truncation When LLM Generates Large Datasets
+
+**Issue:** When users requested tables with many rows (e.g., "create a table of cuisines and their dishes"), the LLM correctly understood the request and generated proper arguments with fields and rows, but the JSON response was truncated mid-string due to token limits, causing a parse error: `Unterminated string in JSON at position 1357`. This triggered the circuit breaker with an unhelpful error message.
+
+**Root Cause:** The `TOOL_CALL_MAX_TOKENS` limit was set to 512 tokens, which is too small for generating tables with multiple rows of data. When the LLM tried to generate 7+ rows with descriptions, the response exceeded the token limit and was cut off mid-JSON, creating invalid JSON that failed to parse.
+
+**Fix:** Implemented a three-part solution to handle large dataset generation:
+
+1. **Increased token limit** from 512 to 2048 tokens (4x increase):
+   - Allows ~30-50 rows depending on field complexity
+   - Balances between capability and cost/latency
+
+2. **Added smart truncation detection and retry**:
+   - Detects "unterminated string" and "unexpected end" errors in JSON parse
+   - On first iteration with createTableFull, returns helpful error asking LLM to retry with fewer rows
+   - Error message: "Please try again with FEWER rows (5-10 rows maximum)"
+   - Allows LLM to self-correct by generating a smaller dataset
+
+3. **Added proactive guidance in tool definition**:
+   - Added warning: "⚠️ ROW LIMIT: Generate 10-15 rows maximum in a single call"
+   - Guides LLM to create representative samples instead of exhaustive datasets
+   - Prevents truncation before it happens
+
+**Result:** LLM can now generate tables with 10-15 rows reliably. If it tries to generate too many rows and hits truncation, it automatically retries with a smaller dataset. Users get working tables instead of error messages.
+
+**Files Modified:**
+- `trak/src/lib/ai/executor.ts` (line 126: increased TOOL_CALL_MAX_TOKENS from 512 to 2048)
+- `trak/src/lib/ai/executor.ts` (lines 946-961, 1853-1873: added truncation detection and retry logic in both execution paths)
+- `trak/src/lib/ai/tool-definitions.ts` (line 1043: added ROW LIMIT guidance to prevent truncation)
+
+---
+
+## Fix 15: LLM Not Inferring Context from Failed Previous Attempts
+
+**Issue:** When users made follow-up requests using words like "instead" (e.g., "create a table organized by Food item instead"), the LLM called `createTableFull` with zero arguments even though conversation history was passed correctly. The LLM failed to infer intent from failed previous attempts and returned unhelpful "I need more information" errors.
+
+**Root Cause:** The system prompt didn't provide guidance on handling follow-up requests that reference failed previous operations. When the LLM saw "instead" but the referenced table didn't exist (because previous attempts failed), it didn't know it could infer the intent from the failed attempts and create what the user wanted.
+
+**Fix:** Added explicit guidance to the system prompt for handling follow-up requests:
+
+1. **Inference from failed attempts**: Told LLM it can and should infer intent from failed operations in conversation history
+2. **Concrete example**: "After failing to create 'table of cuisines and dishes', if user says 'organized by food item instead', infer they want food items as rows with cuisine/category/description columns"
+3. **Explicit instruction**: "Don't fail with 'I need more information' - use your knowledge to fill in gaps"
+4. **Critical rule**: "Even if previous attempts failed, you can infer intent and create what the user wants"
+
+**Additional Enhancement:** Added logging to detect when LLM calls tools with empty arguments, capturing the raw arguments and assistant content for debugging.
+
+**Result:** LLM now makes reasonable inferences from conversational context, even when previous attempts failed. Follow-up requests like "instead" or "modify" are handled intelligently.
+
+**Files Modified:**
+- `trak/src/lib/ai/system-prompt.ts` (lines 57-71: added "Handling Follow-Up Requests" section with inference guidance)
+- `trak/src/lib/ai/executor.ts` (lines 1873-1882: added logging for empty argument detection)

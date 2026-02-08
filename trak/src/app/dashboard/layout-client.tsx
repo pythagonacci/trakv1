@@ -268,7 +268,7 @@ function Sidebar({
         {/* AI Command Button */}
         <AICommandButton collapsed={collapsed} />
 
-        <nav className={cn("space-y-1 px-2", collapsed ? "pt-2" : "pt-2 pb-2")}
+        <nav className={cn("space-y-0.5 px-2", collapsed ? "pt-2" : "pt-2 pb-2")}
         >
           <NavLink
             href="/dashboard"
@@ -427,8 +427,8 @@ function NavLink({
       prefetch={prefetch}
       className={cn(
         // SARAJEVO NAV with ARTS PALETTE colors
-        "group flex w-full items-center rounded-md text-sm font-medium transition-colors duration-150",
-        collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
+        "group flex w-full items-center rounded-md text-base font-medium transition-colors duration-150",
+        collapsed ? "justify-center px-2 py-1.5" : "gap-3 px-3 py-1.5",
         active
           ? "bg-black/15 text-white border-l-2 border-white/30"
           : "bg-black/5 text-white hover:bg-black/20 hover:text-white"
@@ -437,7 +437,7 @@ function NavLink({
     >
       <span
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150",
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-150",
           active
             ? "bg-[#3080a6]/15 text-white"
             : "text-white/70 group-hover:text-white"

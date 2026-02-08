@@ -392,6 +392,9 @@ function matchCreateTask(
   const entityScore = scoreEntity("task", normalized, tokens);
   if (actionScore < 0.55 || entityScore < 0.55) return null;
 
+  // Detect multiple task creation patterns and defer to LLM
+  if (isMultipleTasksRequest(cleaned)) return null;
+
   const title = extractTitle(cleaned, ENTITY_SYNONYMS.task);
   if (!title) return null;
 
@@ -1119,6 +1122,24 @@ function isMultiStepCommand(value: string) {
   const actionAfterAnd =
     /\b(?:and)\s+(?:assign|add|set|tag|move|delete|remove|update|rename|change|populate|fill|insert|attach|link|copy|duplicate|archive|complete|close|open|share|export|import)\b/i;
   return multiStep.test(value) || actionAfterAnd.test(value);
+}
+
+function isMultipleTasksRequest(value: string) {
+  // Pattern 1: "Create N tasks" where N is a number (e.g., "Create 5 tasks")
+  const numberPattern = /\b(?:create|add|make)\s+\d+\s+(?:task|todo|item)s?\b/i;
+  if (numberPattern.test(value)) return true;
+
+  // Pattern 2: Lists with commas or semicolons after task keyword (e.g., "Create tasks: A, B, C")
+  // Look for comma/semicolon patterns that suggest multiple items
+  const listPattern = /\b(?:task|todo|item)s?\s*[:]\s*.+[,;].+/i;
+  if (listPattern.test(value)) return true;
+
+  // Pattern 3: "Create tasks X, Y, Z" or "Create tasks: X, Y, and Z"
+  // Match when "tasks" (plural) is followed by multiple comma-separated items
+  const pluralWithList = /\b(?:task|todo|item)s\b.*[,;].*[,;]/i;
+  if (pluralWithList.test(value)) return true;
+
+  return false;
 }
 
 function isLikelyRankedDataRequest(value: string) {

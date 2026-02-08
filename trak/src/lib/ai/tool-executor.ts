@@ -638,6 +638,13 @@ function buildUndoStepsAfter(
       return deleteById("blocks", data?.id);
     case "createTaskItem":
       return deleteById("task_items", data?.id);
+    case "bulkCreateTasks": {
+      const createdTasks = Array.isArray((data as any)?.createdTasks)
+        ? ((data as any).createdTasks as { id?: string }[])
+        : [];
+      const ids = createdTasks.map(t => t.id).filter(Boolean) as string[];
+      return ids.length > 0 ? [{ action: "delete", table: "task_items", ids, idColumn: "id" }] : [];
+    }
     case "createTaskSubtask":
       return deleteById("task_subtasks", data?.id);
     case "createClient":
@@ -757,720 +764,784 @@ export async function executeTool(
 
     const runTool = async (): Promise<ToolCallResult> => {
       switch (name) {
-      // ==================================================================
-      // CONTROL TOOLS
-      // ==================================================================
-      case "requestToolGroups": {
-        const toolGroups = Array.isArray((args as any)?.toolGroups)
-          ? ((args as any).toolGroups as unknown[])
-            .map((group) => String(group))
-            .filter((group) => group.length > 0)
-          : [];
-        const reason = typeof (args as any)?.reason === "string" ? ((args as any).reason as string) : undefined;
-        return {
-          success: true,
-          data: { toolGroups, reason },
-        };
-      }
-
-      // ==================================================================
-      // WORKSPACE TOOLS
-      // ==================================================================
-      case "reindexWorkspaceContent":
-        return await wrapResult(
-          reindexWorkspaceContent({
-            workspaceId: (args as any)?.workspaceId as string | undefined,
-            includeBlocks: (args as any)?.includeBlocks as boolean | undefined,
-            includeFiles: (args as any)?.includeFiles as boolean | undefined,
-            maxItems: (args as any)?.maxItems as number | undefined,
-            authContext: authContext ?? undefined,
-          })
-        );
-
-      // ==================================================================
-      // SEARCH TOOLS
-      // ==================================================================
-      case "searchTasks":
-        return await wrapResult(searchTasks(args as any));
-
-      case "searchProjects":
-        return await wrapResult(searchProjects(args as any));
-
-      case "searchClients":
-        return await wrapResult(searchClients(args as any));
-
-      case "searchWorkspaceMembers":
-        return await wrapResult(searchWorkspaceMembers(args as any));
-
-      case "searchTabs":
-        return await wrapResult(searchTabs(args as any));
-
-      case "searchBlocks":
-        return await wrapResult(searchBlocks(args as any));
-
-      case "searchDocs":
-        return await wrapResult(searchDocs(args as any));
-
-      case "searchDocContent":
-        return await wrapResult(searchDocContent(args as any));
-
-      case "searchTables":
-        if (context?.contextTableId) {
-          const schema = await getTableSchema({ tableId: context.contextTableId });
-          if (!schema.error && schema.data) {
-            return {
-              success: true,
-              data: [
-                {
-                  id: schema.data.id,
-                  title: schema.data.title,
-                  description: schema.data.description ?? null,
-                  icon: null,
-                  workspace_id: workspaceId,
-                  project_id: schema.data.project_id,
-                  project_name: schema.data.project_name ?? null,
-                  created_at: null,
-                  updated_at: null,
-                },
-              ],
-            };
-          }
-        }
-        if (context?.currentTabId) {
-          const tabBlocks = await getTabBlocks(context.currentTabId, { authContext: authContext ?? undefined });
-          const tableIds = (tabBlocks.data ?? [])
-            .filter((block) => block.type === "table")
-            .map((block) => String((block.content as Record<string, unknown> | undefined)?.tableId || ""))
-            .filter((tableId) => tableId.length > 0);
-
-          if (tableIds.length > 0) {
-            const schemas = await Promise.all(
-              Array.from(new Set(tableIds)).map(async (tableId) => ({
-                tableId,
-                schema: await getTableSchema({ tableId }),
-              }))
-            );
-
-            const mapped = schemas
-              .filter((entry) => !entry.schema.error && entry.schema.data)
-              .map((entry) => {
-                const schema = entry.schema.data!;
-                return {
-                  id: schema.id,
-                  title: schema.title,
-                  description: schema.description ?? null,
-                  icon: null,
-                  workspace_id: workspaceId,
-                  project_id: schema.project_id,
-                  project_name: schema.project_name ?? null,
-                  created_at: null,
-                  updated_at: null,
-                };
-              });
-
-            const searchText = String((args as Record<string, unknown>)?.searchText || "").trim().toLowerCase();
-            if (searchText.length > 0) {
-              const filtered = mapped.filter((table) =>
-                table.title.toLowerCase().includes(searchText)
-              );
-              if (filtered.length > 0) {
-                return { success: true, data: filtered };
-              }
-            } else if (mapped.length > 0) {
-              return { success: true, data: mapped };
-            }
-          }
-        }
-        return await wrapResult(searchTables(args as any));
-
-      case "searchTableRows":
-        return await wrapResult(searchTableRows(args as any));
-
-      case "searchTimelineEvents":
-        return await wrapResult(searchTimelineEvents(args as any));
-
-      case "searchFiles":
-        return await wrapResult(searchFiles(args as any));
-
-      case "unstructuredSearchWorkspace": {
-        const query = String((args as any)?.query || "").trim();
-        if (!query) return { success: false, error: "Missing query for unstructuredSearchWorkspace" };
-        const limitParents = typeof (args as any)?.limitParents === "number" ? (args as any).limitParents : 10;
-        const limitChunks = typeof (args as any)?.limitChunks === "number" ? (args as any).limitChunks : 5;
-        if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
-        if (!workspaceId) return { success: false, error: "No workspace selected" };
-
-        const searcher = new UnstructuredSearch(authContext.supabase);
-        const results = await searcher.searchWorkspace(workspaceId, query);
-        const trimmed = (results || []).slice(0, Math.max(1, limitParents)).map((result) => ({
-          ...result,
-          chunks: Array.isArray(result.chunks) ? result.chunks.slice(0, Math.max(1, limitChunks)) : [],
-        }));
-        return { success: true, data: trimmed };
-      }
-
-      case "searchTags":
-        return await wrapResult(searchTags(args as any));
-
-      case "searchAll":
-        return await wrapResult(searchAll(args as any));
-
-      case "resolveEntityByName":
-        return await wrapResult(resolveEntityByName(args as any));
-
-      case "getEntityById":
-        return await wrapResult(getEntityById(args as any));
-
-      case "getEntityContext":
-        return await wrapResult(getEntityContext(args as any));
-
-      case "getTableSchema":
-        return await wrapResult(getTableSchema(args as any));
-
-      // ==================================================================
-      // TASK ACTIONS
-      // ==================================================================
-      case "createTaskItem":
-        {
-          const timing: Record<string, number> = {};
-          const needBlock = !(args.taskBlockId as string);
-          const assigneeArgs =
-            Array.isArray(args.assignees) && args.assignees.length > 0
-              ? args.assignees.map(a =>
-                  isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
-                )
-              : [];
-          const needAssignees = assigneeArgs.length > 0;
-
-          let taskBlockId = args.taskBlockId as string;
-          let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
-
-          let searchCtx: SearchContextSuccess | null = null;
-          if (needBlock || needAssignees) {
-            const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
-            if (ctxResult.error !== null) {
-              return { success: false, error: ctxResult.error };
-            }
-            searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
-          }
-
-          if (needBlock && needAssignees && searchCtx) {
-            const tResolve0 = performance.now();
-            const [resolvedBlockId, resolveResult] = await Promise.all([
-              resolveTaskBlockIdForCreateTask(context, args, searchCtx, authContext),
-              resolveTaskAssignees(assigneeArgs, searchCtx),
-            ]);
-            timing.t_resolve_assignee_ms = Math.round(performance.now() - tResolve0);
-            taskBlockId = resolvedBlockId ?? taskBlockId;
-            if (resolveResult.ambiguities.length > 0) {
-              const details = resolveResult.ambiguities.map(a => `"${a.input}"`).join(", ");
-              return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
-            }
-            resolvedAssignees = resolveResult.resolved;
-          } else if (needBlock) {
-            const resolvedBlockId = await resolveTaskBlockIdForCreateTask(context, args, searchCtx ?? undefined, authContext);
-            taskBlockId = resolvedBlockId ?? taskBlockId;
-          } else if (needAssignees && searchCtx) {
-            const tResolve0 = performance.now();
-            const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
-            timing.t_resolve_assignee_ms = Math.round(performance.now() - tResolve0);
-            if (assigneeResult.ambiguities.length > 0) {
-              const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
-              return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
-            }
-            resolvedAssignees = assigneeResult.resolved;
-          }
-
-          if (!taskBlockId) {
-            return { success: false, error: "Missing taskBlockId and could not auto-resolve from context. Please provide a task block ID." };
-          }
-
-          const payload = {
-            taskBlockId,
-            title: args.title as string,
-            status: args.status as any,
-            priority: args.priority as any,
-            description: args.description as string | undefined,
-            dueDate: args.dueDate as string | undefined,
-            dueTime: args.dueTime as string | undefined,
-            startDate: args.startDate as string | undefined,
+        // ==================================================================
+        // CONTROL TOOLS
+        // ==================================================================
+        case "requestToolGroups": {
+          const toolGroups = Array.isArray((args as any)?.toolGroups)
+            ? ((args as any).toolGroups as unknown[])
+              .map((group) => String(group))
+              .filter((group) => group.length > 0)
+            : [];
+          const reason = typeof (args as any)?.reason === "string" ? ((args as any).reason as string) : undefined;
+          return {
+            success: true,
+            data: { toolGroups, reason },
           };
-
-          // ------------------------------------------------------------------
-          // EXECUTION: Create -> Assign -> Tag
-          // ------------------------------------------------------------------
-
-          const rpcResult = await createTaskFullRpc({
-            ...payload,
-            assignees: resolvedAssignees,
-            tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
-            authContext: authContext ?? undefined,
-          });
-          if (!("error" in rpcResult)) {
-            return { success: true, data: rpcResult.data };
-          }
-
-          const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
-          if (!("error" in directResult)) {
-            const newTaskId = directResult.data.id;
-
-            const postCreate: Promise<unknown>[] = [];
-            if (resolvedAssignees.length > 0) {
-              postCreate.push(setTaskAssignees(newTaskId, resolvedAssignees, { timing, replaceExisting: false, authContext: authContext ?? undefined }));
-            }
-            if (Array.isArray(args.tags) && args.tags.length > 0) {
-              postCreate.push(setTaskTags(newTaskId, args.tags as string[], { authContext: authContext ?? undefined }));
-            }
-            if (postCreate.length > 0) await Promise.all(postCreate);
-
-            aiDebug("createTaskItem:timing", {
-              t_auth_ms: timing.t_auth_ms,
-              t_ctx_ms: timing.t_ctx_ms,
-              t_resolve_assignee_ms: timing.t_resolve_assignee_ms,
-              t_insert_task_ms: timing.t_insert_task_ms,
-              t_insert_assignees_ms: timing.t_insert_assignees_ms,
-              t_fetch_return_ms: timing.t_fetch_return_ms,
-            });
-            return { success: true, data: directResult.data };
-          }
-
-          if (directResult.error === "Task block not found") {
-            const tabResult = await getEntityById({
-              entityType: "tab",
-              id: taskBlockId,
-            });
-
-            if (!tabResult.error && tabResult.data) {
-              // Reuse existing task block in this tab if available
-              const existingBlocks = await searchBlocks({
-                type: "task",
-                tabId: taskBlockId,
-                limit: 1,
-              });
-              const existingBlockId = existingBlocks.data?.[0]?.id;
-
-              if (!existingBlockId) {
-                const blockResult = await createBlock({
-                  tabId: taskBlockId,
-                  type: "task",
-                  content: undefined,
-                  authContext: authContext ?? undefined,
-                });
-                if ("error" in blockResult) {
-                  return { success: false, error: blockResult.error ?? "Failed to create task block" };
-                }
-
-                const retryResult = await createTaskItem({
-                  ...payload,
-                  taskBlockId: blockResult.data.id,
-                });
-
-                if (!("error" in retryResult)) {
-                  return { success: true, data: retryResult.data };
-                }
-
-                return { success: false, error: retryResult.error ?? "Failed to create task" };
-              }
-
-              const retryResult = await createTaskItem({
-                ...payload,
-                taskBlockId: existingBlockId,
-              }, { authContext: authContext ?? undefined });
-
-              if (!("error" in retryResult)) {
-                return { success: true, data: retryResult.data };
-              }
-
-              return { success: false, error: retryResult.error ?? "Failed to create task" };
-            }
-          }
-
-          if (directResult.error === "Block is not a task block") {
-            const blockResult = await getEntityById({
-              entityType: "block",
-              id: taskBlockId,
-            });
-
-            const tabId = blockResult.data?.context?.tab_id;
-            if (tabId) {
-              const existingBlocks = await searchBlocks({
-                type: "task",
-                tabId,
-                limit: 1,
-              });
-              const existingBlockId = existingBlocks.data?.[0]?.id;
-              let taskBlockIdToUse = existingBlockId;
-
-              if (!taskBlockIdToUse) {
-                const blockResult = await createBlock({
-                  tabId,
-                  type: "task",
-                  content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
-                  authContext: authContext ?? undefined,
-                });
-                if ("error" in blockResult) {
-                  return { success: false, error: blockResult.error ?? "Failed to create task block" };
-                }
-                taskBlockIdToUse = blockResult.data?.id;
-              }
-
-              if (taskBlockIdToUse) {
-                const retryResult = await createTaskItem({
-                  ...payload,
-                  taskBlockId: taskBlockIdToUse,
-                }, { authContext: authContext ?? undefined });
-                if (!("error" in retryResult)) {
-                  return { success: true, data: retryResult.data };
-                }
-                return { success: false, error: retryResult.error ?? "Failed to create task" };
-              }
-            }
-          }
-
-          return { success: false, error: directResult.error ?? "Failed to create task" };
         }
 
-      case "updateTaskItem":
-        {
-          let taskId = args.taskId as string;
-          const lookupName = args.lookupName as string;
+        // ==================================================================
+        // WORKSPACE TOOLS
+        // ==================================================================
+        case "reindexWorkspaceContent":
+          return await wrapResult(
+            reindexWorkspaceContent({
+              workspaceId: (args as any)?.workspaceId as string | undefined,
+              includeBlocks: (args as any)?.includeBlocks as boolean | undefined,
+              includeFiles: (args as any)?.includeFiles as boolean | undefined,
+              maxItems: (args as any)?.maxItems as number | undefined,
+              authContext: authContext ?? undefined,
+            })
+          );
 
-          // Latency Optimization: If taskId missing, find by name
-          if (!taskId && lookupName) {
-            const searchResult = await searchTasks({
-              searchText: lookupName,
-              limit: 5
-            });
+        // ==================================================================
+        // SEARCH TOOLS
+        // ==================================================================
+        case "searchTasks":
+          return await wrapResult(searchTasks(args as any));
 
-            if (!searchResult.error && searchResult.data) {
-              // Filter for exact matches if possible, or take the best match
-              const matches = searchResult.data;
-              if (matches.length === 1) {
-                taskId = matches[0].id;
-              } else if (matches.length > 1) {
-                // If multiple matches, try to find case-insensitive exact match
-                const exact = matches.find(m => m.title.toLowerCase() === lookupName.toLowerCase());
-                if (exact) {
-                  taskId = exact.id;
-                } else {
+        case "searchProjects":
+          return await wrapResult(searchProjects(args as any));
+
+        case "searchClients":
+          return await wrapResult(searchClients(args as any));
+
+        case "searchWorkspaceMembers":
+          return await wrapResult(searchWorkspaceMembers(args as any));
+
+        case "searchTabs":
+          return await wrapResult(searchTabs(args as any));
+
+        case "searchBlocks":
+          return await wrapResult(searchBlocks(args as any));
+
+        case "searchDocs":
+          return await wrapResult(searchDocs(args as any));
+
+        case "searchDocContent":
+          return await wrapResult(searchDocContent(args as any));
+
+        case "searchTables":
+          if (context?.contextTableId) {
+            const schema = await getTableSchema({ tableId: context.contextTableId });
+            if (!schema.error && schema.data) {
+              return {
+                success: true,
+                data: [
+                  {
+                    id: schema.data.id,
+                    title: schema.data.title,
+                    description: schema.data.description ?? null,
+                    icon: null,
+                    workspace_id: workspaceId,
+                    project_id: schema.data.project_id,
+                    project_name: schema.data.project_name ?? null,
+                    created_at: null,
+                    updated_at: null,
+                  },
+                ],
+              };
+            }
+          }
+          if (context?.currentTabId) {
+            const tabBlocks = await getTabBlocks(context.currentTabId, { authContext: authContext ?? undefined });
+            const tableIds = (tabBlocks.data ?? [])
+              .filter((block) => block.type === "table")
+              .map((block) => String((block.content as Record<string, unknown> | undefined)?.tableId || ""))
+              .filter((tableId) => tableId.length > 0);
+
+            if (tableIds.length > 0) {
+              const schemas = await Promise.all(
+                Array.from(new Set(tableIds)).map(async (tableId) => ({
+                  tableId,
+                  schema: await getTableSchema({ tableId }),
+                }))
+              );
+
+              const mapped = schemas
+                .filter((entry) => !entry.schema.error && entry.schema.data)
+                .map((entry) => {
+                  const schema = entry.schema.data!;
                   return {
-                    success: false,
-                    error: `Ambiguous task name. Found ${matches.length} tasks matching "${lookupName}". Please specify which one or use the exact title.`
+                    id: schema.id,
+                    title: schema.title,
+                    description: schema.description ?? null,
+                    icon: null,
+                    workspace_id: workspaceId,
+                    project_id: schema.project_id,
+                    project_name: schema.project_name ?? null,
+                    created_at: null,
+                    updated_at: null,
                   };
+                });
+
+              const searchText = String((args as Record<string, unknown>)?.searchText || "").trim().toLowerCase();
+              if (searchText.length > 0) {
+                const filtered = mapped.filter((table) =>
+                  table.title.toLowerCase().includes(searchText)
+                );
+                if (filtered.length > 0) {
+                  return { success: true, data: filtered };
                 }
-              } else {
-                return { success: false, error: `Task "${lookupName}" not found.` };
+              } else if (mapped.length > 0) {
+                return { success: true, data: mapped };
               }
             }
           }
+          return await wrapResult(searchTables(args as any));
 
-          if (!taskId) {
-            return { success: false, error: "Missing taskId or valid lookupName." };
-          }
+        case "searchTableRows":
+          return await wrapResult(searchTableRows(args as any));
 
-          const baseUpdates: Record<string, unknown> = {};
-          if (args.title !== undefined) baseUpdates.title = args.title as string | undefined;
-          if (args.status !== undefined) baseUpdates.status = args.status as any;
-          if (args.priority !== undefined) baseUpdates.priority = args.priority as any;
-          if (args.description !== undefined) baseUpdates.description = args.description as string | null | undefined;
-          if (args.dueDate !== undefined) baseUpdates.dueDate = args.dueDate as string | null | undefined;
-          if (args.dueTime !== undefined) baseUpdates.dueTime = args.dueTime as string | null | undefined;
-          if (args.startDate !== undefined) baseUpdates.startDate = args.startDate as string | null | undefined;
+        case "searchTimelineEvents":
+          return await wrapResult(searchTimelineEvents(args as any));
 
-          const assigneesProvided = args.assignees !== undefined;
-          const tagsProvided = args.tags !== undefined;
-          let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
-          let searchCtx: SearchContextSuccess | null = null;
+        case "searchFiles":
+          return await wrapResult(searchFiles(args as any));
 
-          if (assigneesProvided) {
-            const assigneeArgs = Array.isArray(args.assignees) && args.assignees.length > 0
-              ? args.assignees.map(a =>
+        case "unstructuredSearchWorkspace": {
+          const query = String((args as any)?.query || "").trim();
+          if (!query) return { success: false, error: "Missing query for unstructuredSearchWorkspace" };
+          const limitParents = typeof (args as any)?.limitParents === "number" ? (args as any).limitParents : 10;
+          const limitChunks = typeof (args as any)?.limitChunks === "number" ? (args as any).limitChunks : 5;
+          if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
+          if (!workspaceId) return { success: false, error: "No workspace selected" };
+
+          const searcher = new UnstructuredSearch(authContext.supabase);
+          const results = await searcher.searchWorkspace(workspaceId, query);
+          const trimmed = (results || []).slice(0, Math.max(1, limitParents)).map((result) => ({
+            ...result,
+            chunks: Array.isArray(result.chunks) ? result.chunks.slice(0, Math.max(1, limitChunks)) : [],
+          }));
+          return { success: true, data: trimmed };
+        }
+
+        case "searchTags":
+          return await wrapResult(searchTags(args as any));
+
+        case "searchAll":
+          return await wrapResult(searchAll(args as any));
+
+        case "resolveEntityByName":
+          return await wrapResult(resolveEntityByName(args as any));
+
+        case "getEntityById":
+          return await wrapResult(getEntityById(args as any));
+
+        case "getEntityContext":
+          return await wrapResult(getEntityContext(args as any));
+
+        case "getTableSchema":
+          return await wrapResult(getTableSchema(args as any));
+
+        // ==================================================================
+        // TASK ACTIONS
+        // ==================================================================
+        case "createTaskItem":
+          {
+            const timing: Record<string, number> = {};
+            const needBlock = !(args.taskBlockId as string);
+            const assigneeArgs =
+              Array.isArray(args.assignees) && args.assignees.length > 0
+                ? args.assignees.map(a =>
                   isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
                 )
-              : [];
+                : [];
+            const needAssignees = assigneeArgs.length > 0;
 
-            const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
-            if (ctxResult.error === null) {
+            let taskBlockId = args.taskBlockId as string;
+            let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
+
+            let searchCtx: SearchContextSuccess | null = null;
+            if (needBlock || needAssignees) {
+              const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+              if (ctxResult.error !== null) {
+                return { success: false, error: ctxResult.error };
+              }
               searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+            }
+
+            if (needBlock && needAssignees && searchCtx) {
+              const tResolve0 = performance.now();
+              const [resolvedBlockId, resolveResult] = await Promise.all([
+                resolveTaskBlockIdForCreateTask(context, args, searchCtx, authContext),
+                resolveTaskAssignees(assigneeArgs, searchCtx),
+              ]);
+              timing.t_resolve_assignee_ms = Math.round(performance.now() - tResolve0);
+              taskBlockId = resolvedBlockId ?? taskBlockId;
+              if (resolveResult.ambiguities.length > 0) {
+                const details = resolveResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+                return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
+              }
+              resolvedAssignees = resolveResult.resolved;
+            } else if (needBlock) {
+              const resolvedBlockId = await resolveTaskBlockIdForCreateTask(context, args, searchCtx ?? undefined, authContext);
+              taskBlockId = resolvedBlockId ?? taskBlockId;
+            } else if (needAssignees && searchCtx) {
+              const tResolve0 = performance.now();
               const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
+              timing.t_resolve_assignee_ms = Math.round(performance.now() - tResolve0);
               if (assigneeResult.ambiguities.length > 0) {
                 const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
                 return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
               }
               resolvedAssignees = assigneeResult.resolved;
             }
+
+            if (!taskBlockId) {
+              return { success: false, error: "Missing taskBlockId and could not auto-resolve from context. Please provide a task block ID." };
+            }
+
+            const payload = {
+              taskBlockId,
+              title: args.title as string,
+              status: args.status as any,
+              priority: args.priority as any,
+              description: args.description as string | undefined,
+              dueDate: args.dueDate as string | undefined,
+              dueTime: args.dueTime as string | undefined,
+              startDate: args.startDate as string | undefined,
+            };
+
+            // ------------------------------------------------------------------
+            // EXECUTION: Create -> Assign -> Tag
+            // ------------------------------------------------------------------
+
+            const rpcResult = await createTaskFullRpc({
+              ...payload,
+              assignees: resolvedAssignees,
+              tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
+
+            const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
+            if (!("error" in directResult)) {
+              const newTaskId = directResult.data.id;
+
+              const postCreate: Promise<unknown>[] = [];
+              if (resolvedAssignees.length > 0) {
+                postCreate.push(setTaskAssignees(newTaskId, resolvedAssignees, { timing, replaceExisting: false, authContext: authContext ?? undefined }));
+              }
+              if (Array.isArray(args.tags) && args.tags.length > 0) {
+                postCreate.push(setTaskTags(newTaskId, args.tags as string[], { authContext: authContext ?? undefined }));
+              }
+              if (postCreate.length > 0) await Promise.all(postCreate);
+
+              aiDebug("createTaskItem:timing", {
+                t_auth_ms: timing.t_auth_ms,
+                t_ctx_ms: timing.t_ctx_ms,
+                t_resolve_assignee_ms: timing.t_resolve_assignee_ms,
+                t_insert_task_ms: timing.t_insert_task_ms,
+                t_insert_assignees_ms: timing.t_insert_assignees_ms,
+                t_fetch_return_ms: timing.t_fetch_return_ms,
+              });
+              return { success: true, data: directResult.data };
+            }
+
+            if (directResult.error === "Task block not found") {
+              const tabResult = await getEntityById({
+                entityType: "tab",
+                id: taskBlockId,
+              });
+
+              if (!tabResult.error && tabResult.data) {
+                // Reuse existing task block in this tab if available
+                const existingBlocks = await searchBlocks({
+                  type: "task",
+                  tabId: taskBlockId,
+                  limit: 1,
+                });
+                const existingBlockId = existingBlocks.data?.[0]?.id;
+
+                if (!existingBlockId) {
+                  const blockResult = await createBlock({
+                    tabId: taskBlockId,
+                    type: "task",
+                    content: undefined,
+                    authContext: authContext ?? undefined,
+                  });
+                  if ("error" in blockResult) {
+                    return { success: false, error: blockResult.error ?? "Failed to create task block" };
+                  }
+
+                  const retryResult = await createTaskItem({
+                    ...payload,
+                    taskBlockId: blockResult.data.id,
+                  });
+
+                  if (!("error" in retryResult)) {
+                    return { success: true, data: retryResult.data };
+                  }
+
+                  return { success: false, error: retryResult.error ?? "Failed to create task" };
+                }
+
+                const retryResult = await createTaskItem({
+                  ...payload,
+                  taskBlockId: existingBlockId,
+                }, { authContext: authContext ?? undefined });
+
+                if (!("error" in retryResult)) {
+                  return { success: true, data: retryResult.data };
+                }
+
+                return { success: false, error: retryResult.error ?? "Failed to create task" };
+              }
+            }
+
+            if (directResult.error === "Block is not a task block") {
+              const blockResult = await getEntityById({
+                entityType: "block",
+                id: taskBlockId,
+              });
+
+              const tabId = blockResult.data?.context?.tab_id;
+              if (tabId) {
+                const existingBlocks = await searchBlocks({
+                  type: "task",
+                  tabId,
+                  limit: 1,
+                });
+                const existingBlockId = existingBlocks.data?.[0]?.id;
+                let taskBlockIdToUse = existingBlockId;
+
+                if (!taskBlockIdToUse) {
+                  const blockResult = await createBlock({
+                    tabId,
+                    type: "task",
+                    content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+                    authContext: authContext ?? undefined,
+                  });
+                  if ("error" in blockResult) {
+                    return { success: false, error: blockResult.error ?? "Failed to create task block" };
+                  }
+                  taskBlockIdToUse = blockResult.data?.id;
+                }
+
+                if (taskBlockIdToUse) {
+                  const retryResult = await createTaskItem({
+                    ...payload,
+                    taskBlockId: taskBlockIdToUse,
+                  }, { authContext: authContext ?? undefined });
+                  if (!("error" in retryResult)) {
+                    return { success: true, data: retryResult.data };
+                  }
+                  return { success: false, error: retryResult.error ?? "Failed to create task" };
+                }
+              }
+            }
+
+            return { success: false, error: directResult.error ?? "Failed to create task" };
           }
 
-          const hasRpcOps =
-            Object.keys(baseUpdates).length > 0 ||
-            assigneesProvided ||
-            tagsProvided;
+        case "updateTaskItem":
+          {
+            let taskId = args.taskId as string;
+            const lookupName = args.lookupName as string;
 
-          if (hasRpcOps) {
-            const rpcResult = await updateTaskFullRpc({
-              taskId,
-              updates: baseUpdates,
-              assignees: resolvedAssignees,
-              assigneesSet: assigneesProvided,
-              tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
-              tagsSet: tagsProvided,
+            // Latency Optimization: If taskId missing, find by name
+            if (!taskId && lookupName) {
+              const searchResult = await searchTasks({
+                searchText: lookupName,
+                limit: 5
+              });
+
+              if (!searchResult.error && searchResult.data) {
+                // Filter for exact matches if possible, or take the best match
+                const matches = searchResult.data;
+                if (matches.length === 1) {
+                  taskId = matches[0].id;
+                } else if (matches.length > 1) {
+                  // If multiple matches, try to find case-insensitive exact match
+                  const exact = matches.find(m => m.title.toLowerCase() === lookupName.toLowerCase());
+                  if (exact) {
+                    taskId = exact.id;
+                  } else {
+                    return {
+                      success: false,
+                      error: `Ambiguous task name. Found ${matches.length} tasks matching "${lookupName}". Please specify which one or use the exact title.`
+                    };
+                  }
+                } else {
+                  return { success: false, error: `Task "${lookupName}" not found.` };
+                }
+              }
+            }
+
+            if (!taskId) {
+              return { success: false, error: "Missing taskId or valid lookupName." };
+            }
+
+            const baseUpdates: Record<string, unknown> = {};
+            if (args.title !== undefined) baseUpdates.title = args.title as string | undefined;
+            if (args.status !== undefined) baseUpdates.status = args.status as any;
+            if (args.priority !== undefined) baseUpdates.priority = args.priority as any;
+            if (args.description !== undefined) baseUpdates.description = args.description as string | null | undefined;
+            if (args.dueDate !== undefined) baseUpdates.dueDate = args.dueDate as string | null | undefined;
+            if (args.dueTime !== undefined) baseUpdates.dueTime = args.dueTime as string | null | undefined;
+            if (args.startDate !== undefined) baseUpdates.startDate = args.startDate as string | null | undefined;
+
+            const assigneesProvided = args.assignees !== undefined;
+            const tagsProvided = args.tags !== undefined;
+            let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
+            let searchCtx: SearchContextSuccess | null = null;
+
+            if (assigneesProvided) {
+              const assigneeArgs = Array.isArray(args.assignees) && args.assignees.length > 0
+                ? args.assignees.map(a =>
+                  isUuid(String(a)) ? { id: a, name: "Unknown" } : { name: String(a), id: undefined }
+                )
+                : [];
+
+              const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+              if (ctxResult.error === null) {
+                searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+                const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
+                if (assigneeResult.ambiguities.length > 0) {
+                  const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+                  return { success: false, error: `Ambiguous assignee names: ${details}. Please be more specific.` };
+                }
+                resolvedAssignees = assigneeResult.resolved;
+              }
+            }
+
+            const hasRpcOps =
+              Object.keys(baseUpdates).length > 0 ||
+              assigneesProvided ||
+              tagsProvided;
+
+            if (hasRpcOps) {
+              const rpcResult = await updateTaskFullRpc({
+                taskId,
+                updates: baseUpdates,
+                assignees: resolvedAssignees,
+                assigneesSet: assigneesProvided,
+                tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+                tagsSet: tagsProvided,
+                authContext: authContext ?? undefined,
+              });
+              if (!("error" in rpcResult)) {
+                return { success: true, data: rpcResult.data };
+              }
+            }
+
+            // Update base task properties
+            const updateResult = await wrapResult(
+              updateTaskItem(taskId, {
+                title: args.title as string | undefined,
+                status: args.status as any,
+                priority: args.priority as any,
+                description: args.description as string | null | undefined,
+                dueDate: args.dueDate as string | null | undefined,
+                dueTime: args.dueTime as string | null | undefined,
+                startDate: args.startDate as string | null | undefined,
+              }, { authContext: authContext ?? undefined })
+            );
+
+            if (!updateResult.success) {
+              return updateResult;
+            }
+
+            // Handle assignees if provided (undefined means no change, array means replace)
+            if (assigneesProvided) {
+              if (resolvedAssignees.length > 0 || Array.isArray(args.assignees)) {
+                if (!searchCtx) {
+                  const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+                  if (ctxResult.error === null) {
+                    searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+                  }
+                }
+                if (resolvedAssignees.length > 0) {
+                  await setTaskAssignees(taskId, resolvedAssignees, { replaceExisting: true, authContext: authContext ?? undefined });
+                } else {
+                  // Empty array means clear all assignees
+                  await setTaskAssignees(taskId, [], { replaceExisting: true, authContext: authContext ?? undefined });
+                }
+              }
+            }
+
+            // Handle tags if provided (undefined means no change, array means replace)
+            if (tagsProvided && Array.isArray(args.tags)) {
+              await setTaskTags(taskId, args.tags as string[], { authContext: authContext ?? undefined });
+            }
+
+            return updateResult;
+          }
+
+        case "bulkUpdateTaskItems":
+          if (!Array.isArray(args.taskIds) || args.taskIds.length === 0) {
+            return {
+              success: false,
+              error: "bulkUpdateTaskItems requires a non-empty taskIds array.",
+            };
+          }
+          const updatesArg = args.updates as Record<string, unknown> | undefined;
+          {
+            const rpcResult = await bulkUpdateTaskItemsRpc({
+              taskIds: args.taskIds as string[],
+              updates: updatesArg ?? {},
               authContext: authContext ?? undefined,
             });
             if (!("error" in rpcResult)) {
               return { success: true, data: rpcResult.data };
             }
           }
-
-          // Update base task properties
-          const updateResult = await wrapResult(
-            updateTaskItem(taskId, {
-              title: args.title as string | undefined,
-              status: args.status as any,
-              priority: args.priority as any,
-              description: args.description as string | null | undefined,
-              dueDate: args.dueDate as string | null | undefined,
-              dueTime: args.dueTime as string | null | undefined,
-              startDate: args.startDate as string | null | undefined,
-            }, { authContext: authContext ?? undefined })
+          return await wrapResult(
+            bulkUpdateTaskItems({
+              taskIds: args.taskIds as string[],
+              updates: {
+                title: updatesArg?.title as string | undefined,
+                status: updatesArg?.status as any,
+                priority: updatesArg?.priority as any,
+                description: updatesArg?.description as string | null | undefined,
+                dueDate: updatesArg?.dueDate as string | null | undefined,
+                dueTime: updatesArg?.dueTime as string | null | undefined,
+                startDate: updatesArg?.startDate as string | null | undefined,
+              },
+              authContext: authContext ?? undefined,
+            })
           );
 
-          if (!updateResult.success) {
-            return updateResult;
-          }
+        case "deleteTaskItem":
+          return await wrapResult(deleteTaskItem(args.taskId as string, { authContext: authContext ?? undefined }));
 
-          // Handle assignees if provided (undefined means no change, array means replace)
-          if (assigneesProvided) {
-            if (resolvedAssignees.length > 0 || Array.isArray(args.assignees)) {
-              if (!searchCtx) {
-                const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
-                if (ctxResult.error === null) {
-                  searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
-                }
-              }
-              if (resolvedAssignees.length > 0) {
-                await setTaskAssignees(taskId, resolvedAssignees, { replaceExisting: true, authContext: authContext ?? undefined });
-              } else {
-                // Empty array means clear all assignees
-                await setTaskAssignees(taskId, [], { replaceExisting: true, authContext: authContext ?? undefined });
+        case "bulkCreateTasks":
+          {
+            const tasks = Array.isArray(args.tasks) ? (args.tasks as Record<string, unknown>[]) : [];
+            if (tasks.length === 0) {
+              return { success: false, error: "Missing 'tasks' array. Provide at least one task with a title." };
+            }
+
+            // Validate all tasks have titles
+            const invalidTasks = tasks.filter((t, i) => !t.title || typeof t.title !== "string");
+            if (invalidTasks.length > 0) {
+              return { success: false, error: `${invalidTasks.length} task(s) missing required 'title' field.` };
+            }
+
+            // Resolve task block once for all tasks
+            let taskBlockId = args.taskBlockId as string;
+            if (!taskBlockId) {
+              const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+              if (ctxResult.error === null) {
+                const searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+                const resolvedBlockId = await resolveTaskBlockIdForCreateTask(context, args, searchCtx, authContext);
+                taskBlockId = resolvedBlockId ?? "";
               }
             }
+
+            if (!taskBlockId) {
+              return { success: false, error: "Missing taskBlockId. Provide taskBlockId, taskBlockName, or ensure you're on a page with a task block." };
+            }
+
+            // Create all tasks in parallel using the RPC
+            const results = await Promise.all(
+              tasks.map(async (task) => {
+                try {
+                  // Resolve assignees if provided
+                  const assigneeArgs = Array.isArray(task.assignees)
+                    ? (task.assignees as (string | { id?: string; name?: string })[]).map(a =>
+                      typeof a === "string"
+                        ? (isUuid(a) ? { id: a, name: "Unknown" } : { name: a, id: undefined })
+                        : { id: (a as any)?.id, name: (a as any)?.name }
+                    )
+                    : [];
+
+                  let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
+                  if (assigneeArgs.length > 0) {
+                    const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+                    if (ctxResult.error === null) {
+                      const searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+                      const resolveResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
+                      if (resolveResult.ambiguities.length > 0) {
+                        return { input: task, error: `Ambiguous assignees: ${resolveResult.ambiguities.map(a => a.input).join(", ")}` };
+                      }
+                      resolvedAssignees = resolveResult.resolved;
+                    }
+                  }
+
+                  const rpcResult = await createTaskFullRpc({
+                    taskBlockId,
+                    title: task.title as string,
+                    status: task.status as any,
+                    priority: task.priority as any,
+                    description: task.description as string | undefined,
+                    dueDate: task.dueDate as string | undefined,
+                    dueTime: task.dueTime as string | undefined,
+                    startDate: task.startDate as string | undefined,
+                    assignees: resolvedAssignees,
+                    tags: Array.isArray(task.tags) ? (task.tags as string[]) : [],
+                    authContext: authContext ?? undefined,
+                  });
+
+                  if (!("error" in rpcResult)) {
+                    return { input: task, data: rpcResult.data };
+                  }
+
+                  // Fallback to direct createTaskItem if RPC fails
+                  const directResult = await createTaskItem({
+                    taskBlockId,
+                    title: task.title as string,
+                    status: task.status as any,
+                    priority: task.priority as any,
+                    description: task.description as string | undefined,
+                    dueDate: task.dueDate as string | undefined,
+                    dueTime: task.dueTime as string | undefined,
+                    startDate: task.startDate as string | undefined,
+                  }, { authContext: authContext ?? undefined });
+
+                  if (!("error" in directResult)) {
+                    // Set assignees and tags if needed
+                    const postCreate: Promise<unknown>[] = [];
+                    if (resolvedAssignees.length > 0) {
+                      postCreate.push(setTaskAssignees(directResult.data.id, resolvedAssignees, { replaceExisting: false, authContext: authContext ?? undefined }));
+                    }
+                    if (Array.isArray(task.tags) && (task.tags as string[]).length > 0) {
+                      postCreate.push(setTaskTags(directResult.data.id, task.tags as string[], { authContext: authContext ?? undefined }));
+                    }
+                    if (postCreate.length > 0) await Promise.all(postCreate);
+                    return { input: task, data: directResult.data };
+                  }
+
+                  return { input: task, error: directResult.error ?? "Failed to create task" };
+                } catch (e) {
+                  return { input: task, error: e instanceof Error ? e.message : String(e) };
+                }
+              })
+            );
+
+            const created = results.filter(r => "data" in r && r.data);
+            const errors = results.filter(r => "error" in r && r.error);
+
+            return {
+              success: true,
+              data: {
+                createdCount: created.length,
+                createdTasks: created.map(r => ({ id: (r as any).data?.id, title: (r as any).input?.title })),
+                errors: errors.map(r => ({ title: (r as any).input?.title, error: (r as any).error })),
+              },
+            };
           }
 
-          // Handle tags if provided (undefined means no change, array means replace)
-          if (tagsProvided && Array.isArray(args.tags)) {
-            await setTaskTags(taskId, args.tags as string[], { authContext: authContext ?? undefined });
+        case "bulkMoveTaskItems":
+          {
+            const rpcResult = await bulkMoveTaskItemsRpc({
+              taskIds: args.taskIds as string[],
+              targetBlockId: args.targetBlockId as string,
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
           }
+          return await wrapResult(
+            bulkMoveTaskItems({
+              taskIds: args.taskIds as string[],
+              targetBlockId: args.targetBlockId as string,
+              authContext: authContext ?? undefined,
+            })
+          );
 
-          return updateResult;
-        }
-
-      case "bulkUpdateTaskItems":
-        if (!Array.isArray(args.taskIds) || args.taskIds.length === 0) {
-          return {
-            success: false,
-            error: "bulkUpdateTaskItems requires a non-empty taskIds array.",
-          };
-        }
-        const updatesArg = args.updates as Record<string, unknown> | undefined;
-        {
-          const rpcResult = await bulkUpdateTaskItemsRpc({
-            taskIds: args.taskIds as string[],
-            updates: updatesArg ?? {},
-            authContext: authContext ?? undefined,
-          });
-          if (!("error" in rpcResult)) {
-            return { success: true, data: rpcResult.data };
+        case "duplicateTasksToBlock":
+          {
+            const rpcResult = await duplicateTasksToBlockRpc({
+              taskIds: (args as any).taskIds as string[],
+              targetBlockId: (args as any).targetBlockId as string,
+              includeAssignees: (args as any).includeAssignees as boolean | undefined,
+              includeTags: (args as any).includeTags as boolean | undefined,
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
           }
-        }
-        return await wrapResult(
-          bulkUpdateTaskItems({
-            taskIds: args.taskIds as string[],
-            updates: {
-              title: updatesArg?.title as string | undefined,
-              status: updatesArg?.status as any,
-              priority: updatesArg?.priority as any,
-              description: updatesArg?.description as string | null | undefined,
-              dueDate: updatesArg?.dueDate as string | null | undefined,
-              dueTime: updatesArg?.dueTime as string | null | undefined,
-              startDate: updatesArg?.startDate as string | null | undefined,
-            },
-            authContext: authContext ?? undefined,
-          })
-        );
+          return await wrapResult(duplicateTasksToBlock(args as any));
 
-      case "deleteTaskItem":
-        return await wrapResult(deleteTaskItem(args.taskId as string, { authContext: authContext ?? undefined }));
+        case "createTaskBoardFromTasks":
+          {
+            let taskIds = Array.isArray(args.taskIds) ? (args.taskIds as string[]) : [];
+            const tabId = (args.tabId as string | undefined) || context?.currentTabId;
+            if (!tabId) {
+              return { success: false, error: "Missing tabId for createTaskBoardFromTasks." };
+            }
 
-      case "bulkMoveTaskItems":
-        {
-          const rpcResult = await bulkMoveTaskItemsRpc({
-            taskIds: args.taskIds as string[],
-            targetBlockId: args.targetBlockId as string,
-            authContext: authContext ?? undefined,
-          });
-          if (!("error" in rpcResult)) {
-            return { success: true, data: rpcResult.data };
-          }
-        }
-        return await wrapResult(
-          bulkMoveTaskItems({
-            taskIds: args.taskIds as string[],
-            targetBlockId: args.targetBlockId as string,
-            authContext: authContext ?? undefined,
-          })
-        );
+            const assigneeId = args.assigneeId as string | undefined;
+            const assigneeName = args.assigneeName as string | undefined;
+            const sourceProjectId = args.sourceProjectId as string | undefined;
+            const sourceTabId = args.sourceTabId as string | undefined;
+            const searchLimit = typeof args.limit === "number" ? args.limit : 500;
 
-      case "duplicateTasksToBlock":
-        {
-          const rpcResult = await duplicateTasksToBlockRpc({
-            taskIds: (args as any).taskIds as string[],
-            targetBlockId: (args as any).targetBlockId as string,
-            includeAssignees: (args as any).includeAssignees as boolean | undefined,
-            includeTags: (args as any).includeTags as boolean | undefined,
-            authContext: authContext ?? undefined,
-          });
-          if (!("error" in rpcResult)) {
-            return { success: true, data: rpcResult.data };
-          }
-        }
-        return await wrapResult(duplicateTasksToBlock(args as any));
+            if (assigneeId || assigneeName || sourceProjectId || sourceTabId) {
+              const searchResult = await searchTasks({
+                assigneeId,
+                assigneeName,
+                projectId: sourceProjectId,
+                tabId: sourceTabId,
+                limit: searchLimit,
+              });
 
-      case "createTaskBoardFromTasks":
-        {
-          let taskIds = Array.isArray(args.taskIds) ? (args.taskIds as string[]) : [];
-          const tabId = (args.tabId as string | undefined) || context?.currentTabId;
-          if (!tabId) {
-            return { success: false, error: "Missing tabId for createTaskBoardFromTasks." };
-          }
+              if (!searchResult.error && searchResult.data) {
+                const fromSearch = searchResult.data.map((task) => task.id);
+                taskIds = Array.from(new Set([...taskIds, ...fromSearch]));
+              }
+            }
 
-          const assigneeId = args.assigneeId as string | undefined;
-          const assigneeName = args.assigneeName as string | undefined;
-          const sourceProjectId = args.sourceProjectId as string | undefined;
-          const sourceTabId = args.sourceTabId as string | undefined;
-          const searchLimit = typeof args.limit === "number" ? args.limit : 500;
+            if (taskIds.length === 0) {
+              return { success: false, error: "No tasks found for createTaskBoardFromTasks." };
+            }
 
-          if (assigneeId || assigneeName || sourceProjectId || sourceTabId) {
-            const searchResult = await searchTasks({
-              assigneeId,
-              assigneeName,
-              projectId: sourceProjectId,
-              tabId: sourceTabId,
-              limit: searchLimit,
+            const blockTitle = (args.title as string | undefined) || "Task Board";
+            const viewMode = (args.viewMode as string | undefined) || "board";
+            const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
+
+            const createBlockResult = await createBlock({
+              tabId,
+              type: "task",
+              content: { title: blockTitle, hideIcons: false, viewMode, boardGroupBy },
             });
 
-            if (!searchResult.error && searchResult.data) {
-              const fromSearch = searchResult.data.map((task) => task.id);
-              taskIds = Array.from(new Set([...taskIds, ...fromSearch]));
+            if ("error" in createBlockResult) {
+              return { success: false, error: createBlockResult.error ?? "Failed to create task block" };
             }
+
+            const taskBlockId = createBlockResult.data?.id;
+            if (!taskBlockId) {
+              return { success: false, error: "Failed to create task block." };
+            }
+
+            const dupResult = await duplicateTasksToBlock({
+              targetBlockId: taskBlockId,
+              taskIds,
+              authContext: authContext ?? undefined,
+              includeAssignees: args.includeAssignees as boolean | undefined,
+              includeTags: args.includeTags as boolean | undefined,
+            });
+
+            if ("error" in dupResult) {
+              return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
+            }
+
+            return {
+              success: true,
+              data: {
+                taskBlockId,
+                createdCount: dupResult.data.createdCount,
+                createdTaskIds: dupResult.data.createdTaskIds,
+                skipped: dupResult.data.skipped,
+              },
+            };
           }
 
-          if (taskIds.length === 0) {
-            return { success: false, error: "No tasks found for createTaskBoardFromTasks." };
+        case "setTaskAssignees":
+          if (!args.taskId || !Array.isArray(args.assignees)) {
+            return {
+              success: false,
+              error: "Missing taskId or assignees array for setTaskAssignees. Required format: setTaskAssignees(taskId, [{id: 'user-uuid', name: 'User Name'}]). Always search for workspace members first using searchWorkspaceMembers to get both id and name.",
+            };
           }
-
-          const blockTitle = (args.title as string | undefined) || "Task Board";
-          const viewMode = (args.viewMode as string | undefined) || "board";
-          const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
-
-          const createBlockResult = await createBlock({
-            tabId,
-            type: "task",
-            content: { title: blockTitle, hideIcons: false, viewMode, boardGroupBy },
-          });
-
-          if ("error" in createBlockResult) {
-            return { success: false, error: createBlockResult.error ?? "Failed to create task block" };
-          }
-
-          const taskBlockId = createBlockResult.data?.id;
-          if (!taskBlockId) {
-            return { success: false, error: "Failed to create task block." };
-          }
-
-          const dupResult = await duplicateTasksToBlock({
-            targetBlockId: taskBlockId,
-            taskIds,
-            authContext: authContext ?? undefined,
-            includeAssignees: args.includeAssignees as boolean | undefined,
-            includeTags: args.includeTags as boolean | undefined,
-          });
-
-          if ("error" in dupResult) {
-            return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
-          }
-
-          return {
-            success: true,
-            data: {
-              taskBlockId,
-              createdCount: dupResult.data.createdCount,
-              createdTaskIds: dupResult.data.createdTaskIds,
-              skipped: dupResult.data.skipped,
-            },
-          };
-        }
-
-      case "setTaskAssignees":
-        if (!args.taskId || !Array.isArray(args.assignees)) {
-          return {
-            success: false,
-            error: "Missing taskId or assignees array for setTaskAssignees. Required format: setTaskAssignees(taskId, [{id: 'user-uuid', name: 'User Name'}]). Always search for workspace members first using searchWorkspaceMembers to get both id and name.",
-          };
-        }
-        // Validate assignees have proper structure
-        const assigneesArray = args.assignees as Array<Record<string, unknown>>;
-        const invalidAssignees = assigneesArray.filter(
-          (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
-        );
-        if (invalidAssignees.length > 0) {
-          return {
-            success: false,
-            error: "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
-          };
-        }
-
-        // CRITICAL FIX: Check for ambiguous assignees before proceeding
-        const assigneeResult = await resolveTaskAssignees(assigneesArray);
-
-        if (assigneeResult.ambiguities.length > 0) {
-          // Build detailed error message with all matches
-          const ambiguityDetails = assigneeResult.ambiguities
-            .map((amb) => {
-              const matchList = amb.matches
-                .map((m) => `  - ${m.name} (${m.email})`)
-                .join("\n");
-              return `"${amb.input}" matches multiple workspace members:\n${matchList}`;
-            })
-            .join("\n\n");
-
-          return {
-            success: false,
-            error: `Ambiguous assignees found. Please specify which person you meant:\n\n${ambiguityDetails}\n\nTip: Use searchWorkspaceMembers to get the exact user ID, or provide a more specific name.`,
-          };
-        }
-
-        return await wrapResult(
-          setTaskAssignees(
-            args.taskId as string,
-            assigneeResult.resolved,
-            { authContext: authContext ?? undefined }
-          )
-        );
-
-      case "bulkSetTaskAssignees":
-        if (!Array.isArray(args.taskIds) || args.taskIds.length === 0 || !Array.isArray(args.assignees)) {
-          return {
-            success: false,
-            error:
-              "Missing taskIds or assignees array for bulkSetTaskAssignees. Required format: bulkSetTaskAssignees({ taskIds: [...], assignees: [{id: 'user-uuid', name: 'User Name'}] }).",
-          };
-        }
-        {
-          const taskIds = (args.taskIds as Array<string>).filter(Boolean);
-          if (taskIds.length === 0) {
-            return { success: false, error: "bulkSetTaskAssignees requires at least one taskId." };
-          }
-
+          // Validate assignees have proper structure
           const assigneesArray = args.assignees as Array<Record<string, unknown>>;
           const invalidAssignees = assigneesArray.filter(
             (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
@@ -1478,14 +1549,15 @@ export async function executeTool(
           if (invalidAssignees.length > 0) {
             return {
               success: false,
-              error:
-                "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
+              error: "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
             };
           }
 
+          // CRITICAL FIX: Check for ambiguous assignees before proceeding
           const assigneeResult = await resolveTaskAssignees(assigneesArray);
 
           if (assigneeResult.ambiguities.length > 0) {
+            // Build detailed error message with all matches
             const ambiguityDetails = assigneeResult.ambiguities
               .map((amb) => {
                 const matchList = amb.matches
@@ -1501,370 +1573,422 @@ export async function executeTool(
             };
           }
 
-          {
-            const rpcResult = await bulkSetTaskAssigneesRpc({
-              taskIds,
-              assignees: assigneeResult.resolved,
-              authContext: authContext ?? undefined,
-            });
-            if (!("error" in rpcResult)) {
-              return { success: true, data: rpcResult.data };
-            }
-          }
+          return await wrapResult(
+            setTaskAssignees(
+              args.taskId as string,
+              assigneeResult.resolved,
+              { authContext: authContext ?? undefined }
+            )
+          );
 
-          const failures: Array<{ taskId: string; error: string }> = [];
-          for (const taskId of taskIds) {
-            const result = await setTaskAssignees(taskId, assigneeResult.resolved, { authContext: authContext ?? undefined });
-            if ("error" in result) {
-              failures.push({ taskId, error: result.error });
-            }
-          }
-
-          if (failures.length > 0) {
+        case "bulkSetTaskAssignees":
+          if (!Array.isArray(args.taskIds) || args.taskIds.length === 0 || !Array.isArray(args.assignees)) {
             return {
               success: false,
-              error: `Failed to update ${failures.length} task(s).`,
-              data: { updatedCount: taskIds.length - failures.length, failures },
+              error:
+                "Missing taskIds or assignees array for bulkSetTaskAssignees. Required format: bulkSetTaskAssignees({ taskIds: [...], assignees: [{id: 'user-uuid', name: 'User Name'}] }).",
             };
           }
+          {
+            const taskIds = (args.taskIds as Array<string>).filter(Boolean);
+            if (taskIds.length === 0) {
+              return { success: false, error: "bulkSetTaskAssignees requires at least one taskId." };
+            }
 
-          return { success: true, data: { updatedCount: taskIds.length } };
-        }
+            const assigneesArray = args.assignees as Array<Record<string, unknown>>;
+            const invalidAssignees = assigneesArray.filter(
+              (a) => !a || typeof a !== "object" || (!a.id && !a.name && !a.userId && !a.user_id)
+            );
+            if (invalidAssignees.length > 0) {
+              return {
+                success: false,
+                error:
+                  "Invalid assignee format. Each assignee must have 'id' and 'name' properties. Example: [{id: 'uuid', name: 'John Doe'}]. Use searchWorkspaceMembers to get user details first.",
+              };
+            }
 
-      case "setTaskTags":
-        return await wrapResult(
-          setTaskTags(args.taskId as string, args.tagNames as string[], { authContext: authContext ?? undefined })
-        );
+            const assigneeResult = await resolveTaskAssignees(assigneesArray);
 
-      case "createTaskSubtask":
-        return await wrapResult(
-          createTaskSubtask({
-            taskId: args.taskId as string,
-            title: args.title as string,
-            completed: args.completed as boolean | undefined,
-            authContext: authContext ?? undefined,
-          })
-        );
+            if (assigneeResult.ambiguities.length > 0) {
+              const ambiguityDetails = assigneeResult.ambiguities
+                .map((amb) => {
+                  const matchList = amb.matches
+                    .map((m) => `  - ${m.name} (${m.email})`)
+                    .join("\n");
+                  return `"${amb.input}" matches multiple workspace members:\n${matchList}`;
+                })
+                .join("\n\n");
 
-      case "updateTaskSubtask":
-        return await wrapResult(
-          updateTaskSubtask(args.subtaskId as string, {
-            title: args.title as string | undefined,
-            completed: args.completed as boolean | undefined,
-          })
-        );
+              return {
+                success: false,
+                error: `Ambiguous assignees found. Please specify which person you meant:\n\n${ambiguityDetails}\n\nTip: Use searchWorkspaceMembers to get the exact user ID, or provide a more specific name.`,
+              };
+            }
 
-      case "deleteTaskSubtask":
-        return await wrapResult(deleteTaskSubtask(args.subtaskId as string, { authContext: authContext ?? undefined }));
-
-      case "createTaskComment":
-        return await wrapResult(
-          createTaskComment({
-            taskId: args.taskId as string,
-            text: args.text as string,
-            authContext: authContext ?? undefined,
-          })
-        );
-
-      // ==================================================================
-      // PROJECT ACTIONS
-      // ==================================================================
-      case "createProject":
-        if (!workspaceId) {
-          return { success: false, error: "No workspace selected" };
-        }
-
-        // Smart Tool: Resolve clientName if clientId is missing
-        let clientId = args.clientId as string | undefined;
-        if (!clientId && args.clientName) {
-          const clientSearch = await searchClients({ searchText: args.clientName as string, limit: 1 });
-          // Prefer exact match, else fuzzy
-          if (clientSearch.data && clientSearch.data.length > 0) {
-            clientId = clientSearch.data[0].id;
-          }
-        }
-
-        return await wrapResult(
-          createProject(workspaceId, {
-            name: args.name as string,
-            client_id: clientId,
-            status: args.status as any,
-            due_date_date: args.dueDate as string | undefined,
-            project_type: args.projectType as any,
-          }, { authContext: authContext ?? undefined })
-        );
-
-      case "updateProject":
-        {
-          // Smart Tool: Resolve clientName if provided
-          let clientId = args.clientId as string | null | undefined;
-          if (clientId === undefined && args.clientName) {
-            if (args.clientName === null || args.clientName === "") {
-              clientId = null; // Clear client
-            } else {
-              const clientSearch = await searchClients({ searchText: args.clientName as string, limit: 1 });
-              if (clientSearch.data && clientSearch.data.length > 0) {
-                clientId = clientSearch.data[0].id;
-              } else {
-                return { success: false, error: `Client "${args.clientName}" not found. Please create the client first or use an existing client name.` };
+            {
+              const rpcResult = await bulkSetTaskAssigneesRpc({
+                taskIds,
+                assignees: assigneeResult.resolved,
+                authContext: authContext ?? undefined,
+              });
+              if (!("error" in rpcResult)) {
+                return { success: true, data: rpcResult.data };
               }
             }
+
+            const failures: Array<{ taskId: string; error: string }> = [];
+            for (const taskId of taskIds) {
+              const result = await setTaskAssignees(taskId, assigneeResult.resolved, { authContext: authContext ?? undefined });
+              if ("error" in result) {
+                failures.push({ taskId, error: result.error });
+              }
+            }
+
+            if (failures.length > 0) {
+              return {
+                success: false,
+                error: `Failed to update ${failures.length} task(s).`,
+                data: { updatedCount: taskIds.length - failures.length, failures },
+              };
+            }
+
+            return { success: true, data: { updatedCount: taskIds.length } };
+          }
+
+        case "setTaskTags":
+          return await wrapResult(
+            setTaskTags(args.taskId as string, args.tagNames as string[], { authContext: authContext ?? undefined })
+          );
+
+        case "createTaskSubtask":
+          return await wrapResult(
+            createTaskSubtask({
+              taskId: args.taskId as string,
+              title: args.title as string,
+              completed: args.completed as boolean | undefined,
+              authContext: authContext ?? undefined,
+            })
+          );
+
+        case "updateTaskSubtask":
+          return await wrapResult(
+            updateTaskSubtask(args.subtaskId as string, {
+              title: args.title as string | undefined,
+              completed: args.completed as boolean | undefined,
+            })
+          );
+
+        case "deleteTaskSubtask":
+          return await wrapResult(deleteTaskSubtask(args.subtaskId as string, { authContext: authContext ?? undefined }));
+
+        case "createTaskComment":
+          return await wrapResult(
+            createTaskComment({
+              taskId: args.taskId as string,
+              text: args.text as string,
+              authContext: authContext ?? undefined,
+            })
+          );
+
+        // ==================================================================
+        // PROJECT ACTIONS
+        // ==================================================================
+        case "createProject":
+          if (!workspaceId) {
+            return { success: false, error: "No workspace selected" };
+          }
+
+          // Smart Tool: Resolve clientName if clientId is missing
+          let clientId = args.clientId as string | undefined;
+          if (!clientId && args.clientName) {
+            const clientSearch = await searchClients({ searchText: args.clientName as string, limit: 1 });
+            // Prefer exact match, else fuzzy
+            if (clientSearch.data && clientSearch.data.length > 0) {
+              clientId = clientSearch.data[0].id;
+            }
           }
 
           return await wrapResult(
-            updateProject(args.projectId as string, {
-              name: args.name as string | undefined,
-              status: args.status as "not_started" | "in_progress" | "complete" | undefined,
+            createProject(workspaceId, {
+              name: args.name as string,
               client_id: clientId,
-              due_date_date: args.dueDate as string | null | undefined,
-              project_type: args.projectType as "project" | "internal" | undefined,
+              status: args.status as any,
+              due_date_date: args.dueDate as string | undefined,
+              project_type: args.projectType as any,
             }, { authContext: authContext ?? undefined })
           );
-        }
 
-      case "deleteProject":
-        return await wrapResult(deleteProject(args.projectId as string, { authContext: authContext ?? undefined }));
+        case "updateProject":
+          {
+            // Smart Tool: Resolve clientName if provided
+            let clientId = args.clientId as string | null | undefined;
+            if (clientId === undefined && args.clientName) {
+              if (args.clientName === null || args.clientName === "") {
+                clientId = null; // Clear client
+              } else {
+                const clientSearch = await searchClients({ searchText: args.clientName as string, limit: 1 });
+                if (clientSearch.data && clientSearch.data.length > 0) {
+                  clientId = clientSearch.data[0].id;
+                } else {
+                  return { success: false, error: `Client "${args.clientName}" not found. Please create the client first or use an existing client name.` };
+                }
+              }
+            }
 
-      // ==================================================================
-      // TAB ACTIONS
-      // ==================================================================
-      case "createTab": {
-        const projectId = (args.projectId as string | undefined) || context?.currentProjectId;
-        if (!projectId) return { success: false, error: "createTab: Missing projectId and could not infer from context" };
-
-        return await wrapResult(
-          createTab({
-            projectId,
-            name: args.name as string,
-            parentTabId: args.parentTabId as string | null | undefined,
-            authContext: authContext ?? undefined,
-          })
-        );
-      }
-
-      case "updateTab":
-        return await wrapResult(
-          updateTab({
-            tabId: args.tabId as string,
-            name: args.name as string | undefined,
-            parentTabId: args.parentTabId as string | null | undefined,
-          })
-        );
-
-      case "deleteTab":
-        return await wrapResult(deleteTab(args.tabId as string));
-
-      // ==================================================================
-      // BLOCK ACTIONS
-      // ==================================================================
-      case "createChartBlock": {
-        let tabId = args.tabId as string | undefined;
-        const isSimulation = args.isSimulation as boolean | undefined;
-        let originalChartId = args.originalChartId as string | undefined;
-
-        if (!tabId && args.tabName) {
-          const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
-          if (tabSearch.data && tabSearch.data.length > 0) {
-            tabId = tabSearch.data[0].id;
-          }
-        }
-
-        if (!tabId && context?.currentTabId) {
-          tabId = context.currentTabId;
-        }
-
-        if (!tabId) {
-          return { success: false, error: "createChartBlock: Missing tabId and could not infer from context" };
-        }
-
-        if (isSimulation && !originalChartId && context?.contextBlockId) {
-          originalChartId = context.contextBlockId;
-        }
-
-        return await wrapResult(
-          createChartBlock({
-            tabId,
-            prompt: args.prompt as string,
-            chartType: args.chartType as any,
-            title: args.title as string | undefined,
-            explicitData: args.explicitData as any,
-            isSimulation,
-            originalChartId,
-            simulationDescription: args.simulationDescription as string | undefined,
-            authContext: authContext ?? undefined,
-          })
-        );
-      }
-      case "createBlock": {
-        let tabId = args.tabId as string;
-
-        // Priority 1: Smart Tool - Resolve tabName if provided
-        if (!tabId && args.tabName) {
-          const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
-          if (tabSearch.data && tabSearch.data.length > 0) {
-            tabId = tabSearch.data[0].id;
-          }
-        }
-
-        // Priority 2: Use Context
-        if (!tabId && context?.currentTabId) {
-          tabId = context.currentTabId;
-        }
-
-        return await wrapResult(
-          createBlock({
-            tabId,
-            type: args.type as any,
-            content: args.content as any,
-            authContext: authContext ?? undefined,
-            position: args.position as number | undefined,
-            column: args.column as number | undefined,
-            parentBlockId: args.parentBlockId as string | undefined,
-          })
-        );
-      }
-
-      case "updateBlock":
-        return await wrapResult(
-          updateBlock({
-            blockId: args.blockId as string,
-            content: args.content as any,
-            position: args.position as number | undefined,
-            column: args.column as number | undefined,
-          })
-        );
-
-      case "deleteBlock":
-        return await wrapResult(deleteBlock(args.blockId as string, { authContext: authContext ?? undefined }));
-
-      // ==================================================================
-      // TABLE ACTIONS
-      // ==================================================================
-      case "createTable": {
-        const targetWorkspaceId = (args.workspaceId as string | undefined) || workspaceId;
-        if (!targetWorkspaceId) {
-          return { success: false, error: "Missing workspaceId for createTable" };
-        }
-
-        const tabId = (args.tabId as string | undefined) || context?.currentTabId;
-
-        // Create the table
-        const tableResult = await createTable({
-          workspaceId: targetWorkspaceId,
-          projectId: (args.projectId as string | undefined) || context?.currentProjectId,
-          title: args.title as string | undefined,
-          description: args.description as string | null | undefined,
-          icon: args.icon as string | null | undefined,
-          authContext: authContext ?? undefined,
-        });
-
-        if ("error" in tableResult) {
-          return { success: false, error: tableResult.error };
-        }
-
-        // If tabId provided, create block to show table in UI
-        if (tabId) {
-          const blockResult = await createBlock({
-            tabId,
-            type: "table",
-            content: { tableId: tableResult.data.table.id },
-            authContext: authContext ?? undefined,
-          });
-
-          if ("error" in blockResult) {
-            // CRITICAL FIX: Table was created but block creation failed
-            // Clean up the orphaned table to maintain data consistency
-            await deleteTable(tableResult.data.table.id, { authContext: authContext ?? undefined });
-
-            return {
-              success: false,
-              error: `Failed to add table to tab: ${blockResult.error}. Table creation rolled back.`,
-            };
+            return await wrapResult(
+              updateProject(args.projectId as string, {
+                name: args.name as string | undefined,
+                status: args.status as "not_started" | "in_progress" | "complete" | undefined,
+                client_id: clientId,
+                due_date_date: args.dueDate as string | null | undefined,
+                project_type: args.projectType as "project" | "internal" | undefined,
+              }, { authContext: authContext ?? undefined })
+            );
           }
 
-          return { success: true, data: { ...tableResult.data, block: blockResult.data } };
-        }
+        case "deleteProject":
+          return await wrapResult(deleteProject(args.projectId as string, { authContext: authContext ?? undefined }));
 
-        // No tabId - table created but not visible in UI
-        return { success: true, data: tableResult.data };
-      }
-
-      case "createField":
-        {
-          const tableId = args.tableId as string;
-          const name = args.name as string;
-          const type = args.type as string;
-          const config = args.config as Record<string, unknown> | undefined;
-          const isPrimary = args.isPrimary as boolean | undefined;
-
-          const existing = await findFieldByName(tableId, name);
-          if (existing) {
-            return { success: true, data: existing };
-          }
-
-          const reused = await maybeReuseDefaultField({
-            tableId,
-            name,
-            type,
-            config,
-            isPrimary,
-          });
-
-          if (reused) return reused;
+        // ==================================================================
+        // TAB ACTIONS
+        // ==================================================================
+        case "createTab": {
+          const projectId = (args.projectId as string | undefined) || context?.currentProjectId;
+          if (!projectId) return { success: false, error: "createTab: Missing projectId and could not infer from context" };
 
           return await wrapResult(
-            createField({
-              tableId,
-              name,
-              type: type as any,
-              config: config as any,
-              isPrimary,
+            createTab({
+              projectId,
+              name: args.name as string,
+              parentTabId: args.parentTabId as string | null | undefined,
+              authContext: authContext ?? undefined,
             })
           );
         }
 
-      case "bulkCreateFields":
-        {
-          const tableId = args.tableId as string;
-          const fields = args.fields as Array<{
-            name: string;
-            type: string;
-            config?: Record<string, unknown>;
-            isPrimary?: boolean;
-          }>;
+        case "updateTab":
+          return await wrapResult(
+            updateTab({
+              tabId: args.tabId as string,
+              name: args.name as string | undefined,
+              parentTabId: args.parentTabId as string | null | undefined,
+            })
+          );
 
-          if (!Array.isArray(fields) || fields.length === 0) {
-            return { success: false, error: "fields must be a non-empty array" };
-          }
+        case "deleteTab":
+          return await wrapResult(deleteTab(args.tabId as string));
 
-          // Fetch schema once and resolve default-column reuse in memory,
-          // then issue all writes in parallel.  This avoids the per-field
-          // getTable + isNewEmptyTable round-trips that maybeReuseDefaultField
-          // would make if called individually.
-          const tableResult = await getTable(tableId, { authContext: authContext ?? undefined });
-          const existingFields = ("error" in tableResult || !tableResult.data?.fields)
-            ? []
-            : tableResult.data.fields;
+        // ==================================================================
+        // BLOCK ACTIONS
+        // ==================================================================
+        case "createChartBlock": {
+          let tabId = args.tabId as string | undefined;
+          const isSimulation = args.isSimulation as boolean | undefined;
+          let originalChartId = args.originalChartId as string | undefined;
 
-          // Determine whether this is a new empty table (≤3 rows, no data)
-          let isEmpty = false;
-          if (existingFields.length > 0) {
-            const rowsResult = await getTableRows(tableId, { limit: 5, offset: 0, authContext: authContext ?? undefined });
-            if (!("error" in rowsResult) && rowsResult.data) {
-              const totalRows = rowsResult.data.total ?? rowsResult.data.rows.length;
-              const hasData = rowsResult.data.rows.some(
-                (row) => row.data && Object.keys(row.data).length > 0
-              );
-              isEmpty = totalRows <= 3 && !hasData;
+          if (!tabId && args.tabName) {
+            const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
+            if (tabSearch.data && tabSearch.data.length > 0) {
+              tabId = tabSearch.data[0].id;
             }
           }
 
-          // Build a set of available default columns that can be reused by renaming.
-          // Include both the primary "Name" field and default non-primary columns
-          // ("Column 2", "Column 3") when the table is empty.
-          // We consume them in order so each field gets a unique candidate.
-          const defaultCandidates = isEmpty
-            ? existingFields.filter((f) => {
+          if (!tabId && context?.currentTabId) {
+            tabId = context.currentTabId;
+          }
+
+          if (!tabId) {
+            return { success: false, error: "createChartBlock: Missing tabId and could not infer from context" };
+          }
+
+          if (isSimulation && !originalChartId && context?.contextBlockId) {
+            originalChartId = context.contextBlockId;
+          }
+
+          return await wrapResult(
+            createChartBlock({
+              tabId,
+              prompt: args.prompt as string,
+              chartType: args.chartType as any,
+              title: args.title as string | undefined,
+              explicitData: args.explicitData as any,
+              isSimulation,
+              originalChartId,
+              simulationDescription: args.simulationDescription as string | undefined,
+              authContext: authContext ?? undefined,
+            })
+          );
+        }
+        case "createBlock": {
+          let tabId = args.tabId as string;
+
+          // Priority 1: Smart Tool - Resolve tabName if provided
+          if (!tabId && args.tabName) {
+            const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
+            if (tabSearch.data && tabSearch.data.length > 0) {
+              tabId = tabSearch.data[0].id;
+            }
+          }
+
+          // Priority 2: Use Context
+          if (!tabId && context?.currentTabId) {
+            tabId = context.currentTabId;
+          }
+
+          return await wrapResult(
+            createBlock({
+              tabId,
+              type: args.type as any,
+              content: args.content as any,
+              authContext: authContext ?? undefined,
+              position: args.position as number | undefined,
+              column: args.column as number | undefined,
+              parentBlockId: args.parentBlockId as string | undefined,
+            })
+          );
+        }
+
+        case "updateBlock":
+          return await wrapResult(
+            updateBlock({
+              blockId: args.blockId as string,
+              content: args.content as any,
+              position: args.position as number | undefined,
+              column: args.column as number | undefined,
+            })
+          );
+
+        case "deleteBlock":
+          return await wrapResult(deleteBlock(args.blockId as string, { authContext: authContext ?? undefined }));
+
+        // ==================================================================
+        // TABLE ACTIONS
+        // ==================================================================
+        case "createTable": {
+          const targetWorkspaceId = (args.workspaceId as string | undefined) || workspaceId;
+          if (!targetWorkspaceId) {
+            return { success: false, error: "Missing workspaceId for createTable" };
+          }
+
+          const tabId = (args.tabId as string | undefined) || context?.currentTabId;
+
+          // Create the table
+          const tableResult = await createTable({
+            workspaceId: targetWorkspaceId,
+            projectId: (args.projectId as string | undefined) || context?.currentProjectId,
+            title: args.title as string | undefined,
+            description: args.description as string | null | undefined,
+            icon: args.icon as string | null | undefined,
+            authContext: authContext ?? undefined,
+          });
+
+          if ("error" in tableResult) {
+            return { success: false, error: tableResult.error };
+          }
+
+          // If tabId provided, create block to show table in UI
+          if (tabId) {
+            const blockResult = await createBlock({
+              tabId,
+              type: "table",
+              content: { tableId: tableResult.data.table.id },
+              authContext: authContext ?? undefined,
+            });
+
+            if ("error" in blockResult) {
+              // CRITICAL FIX: Table was created but block creation failed
+              // Clean up the orphaned table to maintain data consistency
+              await deleteTable(tableResult.data.table.id, { authContext: authContext ?? undefined });
+
+              return {
+                success: false,
+                error: `Failed to add table to tab: ${blockResult.error}. Table creation rolled back.`,
+              };
+            }
+
+            return { success: true, data: { ...tableResult.data, block: blockResult.data } };
+          }
+
+          // No tabId - table created but not visible in UI
+          return { success: true, data: tableResult.data };
+        }
+
+        case "createField":
+          {
+            const tableId = args.tableId as string;
+            const name = args.name as string;
+            const type = args.type as string;
+            const config = args.config as Record<string, unknown> | undefined;
+            const isPrimary = args.isPrimary as boolean | undefined;
+
+            const existing = await findFieldByName(tableId, name);
+            if (existing) {
+              return { success: true, data: existing };
+            }
+
+            const reused = await maybeReuseDefaultField({
+              tableId,
+              name,
+              type,
+              config,
+              isPrimary,
+            });
+
+            if (reused) return reused;
+
+            return await wrapResult(
+              createField({
+                tableId,
+                name,
+                type: type as any,
+                config: config as any,
+                isPrimary,
+              })
+            );
+          }
+
+        case "bulkCreateFields":
+          {
+            const tableId = args.tableId as string;
+            const fields = args.fields as Array<{
+              name: string;
+              type: string;
+              config?: Record<string, unknown>;
+              isPrimary?: boolean;
+            }>;
+
+            if (!Array.isArray(fields) || fields.length === 0) {
+              return { success: false, error: "fields must be a non-empty array" };
+            }
+
+            // Fetch schema once and resolve default-column reuse in memory,
+            // then issue all writes in parallel.  This avoids the per-field
+            // getTable + isNewEmptyTable round-trips that maybeReuseDefaultField
+            // would make if called individually.
+            const tableResult = await getTable(tableId, { authContext: authContext ?? undefined });
+            const existingFields = ("error" in tableResult || !tableResult.data?.fields)
+              ? []
+              : tableResult.data.fields;
+
+            // Determine whether this is a new empty table (≤3 rows, no data)
+            let isEmpty = false;
+            if (existingFields.length > 0) {
+              const rowsResult = await getTableRows(tableId, { limit: 5, offset: 0, authContext: authContext ?? undefined });
+              if (!("error" in rowsResult) && rowsResult.data) {
+                const totalRows = rowsResult.data.total ?? rowsResult.data.rows.length;
+                const hasData = rowsResult.data.rows.some(
+                  (row) => row.data && Object.keys(row.data).length > 0
+                );
+                isEmpty = totalRows <= 3 && !hasData;
+              }
+            }
+
+            // Build a set of available default columns that can be reused by renaming.
+            // Include both the primary "Name" field and default non-primary columns
+            // ("Column 2", "Column 3") when the table is empty.
+            // We consume them in order so each field gets a unique candidate.
+            const defaultCandidates = isEmpty
+              ? existingFields.filter((f) => {
                 // Include primary field only if it has the default name "Name"
                 if (f.is_primary) {
                   return normalizeFieldName(f.name) === "name";
@@ -1872,525 +1996,364 @@ export async function executeTool(
                 // Include non-primary default columns (Column 2, Column 3)
                 return isDefaultFieldName(f.name);
               })
-            : [];
-          const availableDefaults = new Map(
-            defaultCandidates.map((f) => [normalizeFieldName(f.name), f])
-          );
-
-          // Plan each field: resolve to existing | reuse default | create new
-          type FieldPlan =
-            | { kind: "existing"; data: unknown }
-            | { kind: "reuse"; candidateId: string; name: string; type: string; config?: Record<string, unknown> }
-            | { kind: "create"; name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean };
-
-          const plans: FieldPlan[] = [];
-          for (const field of fields) {
-            // Check if a field with this name already exists
-            const normalized = normalizeFieldName(field.name);
-            const existing = existingFields.find(
-              (f) => normalizeFieldName(f.name) === normalized
+              : [];
+            const availableDefaults = new Map(
+              defaultCandidates.map((f) => [normalizeFieldName(f.name), f])
             );
-            if (existing) {
-              plans.push({ kind: "existing", data: existing });
-              continue;
-            }
 
-            // Try to claim a default column for reuse
-            if (isEmpty && !field.isPrimary && !(CONFIG_REQUIRED_TYPES.has(field.type) && !field.config)) {
-              // For text fields, prioritize: "name" (primary) > "column 2" > "column 3"
-              // For other types, prioritize: "column 3" > "column 2" > "name"
-              // This ensures the first custom field typically reuses "Name" instead of leaving it empty
-              const preferred = field.type === "text"
-                ? ["name", "column 2", "column 3"]
-                : ["column 3", "column 2", "name"];
-              const candidate = preferred
-                .map((name) => availableDefaults.get(name))
-                .find(Boolean) ?? [...availableDefaults.values()][0];
+            // Plan each field: resolve to existing | reuse default | create new
+            type FieldPlan =
+              | { kind: "existing"; data: unknown }
+              | { kind: "reuse"; candidateId: string; name: string; type: string; config?: Record<string, unknown> }
+              | { kind: "create"; name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean };
 
-              if (candidate) {
-                availableDefaults.delete(normalizeFieldName(candidate.name));
-                plans.push({
-                  kind: "reuse",
-                  candidateId: candidate.id,
-                  name: field.name,
-                  type: field.type,
-                  config: field.config,
-                });
+            const plans: FieldPlan[] = [];
+            for (const field of fields) {
+              // Check if a field with this name already exists
+              const normalized = normalizeFieldName(field.name);
+              const existing = existingFields.find(
+                (f) => normalizeFieldName(f.name) === normalized
+              );
+              if (existing) {
+                plans.push({ kind: "existing", data: existing });
                 continue;
               }
+
+              // Try to claim a default column for reuse
+              if (isEmpty && !field.isPrimary && !(CONFIG_REQUIRED_TYPES.has(field.type) && !field.config)) {
+                // For text fields, prioritize: "name" (primary) > "column 2" > "column 3"
+                // For other types, prioritize: "column 3" > "column 2" > "name"
+                // This ensures the first custom field typically reuses "Name" instead of leaving it empty
+                const preferred = field.type === "text"
+                  ? ["name", "column 2", "column 3"]
+                  : ["column 3", "column 2", "name"];
+                const candidate = preferred
+                  .map((name) => availableDefaults.get(name))
+                  .find(Boolean) ?? [...availableDefaults.values()][0];
+
+                if (candidate) {
+                  availableDefaults.delete(normalizeFieldName(candidate.name));
+                  plans.push({
+                    kind: "reuse",
+                    candidateId: candidate.id,
+                    name: field.name,
+                    type: field.type,
+                    config: field.config,
+                  });
+                  continue;
+                }
+              }
+
+              // Fall through to a new createField
+              plans.push({ kind: "create", name: field.name, type: field.type, config: field.config, isPrimary: field.isPrimary });
             }
 
-            // Fall through to a new createField
-            plans.push({ kind: "create", name: field.name, type: field.type, config: field.config, isPrimary: field.isPrimary });
+            // Execute all writes in parallel — each targets a distinct field
+            const results = await Promise.all(
+              plans.map(async (plan) => {
+                if (plan.kind === "existing") {
+                  return { success: true, data: plan.data };
+                }
+                if (plan.kind === "reuse") {
+                  const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
+                  const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
+                  if (nextConfig !== undefined) payload.config = nextConfig;
+                  return await wrapResult(updateField(plan.candidateId, payload));
+                }
+                // kind === "create"
+                return await wrapResult(
+                  createField({
+                    tableId,
+                    name: plan.name,
+                    type: plan.type as any,
+                    config: plan.config as any,
+                    isPrimary: plan.isPrimary,
+                  })
+                );
+              })
+            );
+
+            const allSuccessful = results.every((r) => r.success);
+            return {
+              success: allSuccessful,
+              data: results.map((r) => r.data),
+              error: allSuccessful ? undefined : results.find((r) => !r.success)?.error,
+            };
           }
 
-          // Execute all writes in parallel — each targets a distinct field
-          const results = await Promise.all(
-            plans.map(async (plan) => {
-              if (plan.kind === "existing") {
-                return { success: true, data: plan.data };
-              }
-              if (plan.kind === "reuse") {
-                const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
-                const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
-                if (nextConfig !== undefined) payload.config = nextConfig;
-                return await wrapResult(updateField(plan.candidateId, payload));
-              }
-              // kind === "create"
-              return await wrapResult(
-                createField({
-                  tableId,
-                  name: plan.name,
-                  type: plan.type as any,
-                  config: plan.config as any,
-                  isPrimary: plan.isPrimary,
-                })
-              );
-            })
+        case "updateField":
+          return await wrapResult(
+            updateField(args.fieldId as string, {
+              name: args.name as string | undefined,
+              config: args.config as any,
+            }, { authContext: authContext ?? undefined })
           );
 
-          const allSuccessful = results.every((r) => r.success);
-          return {
-            success: allSuccessful,
-            data: results.map((r) => r.data),
-            error: allSuccessful ? undefined : results.find((r) => !r.success)?.error,
-          };
-        }
+        case "deleteField":
+          return await wrapResult(deleteField(args.fieldId as string, { authContext: authContext ?? undefined }));
 
-      case "updateField":
-        return await wrapResult(
-          updateField(args.fieldId as string, {
-            name: args.name as string | undefined,
-            config: args.config as any,
-          }, { authContext: authContext ?? undefined })
-        );
-
-      case "deleteField":
-        return await wrapResult(deleteField(args.fieldId as string, { authContext: authContext ?? undefined }));
-
-      case "createRow": {
-        let tableId = args.tableId as string;
-        if (!tableId && args.tableName) {
-          const tableSearch = await searchTables({ searchText: args.tableName as string, limit: 1 });
-          if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
-            tableId = tableSearch.data[0].id;
-          }
-        }
-
-        if (!tableId) return { success: false, error: "Missing tableId for createRow. Provide tableId or tableName." };
-
-        // Enhance fields and normalize select field values before creating the row
-        const normalizedData = await enhanceFieldsAndNormalizeSelectValues(
-          tableId,
-          [{ data: args.data as Record<string, unknown> }]
-        );
-
-        return await wrapResult(
-          createRow({
-            tableId,
-            data: normalizedData[0].data,
-            authContext: authContext ?? undefined,
-          })
-        );
-      }
-
-      case "updateRow":
-        return await wrapResult(
-          updateRow(args.rowId as string, {
-            data: args.data as Record<string, unknown>,
-          }, { authContext: authContext ?? undefined })
-        );
-
-      case "updateCell":
-        if (!isUuid(args.rowId as string)) {
-          return {
-            success: false,
-            error: "updateCell requires a rowId UUID. If you only have field names/labels, use updateTableRowsByFieldNames.",
-          };
-        }
-        if (!isUuid(args.fieldId as string)) {
-          return {
-            success: false,
-            error: "updateCell requires a fieldId UUID. If you only have field names/labels, use updateTableRowsByFieldNames.",
-          };
-        }
-        return await wrapResult(
-          updateCell(args.rowId as string, args.fieldId as string, args.value, { authContext: authContext ?? undefined })
-        );
-
-      case "deleteRow":
-        return await wrapResult(deleteRow(args.rowId as string, { authContext: authContext ?? undefined }));
-
-      case "deleteRows":
-        return await wrapResult(deleteRows(args.rowIds as string[], { authContext: authContext ?? undefined }));
-
-      case "bulkInsertRows":
-        {
-          let resolvedTableId = args.tableId as string;
-          // Smart Tool: Resolve tableName
-          if (!resolvedTableId && args.tableName) {
+        case "createRow": {
+          let tableId = args.tableId as string;
+          if (!tableId && args.tableName) {
             const tableSearch = await searchTables({ searchText: args.tableName as string, limit: 1 });
             if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
-              resolvedTableId = tableSearch.data[0].id;
+              tableId = tableSearch.data[0].id;
             }
           }
-          if (!resolvedTableId) return { success: false, error: "Missing tableId for bulkInsertRows. Provide tableId or tableName." };
 
-          const rowsArg =
-            (args.rows as Array<{ data: Record<string, unknown>; order?: number | string | null }>) ??
-            undefined;
-          const legacyDataArg = args.data as Array<Record<string, unknown>> | undefined;
-          const normalizedRows =
-            rowsArg && Array.isArray(rowsArg)
-              ? rowsArg
-              : Array.isArray(legacyDataArg)
-                ? (() => {
-                  const looksLikeRows = legacyDataArg.every((entry) => {
-                    if (!entry || typeof entry !== "object") return false;
-                    const keys = Object.keys(entry);
-                    if (!keys.includes("data")) return false;
-                    return keys.every((key) => key === "data" || key === "order");
-                  });
+          if (!tableId) return { success: false, error: "Missing tableId for createRow. Provide tableId or tableName." };
 
-                  return looksLikeRows
-                    ? (legacyDataArg as Array<{
-                      data: Record<string, unknown>;
-                      order?: number | string | null;
-                    }>)
-                    : legacyDataArg.map((data) => ({ data }));
-                })()
-                : undefined;
-
-          if (!normalizedRows) {
-            return {
-              success: false,
-              error: "Missing rows for bulkInsertRows. Expected { rows: [{ data: {...} }] }.",
-            };
-          }
-
-          await maybeEnsureFieldsForRows(resolvedTableId, normalizedRows);
-          await maybeRemoveDefaultRows(resolvedTableId);
-
-          const mappingResult = await mapRowDataToFieldIds(
-            resolvedTableId,
-            normalizedRows
+          // Enhance fields and normalize select field values before creating the row
+          const normalizedData = await enhanceFieldsAndNormalizeSelectValues(
+            tableId,
+            [{ data: args.data as Record<string, unknown> }]
           );
 
-          if (mappingResult.warnings.length > 0) {
-            return {
-              success: false,
-              error: mappingResult.warnings[0],
-            };
-          }
+          return await wrapResult(
+            createRow({
+              tableId,
+              data: normalizedData[0].data,
+              authContext: authContext ?? undefined,
+            })
+          );
+        }
 
-          if (await shouldSkipDuplicateInsert(resolvedTableId, mappingResult.rows)) {
-            return {
-              success: true,
-              data: { insertedIds: [] },
-            };
-          }
-
-          // Enhance fields and normalize select field values (same as createTableFull)
-          const rowsWithNormalizedSelects = await enhanceFieldsAndNormalizeSelectValues(
-            resolvedTableId,
-            mappingResult.rows
+        case "updateRow":
+          return await wrapResult(
+            updateRow(args.rowId as string, {
+              data: args.data as Record<string, unknown>,
+            }, { authContext: authContext ?? undefined })
           );
 
-          const result = await wrapResult(
-            bulkInsertRows({
-              tableId: resolvedTableId,
-              rows: rowsWithNormalizedSelects,
+        case "updateCell":
+          if (!isUuid(args.rowId as string)) {
+            return {
+              success: false,
+              error: "updateCell requires a rowId UUID. If you only have field names/labels, use updateTableRowsByFieldNames.",
+            };
+          }
+          if (!isUuid(args.fieldId as string)) {
+            return {
+              success: false,
+              error: "updateCell requires a fieldId UUID. If you only have field names/labels, use updateTableRowsByFieldNames.",
+            };
+          }
+          return await wrapResult(
+            updateCell(args.rowId as string, args.fieldId as string, args.value, { authContext: authContext ?? undefined })
+          );
+
+        case "deleteRow":
+          return await wrapResult(deleteRow(args.rowId as string, { authContext: authContext ?? undefined }));
+
+        case "deleteRows":
+          return await wrapResult(deleteRows(args.rowIds as string[], { authContext: authContext ?? undefined }));
+
+        case "bulkInsertRows":
+          {
+            let resolvedTableId = args.tableId as string;
+            // Smart Tool: Resolve tableName
+            if (!resolvedTableId && args.tableName) {
+              const tableSearch = await searchTables({ searchText: args.tableName as string, limit: 1 });
+              if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
+                resolvedTableId = tableSearch.data[0].id;
+              }
+            }
+            if (!resolvedTableId) return { success: false, error: "Missing tableId for bulkInsertRows. Provide tableId or tableName." };
+
+            const rowsArg =
+              (args.rows as Array<{ data: Record<string, unknown>; order?: number | string | null }>) ??
+              undefined;
+            const legacyDataArg = args.data as Array<Record<string, unknown>> | undefined;
+            const normalizedRows =
+              rowsArg && Array.isArray(rowsArg)
+                ? rowsArg
+                : Array.isArray(legacyDataArg)
+                  ? (() => {
+                    const looksLikeRows = legacyDataArg.every((entry) => {
+                      if (!entry || typeof entry !== "object") return false;
+                      const keys = Object.keys(entry);
+                      if (!keys.includes("data")) return false;
+                      return keys.every((key) => key === "data" || key === "order");
+                    });
+
+                    return looksLikeRows
+                      ? (legacyDataArg as Array<{
+                        data: Record<string, unknown>;
+                        order?: number | string | null;
+                      }>)
+                      : legacyDataArg.map((data) => ({ data }));
+                  })()
+                  : undefined;
+
+            if (!normalizedRows) {
+              return {
+                success: false,
+                error: "Missing rows for bulkInsertRows. Expected { rows: [{ data: {...} }] }.",
+              };
+            }
+
+            await maybeEnsureFieldsForRows(resolvedTableId, normalizedRows);
+            await maybeRemoveDefaultRows(resolvedTableId);
+
+            const mappingResult = await mapRowDataToFieldIds(
+              resolvedTableId,
+              normalizedRows
+            );
+
+            if (mappingResult.warnings.length > 0) {
+              return {
+                success: false,
+                error: mappingResult.warnings[0],
+              };
+            }
+
+            if (await shouldSkipDuplicateInsert(resolvedTableId, mappingResult.rows)) {
+              return {
+                success: true,
+                data: { insertedIds: [] },
+              };
+            }
+
+            // Enhance fields and normalize select field values (same as createTableFull)
+            const rowsWithNormalizedSelects = await enhanceFieldsAndNormalizeSelectValues(
+              resolvedTableId,
+              mappingResult.rows
+            );
+
+            const result = await wrapResult(
+              bulkInsertRows({
+                tableId: resolvedTableId,
+                rows: rowsWithNormalizedSelects,
+              })
+            );
+
+            // Attach warnings if any fields were unmatched
+            if (mappingResult.warnings.length > 0) {
+              result.warnings = mappingResult.warnings;
+            }
+
+            return result;
+          }
+
+        case "bulkUpdateRows":
+          if (!Array.isArray(args.rowIds) || args.rowIds.some((id) => !isUuid(id as string))) {
+            return {
+              success: false,
+              error: "bulkUpdateRows requires rowIds as UUIDs. If you need to match rows by field names/values, use updateTableRowsByFieldNames.",
+            };
+          }
+          if (
+            !args.updates ||
+            typeof args.updates !== "object" ||
+            Object.keys(args.updates as Record<string, unknown>).some((key) => !isUuid(key))
+          ) {
+            return {
+              success: false,
+              error: "bulkUpdateRows requires updates with fieldId UUID keys. If you only have field names/labels, use updateTableRowsByFieldNames.",
+            };
+          }
+          {
+            const schemaResult = await getTableSchema({ tableId: args.tableId as string });
+            if (schemaResult.error || !schemaResult.data) {
+              return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
+            }
+            const fieldById = new Map(schemaResult.data.fields.map((f) => [f.id, f]));
+            for (const [fieldId, rawValue] of Object.entries(args.updates as Record<string, unknown>)) {
+              const field = fieldById.get(fieldId);
+              if (!field) continue;
+              if (!isSelectLike(field.type)) continue;
+
+              const { kind, options } = getOptionEntries(field);
+              const optionIds = new Set(options.map((opt) => opt.id));
+              const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+              const allValid = values.every((value) => optionIds.has(String(value)));
+              if (!allValid) {
+                return {
+                  success: false,
+                  error: `bulkUpdateRows: "${field.name}" expects option IDs, but provided values were not found. Use updateTableRowsByFieldNames to update by labels.`,
+                };
+              }
+              if ((kind === "options" || kind === "levels") && optionIds.size === 0) {
+                return {
+                  success: false,
+                  error: `bulkUpdateRows: "${field.name}" has no options configured. Use updateTableRowsByFieldNames to create options and update rows.`,
+                };
+              }
+            }
+          }
+          return await wrapResult(
+            bulkUpdateRows({
+              tableId: args.tableId as string,
+              rowIds: args.rowIds as string[],
+              updates: args.updates as Record<string, unknown>,
             })
           );
 
-          // Attach warnings if any fields were unmatched
-          if (mappingResult.warnings.length > 0) {
-            result.warnings = mappingResult.warnings;
+        case "updateTableRowsByFieldNames": {
+          const timingEnabled = isAITimingEnabled();
+          const timingStart = timingEnabled ? Date.now() : 0;
+          let t_schema_ms = 0;
+          let t_resolve_updates_ms = 0;
+          let t_update_options_ms = 0;
+          let t_search_rows_ms = 0;
+          let t_filter_rows_ms = 0;
+          let t_bulk_update_ms = 0;
+          let matchedRowCount = 0;
+          let scannedRowCount = 0;
+
+          const tableId = args.tableId as string | undefined;
+          const filters = args.filters as Record<string, unknown> | undefined;
+          const updates = args.updates as Record<string, unknown> | undefined;
+          const limit = typeof args.limit === "number" ? args.limit : 500;
+
+          if (!tableId) {
+            return { success: false, error: "Missing tableId for updateTableRowsByFieldNames." };
+          }
+          if (!updates || Object.keys(updates).length === 0) {
+            return { success: false, error: "updates are required for updateTableRowsByFieldNames." };
           }
 
-          return result;
-        }
+          {
+            const rpcResult = await updateTableRowsByFieldNamesRpc({
+              tableId,
+              filters,
+              updates,
+              limit,
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
+          }
 
-      case "bulkUpdateRows":
-        if (!Array.isArray(args.rowIds) || args.rowIds.some((id) => !isUuid(id as string))) {
-          return {
-            success: false,
-            error: "bulkUpdateRows requires rowIds as UUIDs. If you need to match rows by field names/values, use updateTableRowsByFieldNames.",
-          };
-        }
-        if (
-          !args.updates ||
-          typeof args.updates !== "object" ||
-          Object.keys(args.updates as Record<string, unknown>).some((key) => !isUuid(key))
-        ) {
-          return {
-            success: false,
-            error: "bulkUpdateRows requires updates with fieldId UUID keys. If you only have field names/labels, use updateTableRowsByFieldNames.",
-          };
-        }
-        {
-          const schemaResult = await getTableSchema({ tableId: args.tableId as string });
+          const schemaStart = timingEnabled ? Date.now() : 0;
+          const schemaResult = await getTableSchema({ tableId });
+          if (timingEnabled) t_schema_ms = Date.now() - schemaStart;
           if (schemaResult.error || !schemaResult.data) {
             return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
           }
-          const fieldById = new Map(schemaResult.data.fields.map((f) => [f.id, f]));
-          for (const [fieldId, rawValue] of Object.entries(args.updates as Record<string, unknown>)) {
-            const field = fieldById.get(fieldId);
-            if (!field) continue;
-            if (!isSelectLike(field.type)) continue;
 
-            const { kind, options } = getOptionEntries(field);
-            const optionIds = new Set(options.map((opt) => opt.id));
-            const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-            const allValid = values.every((value) => optionIds.has(String(value)));
-            if (!allValid) {
-              return {
-                success: false,
-                error: `bulkUpdateRows: "${field.name}" expects option IDs, but provided values were not found. Use updateTableRowsByFieldNames to update by labels.`,
-              };
-            }
-            if ((kind === "options" || kind === "levels") && optionIds.size === 0) {
-              return {
-                success: false,
-                error: `bulkUpdateRows: "${field.name}" has no options configured. Use updateTableRowsByFieldNames to create options and update rows.`,
-              };
-            }
-          }
-        }
-        return await wrapResult(
-          bulkUpdateRows({
-            tableId: args.tableId as string,
-            rowIds: args.rowIds as string[],
-            updates: args.updates as Record<string, unknown>,
-          })
-        );
+          const fields = schemaResult.data.fields;
+          const fieldMap = new Map(fields.map((f) => [normalizeFieldKey(f.name), f]));
+          const fieldIdMap = new Map(fields.map((f) => [f.id, f]));
 
-      case "updateTableRowsByFieldNames": {
-        const timingEnabled = isAITimingEnabled();
-        const timingStart = timingEnabled ? Date.now() : 0;
-        let t_schema_ms = 0;
-        let t_resolve_updates_ms = 0;
-        let t_update_options_ms = 0;
-        let t_search_rows_ms = 0;
-        let t_filter_rows_ms = 0;
-        let t_bulk_update_ms = 0;
-        let matchedRowCount = 0;
-        let scannedRowCount = 0;
+          const resolveField = (key: string) => {
+            const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
+            if (direct) return direct;
 
-        const tableId = args.tableId as string | undefined;
-        const filters = args.filters as Record<string, unknown> | undefined;
-        const updates = args.updates as Record<string, unknown> | undefined;
-        const limit = typeof args.limit === "number" ? args.limit : 500;
-
-        if (!tableId) {
-          return { success: false, error: "Missing tableId for updateTableRowsByFieldNames." };
-        }
-        if (!updates || Object.keys(updates).length === 0) {
-          return { success: false, error: "updates are required for updateTableRowsByFieldNames." };
-        }
-
-        {
-          const rpcResult = await updateTableRowsByFieldNamesRpc({
-            tableId,
-            filters,
-            updates,
-            limit,
-            authContext: authContext ?? undefined,
-          });
-          if (!("error" in rpcResult)) {
-            return { success: true, data: rpcResult.data };
-          }
-        }
-
-        const schemaStart = timingEnabled ? Date.now() : 0;
-        const schemaResult = await getTableSchema({ tableId });
-        if (timingEnabled) t_schema_ms = Date.now() - schemaStart;
-        if (schemaResult.error || !schemaResult.data) {
-          return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
-        }
-
-        const fields = schemaResult.data.fields;
-        const fieldMap = new Map(fields.map((f) => [normalizeFieldKey(f.name), f]));
-        const fieldIdMap = new Map(fields.map((f) => [f.id, f]));
-
-        const resolveField = (key: string) => {
-          const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
-          if (direct) return direct;
-
-          const normalized = normalizeFieldKey(key);
-          const startsWith = fields.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
-          if (startsWith) return startsWith;
-          const includes = fields.find((f) => normalizeFieldKey(f.name).includes(normalized));
-          if (includes) return includes;
-          return undefined;
-        };
-
-        // Prepare update payload (by fieldId) and optionally extend options.
-        const updatesByFieldId: Record<string, unknown> = {};
-        const pendingConfigUpdates = new Map<string, Record<string, unknown>>();
-
-        const resolveStart = timingEnabled ? Date.now() : 0;
-        for (const [fieldKey, rawValue] of Object.entries(updates)) {
-          const field = resolveField(fieldKey);
-          if (!field) {
-            return { success: false, error: `Unknown field "${fieldKey}" in updates.` };
-          }
-          const resolved = resolveUpdateValue(field, rawValue, true);
-          updatesByFieldId[field.id] = resolved.value;
-          if (resolved.updatedConfig) {
-            pendingConfigUpdates.set(field.id, resolved.updatedConfig);
-          }
-        }
-        if (timingEnabled) t_resolve_updates_ms = Date.now() - resolveStart;
-
-        // Persist any new options before updating rows.
-        const updateOptionsStart = timingEnabled ? Date.now() : 0;
-        for (const [fieldId, config] of pendingConfigUpdates.entries()) {
-          const updateResult = await executeTool(
-            { name: "updateField", arguments: { fieldId, config } },
-            context
-          );
-          if (!updateResult.success) {
-            return { success: false, error: updateResult.error ?? "Failed to update field options." };
-          }
-        }
-        if (timingEnabled) t_update_options_ms = Date.now() - updateOptionsStart;
-
-        const searchRowsStart = timingEnabled ? Date.now() : 0;
-        const rowsResult = await searchTableRows({ tableId, limit });
-        if (timingEnabled) t_search_rows_ms = Date.now() - searchRowsStart;
-        if (rowsResult.error || !rowsResult.data) {
-          return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
-        }
-
-        const applyAllRows = !filters || Object.keys(filters).length === 0;
-        const filterStart = timingEnabled ? Date.now() : 0;
-        const matchedRowIds = applyAllRows
-          ? rowsResult.data.map((row) => row.id)
-          : rowsResult.data
-            .filter((row) => matchesRowFilters(row.data, filters, resolveField))
-            .map((row) => row.id);
-        if (timingEnabled) t_filter_rows_ms = Date.now() - filterStart;
-        matchedRowCount = matchedRowIds.length;
-        scannedRowCount = rowsResult.data.length;
-
-        if (matchedRowIds.length === 0) {
-          const filterSummary = filters
-            ? Object.entries(filters)
-              .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-              .join(", ")
-            : "";
-
-          return {
-            success: false,
-            error: applyAllRows
-              ? `No rows found to update. Scanned ${rowsResult.data.length} rows.`
-              : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map((f) => f.name).join(", ")}`,
+            const normalized = normalizeFieldKey(key);
+            const startsWith = fields.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
+            if (startsWith) return startsWith;
+            const includes = fields.find((f) => normalizeFieldKey(f.name).includes(normalized));
+            if (includes) return includes;
+            return undefined;
           };
-        }
 
-        const bulkUpdateStart = timingEnabled ? Date.now() : 0;
-        const updateResult = await wrapResult(
-          bulkUpdateRows({
-            tableId,
-            rowIds: matchedRowIds,
-            updates: updatesByFieldId,
-          })
-        );
-        if (timingEnabled) t_bulk_update_ms = Date.now() - bulkUpdateStart;
-
-        if (updateResult.success) {
-          updateResult.data = { updated: matchedRowIds.length, rowIds: matchedRowIds };
-        }
-
-        if (timingEnabled) {
-          aiTiming({
-            event: "updateTableRowsByFieldNames",
-            tableId,
-            scanned_rows: scannedRowCount,
-            matched_rows: matchedRowCount,
-            t_schema_ms,
-            t_resolve_updates_ms,
-            t_update_options_ms,
-            t_search_rows_ms,
-            t_filter_rows_ms,
-            t_bulk_update_ms,
-            t_total_ms: Date.now() - timingStart,
-          });
-        }
-
-        return updateResult;
-      }
-
-      case "bulkUpdateRowsByFieldNames": {
-        const tableId = args.tableId as string | undefined;
-        const rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : undefined;
-        const limit = typeof args.limit === "number" ? args.limit : 500;
-
-        if (!tableId) {
-          return { success: false, error: "Missing tableId for bulkUpdateRowsByFieldNames." };
-        }
-        if (!rows || rows.length === 0) {
-          return { success: false, error: "rows are required for bulkUpdateRowsByFieldNames." };
-        }
-
-        {
-          const rpcResult = await bulkUpdateRowsByFieldNamesRpc({
-            tableId,
-            rows,
-            limit,
-            authContext: authContext ?? undefined,
-          });
-          if (!("error" in rpcResult)) {
-            return { success: true, data: rpcResult.data };
-          }
-        }
-
-        const schemaResult = await getTableSchema({ tableId });
-        if (schemaResult.error || !schemaResult.data) {
-          return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
-        }
-
-        const fields = schemaResult.data.fields;
-        const fieldMap = new Map(fields.map((f) => [normalizeFieldKey(f.name), f]));
-        const fieldIdMap = new Map(fields.map((f) => [f.id, f]));
-
-        const resolveField = (key: string) => {
-          const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
-          if (direct) return direct;
-
-          const normalized = normalizeFieldKey(key);
-          const startsWith = fields.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
-          if (startsWith) return startsWith;
-          const includes = fields.find((f) => normalizeFieldKey(f.name).includes(normalized));
-          if (includes) return includes;
-          return undefined;
-        };
-
-        const rowsResult = await searchTableRows({ tableId, limit });
-        if (rowsResult.error || !rowsResult.data) {
-          return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
-        }
-
-        const results: Array<{
-          index: number;
-          updated: number;
-          rowIds: string[];
-          filters?: Record<string, unknown>;
-        }> = [];
-        const allUpdatedRowIds: string[] = [];
-
-        for (let index = 0; index < rows.length; index += 1) {
-          const entry = rows[index] ?? {};
-          const filters = (entry as Record<string, unknown>).filters as Record<string, unknown> | undefined;
-          const updates = (entry as Record<string, unknown>).updates as Record<string, unknown> | undefined;
-
-          if (!updates || Object.keys(updates).length === 0) {
-            return { success: false, error: `Missing updates for row entry at index ${index}.` };
-          }
-
+          // Prepare update payload (by fieldId) and optionally extend options.
           const updatesByFieldId: Record<string, unknown> = {};
+          const pendingConfigUpdates = new Map<string, Record<string, unknown>>();
 
+          const resolveStart = timingEnabled ? Date.now() : 0;
           for (const [fieldKey, rawValue] of Object.entries(updates)) {
             const field = resolveField(fieldKey);
             if (!field) {
@@ -2399,23 +2362,41 @@ export async function executeTool(
             const resolved = resolveUpdateValue(field, rawValue, true);
             updatesByFieldId[field.id] = resolved.value;
             if (resolved.updatedConfig) {
-              const updateResult = await executeTool(
-                { name: "updateField", arguments: { fieldId: field.id, config: resolved.updatedConfig } },
-                context
-              );
-              if (!updateResult.success) {
-                return { success: false, error: updateResult.error ?? "Failed to update field options." };
-              }
-              field.config = resolved.updatedConfig;
+              pendingConfigUpdates.set(field.id, resolved.updatedConfig);
             }
+          }
+          if (timingEnabled) t_resolve_updates_ms = Date.now() - resolveStart;
+
+          // Persist any new options before updating rows.
+          const updateOptionsStart = timingEnabled ? Date.now() : 0;
+          for (const [fieldId, config] of pendingConfigUpdates.entries()) {
+            const updateResult = await executeTool(
+              { name: "updateField", arguments: { fieldId, config } },
+              context
+            );
+            if (!updateResult.success) {
+              return { success: false, error: updateResult.error ?? "Failed to update field options." };
+            }
+          }
+          if (timingEnabled) t_update_options_ms = Date.now() - updateOptionsStart;
+
+          const searchRowsStart = timingEnabled ? Date.now() : 0;
+          const rowsResult = await searchTableRows({ tableId, limit });
+          if (timingEnabled) t_search_rows_ms = Date.now() - searchRowsStart;
+          if (rowsResult.error || !rowsResult.data) {
+            return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
           }
 
           const applyAllRows = !filters || Object.keys(filters).length === 0;
+          const filterStart = timingEnabled ? Date.now() : 0;
           const matchedRowIds = applyAllRows
             ? rowsResult.data.map((row) => row.id)
             : rowsResult.data
               .filter((row) => matchesRowFilters(row.data, filters, resolveField))
               .map((row) => row.id);
+          if (timingEnabled) t_filter_rows_ms = Date.now() - filterStart;
+          matchedRowCount = matchedRowIds.length;
+          scannedRowCount = rowsResult.data.length;
 
           if (matchedRowIds.length === 0) {
             const filterSummary = filters
@@ -2423,6 +2404,7 @@ export async function executeTool(
                 .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
                 .join(", ")
               : "";
+
             return {
               success: false,
               error: applyAllRows
@@ -2431,6 +2413,7 @@ export async function executeTool(
             };
           }
 
+          const bulkUpdateStart = timingEnabled ? Date.now() : 0;
           const updateResult = await wrapResult(
             bulkUpdateRows({
               tableId,
@@ -2438,78 +2421,260 @@ export async function executeTool(
               updates: updatesByFieldId,
             })
           );
+          if (timingEnabled) t_bulk_update_ms = Date.now() - bulkUpdateStart;
 
-          if (!updateResult.success) {
-            return updateResult;
+          if (updateResult.success) {
+            updateResult.data = { updated: matchedRowIds.length, rowIds: matchedRowIds };
           }
 
-          allUpdatedRowIds.push(...matchedRowIds);
-          results.push({ index, updated: matchedRowIds.length, rowIds: matchedRowIds, filters });
+          if (timingEnabled) {
+            aiTiming({
+              event: "updateTableRowsByFieldNames",
+              tableId,
+              scanned_rows: scannedRowCount,
+              matched_rows: matchedRowCount,
+              t_schema_ms,
+              t_resolve_updates_ms,
+              t_update_options_ms,
+              t_search_rows_ms,
+              t_filter_rows_ms,
+              t_bulk_update_ms,
+              t_total_ms: Date.now() - timingStart,
+            });
+          }
+
+          return updateResult;
         }
 
-        return {
-          success: true,
-          data: {
-            updated: allUpdatedRowIds.length,
-            rowIds: allUpdatedRowIds,
-            results,
-            totalRowsScanned: rowsResult.data.length,
-          },
-        };
-      }
+        case "bulkUpdateRowsByFieldNames": {
+          const tableId = args.tableId as string | undefined;
+          const rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : undefined;
+          const limit = typeof args.limit === "number" ? args.limit : 500;
 
-      // ==================================================================
-      // TABLE SUPER-TOOLS
-      // ==================================================================
-      case "createTableFull":
-        {
-          // Check if args is empty or missing critical info
-          if (!args || Object.keys(args).length === 0) {
-            return {
-              success: false,
-              error: "createTableFull was called with no arguments. You MUST provide workspaceId (from context) and title (table name) at minimum. Check the tool schema and try again with proper arguments."
-            };
+          if (!tableId) {
+            return { success: false, error: "Missing tableId for bulkUpdateRowsByFieldNames." };
+          }
+          if (!rows || rows.length === 0) {
+            return { success: false, error: "rows are required for bulkUpdateRowsByFieldNames." };
           }
 
-          const workspaceId = args.workspaceId as string;
-          const title = args.title as string;
-          const description = args.description as string | undefined;
-          const projectId = args.projectId as string | undefined;
-          // Auto-inject tabId from context if not provided (workflow context)
-          const tabId = (args.tabId as string | undefined) ?? context?.currentTabId;
-          let fields = Array.isArray(args.fields) ? (args.fields as Array<Record<string, unknown>>) : [];
-          let rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
-
-          if (!workspaceId || !title) {
-            const missing = [];
-            if (!workspaceId) missing.push("workspaceId (get from system context)");
-            if (!title) missing.push("title (the name of the table)");
-            return {
-              success: false,
-              error: `createTableFull missing required parameters: ${missing.join(", ")}. You MUST provide these arguments when calling this tool.`
-            };
+          {
+            const rpcResult = await bulkUpdateRowsByFieldNamesRpc({
+              tableId,
+              rows,
+              limit,
+              authContext: authContext ?? undefined,
+            });
+            if (!("error" in rpcResult)) {
+              return { success: true, data: rpcResult.data };
+            }
           }
 
-          // Enhance field types with smart inference from row data
-          fields = enhanceFieldsWithInference(fields, rows);
-          rows = normalizeRowsForSelectFields(fields, rows);
+          const schemaResult = await getTableSchema({ tableId });
+          if (schemaResult.error || !schemaResult.data) {
+            return { success: false, error: schemaResult.error ?? "Failed to load table schema." };
+          }
 
-          // RPC fast-path: create table + fields + rows in one DB transaction
-          const rpcResult = await createTableFullRpc({
-            workspaceId,
-            title,
-            description,
-            projectId,
-            fields,
-            rows,
-            authContext: authContext ?? undefined,
-          });
+          const fields = schemaResult.data.fields;
+          const fieldMap = new Map(fields.map((f) => [normalizeFieldKey(f.name), f]));
+          const fieldIdMap = new Map(fields.map((f) => [f.id, f]));
 
-          if (!("error" in rpcResult)) {
-            const { tableId, fieldsCreated, rowsInserted } = rpcResult.data;
+          const resolveField = (key: string) => {
+            const direct = fieldIdMap.get(key) || fieldMap.get(normalizeFieldKey(key));
+            if (direct) return direct;
+
+            const normalized = normalizeFieldKey(key);
+            const startsWith = fields.find((f) => normalizeFieldKey(f.name).startsWith(normalized));
+            if (startsWith) return startsWith;
+            const includes = fields.find((f) => normalizeFieldKey(f.name).includes(normalized));
+            if (includes) return includes;
+            return undefined;
+          };
+
+          const rowsResult = await searchTableRows({ tableId, limit });
+          if (rowsResult.error || !rowsResult.data) {
+            return { success: false, error: rowsResult.error ?? "Failed to load table rows." };
+          }
+
+          const results: Array<{
+            index: number;
+            updated: number;
+            rowIds: string[];
+            filters?: Record<string, unknown>;
+          }> = [];
+          const allUpdatedRowIds: string[] = [];
+
+          for (let index = 0; index < rows.length; index += 1) {
+            const entry = rows[index] ?? {};
+            const filters = (entry as Record<string, unknown>).filters as Record<string, unknown> | undefined;
+            const updates = (entry as Record<string, unknown>).updates as Record<string, unknown> | undefined;
+
+            if (!updates || Object.keys(updates).length === 0) {
+              return { success: false, error: `Missing updates for row entry at index ${index}.` };
+            }
+
+            const updatesByFieldId: Record<string, unknown> = {};
+
+            for (const [fieldKey, rawValue] of Object.entries(updates)) {
+              const field = resolveField(fieldKey);
+              if (!field) {
+                return { success: false, error: `Unknown field "${fieldKey}" in updates.` };
+              }
+              const resolved = resolveUpdateValue(field, rawValue, true);
+              updatesByFieldId[field.id] = resolved.value;
+              if (resolved.updatedConfig) {
+                const updateResult = await executeTool(
+                  { name: "updateField", arguments: { fieldId: field.id, config: resolved.updatedConfig } },
+                  context
+                );
+                if (!updateResult.success) {
+                  return { success: false, error: updateResult.error ?? "Failed to update field options." };
+                }
+                field.config = resolved.updatedConfig;
+              }
+            }
+
+            const applyAllRows = !filters || Object.keys(filters).length === 0;
+            const matchedRowIds = applyAllRows
+              ? rowsResult.data.map((row) => row.id)
+              : rowsResult.data
+                .filter((row) => matchesRowFilters(row.data, filters, resolveField))
+                .map((row) => row.id);
+
+            if (matchedRowIds.length === 0) {
+              const filterSummary = filters
+                ? Object.entries(filters)
+                  .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+                  .join(", ")
+                : "";
+              return {
+                success: false,
+                error: applyAllRows
+                  ? `No rows found to update. Scanned ${rowsResult.data.length} rows.`
+                  : `No rows matched filter {${filterSummary}}. Scanned ${rowsResult.data.length} rows. Check that field names and values match exactly (case-insensitive). Available fields: ${fields.map((f) => f.name).join(", ")}`,
+              };
+            }
+
+            const updateResult = await wrapResult(
+              bulkUpdateRows({
+                tableId,
+                rowIds: matchedRowIds,
+                updates: updatesByFieldId,
+              })
+            );
+
+            if (!updateResult.success) {
+              return updateResult;
+            }
+
+            allUpdatedRowIds.push(...matchedRowIds);
+            results.push({ index, updated: matchedRowIds.length, rowIds: matchedRowIds, filters });
+          }
+
+          return {
+            success: true,
+            data: {
+              updated: allUpdatedRowIds.length,
+              rowIds: allUpdatedRowIds,
+              results,
+              totalRowsScanned: rowsResult.data.length,
+            },
+          };
+        }
+
+        // ==================================================================
+        // TABLE SUPER-TOOLS
+        // ==================================================================
+        case "createTableFull":
+          {
+            // Check if args is empty or missing critical info
+            if (!args || Object.keys(args).length === 0) {
+              return {
+                success: false,
+                error: "createTableFull was called with no arguments. You MUST provide workspaceId (from context) and title (table name) at minimum. Check the tool schema and try again with proper arguments."
+              };
+            }
+
+            const workspaceId = args.workspaceId as string;
+            const title = args.title as string;
+            const description = args.description as string | undefined;
+            const projectId = args.projectId as string | undefined;
+            // Auto-inject tabId from context if not provided (workflow context)
+            const tabId = (args.tabId as string | undefined) ?? context?.currentTabId;
+            let fields = Array.isArray(args.fields) ? (args.fields as Array<Record<string, unknown>>) : [];
+            let rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
+
+            if (!workspaceId || !title) {
+              const missing = [];
+              if (!workspaceId) missing.push("workspaceId (get from system context)");
+              if (!title) missing.push("title (the name of the table)");
+              return {
+                success: false,
+                error: `createTableFull missing required parameters: ${missing.join(", ")}. You MUST provide these arguments when calling this tool.`
+              };
+            }
+
+            // Enhance field types with smart inference from row data
+            fields = enhanceFieldsWithInference(fields, rows);
+            rows = normalizeRowsForSelectFields(fields, rows);
+
+            // RPC fast-path: create table + fields + rows in one DB transaction
+            const rpcResult = await createTableFullRpc({
+              workspaceId,
+              title,
+              description,
+              projectId,
+              fields,
+              rows,
+              authContext: authContext ?? undefined,
+            });
+
+            if (!("error" in rpcResult)) {
+              const { tableId, fieldsCreated, rowsInserted } = rpcResult.data;
+              let blockId: string | null = null;
+
+              // Create table block (UI visibility) if needed
+              if (tabId) {
+                const blockResult = await createBlock({
+                  tabId,
+                  type: "table",
+                  content: { tableId },
+                  authContext: authContext ?? undefined,
+                });
+                if ("error" in blockResult) {
+                  await deleteTable(tableId, { authContext: authContext ?? undefined });
+                  return { success: false, error: blockResult.error ?? "Failed to create table block." };
+                }
+                blockId = blockResult.data.id;
+              }
+
+              return {
+                success: true,
+                data: { tableId, fieldsCreated, rowsInserted, blockId },
+                hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
+              };
+            }
+
+            // Step 1: Create table
+            const tableResult = await wrapResult(
+              createTable({
+                workspaceId,
+                title,
+                description,
+                projectId,
+                authContext: authContext ?? undefined,
+              })
+            );
+
+            if (!tableResult.success || !tableResult.data) {
+              return { success: false, error: tableResult.error ?? "Failed to create table." };
+            }
+
+            const tableData = tableResult.data as { table: { id: string } };
+            const tableId = tableData.table.id;
             let blockId: string | null = null;
 
-            // Create table block (UI visibility) if needed
+            // Step 1b: Create table block if tabId provided
             if (tabId) {
               const blockResult = await createBlock({
                 tabId,
@@ -2524,663 +2689,622 @@ export async function executeTool(
               blockId = blockResult.data.id;
             }
 
+            // Step 2: Create fields if provided
+            let createdFields: unknown[] = [];
+            if (fields.length > 0) {
+              const fieldsResult = await executeTool(
+                { name: "bulkCreateFields", arguments: { tableId, fields } },
+                context
+              );
+              if (!fieldsResult.success) {
+                if (blockId) {
+                  await deleteBlock(blockId, { authContext: authContext ?? undefined });
+                }
+                await deleteTable(tableId, { authContext: authContext ?? undefined });
+                return { success: false, error: fieldsResult.error ?? "Failed to create fields." };
+              }
+              createdFields = Array.isArray(fieldsResult.data) ? fieldsResult.data : [];
+            }
+
+            // Step 3: Insert rows if provided
+            let insertedRows: unknown[] = [];
+            if (rows.length > 0) {
+              const rowsResult = await executeTool(
+                { name: "bulkInsertRows", arguments: { tableId, rows } },
+                context
+              );
+              if (!rowsResult.success) {
+                if (blockId) {
+                  await deleteBlock(blockId, { authContext: authContext ?? undefined });
+                }
+                await deleteTable(tableId, { authContext: authContext ?? undefined });
+                return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
+              }
+              insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
+                ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
+                : [];
+            }
+
             return {
               success: true,
-              data: { tableId, fieldsCreated, rowsInserted, blockId },
-              hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
+              data: {
+                tableId,
+                fieldsCreated: createdFields.length,
+                rowsInserted: insertedRows.length,
+                blockId,
+              },
+              hint: `Created table "${title}" with ${createdFields.length} fields and ${insertedRows.length} rows.`,
             };
           }
 
-          // Step 1: Create table
-          const tableResult = await wrapResult(
-            createTable({
-              workspaceId,
-              title,
-              description,
-              projectId,
-              authContext: authContext ?? undefined,
-            })
-          );
+        case "updateTableFull":
+          {
+            let tableId = args.tableId as string | undefined;
+            const tableName = args.tableName as string | undefined;
 
-          if (!tableResult.success || !tableResult.data) {
-            return { success: false, error: tableResult.error ?? "Failed to create table." };
-          }
-
-          const tableData = tableResult.data as { table: { id: string } };
-          const tableId = tableData.table.id;
-          let blockId: string | null = null;
-
-          // Step 1b: Create table block if tabId provided
-          if (tabId) {
-            const blockResult = await createBlock({
-              tabId,
-              type: "table",
-              content: { tableId },
-              authContext: authContext ?? undefined,
-            });
-            if ("error" in blockResult) {
-              await deleteTable(tableId, { authContext: authContext ?? undefined });
-              return { success: false, error: blockResult.error ?? "Failed to create table block." };
-            }
-            blockId = blockResult.data.id;
-          }
-
-          // Step 2: Create fields if provided
-          let createdFields: unknown[] = [];
-          if (fields.length > 0) {
-            const fieldsResult = await executeTool(
-              { name: "bulkCreateFields", arguments: { tableId, fields } },
-              context
-            );
-            if (!fieldsResult.success) {
-              if (blockId) {
-                await deleteBlock(blockId, { authContext: authContext ?? undefined });
+            // Resolve tableId from tableName if needed
+            if (!tableId && tableName) {
+              const tableSearch = await searchTables({ searchText: tableName, limit: 1 });
+              if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
+                tableId = tableSearch.data[0].id;
+              } else {
+                return { success: false, error: `Table "${tableName}" not found.` };
               }
-              await deleteTable(tableId, { authContext: authContext ?? undefined });
-              return { success: false, error: fieldsResult.error ?? "Failed to create fields." };
             }
-            createdFields = Array.isArray(fieldsResult.data) ? fieldsResult.data : [];
-          }
 
-          // Step 3: Insert rows if provided
-          let insertedRows: unknown[] = [];
-          if (rows.length > 0) {
-            const rowsResult = await executeTool(
-              { name: "bulkInsertRows", arguments: { tableId, rows } },
-              context
-            );
-            if (!rowsResult.success) {
-              if (blockId) {
-                await deleteBlock(blockId, { authContext: authContext ?? undefined });
+            if (!tableId) {
+              return { success: false, error: "updateTableFull requires tableId or tableName." };
+            }
+
+            const hasRpcOps =
+              args.title !== undefined ||
+              args.description !== undefined ||
+              (Array.isArray(args.addFields) && args.addFields.length > 0) ||
+              (Array.isArray(args.updateFields) && args.updateFields.length > 0) ||
+              (Array.isArray(args.deleteFields) && args.deleteFields.length > 0) ||
+              (Array.isArray(args.insertRows) && args.insertRows.length > 0) ||
+              (args.updateRows && typeof args.updateRows === "object") ||
+              (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0);
+
+            if (hasRpcOps && !context?.undoTracker) {
+              // RPC fast-path: apply all operations in one DB transaction
+              const rpcResult = await updateTableFullRpc({
+                tableId,
+                title: args.title as string | undefined,
+                description: (args.description as string | null | undefined) ?? undefined,
+                addFields: Array.isArray(args.addFields) ? (args.addFields as Array<Record<string, unknown>>) : undefined,
+                updateFields: Array.isArray(args.updateFields) ? (args.updateFields as Array<Record<string, unknown>>) : undefined,
+                deleteFields: Array.isArray(args.deleteFields) ? (args.deleteFields as string[]) : undefined,
+                insertRows: Array.isArray(args.insertRows) ? (args.insertRows as Array<Record<string, unknown>>) : undefined,
+                updateRows: args.updateRows && typeof args.updateRows === "object"
+                  ? (args.updateRows as Record<string, unknown>)
+                  : undefined,
+                deleteRowIds: Array.isArray(args.deleteRowIds) ? (args.deleteRowIds as string[]) : undefined,
+                authContext: authContext ?? undefined,
+              });
+
+              if (!("error" in rpcResult)) {
+                return {
+                  success: true,
+                  data: rpcResult.data,
+                  hint: `Updated table with ${Object.entries(rpcResult.data).map(([k, v]) => `${v} ${k}`).join(", ")}.`,
+                };
               }
-              await deleteTable(tableId, { authContext: authContext ?? undefined });
-              return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
             }
-            insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
-              ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
-              : [];
-          }
 
-          return {
-            success: true,
-            data: {
-              tableId,
-              fieldsCreated: createdFields.length,
-              rowsInserted: insertedRows.length,
-              blockId,
-            },
-            hint: `Created table "${title}" with ${createdFields.length} fields and ${insertedRows.length} rows.`,
-          };
-        }
+            const operationSummary: Record<string, number> = {};
 
-      case "updateTableFull":
-        {
-          let tableId = args.tableId as string | undefined;
-          const tableName = args.tableName as string | undefined;
+            // Update table metadata
+            if (args.title !== undefined || args.description !== undefined) {
+              const updates: Record<string, unknown> = {};
+              if (args.title !== undefined) updates.title = args.title;
+              if (args.description !== undefined) updates.description = args.description;
 
-          // Resolve tableId from tableName if needed
-          if (!tableId && tableName) {
-            const tableSearch = await searchTables({ searchText: tableName, limit: 1 });
-            if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
-              tableId = tableSearch.data[0].id;
-            } else {
-              return { success: false, error: `Table "${tableName}" not found.` };
+              const tableResult = await executeTool(
+                { name: "updateTable", arguments: { tableId, ...updates } },
+                context
+              );
+              if (!tableResult.success) {
+                return { success: false, error: tableResult.error ?? "Failed to update table metadata." };
+              }
             }
-          }
 
-          if (!tableId) {
-            return { success: false, error: "updateTableFull requires tableId or tableName." };
-          }
-
-          const hasRpcOps =
-            args.title !== undefined ||
-            args.description !== undefined ||
-            (Array.isArray(args.addFields) && args.addFields.length > 0) ||
-            (Array.isArray(args.updateFields) && args.updateFields.length > 0) ||
-            (Array.isArray(args.deleteFields) && args.deleteFields.length > 0) ||
-            (Array.isArray(args.insertRows) && args.insertRows.length > 0) ||
-            (args.updateRows && typeof args.updateRows === "object") ||
-            (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0);
-
-          if (hasRpcOps && !context?.undoTracker) {
-            // RPC fast-path: apply all operations in one DB transaction
-            const rpcResult = await updateTableFullRpc({
-              tableId,
-              title: args.title as string | undefined,
-              description: (args.description as string | null | undefined) ?? undefined,
-              addFields: Array.isArray(args.addFields) ? (args.addFields as Array<Record<string, unknown>>) : undefined,
-              updateFields: Array.isArray(args.updateFields) ? (args.updateFields as Array<Record<string, unknown>>) : undefined,
-              deleteFields: Array.isArray(args.deleteFields) ? (args.deleteFields as string[]) : undefined,
-              insertRows: Array.isArray(args.insertRows) ? (args.insertRows as Array<Record<string, unknown>>) : undefined,
-              updateRows: args.updateRows && typeof args.updateRows === "object"
-                ? (args.updateRows as Record<string, unknown>)
-                : undefined,
-              deleteRowIds: Array.isArray(args.deleteRowIds) ? (args.deleteRowIds as string[]) : undefined,
-              authContext: authContext ?? undefined,
-            });
-
-            if (!("error" in rpcResult)) {
-              return {
-                success: true,
-                data: rpcResult.data,
-                hint: `Updated table with ${Object.entries(rpcResult.data).map(([k, v]) => `${v} ${k}`).join(", ")}.`,
-              };
+            // Add fields
+            if (Array.isArray(args.addFields) && args.addFields.length > 0) {
+              const fieldsResult = await executeTool(
+                { name: "bulkCreateFields", arguments: { tableId, fields: args.addFields } },
+                context
+              );
+              if (!fieldsResult.success) {
+                return { success: false, error: fieldsResult.error ?? "Failed to add fields." };
+              }
+              operationSummary.fieldsAdded = (args.addFields as unknown[]).length;
             }
-          }
 
-          const operationSummary: Record<string, number> = {};
+            // Update fields
+            if (Array.isArray(args.updateFields) && args.updateFields.length > 0) {
+              for (const fieldUpdate of args.updateFields as Array<Record<string, unknown>>) {
+                let fieldId = fieldUpdate.fieldId as string | undefined;
 
-          // Update table metadata
-          if (args.title !== undefined || args.description !== undefined) {
-            const updates: Record<string, unknown> = {};
-            if (args.title !== undefined) updates.title = args.title;
-            if (args.description !== undefined) updates.description = args.description;
-
-            const tableResult = await executeTool(
-              { name: "updateTable", arguments: { tableId, ...updates } },
-              context
-            );
-            if (!tableResult.success) {
-              return { success: false, error: tableResult.error ?? "Failed to update table metadata." };
-            }
-          }
-
-          // Add fields
-          if (Array.isArray(args.addFields) && args.addFields.length > 0) {
-            const fieldsResult = await executeTool(
-              { name: "bulkCreateFields", arguments: { tableId, fields: args.addFields } },
-              context
-            );
-            if (!fieldsResult.success) {
-              return { success: false, error: fieldsResult.error ?? "Failed to add fields." };
-            }
-            operationSummary.fieldsAdded = (args.addFields as unknown[]).length;
-          }
-
-          // Update fields
-          if (Array.isArray(args.updateFields) && args.updateFields.length > 0) {
-            for (const fieldUpdate of args.updateFields as Array<Record<string, unknown>>) {
-              let fieldId = fieldUpdate.fieldId as string | undefined;
-
-              if (!fieldId && fieldUpdate.fieldName) {
-                const schema = await getTableSchema({ tableId });
-                if (!schema.error && schema.data) {
-                  const field = schema.data.fields.find(
-                    (f) => f.name.toLowerCase() === String(fieldUpdate.fieldName).toLowerCase()
-                  );
-                  if (field) fieldId = field.id;
+                if (!fieldId && fieldUpdate.fieldName) {
+                  const schema = await getTableSchema({ tableId });
+                  if (!schema.error && schema.data) {
+                    const field = schema.data.fields.find(
+                      (f) => f.name.toLowerCase() === String(fieldUpdate.fieldName).toLowerCase()
+                    );
+                    if (field) fieldId = field.id;
+                  }
                 }
-              }
 
-              if (fieldId) {
-                const result = await executeTool(
-                  {
-                    name: "updateField",
-                    arguments: {
-                      fieldId,
-                      name: fieldUpdate.name as string | undefined,
-                      config: fieldUpdate.config as Record<string, unknown> | undefined,
+                if (fieldId) {
+                  const result = await executeTool(
+                    {
+                      name: "updateField",
+                      arguments: {
+                        fieldId,
+                        name: fieldUpdate.name as string | undefined,
+                        config: fieldUpdate.config as Record<string, unknown> | undefined,
+                      },
                     },
-                  },
-                  context
-                );
-                if (!result.success) {
-                  return { success: false, error: result.error ?? "Failed to update field." };
-                }
-              }
-            }
-            operationSummary.fieldsUpdated = (args.updateFields as unknown[]).length;
-          }
-
-          // Delete fields
-          if (Array.isArray(args.deleteFields) && args.deleteFields.length > 0) {
-            for (const fieldIdentifier of args.deleteFields as string[]) {
-              let fieldId = fieldIdentifier;
-
-              if (!isUuid(fieldIdentifier)) {
-                const schema = await getTableSchema({ tableId });
-                if (!schema.error && schema.data) {
-                  const field = schema.data.fields.find(
-                    (f) => f.name.toLowerCase() === fieldIdentifier.toLowerCase()
+                    context
                   );
-                  if (field) fieldId = field.id;
+                  if (!result.success) {
+                    return { success: false, error: result.error ?? "Failed to update field." };
+                  }
                 }
               }
+              operationSummary.fieldsUpdated = (args.updateFields as unknown[]).length;
+            }
 
-              if (fieldId) {
-                const result = await executeTool(
-                  { name: "deleteField", arguments: { fieldId } },
-                  context
-                );
-                if (!result.success) {
-                  return { success: false, error: result.error ?? "Failed to delete field." };
+            // Delete fields
+            if (Array.isArray(args.deleteFields) && args.deleteFields.length > 0) {
+              for (const fieldIdentifier of args.deleteFields as string[]) {
+                let fieldId = fieldIdentifier;
+
+                if (!isUuid(fieldIdentifier)) {
+                  const schema = await getTableSchema({ tableId });
+                  if (!schema.error && schema.data) {
+                    const field = schema.data.fields.find(
+                      (f) => f.name.toLowerCase() === fieldIdentifier.toLowerCase()
+                    );
+                    if (field) fieldId = field.id;
+                  }
+                }
+
+                if (fieldId) {
+                  const result = await executeTool(
+                    { name: "deleteField", arguments: { fieldId } },
+                    context
+                  );
+                  if (!result.success) {
+                    return { success: false, error: result.error ?? "Failed to delete field." };
+                  }
                 }
               }
+              operationSummary.fieldsDeleted = (args.deleteFields as unknown[]).length;
             }
-            operationSummary.fieldsDeleted = (args.deleteFields as unknown[]).length;
-          }
 
-          // Insert rows
-          if (Array.isArray(args.insertRows) && args.insertRows.length > 0) {
-            const rowsResult = await executeTool(
-              { name: "bulkInsertRows", arguments: { tableId, rows: args.insertRows } },
-              context
-            );
-            if (!rowsResult.success) {
-              return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
+            // Insert rows
+            if (Array.isArray(args.insertRows) && args.insertRows.length > 0) {
+              const rowsResult = await executeTool(
+                { name: "bulkInsertRows", arguments: { tableId, rows: args.insertRows } },
+                context
+              );
+              if (!rowsResult.success) {
+                return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
+              }
+              operationSummary.rowsInserted = (args.insertRows as unknown[]).length;
             }
-            operationSummary.rowsInserted = (args.insertRows as unknown[]).length;
-          }
 
-          // Update rows
-          if (args.updateRows && typeof args.updateRows === "object") {
-            const updateRows = args.updateRows as Record<string, unknown>;
-            const rowsResult = await executeTool(
-              {
-                name: "updateTableRowsByFieldNames",
-                arguments: {
-                  tableId,
-                  filters: updateRows.filters,
-                  updates: updateRows.updates,
+            // Update rows
+            if (args.updateRows && typeof args.updateRows === "object") {
+              const updateRows = args.updateRows as Record<string, unknown>;
+              const rowsResult = await executeTool(
+                {
+                  name: "updateTableRowsByFieldNames",
+                  arguments: {
+                    tableId,
+                    filters: updateRows.filters,
+                    updates: updateRows.updates,
+                  },
                 },
-              },
-              context
-            );
-            if (!rowsResult.success) {
-              return { success: false, error: rowsResult.error ?? "Failed to update rows." };
+                context
+              );
+              if (!rowsResult.success) {
+                return { success: false, error: rowsResult.error ?? "Failed to update rows." };
+              }
+              operationSummary.rowsUpdated = ((rowsResult.data as Record<string, unknown>)?.updated as number) ?? 0;
             }
-            operationSummary.rowsUpdated = ((rowsResult.data as Record<string, unknown>)?.updated as number) ?? 0;
-          }
 
-          // Delete rows
-          if (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0) {
-            const result = await executeTool(
-              { name: "deleteRows", arguments: { rowIds: args.deleteRowIds } },
-              context
-            );
-            if (!result.success) {
-              return { success: false, error: result.error ?? "Failed to delete rows." };
+            // Delete rows
+            if (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0) {
+              const result = await executeTool(
+                { name: "deleteRows", arguments: { rowIds: args.deleteRowIds } },
+                context
+              );
+              if (!result.success) {
+                return { success: false, error: result.error ?? "Failed to delete rows." };
+              }
+              operationSummary.rowsDeleted = (args.deleteRowIds as unknown[]).length;
             }
-            operationSummary.rowsDeleted = (args.deleteRowIds as unknown[]).length;
+
+            return {
+              success: true,
+              data: operationSummary,
+              hint: `Updated table with ${Object.entries(operationSummary).map(([k, v]) => `${v} ${k}`).join(", ")}.`,
+            };
           }
 
-          return {
-            success: true,
-            data: operationSummary,
-            hint: `Updated table with ${Object.entries(operationSummary).map(([k, v]) => `${v} ${k}`).join(", ")}.`,
-          };
-        }
+        case "deleteTable":
+          {
+            let tableId = args.tableId as string | undefined;
+            const tableName = args.tableName as string | undefined;
 
-      case "deleteTable":
-        {
-          let tableId = args.tableId as string | undefined;
-          const tableName = args.tableName as string | undefined;
+            // Resolve tableId from tableName if needed
+            if (!tableId && tableName) {
+              const tableSearch = await searchTables({ searchText: tableName, limit: 1 });
+              if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
+                tableId = tableSearch.data[0].id;
+              } else {
+                return { success: false, error: `Table "${tableName}" not found.` };
+              }
+            }
 
-          // Resolve tableId from tableName if needed
-          if (!tableId && tableName) {
-            const tableSearch = await searchTables({ searchText: tableName, limit: 1 });
-            if (!tableSearch.error && tableSearch.data && tableSearch.data.length > 0) {
-              tableId = tableSearch.data[0].id;
-            } else {
-              return { success: false, error: `Table "${tableName}" not found.` };
+            if (!tableId) {
+              return { success: false, error: "deleteTable requires tableId or tableName." };
+            }
+
+            return await wrapResult(deleteTable(tableId, { authContext: authContext ?? undefined }));
+          }
+
+        // ==================================================================
+        // TIMELINE ACTIONS
+        // ==================================================================
+        case "createTimelineEvent": {
+          let timelineBlockId = args.timelineBlockId as string;
+
+          // Smart Tool: Resolve timelineBlockName
+          if (!timelineBlockId && args.timelineBlockName) {
+            const blockSearch = await searchBlocks({ searchText: args.timelineBlockName as string, type: "timeline", limit: 1 });
+            // Prefer exact match
+            if (blockSearch.data && blockSearch.data.length > 0) {
+              timelineBlockId = blockSearch.data[0].id;
             }
           }
 
-          if (!tableId) {
-            return { success: false, error: "deleteTable requires tableId or tableName." };
-          }
-
-          return await wrapResult(deleteTable(tableId, { authContext: authContext ?? undefined }));
-        }
-
-      // ==================================================================
-      // TIMELINE ACTIONS
-      // ==================================================================
-      case "createTimelineEvent": {
-        let timelineBlockId = args.timelineBlockId as string;
-
-        // Smart Tool: Resolve timelineBlockName
-        if (!timelineBlockId && args.timelineBlockName) {
-          const blockSearch = await searchBlocks({ searchText: args.timelineBlockName as string, type: "timeline", limit: 1 });
-          // Prefer exact match
-          if (blockSearch.data && blockSearch.data.length > 0) {
-            timelineBlockId = blockSearch.data[0].id;
-          }
-        }
-
-        // Priority 3: Resolve from context (Current Tab)
-        if (!timelineBlockId && context?.currentTabId) {
-          const existingBlocks = await searchBlocks({
-            type: "timeline",
-            tabId: context.currentTabId,
-            limit: 1,
-          });
-          if (existingBlocks.data && existingBlocks.data.length > 0) {
-            timelineBlockId = existingBlocks.data[0].id;
-          } else {
-            // Use createBlock to auto-create if needed
-            const blockResult = await createBlock({
-              tabId: context.currentTabId,
+          // Priority 3: Resolve from context (Current Tab)
+          if (!timelineBlockId && context?.currentTabId) {
+            const existingBlocks = await searchBlocks({
               type: "timeline",
-              content: { title: "Timeline", viewMode: "gantt" },
-              authContext: authContext ?? undefined,
+              tabId: context.currentTabId,
+              limit: 1,
             });
-            if (!("error" in blockResult) && blockResult.data) {
-              timelineBlockId = blockResult.data.id;
+            if (existingBlocks.data && existingBlocks.data.length > 0) {
+              timelineBlockId = existingBlocks.data[0].id;
+            } else {
+              // Use createBlock to auto-create if needed
+              const blockResult = await createBlock({
+                tabId: context.currentTabId,
+                type: "timeline",
+                content: { title: "Timeline", viewMode: "gantt" },
+                authContext: authContext ?? undefined,
+              });
+              if (!("error" in blockResult) && blockResult.data) {
+                timelineBlockId = blockResult.data.id;
+              }
             }
           }
-        }
 
-        if (!timelineBlockId) return { success: false, error: "Missing timelineBlockId. Provide ID or 'timelineBlockName'." };
+          if (!timelineBlockId) return { success: false, error: "Missing timelineBlockId. Provide ID or 'timelineBlockName'." };
 
-        // Smart Tool: Resolve assigneeName
-        let assigneeId = args.assigneeId as string | undefined;
-        if (!assigneeId && args.assigneeName) {
-          const assigneeResult = await resolveTaskAssignees([{ name: args.assigneeName as string }]);
-          if (assigneeResult.resolved.length > 0) {
-            assigneeId = assigneeResult.resolved[0].id ?? undefined;
-          }
-        }
-
-        return await wrapResult(
-          createTimelineEvent({
-            timelineBlockId,
-            title: args.title as string,
-            startDate: args.startDate as string,
-            endDate: args.endDate as string,
-            status: args.status as TimelineEventStatus | undefined,
-            progress: args.progress as number | undefined,
-            notes: args.notes as string | undefined,
-            color: args.color as string | undefined,
-            isMilestone: args.isMilestone as boolean | undefined,
-            assigneeId,
-            authContext: authContext ?? undefined,
-          })
-        );
-      }
-      case "updateTimelineEvent":
-        {
-          // Smart Tool: Resolve assigneeName if provided
+          // Smart Tool: Resolve assigneeName
           let assigneeId = args.assigneeId as string | undefined;
           if (!assigneeId && args.assigneeName) {
             const assigneeResult = await resolveTaskAssignees([{ name: args.assigneeName as string }]);
-            if (assigneeResult.ambiguities.length > 0) {
-              const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
-              return { success: false, error: `Ambiguous assignee name: ${details}. Please be more specific.` };
-            }
             if (assigneeResult.resolved.length > 0) {
               assigneeId = assigneeResult.resolved[0].id ?? undefined;
             }
           }
 
           return await wrapResult(
-            updateTimelineEvent(args.eventId as string, {
-              title: args.title as string | undefined,
-              startDate: args.startDate as string | undefined,
-              endDate: args.endDate as string | undefined,
+            createTimelineEvent({
+              timelineBlockId,
+              title: args.title as string,
+              startDate: args.startDate as string,
+              endDate: args.endDate as string,
               status: args.status as TimelineEventStatus | undefined,
               progress: args.progress as number | undefined,
-              notes: (args.notes as string | null | undefined) ?? undefined,
-              color: (args.color as string | null | undefined) ?? undefined,
+              notes: args.notes as string | undefined,
+              color: args.color as string | undefined,
               isMilestone: args.isMilestone as boolean | undefined,
-              assigneeId: assigneeId,
-            }, { authContext: authContext ?? undefined })
+              assigneeId,
+              authContext: authContext ?? undefined,
+            })
           );
         }
-
-      case "deleteTimelineEvent":
-        return await wrapResult(deleteTimelineEvent(args.eventId as string, { authContext: authContext ?? undefined }));
-
-      case "createTimelineDependency":
-        return await wrapResult(
-          createTimelineDependency({
-            timelineBlockId: args.timelineBlockId as string,
-            fromId: args.fromEventId as string,
-            toId: args.toEventId as string,
-            dependencyType: args.dependencyType as any,
-            authContext: authContext ?? undefined,
-          })
-        );
-
-      case "deleteTimelineDependency":
-        return await wrapResult(
-          deleteTimelineDependency(args.dependencyId as string, { authContext: authContext ?? undefined })
-        );
-
-      // ==================================================================
-      // PROPERTY ACTIONS
-      // ==================================================================
-      case "createPropertyDefinition":
-        if (!workspaceId) {
-          return { success: false, error: "No workspace selected" };
-        }
-        return await wrapResult(
-          createPropertyDefinition({
-            workspace_id: workspaceId,
-            name: args.name as string,
-            type: args.type as any,
-            options: args.options as any,
-          })
-        );
-
-      case "updatePropertyDefinition":
-        return await wrapResult(
-          updatePropertyDefinition(args.definitionId as string, {
-            name: args.name as string | undefined,
-            options: args.options as any,
-          })
-        );
-
-      case "deletePropertyDefinition":
-        return await wrapResult(
-          deletePropertyDefinition(args.definitionId as string)
-        );
-
-      case "setEntityProperty":
-        return await wrapResult(
-          setEntityProperty({
-            entity_type: args.entityType as any,
-            entity_id: args.entityId as string,
-            property_definition_id: args.propertyDefinitionId as string,
-            value: args.value as PropertyValue,
-          })
-        );
-
-      case "removeEntityProperty":
-        return await wrapResult(
-          removeEntityProperty(
-            args.entityType as any,
-            args.entityId as string,
-            args.propertyDefinitionId as string
-          )
-        );
-
-      // ==================================================================
-      // CLIENT ACTIONS
-      // ==================================================================
-      case "createClient":
-        if (!workspaceId) {
-          return { success: false, error: "No workspace selected" };
-        }
-        return await wrapResult(
-          createClient(workspaceId, {
-            name: args.name as string,
-            email: args.email as string | undefined,
-            company: args.company as string | undefined,
-            phone: args.phone as string | undefined,
-            address: args.address as string | undefined,
-            website: args.website as string | undefined,
-            notes: args.notes as string | undefined,
-          }, { authContext: authContext ?? undefined })
-        );
-
-      case "updateClient":
-        return await wrapResult(
-          updateClient(args.clientId as string, {
-            name: args.name as string | undefined,
-            email: args.email as string | undefined,
-            company: args.company as string | undefined,
-            phone: args.phone as string | undefined,
-            address: args.address as string | undefined,
-            website: args.website as string | undefined,
-            notes: args.notes as string | undefined,
-          }, { authContext: authContext ?? undefined })
-        );
-
-      case "deleteClient":
-        return await wrapResult(deleteClient(args.clientId as string, { authContext: authContext ?? undefined }));
-
-      // ==================================================================
-      // DOC ACTIONS
-      // ==================================================================
-      case "createDoc":
-        if (!workspaceId) {
-          return { success: false, error: "No workspace selected" };
-        }
-        return await wrapResult(
-          createDoc(workspaceId, args.title as string, { authContext: authContext ?? undefined })
-        );
-
-      case "updateDoc":
-        return await wrapResult(
-          updateDoc(args.docId as string, {
-            title: args.title as string | undefined,
-            content: args.content as any,
-          }, { authContext: authContext ?? undefined })
-        );
-
-      case "archiveDoc":
-        return await wrapResult(
-          updateDoc(args.docId as string, { is_archived: true }, { authContext: authContext ?? undefined })
-        );
-
-      case "deleteDoc":
-        return await wrapResult(deleteDoc(args.docId as string, { authContext: authContext ?? undefined }));
-
-      // ==================================================================
-      // FILE ACTIONS
-      // ==================================================================
-      case "fileAnalysisQuery": {
-        if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
-        const fileIds = Array.isArray((args as any)?.fileIds)
-          ? ((args as any).fileIds as unknown[]).map((id) => String(id)).filter(Boolean)
-          : [];
-        const query = String((args as any)?.query || "").trim();
-        if (fileIds.length === 0) return { success: false, error: "Missing fileIds for fileAnalysisQuery" };
-        if (!query) return { success: false, error: "Missing query for fileAnalysisQuery" };
-
-        const includeTables = (args as any)?.includeTables !== false;
-        const maxTextChars = typeof (args as any)?.maxTextChars === "number" ? (args as any).maxTextChars : 8000;
-        const maxTableRows = typeof (args as any)?.maxTableRows === "number" ? (args as any).maxTableRows : 50;
-
-        const { data: files, error } = await authContext.supabase
-          .from("files")
-          .select("id, file_name, file_size, file_type, storage_path, workspace_id, project_id")
-          .in("id", fileIds);
-
-        if (error) {
-          return { success: false, error: error.message || "Failed to load files" };
-        }
-
-        const resolved = (files || []) as unknown as FileAnalysisFileRecord[];
-        const results: any[] = [];
-        for (const file of resolved) {
-          try {
-            const artifact = await ensureFileArtifact(authContext.supabase, file);
-            const useRag = shouldUseRag({
-              fileSize: file.file_size,
-              tokenEstimate: artifact.token_estimate || 0,
-              rowCount: artifact.row_count,
-              pageCount: artifact.page_count,
-            });
-
-            let chunks: Array<{ id: string; chunk_index: number; content: string }> = [];
-            if (useRag && artifact.status === "ready") {
-              await ensureFileChunks(authContext.supabase, file, artifact);
-              const retrieved = await retrieveRelevantChunks(authContext.supabase, [file.id], query);
-              chunks = (retrieved || []).slice(0, 10).map((chunk) => ({
-                id: chunk.id,
-                chunk_index: chunk.chunk_index,
-                content: chunk.content,
-              }));
+        case "updateTimelineEvent":
+          {
+            // Smart Tool: Resolve assigneeName if provided
+            let assigneeId = args.assigneeId as string | undefined;
+            if (!assigneeId && args.assigneeName) {
+              const assigneeResult = await resolveTaskAssignees([{ name: args.assigneeName as string }]);
+              if (assigneeResult.ambiguities.length > 0) {
+                const details = assigneeResult.ambiguities.map(a => `"${a.input}"`).join(", ");
+                return { success: false, error: `Ambiguous assignee name: ${details}. Please be more specific.` };
+              }
+              if (assigneeResult.resolved.length > 0) {
+                assigneeId = assigneeResult.resolved[0].id ?? undefined;
+              }
             }
 
-            const extractedText = String(artifact.extracted_text || "");
-            const textPreview = extractedText.length > maxTextChars ? extractedText.slice(0, maxTextChars) : extractedText;
-            const tables = includeTables && Array.isArray(artifact.extracted_tables)
-              ? (artifact.extracted_tables as any[]).slice(0, 5).map((table) => ({
-                ...table,
-                rows: Array.isArray(table?.rows) ? table.rows.slice(0, Math.max(1, maxTableRows)) : [],
-              }))
-              : [];
-
-            results.push({
-              file: {
-                id: file.id,
-                file_name: file.file_name,
-                file_type: file.file_type,
-                file_size: file.file_size,
-              },
-              artifact: {
-                id: artifact.id,
-                status: artifact.status,
-                page_count: artifact.page_count,
-                row_count: artifact.row_count,
-                column_count: artifact.column_count,
-                token_estimate: artifact.token_estimate,
-              },
-              textPreview,
-              tablesPreview: tables,
-              chunks,
-            });
-          } catch (e) {
-            const message = e instanceof Error ? e.message : "Failed to analyze file";
-            results.push({
-              file: { id: file.id, file_name: (file as any).file_name },
-              error: message,
-            });
+            return await wrapResult(
+              updateTimelineEvent(args.eventId as string, {
+                title: args.title as string | undefined,
+                startDate: args.startDate as string | undefined,
+                endDate: args.endDate as string | undefined,
+                status: args.status as TimelineEventStatus | undefined,
+                progress: args.progress as number | undefined,
+                notes: (args.notes as string | null | undefined) ?? undefined,
+                color: (args.color as string | null | undefined) ?? undefined,
+                isMilestone: args.isMilestone as boolean | undefined,
+                assigneeId: assigneeId,
+              }, { authContext: authContext ?? undefined })
+            );
           }
+
+        case "deleteTimelineEvent":
+          return await wrapResult(deleteTimelineEvent(args.eventId as string, { authContext: authContext ?? undefined }));
+
+        case "createTimelineDependency":
+          return await wrapResult(
+            createTimelineDependency({
+              timelineBlockId: args.timelineBlockId as string,
+              fromId: args.fromEventId as string,
+              toId: args.toEventId as string,
+              dependencyType: args.dependencyType as any,
+              authContext: authContext ?? undefined,
+            })
+          );
+
+        case "deleteTimelineDependency":
+          return await wrapResult(
+            deleteTimelineDependency(args.dependencyId as string, { authContext: authContext ?? undefined })
+          );
+
+        // ==================================================================
+        // PROPERTY ACTIONS
+        // ==================================================================
+        case "createPropertyDefinition":
+          if (!workspaceId) {
+            return { success: false, error: "No workspace selected" };
+          }
+          return await wrapResult(
+            createPropertyDefinition({
+              workspace_id: workspaceId,
+              name: args.name as string,
+              type: args.type as any,
+              options: args.options as any,
+            })
+          );
+
+        case "updatePropertyDefinition":
+          return await wrapResult(
+            updatePropertyDefinition(args.definitionId as string, {
+              name: args.name as string | undefined,
+              options: args.options as any,
+            })
+          );
+
+        case "deletePropertyDefinition":
+          return await wrapResult(
+            deletePropertyDefinition(args.definitionId as string)
+          );
+
+        case "setEntityProperty":
+          return await wrapResult(
+            setEntityProperty({
+              entity_type: args.entityType as any,
+              entity_id: args.entityId as string,
+              property_definition_id: args.propertyDefinitionId as string,
+              value: args.value as PropertyValue,
+            })
+          );
+
+        case "removeEntityProperty":
+          return await wrapResult(
+            removeEntityProperty(
+              args.entityType as any,
+              args.entityId as string,
+              args.propertyDefinitionId as string
+            )
+          );
+
+        // ==================================================================
+        // CLIENT ACTIONS
+        // ==================================================================
+        case "createClient":
+          if (!workspaceId) {
+            return { success: false, error: "No workspace selected" };
+          }
+          return await wrapResult(
+            createClient(workspaceId, {
+              name: args.name as string,
+              email: args.email as string | undefined,
+              company: args.company as string | undefined,
+              phone: args.phone as string | undefined,
+              address: args.address as string | undefined,
+              website: args.website as string | undefined,
+              notes: args.notes as string | undefined,
+            }, { authContext: authContext ?? undefined })
+          );
+
+        case "updateClient":
+          return await wrapResult(
+            updateClient(args.clientId as string, {
+              name: args.name as string | undefined,
+              email: args.email as string | undefined,
+              company: args.company as string | undefined,
+              phone: args.phone as string | undefined,
+              address: args.address as string | undefined,
+              website: args.website as string | undefined,
+              notes: args.notes as string | undefined,
+            }, { authContext: authContext ?? undefined })
+          );
+
+        case "deleteClient":
+          return await wrapResult(deleteClient(args.clientId as string, { authContext: authContext ?? undefined }));
+
+        // ==================================================================
+        // DOC ACTIONS
+        // ==================================================================
+        case "createDoc":
+          if (!workspaceId) {
+            return { success: false, error: "No workspace selected" };
+          }
+          return await wrapResult(
+            createDoc(workspaceId, args.title as string, { authContext: authContext ?? undefined })
+          );
+
+        case "updateDoc":
+          return await wrapResult(
+            updateDoc(args.docId as string, {
+              title: args.title as string | undefined,
+              content: args.content as any,
+            }, { authContext: authContext ?? undefined })
+          );
+
+        case "archiveDoc":
+          return await wrapResult(
+            updateDoc(args.docId as string, { is_archived: true }, { authContext: authContext ?? undefined })
+          );
+
+        case "deleteDoc":
+          return await wrapResult(deleteDoc(args.docId as string, { authContext: authContext ?? undefined }));
+
+        // ==================================================================
+        // FILE ACTIONS
+        // ==================================================================
+        case "fileAnalysisQuery": {
+          if (!authContext?.supabase) return { success: false, error: "Unauthorized" };
+          const fileIds = Array.isArray((args as any)?.fileIds)
+            ? ((args as any).fileIds as unknown[]).map((id) => String(id)).filter(Boolean)
+            : [];
+          const query = String((args as any)?.query || "").trim();
+          if (fileIds.length === 0) return { success: false, error: "Missing fileIds for fileAnalysisQuery" };
+          if (!query) return { success: false, error: "Missing query for fileAnalysisQuery" };
+
+          const includeTables = (args as any)?.includeTables !== false;
+          const maxTextChars = typeof (args as any)?.maxTextChars === "number" ? (args as any).maxTextChars : 8000;
+          const maxTableRows = typeof (args as any)?.maxTableRows === "number" ? (args as any).maxTableRows : 50;
+
+          const { data: files, error } = await authContext.supabase
+            .from("files")
+            .select("id, file_name, file_size, file_type, storage_path, workspace_id, project_id")
+            .in("id", fileIds);
+
+          if (error) {
+            return { success: false, error: error.message || "Failed to load files" };
+          }
+
+          const resolved = (files || []) as unknown as FileAnalysisFileRecord[];
+          const results: any[] = [];
+          for (const file of resolved) {
+            try {
+              const artifact = await ensureFileArtifact(authContext.supabase, file);
+              const useRag = shouldUseRag({
+                fileSize: file.file_size,
+                tokenEstimate: artifact.token_estimate || 0,
+                rowCount: artifact.row_count,
+                pageCount: artifact.page_count,
+              });
+
+              let chunks: Array<{ id: string; chunk_index: number; content: string }> = [];
+              if (useRag && artifact.status === "ready") {
+                await ensureFileChunks(authContext.supabase, file, artifact);
+                const retrieved = await retrieveRelevantChunks(authContext.supabase, [file.id], query);
+                chunks = (retrieved || []).slice(0, 10).map((chunk) => ({
+                  id: chunk.id,
+                  chunk_index: chunk.chunk_index,
+                  content: chunk.content,
+                }));
+              }
+
+              const extractedText = String(artifact.extracted_text || "");
+              const textPreview = extractedText.length > maxTextChars ? extractedText.slice(0, maxTextChars) : extractedText;
+              const tables = includeTables && Array.isArray(artifact.extracted_tables)
+                ? (artifact.extracted_tables as any[]).slice(0, 5).map((table) => ({
+                  ...table,
+                  rows: Array.isArray(table?.rows) ? table.rows.slice(0, Math.max(1, maxTableRows)) : [],
+                }))
+                : [];
+
+              results.push({
+                file: {
+                  id: file.id,
+                  file_name: file.file_name,
+                  file_type: file.file_type,
+                  file_size: file.file_size,
+                },
+                artifact: {
+                  id: artifact.id,
+                  status: artifact.status,
+                  page_count: artifact.page_count,
+                  row_count: artifact.row_count,
+                  column_count: artifact.column_count,
+                  token_estimate: artifact.token_estimate,
+                },
+                textPreview,
+                tablesPreview: tables,
+                chunks,
+              });
+            } catch (e) {
+              const message = e instanceof Error ? e.message : "Failed to analyze file";
+              results.push({
+                file: { id: file.id, file_name: (file as any).file_name },
+                error: message,
+              });
+            }
+          }
+
+          return { success: true, data: { query, results } };
         }
 
-        return { success: true, data: { query, results } };
+        case "renameFile":
+          return await wrapResult(
+            renameFile(args.fileId as string, args.fileName as string, { authContext: authContext ?? undefined })
+          );
+
+        // ==================================================================
+        // COMMENT ACTIONS (for table rows)
+        // ==================================================================
+        case "createComment":
+          // Table row comments
+          return await wrapResult(
+            createTableComment({
+              rowId: args.rowId as string,
+              content: args.text as string,
+              parentId: undefined,
+              authContext: authContext ?? undefined,
+            })
+          );
+
+        case "updateComment":
+          return await wrapResult(
+            updateTableComment(args.commentId as string, args.text as string, { authContext: authContext ?? undefined })
+          );
+
+        case "deleteComment":
+          return await wrapResult(deleteTableComment(args.commentId as string, { authContext: authContext ?? undefined }));
+
+        // ==================================================================
+        // UNKNOWN TOOL
+        // ==================================================================
+        default:
+          return {
+            success: false,
+            error: `Unknown tool: ${name}`,
+          };
       }
-
-      case "renameFile":
-        return await wrapResult(
-          renameFile(args.fileId as string, args.fileName as string, { authContext: authContext ?? undefined })
-        );
-
-      // ==================================================================
-      // COMMENT ACTIONS (for table rows)
-      // ==================================================================
-      case "createComment":
-        // Table row comments
-        return await wrapResult(
-          createTableComment({
-            rowId: args.rowId as string,
-            content: args.text as string,
-            parentId: undefined,
-            authContext: authContext ?? undefined,
-          })
-        );
-
-      case "updateComment":
-        return await wrapResult(
-          updateTableComment(args.commentId as string, args.text as string, { authContext: authContext ?? undefined })
-        );
-
-      case "deleteComment":
-        return await wrapResult(deleteTableComment(args.commentId as string, { authContext: authContext ?? undefined }));
-
-      // ==================================================================
-      // UNKNOWN TOOL
-      // ==================================================================
-      default:
-        return {
-          success: false,
-          error: `Unknown tool: ${name}`,
-        };
-    }
     };
 
     const result = await runTool();

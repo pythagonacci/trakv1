@@ -123,7 +123,7 @@ const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const MAX_TOOL_ITERATIONS = 25; // Prevent infinite loops
 const TOOL_REPEAT_THRESHOLD = 2;
-const TOOL_CALL_MAX_TOKENS = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 512);
+const TOOL_CALL_MAX_TOKENS = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 2048);
 const FINAL_RESPONSE_MAX_TOKENS = Number(process.env.AI_FINAL_MAX_TOKENS ?? 1024);
 const TOOL_RESULT_MAX_ITEMS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS ?? 25);
 const TOOL_RESULT_MAX_STRING_CHARS = Number(process.env.AI_TOOL_RESULT_MAX_STRING_CHARS ?? 2000);
@@ -937,6 +937,12 @@ export async function executeAICommand(
           try {
             toolArgs = JSON.parse(toolCall.function.arguments);
           } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            aiDebug("executeAI:jsonParseError", {
+              tool: toolName,
+              rawArguments: toolCall.function.arguments,
+              parseError: errorMsg,
+            });
             toolArgs = {};
           }
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
@@ -967,6 +973,8 @@ export async function executeAICommand(
             argCount: Object.keys(toolArgs).length,
             argKeys: Object.keys(toolArgs).slice(0, 10),
           });
+
+
 
           if (options.readOnly && !isSearchLikeToolName(toolName) && !readOnlyAllowedWriteTools.has(toolName)) {
             const error = `Write tool "${toolName}" is not allowed for this read-only request. Use search/analysis tools and create display blocks only.`;
@@ -1030,11 +1038,17 @@ export async function executeAICommand(
 
             // Stop immediately on first empty-arg failure to prevent loops
             if (emptyCallCount >= 1) {
+              // Provide actionable guidance based on tool type
+              const toolGuidance = toolName.includes("Task") || toolName.includes("task")
+                ? "Please specify which task block to use, or navigate to a page with a task block."
+                : toolName.includes("Table") || toolName.includes("table") || toolName.includes("Row")
+                  ? "Please specify which table to use, or navigate to a page with a table."
+                  : "Please provide more specific details about what you'd like to do.";
               return withTiming({
                 success: false,
-                response: `I tried to call the ${toolName} tool but didn't provide the required arguments. This usually means I don't have enough information from context to complete this request. Please provide more details about what you'd like to create, or try a different approach.`,
+                response: `I couldn't complete the ${toolName} action because required information was missing. ${toolGuidance}`,
                 toolCallsMade: allToolCallsMade,
-                error: "Tool called with empty arguments - missing required context or information"
+                error: "Missing required context or information"
               });
             }
           } else if (!hasEmptyArgs || result.success) {
@@ -1679,6 +1693,16 @@ export async function* executeAICommandStream(
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
   let autoUnstructuredFallbackUsed = false;
 
+  // Track tool repeats to prevent infinite loops (streaming path)
+  let lastToolSignature: string | null = null;
+  let lastToolRepeatCount = 0;
+
+  // Track consecutive errors per tool to prevent extensive retry loops (streaming path)
+  const consecutiveErrorCount = new Map<string, number>();
+
+  // Track empty argument calls to prevent infinite loops when LLM calls tools with no args (streaming path)
+  const emptyArgCallCount = new Map<string, number>();
+
   if (!openAIKey && !deepseekKey) {
     yield {
       type: "response",
@@ -1835,7 +1859,23 @@ export async function* executeAICommandStream(
 
           try {
             toolArgs = JSON.parse(toolCall.function.arguments);
+
+            // Log what arguments the LLM provided
+            if (Object.keys(toolArgs).length === 0) {
+              aiDebug("executeAI:emptyArguments", {
+                tool: toolName,
+                iteration: iterations,
+                rawArguments: toolCall.function.arguments,
+                assistantContent: assistantMessage.content,
+              });
+            }
           } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            aiDebug("executeAI:jsonParseError", {
+              tool: toolName,
+              rawArguments: toolCall.function.arguments,
+              parseError: errorMsg,
+            });
             toolArgs = {};
           }
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
@@ -1888,6 +1928,85 @@ export async function* executeAICommandStream(
 
           toolCallsThisRound.push({ tool: toolName, result });
           toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
+
+          // Track tool signature for repeat detection
+          const toolSignature = `${toolName}:${JSON.stringify(toolArgs)}`;
+          if (toolSignature === lastToolSignature) {
+            lastToolRepeatCount += 1;
+          } else {
+            lastToolSignature = toolSignature;
+            lastToolRepeatCount = 1;
+          }
+
+          // Check for repeated identical tool calls (prevent infinite loops)
+          const isSearchLike = isSearchLikeToolName(toolName);
+          if (!isSearchLike && lastToolRepeatCount >= TOOL_REPEAT_THRESHOLD) {
+            yield {
+              type: "response",
+              content: result.success
+                ? "Action completed. I stopped repeating the same tool call to prevent duplicates."
+                : "An error occurred while executing the command.",
+              data: {
+                toolCallsMade,
+                undoBatches: undoTracker.batches,
+                undoSkippedTools: undoTracker.skippedTools,
+                error: result.success ? undefined : result.error,
+              },
+            };
+            return;
+          }
+
+          // Check for empty argument calls (potential infinite loop)
+          const hasEmptyArgs = !toolArgs || Object.keys(toolArgs).length === 0;
+          if (hasEmptyArgs && !result.success) {
+            const emptyCallCount = (emptyArgCallCount.get(toolName) || 0) + 1;
+            emptyArgCallCount.set(toolName, emptyCallCount);
+
+            // Stop immediately on first empty-arg failure to prevent loops
+            if (emptyCallCount >= 1) {
+              // Provide actionable guidance based on tool type
+              const toolGuidance = toolName.includes("Task") || toolName.includes("task")
+                ? "Please specify which task block to use, or navigate to a page with a task block."
+                : toolName.includes("Table") || toolName.includes("table") || toolName.includes("Row")
+                  ? "Please specify which table to use, or navigate to a page with a table."
+                  : "Please provide more specific details about what you'd like to do.";
+              yield {
+                type: "response",
+                content: `I couldn't complete the ${toolName} action because required information was missing. ${toolGuidance}`,
+                data: {
+                  toolCallsMade,
+                  undoBatches: undoTracker.batches,
+                  undoSkippedTools: undoTracker.skippedTools,
+                  error: "Missing required context or information",
+                },
+              };
+              return;
+            }
+          } else if (!hasEmptyArgs || result.success) {
+            emptyArgCallCount.set(toolName, 0);
+          }
+
+          // Track consecutive errors to prevent retry loops
+          if (!result.success) {
+            const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
+            consecutiveErrorCount.set(toolName, currentErrors);
+
+            if (currentErrors >= 3) {
+              yield {
+                type: "response",
+                content: `I'm having trouble with the ${toolName} tool. It failed ${currentErrors} times in a row. Error: ${result.error}`,
+                data: {
+                  toolCallsMade,
+                  undoBatches: undoTracker.batches,
+                  undoSkippedTools: undoTracker.skippedTools,
+                  error: "Too many consecutive tool errors",
+                },
+              };
+              return;
+            }
+          } else {
+            consecutiveErrorCount.set(toolName, 0);
+          }
 
           yield {
             type: "tool_result",
