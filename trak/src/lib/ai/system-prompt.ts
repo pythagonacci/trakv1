@@ -781,8 +781,10 @@ ${context.currentProjectId ? `- Current Project ID: ${context.currentProjectId} 
 ${context.currentTabId ? `- Current Tab ID: ${context.currentTabId} ← USE THIS DIRECTLY for creating blocks/tables` : "- Current Tab ID: Unknown"}
 ${context.activeToolGroups && context.activeToolGroups.length > 0 ? `\n- Active tool groups: ${context.activeToolGroups.join(", ")}. You already have access to all tools in these groups. Do NOT call requestToolGroups unless you need a group not listed here.` : ""}
 
-When currentProjectId is set: The user is working in this project. Use this ID directly in your tool calls.
-When currentTabId is set: The user is viewing this tab. Create blocks in this tab automatically.
+**CRITICAL CONTEXT RULES:**
+- When currentProjectId is set: The user is working in this specific project. ALL operations (creating tasks, tables, blocks, etc.) should default to this project UNLESS the user explicitly specifies a different location.
+- When currentTabId is set: The user is viewing this specific tab. Create tasks, blocks, and tables in this tab automatically. DO NOT search for task blocks in other projects or tabs unless explicitly requested.
+- Creating tasks in the current context: When asked to "create a task" or "create tasks", these should be created in the CURRENT project/tab, not in a random project elsewhere in the workspace.
 `;
     prompt += contextSection;
   }

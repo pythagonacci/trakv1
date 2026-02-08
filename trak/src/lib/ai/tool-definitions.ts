@@ -403,12 +403,12 @@ const taskActionTools: ToolDefinition[] = [
     name: "createTaskItem",
     description:
       "CREATE a new task item. ⚠️ SMART TOOL: Do NOT search for assignee IDs or task block IDs. Just pass names directly.\n\n" +
-      "Auto-Context: Defaults to current view. Provide 'taskBlockName' (e.g. 'Kanban') to target specific blocks.\n" +
+      "Auto-Context: Tasks are ALWAYS created in the current project/tab context. When currentProjectId or currentTabId is set, the task will be created there automatically. NEVER specify taskBlockId or taskBlockName unless the user explicitly wants to target a different location.\n" +
       "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
     category: "task",
     parameters: {
-      taskBlockId: { type: "string", description: "Optional: task block ID. PREFER 'taskBlockName' for natural language." },
-      taskBlockName: { type: "string", description: "Target Block Name (e.g. 'Sprint Board'). System finds fuzzy match." },
+      taskBlockId: { type: "string", description: "Optional: task block ID. ONLY use if you need to override the current context and create in a different location." },
+      taskBlockName: { type: "string", description: "Optional: Target Block Name (e.g. 'Sprint Board'). ONLY use if the user explicitly specifies a different task block. By default, tasks are created in the current tab/project." },
       title: { type: "string", description: "Task title" },
       assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). Do NOT look up IDs. System resolves names automatically.", items: { type: "string" } },
       tags: { type: "array", description: "List of tag names.", items: { type: "string" } },
@@ -529,6 +529,27 @@ const taskActionTools: ToolDefinition[] = [
       taskId: { type: "string", description: "The task ID to delete" },
     },
     requiredParams: ["taskId"],
+  },
+  {
+    name: "bulkCreateTasks",
+    description:
+      "CREATE multiple tasks in ONE call. ⚠️ REQUIRED for 3+ tasks. Do NOT call createTaskItem multiple times.\n\n" +
+      "Use for: Creating multiple tasks efficiently (6 tasks → ONE call, not 6)\n" +
+      "Format: { tasks: [{ title, assignees?, status?, priority?, ... }] }\n\n" +
+      "Auto-Context: All tasks are created in the current project/tab context. When currentProjectId or currentTabId is set, tasks will be created there automatically. NEVER specify taskBlockId or taskBlockName unless the user explicitly wants to target a different location.\n" +
+      "Assignees: Pass NAMES directly (e.g. ['Amna']), server resolves automatically.\n\n" +
+      "Returns: { createdCount, createdTasks: [{ id, title }], errors: [] }",
+    category: "task",
+    parameters: {
+      taskBlockId: { type: "string", description: "Optional: target task block ID. ONLY use if you need to override the current context and create in a different location." },
+      taskBlockName: { type: "string", description: "Optional: Target block name (e.g. 'Sprint Board'). ONLY use if the user explicitly specifies a different task block. By default, tasks are created in the current tab/project." },
+      tasks: {
+        type: "array",
+        description: "Array of task objects to create. Each must have 'title' (required). Optional: assignees (array of names), tags, status, priority, description, dueDate, dueTime, startDate.",
+        items: { type: "object" },
+      },
+    },
+    requiredParams: ["tasks"],
   },
   {
     name: "setTaskAssignees",
@@ -1511,6 +1532,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   task: pickTools([
     "searchTasks",
     "createTaskItem",
+    "bulkCreateTasks",
     "updateTaskItem",
     "bulkUpdateTaskItems",
     "deleteTaskItem",

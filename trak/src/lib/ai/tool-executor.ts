@@ -3437,19 +3437,44 @@ async function resolveTaskBlockIdForCreateTask(
 
   const blockOpts = searchCtx ? { ctx: searchCtx } : undefined;
 
+  // PRIORITY 1: Current tab (most specific context)
   if (context?.currentTabId) {
     const cached = taskBlockIdByTabCache.get(context.currentTabId);
     if (cached) return cached;
 
+    // Search for existing task blocks in the current tab
     const existingBlocks = await searchBlocks(
-      { type: "task", tabId: context.currentTabId, limit: 1 },
+      { type: "task", tabId: context.currentTabId, limit: 5 },
       blockOpts
     );
+
+    // If taskBlockName is provided, do fuzzy matching within current tab
+    if (args.taskBlockName && existingBlocks.data && existingBlocks.data.length > 0) {
+      const blockName = (args.taskBlockName as string).toLowerCase();
+      const exact = existingBlocks.data.find(
+        (b) => (b.content as Record<string, unknown>)?.title?.toString().toLowerCase() === blockName
+      );
+      if (exact) {
+        taskBlockIdByTabCache.set(context.currentTabId, exact.id);
+        return exact.id;
+      }
+      const fuzzy = existingBlocks.data.find((b) =>
+        (b.content as Record<string, unknown>)?.title?.toString().toLowerCase().includes(blockName)
+      );
+      if (fuzzy) {
+        taskBlockIdByTabCache.set(context.currentTabId, fuzzy.id);
+        return fuzzy.id;
+      }
+    }
+
+    // Return first task block in current tab (no name specified)
     if (existingBlocks.data && existingBlocks.data.length > 0) {
       const id = existingBlocks.data[0].id;
       taskBlockIdByTabCache.set(context.currentTabId, id);
       return id;
     }
+
+    // Create a new task block in the current tab if none exists
     const blockResult = await createBlock({
       tabId: context.currentTabId,
       type: "task",
@@ -3463,26 +3488,37 @@ async function resolveTaskBlockIdForCreateTask(
     }
   }
 
-  const anyBlock = await searchBlocks({ type: "task", limit: 1 }, blockOpts);
-  if (anyBlock.data && anyBlock.data.length > 0) return anyBlock.data[0].id;
-
-  if (args.taskBlockName && context?.currentTabId) {
-    const existingBlocks = await searchBlocks(
-      { type: "task", tabId: context.currentTabId, limit: 5 },
+  // PRIORITY 2: Current project (when no specific tab, but project context exists)
+  if (context?.currentProjectId) {
+    const projectBlocks = await searchBlocks(
+      { type: "task", projectId: context.currentProjectId, limit: 10 },
       blockOpts
     );
-    if (existingBlocks.data) {
+
+    // If taskBlockName is provided, do fuzzy matching within current project
+    if (args.taskBlockName && projectBlocks.data && projectBlocks.data.length > 0) {
       const blockName = (args.taskBlockName as string).toLowerCase();
-      const exact = existingBlocks.data.find(
+      const exact = projectBlocks.data.find(
         (b) => (b.content as Record<string, unknown>)?.title?.toString().toLowerCase() === blockName
       );
       if (exact) return exact.id;
-      const fuzzy = existingBlocks.data.find((b) =>
+      const fuzzy = projectBlocks.data.find((b) =>
         (b.content as Record<string, unknown>)?.title?.toString().toLowerCase().includes(blockName)
       );
       if (fuzzy) return fuzzy.id;
     }
+
+    // Return first task block in current project
+    if (projectBlocks.data && projectBlocks.data.length > 0) {
+      return projectBlocks.data[0].id;
+    }
   }
+
+  // PRIORITY 3: Workspace-wide fallback (only when no project context)
+  // This should rarely be reached in normal usage
+  const anyBlock = await searchBlocks({ type: "task", limit: 1 }, blockOpts);
+  if (anyBlock.data && anyBlock.data.length > 0) return anyBlock.data[0].id;
+
   return null;
 }
 

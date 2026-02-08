@@ -35,10 +35,12 @@ type ParseOptions = {
   minConfidence?: number;
 };
 
-const MIN_CONFIDENCE = Number(process.env.AI_DETERMINISTIC_MIN_CONFIDENCE ?? 0.82);
-const CONFIDENCE_MARGIN = Number(process.env.AI_DETERMINISTIC_CONFIDENCE_MARGIN ?? 0.06);
+const MIN_CONFIDENCE = Number(process.env.AI_DETERMINISTIC_MIN_CONFIDENCE ?? 0.90);
+const CONFIDENCE_MARGIN = Number(process.env.AI_DETERMINISTIC_CONFIDENCE_MARGIN ?? 0.12);
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_TITLE_CHARS = 140;
+const MIN_ACTION_SCORE = 0.70;
+const MIN_ENTITY_SCORE = 0.70;
 
 const ACTION_SYNONYMS: Record<string, Array<{ term: string; weight: number }>> = {
   search: [
@@ -293,7 +295,7 @@ function matchCreateTableWithColumns(
 
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("table", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const tableIndicator = /\btable\b/i;
   const columnsIndicator = /\b(?:columns?|fields?|cols?)\b/i;
@@ -332,7 +334,7 @@ function matchCreateTableWithColumns(
     fields: columnNames.map((name) => ({ name, type: inferFieldType(name) })),
   };
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.08);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0.01);
 
   return {
     toolCalls: [{ name: "createTableFull", arguments: tableArgs }],
@@ -356,7 +358,7 @@ function matchCreateTable(
   if (isLikelyRankedDataRequest(cleaned)) return null;
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("table", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const title = extractTitle(cleaned, ENTITY_SYNONYMS.table);
   if (!title) return null;
@@ -369,7 +371,7 @@ function matchCreateTable(
     tabId: context.currentTabId,
   };
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.02);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0);
 
   return {
     toolCalls: [{ name: "createTableFull", arguments: args }],
@@ -390,7 +392,7 @@ function matchCreateTask(
 ): DeterministicParseResult | null {
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("task", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   // Detect multiple task creation patterns and defer to LLM
   if (isMultipleTasksRequest(cleaned)) return null;
@@ -414,7 +416,7 @@ function matchCreateTask(
   if (status) args.status = status;
   if (priority) args.priority = priority;
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.04);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0);
 
   return {
     toolCalls: [{ name: "createTaskItem", arguments: args }],
@@ -435,7 +437,7 @@ function matchCreateProject(
 ): DeterministicParseResult | null {
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("project", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const name = extractTitle(cleaned, ENTITY_SYNONYMS.project);
   if (!name) return null;
@@ -449,7 +451,7 @@ function matchCreateProject(
   if (due?.exact) args.dueDate = due.exact;
   if (projectType) args.projectType = projectType;
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.03);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0);
 
   return {
     toolCalls: [{ name: "createProject", arguments: args }],
@@ -469,12 +471,12 @@ function matchCreateDoc(
 ): DeterministicParseResult | null {
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("doc", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const title = extractTitle(cleaned, ENTITY_SYNONYMS.doc);
   if (!title) return null;
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.02);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0);
 
   return {
     toolCalls: [{ name: "createDoc", arguments: { title } }],
@@ -494,7 +496,7 @@ function matchCreateClient(
 ): DeterministicParseResult | null {
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("client", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const name = extractTitle(cleaned, ENTITY_SYNONYMS.client);
   if (!name) return null;
@@ -508,7 +510,7 @@ function matchCreateClient(
   if (phone) args.phone = phone;
   if (website) args.website = website;
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.02);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0);
 
   return {
     toolCalls: [{ name: "createClient", arguments: args }],
@@ -530,12 +532,12 @@ function matchCreateTab(
   if (!context.currentProjectId) return null;
   const actionScore = scoreAction("create", normalized, tokens);
   const entityScore = scoreEntity("tab", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const name = extractTitle(cleaned, ENTITY_SYNONYMS.tab);
   if (!name) return null;
 
-  const confidence = computeConfidence(actionScore, entityScore, 1, 0.02);
+  const confidence = computeConfidence(actionScore, entityScore, 1, 0);
 
   return {
     toolCalls: [{ name: "createTab", arguments: { name, projectId: context.currentProjectId } }],
@@ -553,8 +555,17 @@ function matchSearchAll(
   normalized: string,
   tokens: string[]
 ): DeterministicParseResult | null {
-  const actionScore = scoreAction("search", normalized, tokens);
-  if (actionScore < 0.55) return null;
+  // Strip titled content before action scoring to avoid matching action words in titles
+  const cleanedForActionScore = stripTitledContent(cleaned);
+  const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
+  const tokensForActionScore = tokenize(normalizedForActionScore);
+
+  // Block search if there's a strong create action detected
+  const createScore = scoreAction("create", normalizedForActionScore, tokensForActionScore);
+  if (createScore >= 0.7) return null; // Defer to create matchers
+
+  const actionScore = scoreAction("search", normalizedForActionScore, tokensForActionScore);
+  if (actionScore < MIN_ACTION_SCORE) return null;
 
   if (!/\b(all|everything|anywhere|across)\b/i.test(cleaned)) return null;
 
@@ -562,7 +573,7 @@ function matchSearchAll(
   if (!searchText) return null;
 
   const args = { searchText, limit: DEFAULT_SEARCH_LIMIT };
-  const confidence = computeConfidence(actionScore, 0.8, 0.9, 0.03);
+  const confidence = computeConfidence(actionScore, 0.8, 0.9, 0);
 
   return {
     toolCalls: [{ name: "searchAll", arguments: args }],
@@ -578,13 +589,22 @@ function matchSearchTasks(
   tokens: string[],
   now: Date
 ): DeterministicParseResult | null {
+  // Strip titled content before action scoring to avoid matching action words in task titles
+  const cleanedForActionScore = stripTitledContent(cleaned);
+  const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
+  const tokensForActionScore = tokenize(normalizedForActionScore);
+
+  // Block search if there's a strong create action detected
+  const createScore = scoreAction("create", normalizedForActionScore, tokensForActionScore);
+  if (createScore >= 0.7) return null; // Defer to create matchers
+
   const actionScore = inferImplicitSearch(
-    scoreAction("search", normalized, tokens),
-    cleaned,
+    scoreAction("search", normalizedForActionScore, tokensForActionScore),
+    cleanedForActionScore,
     ENTITY_SYNONYMS.task
   );
   const entityScore = scoreEntity("task", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const status = detectTaskStatus(normalized);
   const priority = detectPriority(normalized);
@@ -606,12 +626,14 @@ function matchSearchTasks(
   const searchText = explicitSearchText ?? (!hasFilters ? extractSearchText(cleaned, normalized, tokens) : null);
   if (searchText) args.searchText = searchText;
 
-  let argsScore = 0.6;
-  if (searchText) argsScore += 0.2;
-  if (hasFilters) argsScore += 0.2;
+  // Be more conservative - require searchText OR filters to proceed
+  if (!searchText && !hasFilters) return null;
 
-  const specificityBonus = hasFilters ? 0.04 : 0.02;
-  const confidence = computeConfidence(actionScore, entityScore, clamp(argsScore, 0, 1), specificityBonus);
+  let argsScore = 0.5;
+  if (searchText) argsScore += 0.15;
+  if (hasFilters) argsScore += 0.15;
+
+  const confidence = computeConfidence(actionScore, entityScore, clamp(argsScore, 0, 1), 0);
 
   return {
     toolCalls: [{ name: "searchTasks", arguments: args }],
@@ -627,13 +649,22 @@ function matchSearchProjects(
   tokens: string[],
   now: Date
 ): DeterministicParseResult | null {
+  // Strip titled content before action scoring to avoid matching action words in titles
+  const cleanedForActionScore = stripTitledContent(cleaned);
+  const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
+  const tokensForActionScore = tokenize(normalizedForActionScore);
+
+  // Block search if there's a strong create action detected
+  const createScore = scoreAction("create", normalizedForActionScore, tokensForActionScore);
+  if (createScore >= 0.7) return null; // Defer to create matchers
+
   const actionScore = inferImplicitSearch(
-    scoreAction("search", normalized, tokens),
-    cleaned,
+    scoreAction("search", normalizedForActionScore, tokensForActionScore),
+    cleanedForActionScore,
     ENTITY_SYNONYMS.project
   );
   const entityScore = scoreEntity("project", normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const status = detectProjectStatus(normalized);
   const due = extractDueDate(cleaned, now);
@@ -651,12 +682,14 @@ function matchSearchProjects(
   const searchText = explicitSearchText ?? (!hasFilters ? extractSearchText(cleaned, normalized, tokens) : null);
   if (searchText) args.searchText = searchText;
 
-  let argsScore = 0.6;
-  if (searchText) argsScore += 0.2;
-  if (hasFilters) argsScore += 0.2;
+  // Be more conservative - require searchText OR filters to proceed
+  if (!searchText && !hasFilters) return null;
 
-  const specificityBonus = hasFilters ? 0.04 : 0.02;
-  const confidence = computeConfidence(actionScore, entityScore, clamp(argsScore, 0, 1), specificityBonus);
+  let argsScore = 0.5;
+  if (searchText) argsScore += 0.15;
+  if (hasFilters) argsScore += 0.15;
+
+  const confidence = computeConfidence(actionScore, entityScore, clamp(argsScore, 0, 1), 0);
 
   return {
     toolCalls: [{ name: "searchProjects", arguments: args }],
@@ -674,20 +707,32 @@ function matchSearchEntity(
   toolName: string,
   label?: string
 ): DeterministicParseResult | null {
+  // Strip titled content before action scoring to avoid matching action words in titles
+  const cleanedForActionScore = stripTitledContent(cleaned);
+  const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
+  const tokensForActionScore = tokenize(normalizedForActionScore);
+
+  // Block search if there's a strong create action detected
+  const createScore = scoreAction("create", normalizedForActionScore, tokensForActionScore);
+  if (createScore >= 0.7) return null; // Defer to create matchers
+
   const actionScore = inferImplicitSearch(
-    scoreAction("search", normalized, tokens),
-    cleaned,
+    scoreAction("search", normalizedForActionScore, tokensForActionScore),
+    cleanedForActionScore,
     ENTITY_SYNONYMS[entity]
   );
   const entityScore = scoreEntity(entity, normalized, tokens);
-  if (actionScore < 0.55 || entityScore < 0.55) return null;
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
 
   const searchText = extractSearchText(cleaned, normalized, tokens);
   const args: Record<string, unknown> = { limit: DEFAULT_SEARCH_LIMIT };
   if (searchText) args.searchText = searchText;
 
-  const argsScore = searchText ? 0.85 : 0.65;
-  const confidence = computeConfidence(actionScore, entityScore, argsScore, 0.01);
+  // Be more conservative - require searchText to proceed
+  if (!searchText) return null;
+
+  const argsScore = 0.7;
+  const confidence = computeConfidence(actionScore, entityScore, argsScore, 0);
 
   return {
     toolCalls: [{ name: toolName, arguments: args }],
@@ -742,6 +787,11 @@ function normalizePolite(value: string) {
 
 function stripQuotedText(value: string) {
   return value.replace(/['"][^'"]*['"]/g, "");
+}
+
+function stripTitledContent(value: string) {
+  // Remove content after "titled/called/named" to prevent matching action words in titles
+  return value.replace(/\b(?:titled|called|named)\s+.+$/i, "");
 }
 
 function normalizeForMatch(value: string) {
@@ -837,12 +887,14 @@ function hasExactTerm(normalized: string, term: string) {
 }
 
 function inferImplicitSearch(actionScore: number, cleaned: string, entityWords: string[]) {
-  if (actionScore >= 0.55) return actionScore;
+  if (actionScore >= MIN_ACTION_SCORE) return actionScore;
+
+  // Be more conservative - only infer search if it starts with "my [entity]"
   const pattern = new RegExp(
-    `^\\s*(?:my\\s+)?(?:${entityWords.map(escapeRegExp).join("|")})\\b`,
+    `^\\s*(?:my)\\s+(?:${entityWords.map(escapeRegExp).join("|")})\\b`,
     "i"
   );
-  if (pattern.test(cleaned)) return 0.8;
+  if (pattern.test(cleaned)) return 0.75; // Lower than before, more conservative
   return actionScore;
 }
 
@@ -907,17 +959,42 @@ function cleanTitle(value: string) {
 
 function extractTitle(value: string, entityWords: string[]) {
   const quoted = extractQuoted(value);
-  if (quoted) return cleanTitle(quoted);
+  if (quoted) {
+    const cleaned = cleanTitle(quoted);
+    if (isValidTitle(cleaned)) return cleaned;
+  }
 
   const named = extractAfterKeywords(value, ["called", "named", "titled"]);
-  if (named) return cleanTitle(named);
+  if (named) {
+    const cleaned = cleanTitle(named);
+    if (isValidTitle(cleaned)) return cleaned;
+  }
 
   const afterEntity = extractAfterEntity(value, entityWords);
   if (afterEntity) {
-    return cleanTitle(trimTrailingClause(afterEntity));
+    const cleaned = cleanTitle(trimTrailingClause(afterEntity));
+    if (isValidTitle(cleaned)) return cleaned;
   }
 
   return null;
+}
+
+function isValidTitle(title: string): boolean {
+  // Be more conservative - require at least 3 characters
+  if (!title || title.length < 3) return false;
+
+  // Reject single word titles that are too generic
+  const words = title.split(/\s+/);
+  if (words.length === 1) {
+    const genericWords = new Set(["test", "demo", "example", "sample", "temp", "tmp", "delete", "remove"]);
+    if (genericWords.has(title.toLowerCase())) return false;
+  }
+
+  // Reject titles that are just action words
+  const actionWords = new Set(["create", "make", "build", "add", "new", "search", "find", "show", "list", "get"]);
+  if (actionWords.has(title.toLowerCase())) return false;
+
+  return true;
 }
 
 function trimTrailingClause(value: string) {
@@ -1125,9 +1202,14 @@ function isMultiStepCommand(value: string) {
 }
 
 function isMultipleTasksRequest(value: string) {
-  // Pattern 1: "Create N tasks" where N is a number (e.g., "Create 5 tasks")
-  const numberPattern = /\b(?:create|add|make)\s+\d+\s+(?:task|todo|item)s?\b/i;
+  // Pattern 1a: "Create N tasks" where N is a number (e.g., "Create 5 tasks", "Create 5 cooking tasks")
+  // Allow optional words (adjectives/nouns) between the number and "task(s)"
+  const numberPattern = /\b(?:create|add|make)\s+\d+\s+(?:\w+\s+)*(?:task|todo|item)s?\b/i;
   if (numberPattern.test(value)) return true;
+
+  // Pattern 1b: "Create N tasks" where N is a spelled-out number (e.g., "Create five tasks")
+  const spelledNumberPattern = /\b(?:create|add|make)\s+(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|multiple|many)\s+(?:\w+\s+)*(?:task|todo|item)s?\b/i;
+  if (spelledNumberPattern.test(value)) return true;
 
   // Pattern 2: Lists with commas or semicolons after task keyword (e.g., "Create tasks: A, B, C")
   // Look for comma/semicolon patterns that suggest multiple items
@@ -1138,6 +1220,10 @@ function isMultipleTasksRequest(value: string) {
   // Match when "tasks" (plural) is followed by multiple comma-separated items
   const pluralWithList = /\b(?:task|todo|item)s\b.*[,;].*[,;]/i;
   if (pluralWithList.test(value)) return true;
+
+  // Pattern 4: Explicit "They are titled/called/named X, Y, Z" after task/tasks
+  const titledPattern = /\b(?:task|todo|item)s?\b.+\b(?:titled|called|named)\s+.+[,;].+[,;]/i;
+  if (titledPattern.test(value)) return true;
 
   return false;
 }

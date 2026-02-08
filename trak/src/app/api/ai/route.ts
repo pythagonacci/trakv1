@@ -25,10 +25,17 @@ export async function POST(request: NextRequest) {
     if (referer) {
       try {
         const url = new URL(referer);
-        const match = url.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
+        // Try to match tab page first: /dashboard/projects/[projectId]/tabs/[tabId]
+        let match = url.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
         if (match) {
           currentProjectId = match[1];
           currentTabId = match[2];
+        } else {
+          // If not on a tab page, try to match project page: /dashboard/projects/[projectId]
+          match = url.pathname.match(/\/dashboard\/projects\/([^/]+)(?:\/|$)/);
+          if (match) {
+            currentProjectId = match[1];
+          }
         }
       } catch {
         // Ignore malformed referer
