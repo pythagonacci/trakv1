@@ -120,16 +120,23 @@ export async function listTimelineReferences(eventId: string): Promise<ActionRes
   return { data: data as TimelineReference[] };
 }
 
-export async function listTimelineReferenceSummaries(eventId: string): Promise<ActionResult<Array<TimelineReference & { title: string; type_label?: string }>>> {
+export async function listTimelineReferenceSummaries(eventId: string): Promise<ActionResult<Array<TimelineReference & { title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }>>> {
   const base = await listTimelineReferences(eventId);
   if ("error" in base) return base;
 
   const supabase = await createClient();
-  const resolved: Array<TimelineReference & { title: string; type_label?: string }> = [];
+  const resolved: Array<TimelineReference & { title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }> = [];
 
   for (const ref of base.data) {
     const summary = await resolveReferenceSummary(supabase, ref);
-    resolved.push({ ...ref, title: summary.title, type_label: summary.typeLabel });
+    resolved.push({
+      ...ref,
+      title: summary.title,
+      type_label: summary.typeLabel,
+      tab_id: summary.tabId,
+      project_id: summary.projectId,
+      is_workflow: summary.isWorkflow
+    });
   }
 
   return { data: resolved };
@@ -346,7 +353,7 @@ async function getReferenceContextByEvent(eventId: string): Promise<{ error: str
 async function resolveReferenceSummary(
   supabase: any,
   ref: TimelineReference
-): Promise<{ title: string; typeLabel?: string }> {
+): Promise<{ title: string; typeLabel?: string; tabId?: string; projectId?: string; isWorkflow?: boolean }> {
   if (ref.reference_type === "doc") {
     const { data } = await supabase.from("docs").select("title").eq("id", ref.reference_id).maybeSingle();
     return { title: data?.title || "Doc" };
@@ -355,27 +362,32 @@ async function resolveReferenceSummary(
   if (ref.reference_type === "block") {
     const { data } = await supabase
       .from("blocks")
-      .select("type, content")
+      .select("type, content, tab_id, tabs!inner(id, project_id, projects(id))")
       .eq("id", ref.reference_id)
       .maybeSingle();
 
     if (!data) return { title: "Block", typeLabel: "Block" };
 
     const content = (data as any).content || {};
+    const tabData = (data as any).tabs;
+    const tabId = tabData?.id;
+    const projectId = tabData?.projects?.id || tabData?.project_id;
+    const isWorkflow = !projectId; // If there's no project, it's a workflow tab
+
     if (data.type === "table" && content.tableId) {
       const { data: table } = await supabase
         .from("tables")
         .select("title")
         .eq("id", content.tableId)
         .maybeSingle();
-      return { title: table?.title || "Table", typeLabel: "Table" };
+      return { title: table?.title || "Table", typeLabel: "Table", tabId, projectId, isWorkflow };
     }
 
     const blockTypeLabel = data.type ? data.type.replace(/_/g, " ") : "Block";
     const normalizedLabel = blockTypeLabel.charAt(0).toUpperCase() + blockTypeLabel.slice(1);
     const typeLabel = `${normalizedLabel} block`;
-    if (content.title) return { title: content.title, typeLabel };
-    return { title: normalizedLabel, typeLabel };
+    if (content.title) return { title: content.title, typeLabel, tabId, projectId, isWorkflow };
+    return { title: normalizedLabel, typeLabel, tabId, projectId, isWorkflow };
   }
 
   if (ref.reference_type === "table_row") {

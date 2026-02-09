@@ -125,6 +125,24 @@ export default function ReferencePicker({
     }, {} as Record<LinkableType, LinkableItem[]>);
   }, [displayItems, selectedType]);
 
+  const groupedByProject = useMemo(() => {
+    const currentProject: LinkableItem[] = [];
+    const otherProjects: LinkableItem[] = [];
+    const workflow: LinkableItem[] = [];
+
+    displayItems.forEach((item) => {
+      if (item.isWorkflow) {
+        workflow.push(item);
+      } else if (item.isCurrentProject) {
+        currentProject.push(item);
+      } else {
+        otherProjects.push(item);
+      }
+    });
+
+    return { currentProject, otherProjects, workflow };
+  }, [displayItems]);
+
   const flatItems = useMemo(() => displayItems, [displayItems]);
 
   const handleSelect = async (item: LinkableItem) => {
@@ -244,28 +262,73 @@ export default function ReferencePicker({
                     No matches found.
                   </div>
                 )}
-                {Object.entries(groupedItems).map(([type, items]) => (
-                  <div key={type} className="space-y-2">
-                    {!selectedType && (
-                      <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-                        {TYPE_LABELS[type as LinkableType]}
+                {!isLoading && displayItems.length > 0 && (
+                  <>
+                    {/* Current Project Items */}
+                    {groupedByProject.currentProject.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                          This Project
+                        </div>
+                        {groupedByProject.currentProject.map((item) => {
+                          const overallIndex = displayItems.findIndex(
+                            (current) => current.id === item.id && current.type === item.type
+                          );
+                          return (
+                            <ResultRow
+                              key={`${item.type}-${item.id}`}
+                              item={item}
+                              isActive={overallIndex === activeIndex}
+                              onSelect={() => handleSelect(item)}
+                            />
+                          );
+                        })}
                       </div>
                     )}
-                    {items.map((item, index) => {
-                      const overallIndex = displayItems.findIndex(
-                        (current) => current.id === item.id && current.type === item.type
-                      );
-                      return (
-                        <ResultRow
-                          key={`${item.type}-${item.id}`}
-                          item={item}
-                          isActive={overallIndex === activeIndex}
-                          onSelect={() => handleSelect(item)}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
+                    {/* Workflow Items */}
+                    {groupedByProject.workflow.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                          Workflow Pages
+                        </div>
+                        {groupedByProject.workflow.map((item) => {
+                          const overallIndex = displayItems.findIndex(
+                            (current) => current.id === item.id && current.type === item.type
+                          );
+                          return (
+                            <ResultRow
+                              key={`${item.type}-${item.id}`}
+                              item={item}
+                              isActive={overallIndex === activeIndex}
+                              onSelect={() => handleSelect(item)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Other Projects Items */}
+                    {groupedByProject.otherProjects.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                          Other Projects
+                        </div>
+                        {groupedByProject.otherProjects.map((item) => {
+                          const overallIndex = displayItems.findIndex(
+                            (current) => current.id === item.id && current.type === item.type
+                          );
+                          return (
+                            <ResultRow
+                              key={`${item.type}-${item.id}`}
+                              item={item}
+                              isActive={overallIndex === activeIndex}
+                              onSelect={() => handleSelect(item)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -302,6 +365,12 @@ function ResultRow({
   };
   const Icon = iconMap[item.type];
 
+  const locationText = item.isWorkflow
+    ? `Workflow · ${item.location}`
+    : !item.isCurrentProject && item.projectName
+    ? `${item.projectName} · ${item.location}`
+    : item.location;
+
   return (
     <button
       type="button"
@@ -317,7 +386,7 @@ function ResultRow({
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{item.name}</div>
         <div className="truncate text-xs text-neutral-400">
-          {TYPE_LABELS[item.type]} · {item.location}
+          {TYPE_LABELS[item.type]} · {locationText}
         </div>
       </div>
     </button>

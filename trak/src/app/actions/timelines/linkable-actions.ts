@@ -13,6 +13,11 @@ export interface LinkableItem {
   location: string;
   referenceType: LinkableReferenceType;
   updatedAt?: string | null;
+  tabId?: string;
+  projectId?: string | null;
+  projectName?: string | null;
+  isCurrentProject?: boolean;
+  isWorkflow?: boolean;
 }
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -60,14 +65,43 @@ export async function getRecentLinkableItems(input: {
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase } = access;
-  const { data: tabs } = await supabase
-    .from("tabs")
+
+  // Get all tabs from the workspace (both project tabs and workflow tabs)
+  // First, get all projects in the workspace
+  const { data: projects } = await supabase
+    .from("projects")
     .select("id, name")
-    .eq("project_id", input.projectId)
+    .eq("workspace_id", input.workspaceId);
+
+  const projectIds = (projects || []).map((p: any) => p.id);
+  const projectMap = new Map((projects || []).map((p: any) => [p.id, p.name]));
+
+  // Get tabs from these projects and workflow tabs (no project_id)
+  const { data: allTabs } = await supabase
+    .from("tabs")
+    .select("id, name, project_id")
+    .or(`project_id.in.(${projectIds.join(",")}),project_id.is.null`)
     .limit(1000);
 
-  const tabMap = new Map<string, string>((tabs || []).map((tab: any) => [tab.id, tab.name || "Untitled tab"]));
-  const tabIds = (tabs || []).map((tab: any) => tab.id);
+  const tabMap = new Map<string, { name: string; projectId: string | null; projectName: string | null; isCurrentProject: boolean; isWorkflow: boolean }>();
+  const tabIds: string[] = [];
+
+  (allTabs || []).forEach((tab: any) => {
+    const projectId = tab.project_id;
+    const isCurrentProject = projectId === input.projectId;
+    const isWorkflow = !projectId;
+    const projectName = projectId ? projectMap.get(projectId) || null : null;
+
+    tabMap.set(tab.id, {
+      name: tab.name || "Untitled tab",
+      projectId,
+      projectName,
+      isCurrentProject,
+      isWorkflow
+    });
+    tabIds.push(tab.id);
+  });
+
   if (tabIds.length === 0) return { data: [] };
 
   const { data: blocks } = await supabase
@@ -76,7 +110,7 @@ export async function getRecentLinkableItems(input: {
     .in("tab_id", tabIds)
     .limit(500);
 
-  const items = await buildLinkableItems(supabase, blocks || [], tabMap);
+  const items = await buildLinkableItems(supabase, blocks || [], tabMap, input.projectId);
   const sorted = items
     .slice()
     .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
@@ -98,14 +132,43 @@ export async function searchLinkableItems(input: {
   if (!trimmed) return { data: [] };
 
   const { supabase } = access;
-  const { data: tabs } = await supabase
-    .from("tabs")
+
+  // Get all tabs from the workspace (both project tabs and workflow tabs)
+  // First, get all projects in the workspace
+  const { data: projects } = await supabase
+    .from("projects")
     .select("id, name")
-    .eq("project_id", input.projectId)
+    .eq("workspace_id", input.workspaceId);
+
+  const projectIds = (projects || []).map((p: any) => p.id);
+  const projectMap = new Map((projects || []).map((p: any) => [p.id, p.name]));
+
+  // Get tabs from these projects and workflow tabs (no project_id)
+  const { data: allTabs } = await supabase
+    .from("tabs")
+    .select("id, name, project_id")
+    .or(`project_id.in.(${projectIds.join(",")}),project_id.is.null`)
     .limit(1000);
 
-  const tabMap = new Map<string, string>((tabs || []).map((tab: any) => [tab.id, tab.name || "Untitled tab"]));
-  const tabIds = (tabs || []).map((tab: any) => tab.id);
+  const tabMap = new Map<string, { name: string; projectId: string | null; projectName: string | null; isCurrentProject: boolean; isWorkflow: boolean }>();
+  const tabIds: string[] = [];
+
+  (allTabs || []).forEach((tab: any) => {
+    const projectId = tab.project_id;
+    const isCurrentProject = projectId === input.projectId;
+    const isWorkflow = !projectId;
+    const projectName = projectId ? projectMap.get(projectId) || null : null;
+
+    tabMap.set(tab.id, {
+      name: tab.name || "Untitled tab",
+      projectId,
+      projectName,
+      isCurrentProject,
+      isWorkflow
+    });
+    tabIds.push(tab.id);
+  });
+
   if (tabIds.length === 0) return { data: [] };
 
   const { data: blocks } = await supabase
@@ -114,12 +177,25 @@ export async function searchLinkableItems(input: {
     .in("tab_id", tabIds)
     .limit(500);
 
-  const items = await buildLinkableItems(supabase, blocks || [], tabMap);
+  const items = await buildLinkableItems(supabase, blocks || [], tabMap, input.projectId);
   const filtered = filterByType(filterByQuery(items, trimmed), input.type);
-  return { data: filtered.slice(0, input.limit ?? 50) };
+
+  // Sort: current project items first, then other items
+  const sorted = filtered.sort((a, b) => {
+    if (a.isCurrentProject && !b.isCurrentProject) return -1;
+    if (!a.isCurrentProject && b.isCurrentProject) return 1;
+    return 0;
+  });
+
+  return { data: sorted.slice(0, input.limit ?? 50) };
 }
 
-async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<string, string>) {
+async function buildLinkableItems(
+  supabase: any,
+  blocks: any[],
+  tabMap: Map<string, { name: string; projectId: string | null; projectName: string | null; isCurrentProject: boolean; isWorkflow: boolean }>,
+  currentProjectId?: string
+) {
   const tableIdMap = new Map<string, string>();
   const tableIds = blocks
     .filter((block) => block.type === "table" && block.content?.tableId)
@@ -161,8 +237,20 @@ async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<stri
   const items: LinkableItem[] = [];
 
   blocks.forEach((block) => {
-    const location = tabMap.get(block.tab_id) || "Untitled tab";
+    const tabInfo = tabMap.get(block.tab_id);
+    if (!tabInfo) return;
+
+    const location = tabInfo.name;
     const content = (block.content || {}) as Record<string, any>;
+
+    const baseItem = {
+      tabId: block.tab_id,
+      projectId: tabInfo.projectId,
+      projectName: tabInfo.projectName,
+      isCurrentProject: tabInfo.isCurrentProject,
+      isWorkflow: tabInfo.isWorkflow,
+      updatedAt: block.updated_at,
+    };
 
     if (block.type === "doc_reference" && content.doc_id) {
       items.push({
@@ -171,7 +259,7 @@ async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<stri
         name: content.doc_title || "Untitled doc",
         location,
         referenceType: "doc",
-        updatedAt: block.updated_at,
+        ...baseItem,
       });
       return;
     }
@@ -184,7 +272,7 @@ async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<stri
         name: (linkedTableId && tableIdMap.get(linkedTableId)) || content.title || "Table",
         location,
         referenceType: "block",
-        updatedAt: block.updated_at,
+        ...baseItem,
       });
       return;
     }
@@ -196,7 +284,7 @@ async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<stri
         name: content.title || "Task list",
         location,
         referenceType: "block",
-        updatedAt: block.updated_at,
+        ...baseItem,
       });
       return;
     }
@@ -208,7 +296,7 @@ async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<stri
         name: fileNameMap.get(block.id) || "File",
         location,
         referenceType: "block",
-        updatedAt: block.updated_at,
+        ...baseItem,
       });
       return;
     }
@@ -220,7 +308,7 @@ async function buildLinkableItems(supabase: any, blocks: any[], tabMap: Map<stri
         name: content.title,
         location,
         referenceType: "block",
-        updatedAt: block.updated_at,
+        ...baseItem,
       });
     }
   });

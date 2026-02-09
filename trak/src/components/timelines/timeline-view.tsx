@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -30,9 +31,12 @@ import {
 import type {
   TimelineBlockContent,
   TimelineEventStatus,
+  TimelineEventPriority,
   TimelineItem,
   ReferenceType,
 } from "@/types/timeline";
+import { useQuery } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +76,7 @@ interface TimelineEvent {
 
 type TimelineEventPatch = Partial<TimelineEvent> & {
   status?: TimelineEventStatus | null;
+  priority?: TimelineEventPriority | null;
   notes?: string | null;
   color?: string | null;
 };
@@ -539,6 +544,7 @@ function DraggableEvent({
 }
 
 export default function TimelineBlock({ block, onUpdate, workspaceId, projectId, readOnly = false }: TimelineBlockProps) {
+  const router = useRouter();
   const content = (block.content || {}) as Partial<TimelineContent> & Record<string, any>;
   const viewConfig = content.viewConfig || {
     startDate: content.startDate || addDays(new Date(), -7).toISOString(),
@@ -577,7 +583,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [panelRoot, setPanelRoot] = useState<HTMLElement | null>(null);
+  const [modalPosition, setModalPosition] = useState<{ top: number; left: number } | null>(null);
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -661,14 +668,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   // Mount flag for portal (avoids SSR/TS issues)
   React.useEffect(() => setMounted(true), []);
-  React.useEffect(() => {
-    setPanelRoot(document.getElementById("timeline-event-panel-root"));
-  }, []);
-  React.useEffect(() => {
-    if (!panelRoot) {
-      setPanelRoot(document.getElementById("timeline-event-panel-root"));
-    }
-  }, [panelRoot, selectedEventId]);
 
   const openPanel = (eventId: string) => {
     setSelectedEventId(eventId);
@@ -679,6 +678,51 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     setIsPanelOpen(false);
     setSelectedEventId(null);
   };
+
+  // Position the modal next to the timeline when it opens
+  React.useEffect(() => {
+    if (!isPanelOpen) {
+      setModalPosition(null);
+      return;
+    }
+
+    const doUpdate = () => {
+      const el = timelineContainerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const gap = 12;
+      const modalWidth = 384;
+      const padding = 16;
+      let left = rect.right + gap;
+      if (left + modalWidth + padding > window.innerWidth) {
+        left = rect.left - modalWidth - gap;
+      }
+      left = Math.max(padding, Math.min(left, window.innerWidth - modalWidth - padding));
+      const top = Math.max(padding, Math.min(rect.top, window.innerHeight - 400 - padding));
+
+      // Only update if position has changed to prevent infinite loop
+      setModalPosition(prev => {
+        if (prev && Math.abs(prev.top - top) < 2 && Math.abs(prev.left - left) < 2) {
+          return prev; // Don't update if position hasn't changed significantly
+        }
+        return { top, left };
+      });
+    };
+
+    const timer = setTimeout(doUpdate, 0);
+    window.addEventListener("resize", doUpdate);
+    window.addEventListener("scroll", doUpdate, true);
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePanel();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", doUpdate);
+      window.removeEventListener("scroll", doUpdate, true);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isPanelOpen, closePanel]);
 
   // Hide timer to bridge the gap between bar and tooltip
   const hideTimer = useRef<number | null>(null);
@@ -765,7 +809,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     } else if (groupBy === "status") {
       const groups: Record<string, TimelineEvent[]> = {};
       filteredEvents.forEach(event => {
-        const key = event.status || "planned";
+        const key = event.status || "todo";  // Changed from "planned" to "todo"
         if (!groups[key]) groups[key] = [];
         groups[key].push(event);
       });
@@ -851,6 +895,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       startDate: eventData.start,
       endDate: eventData.end,
       status: eventData.status,
+      priority: eventData.priority ?? null,  // NEW: Pass priority field
       notes: eventData.notes ?? null,
       progress: eventData.progress ?? 0,
       color: eventData.color ?? null,
@@ -896,6 +941,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     if (patch.start !== undefined) updates.startDate = patch.start;
     if (patch.end !== undefined) updates.endDate = patch.end;
     if (patch.status !== undefined) updates.status = patch.status;
+    if (patch.priority !== undefined) updates.priority = patch.priority;  // NEW: Handle priority updates
     if (patch.assigneeId !== undefined) {
       const member = findWorkspaceMember(members, patch.assigneeId ?? null);
       const propertyAssigneeId = member?.user_id ?? patch.assigneeId ?? null;
@@ -1124,22 +1170,55 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     });
   };
 
+  // Navigate to reference
+  const navigateToReference = (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => {
+    if (ref.reference_type === "doc") {
+      router.push(`/dashboard/docs/${ref.reference_id}`);
+    } else if (ref.reference_type === "block" && ref.tab_id) {
+      if (ref.is_workflow) {
+        router.push(`/dashboard/workflow/${ref.tab_id}#block-${ref.reference_id}`);
+      } else if (ref.project_id) {
+        router.push(`/dashboard/projects/${ref.project_id}/tabs/${ref.tab_id}#block-${ref.reference_id}`);
+      }
+    } else if (ref.reference_type === "table_row") {
+      // For table rows, we could navigate to the table view
+      // For now, just log - can be enhanced later
+      console.log("Navigation to table rows not yet implemented", ref);
+    }
+  };
 
   const selectedEvent = events.find((event) => event.id === selectedEventId);
   const { data: selectedReferences = [] } = useTimelineReferences(selectedEventId ?? undefined);
   const { data: hoveredReferences = [] } = useTimelineReferences(hoveredEventId ?? undefined);
-  const editPanel = !readOnly && isPanelOpen && selectedEvent ? (
-    <EventDetailsPanel
-      event={selectedEvent}
-      isOpen={isPanelOpen}
-      onClose={closePanel}
-      onUpdate={(patch) => updateEvent(selectedEvent.id, patch)}
-      references={selectedReferences}
-      workspaceId={workspaceId}
-      onAddReference={() => setIsReferenceDialogOpen(true)}
-    />
+  const editPanel = !readOnly && isPanelOpen && selectedEvent && modalPosition ? (
+    <>
+      <div
+        className="fixed inset-0 z-[99998] bg-black/20"
+        aria-hidden
+        onClick={closePanel}
+      />
+      <div
+        className="fixed z-[99999] w-96 max-h-[calc(100vh-32px)] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl overflow-hidden flex flex-col"
+        style={{ top: modalPosition.top, left: modalPosition.left }}
+        role="dialog"
+        aria-modal
+        aria-label={`Event details: ${selectedEvent.title}`}
+      >
+        <EventDetailsPanel
+          event={selectedEvent}
+          isOpen={isPanelOpen}
+          onClose={closePanel}
+          onUpdate={(patch) => updateEvent(selectedEvent.id, patch)}
+          references={selectedReferences}
+          workspaceId={workspaceId}
+          onAddReference={() => setIsReferenceDialogOpen(true)}
+          onNavigateToReference={navigateToReference}
+          variant="modal"
+        />
+      </div>
+    </>
   ) : null;
-  const editPanelPortal = panelRoot && editPanel ? createPortal(editPanel, panelRoot) : editPanel;
+  const editPanelPortal = typeof document !== "undefined" && editPanel ? createPortal(editPanel, document.body) : editPanel;
 
   // ---- Build tooltip element (or null) once per render; pass into createPortal below ----
   const tooltipEl =
@@ -1283,7 +1362,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
-                {(["planned", "in-progress", "blocked", "done"] as const).map((status) => {
+                {(["todo", "in_progress", "blocked", "done"] as const).map((status) => {
                   const isSelected = filters.status?.includes(status);
                   return (
                     <DropdownMenuItem
@@ -1519,6 +1598,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           defaultStart={displayRange.start}
           defaultEnd={addDays(displayRange.start, 3)}
           members={members}
+          workspaceId={workspaceId}
         />
       )}
       {!readOnly && projectId && workspaceId && (
@@ -1551,7 +1631,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   if (readOnly) {
     return (
       <>
-        {timelineContent}
+        <div ref={timelineContainerRef} className="relative w-full">
+          {timelineContent}
+        </div>
         {editPanelPortal}
       </>
     );
@@ -1559,9 +1641,11 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   return (
     <>
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      {timelineContent}
-    </DndContext>
+      <div ref={timelineContainerRef} className="relative w-full">
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          {timelineContent}
+        </DndContext>
+      </div>
       {editPanelPortal}
     </>
   );
@@ -1575,6 +1659,7 @@ function AddEventDialog({
   defaultStart,
   defaultEnd,
   members,
+  workspaceId,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -1582,14 +1667,35 @@ function AddEventDialog({
   defaultStart: Date;
   defaultEnd: Date;
   members: WorkspaceMember[];
+  workspaceId?: string;
 }) {
+  // Fetch property definitions for Status and Priority
+  const supabase = createClient();
+  const { data: propertyDefs } = useQuery({
+    queryKey: ["propertyDefinitions", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return null;
+      const { data } = await supabase
+        .from("property_definitions")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .in("name", ["Status", "Priority"]);
+      return data;
+    },
+    enabled: !!workspaceId,
+  });
+
+  const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
+  const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
+
   const getInitialState = React.useCallback(
     () => ({
       title: "New event",
       start: defaultStart.toISOString(),
       end: defaultEnd.toISOString(),
       color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
-      status: "planned" as const,
+      status: "todo" as const,  // Changed from "planned" to "todo"
+      priority: null as TimelineEventPriority | null,  // NEW: Priority field
       progress: 0,
       isMilestone: false,
       assigneeId: null as string | null,
@@ -1671,16 +1777,52 @@ function AddEventDialog({
             <div>
               <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
               <select
-                value={local.status ?? "planned"}
-                onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEvent["status"] }))}
+                value={local.status ?? "todo"}
+                onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="planned">Planned</option>
-                <option value="in-progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
+                {statusOptions.length > 0 ? (
+                  statusOptions.map((opt: any) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="todo">To Do</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="done">Done</option>
+                  </>
+                )}
               </select>
             </div>
+          </div>
+
+          {/* Priority */}
+          <div>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
+            <select
+              value={local.priority ?? ""}
+              onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
+              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">None</option>
+              {priorityOptions.length > 0 ? (
+                priorityOptions.map((opt: any) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </>
+              )}
+            </select>
           </div>
 
           {/* Progress & Milestone */}
@@ -1822,14 +1964,18 @@ function EventDetailsPanel({
   references,
   workspaceId,
   onAddReference,
+  onNavigateToReference,
+  variant = "sidebar",
 }: {
   event: TimelineEvent;
   isOpen: boolean;
   onClose: () => void;
   onUpdate: (patch: TimelineEventPatch) => void;
-  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string }>;
+  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }>;
   workspaceId?: string;
   onAddReference: () => void;
+  onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
+  variant?: "sidebar" | "modal";
 }) {
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
@@ -1838,6 +1984,7 @@ function EventDetailsPanel({
 
   const [local, setLocal] = useState({
     status: event.status ?? null,
+    priority: event.priority ?? null,
     assigneeId: event.assigneeId ?? null,
     progress: event.progress ?? 0,
     notes: event.notes ?? "",
@@ -1847,10 +1994,19 @@ function EventDetailsPanel({
     color: event.color ?? null,
   });
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll content to top when panel opens or event changes so the event details are visible
+  React.useEffect(() => {
+    if (isOpen && contentScrollRef.current) {
+      contentScrollRef.current.scrollTop = 0;
+    }
+  }, [isOpen, event.id]);
 
   React.useEffect(() => {
     setLocal({
       status: event.status ?? null,
+      priority: event.priority ?? null,
       assigneeId: event.assigneeId ?? null,
       progress: event.progress ?? 0,
       notes: event.notes ?? "",
@@ -1903,6 +2059,14 @@ function EventDetailsPanel({
     }
   };
 
+  const handlePriorityChange = (value: string) => {
+    const nextPriority = value === "none" ? null : (value as TimelineEventPriority);
+    setLocal((s) => ({ ...s, priority: nextPriority }));
+    if ((event.priority ?? null) !== nextPriority) {
+      onUpdate({ priority: nextPriority } as TimelineEventPatch);
+    }
+  };
+
   const handleAssigneeChange = (assigneeId: string | null) => {
     setLocal((s) => ({ ...s, assigneeId }));
     if ((event.assigneeId ?? null) !== assigneeId) {
@@ -1943,9 +2107,14 @@ function EventDetailsPanel({
 
   return (
     <div
-      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl overflow-hidden"
-      role="complementary"
-      aria-label={`Event details: ${event.title}`}
+      className={cn(
+        "flex flex-col min-h-0 overflow-hidden",
+        variant === "modal"
+          ? "h-full w-full bg-[var(--surface)]"
+          : "h-full w-full shrink-0 border-t border-[var(--border)] bg-[var(--surface)] shadow-popover lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl"
+      )}
+      role={variant === "modal" ? undefined : "complementary"}
+      aria-label={variant === "modal" ? undefined : `Event details: ${event.title}`}
     >
       <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
         <div className="min-w-0">
@@ -1959,7 +2128,7 @@ function EventDetailsPanel({
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
         <div className="space-y-4">
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
@@ -2002,8 +2171,8 @@ function EventDetailsPanel({
                 className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="none">None</option>
-                <option value="planned">Planned</option>
-                <option value="in-progress">In progress</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
                 <option value="blocked">Blocked</option>
                 <option value="done">Done</option>
               </select>
@@ -2061,6 +2230,20 @@ function EventDetailsPanel({
                 className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
+              <select
+                value={local.priority ?? "none"}
+                onChange={(e) => handlePriorityChange(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -2101,17 +2284,23 @@ function EventDetailsPanel({
             {references.length > 0 && (
               <div className="space-y-2">
                 {references.map((ref) => (
-                  <div
+                  <button
                     key={ref.id}
-                    className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
+                    onClick={() => onNavigateToReference?.(ref)}
+                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs text-left hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                   >
-                    <div className="font-medium text-neutral-800 dark:text-neutral-200">
-                      {ref.title}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
+                          {ref.title}
+                        </div>
+                        <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+                          {ref.type_label || ref.reference_type}
+                        </div>
+                      </div>
+                      <ExternalLink className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
                     </div>
-                    <div className="text-[11px] uppercase tracking-wide text-neutral-400">
-                      {ref.type_label || ref.reference_type}
-                    </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -2173,13 +2362,33 @@ function EditEventDialog({
   members: WorkspaceMember[];
   workspaceId?: string;
 }) {
+  // Fetch property definitions for Status and Priority
+  const supabase = createClient();
+  const { data: propertyDefs } = useQuery({
+    queryKey: ["propertyDefinitions", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return null;
+      const { data } = await supabase
+        .from("property_definitions")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .in("name", ["Status", "Priority"]);
+      return data;
+    },
+    enabled: !!workspaceId,
+  });
+
+  const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
+  const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
+
   const getInitialState = React.useCallback(
     () => ({
       title: event.title,
       start: event.start,
       end: event.end,
       color: event.color || DEFAULT_COLORS[0],
-      status: (event.status || "planned") as TimelineEvent["status"],
+      status: (event.status || "todo") as TimelineEventStatus,  // Changed from "planned" to "todo"
+      priority: event.priority ?? null,  // NEW: Priority field
       assigneeId: event.assigneeId ?? null,
       notes: event.notes || "",
       progress: event.progress ?? 0,
@@ -2303,16 +2512,52 @@ function EditEventDialog({
                 <div>
                   <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
                   <select
-                    value={local.status ?? "planned"}
-                    onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEvent["status"] }))}
+                    value={local.status ?? "todo"}
+                    onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
                     className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="planned">Planned</option>
-                    <option value="in-progress">In progress</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="done">Done</option>
+                    {statusOptions.length > 0 ? (
+                      statusOptions.map((opt: any) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="todo">To Do</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="blocked">Blocked</option>
+                        <option value="done">Done</option>
+                      </>
+                    )}
                   </select>
                 </div>
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
+                <select
+                  value={local.priority ?? ""}
+                  onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">None</option>
+                  {priorityOptions.length > 0 ? (
+                    priorityOptions.map((opt: any) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </>
+                  )}
+                </select>
               </div>
 
               {/* Progress & Milestone */}
@@ -2644,11 +2889,11 @@ function EventDrawer({
             Status
             <select
               className="mt-1 w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={local.status ?? "planned"}
-              onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEvent["status"] }))}
+              value={local.status ?? "todo"}
+              onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
             >
-              <option value="planned">Planned</option>
-              <option value="in-progress">In progress</option>
+              <option value="todo">To Do</option>
+              <option value="in_progress">In Progress</option>
               <option value="blocked">Blocked</option>
               <option value="done">Done</option>
             </select>
