@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { type TableField, type SelectFieldOption, type StatusFieldConfig } from "@/types/table";
+import { usePropertyDefinition } from "@/lib/hooks/use-property-queries";
 
 interface Props {
   field: TableField;
@@ -23,7 +24,19 @@ const randomColor = () => {
 
 export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving, onUpdateConfig }: Props) {
   const config = (field.config || {}) as StatusFieldConfig;
-  const options = config.options || [];
+
+  // Fetch property definition if field is linked to one
+  const fieldWithPropDef = field as TableField & { property_definition_id?: string };
+  const { data: propertyDefinition } = usePropertyDefinition(fieldWithPropDef.property_definition_id);
+
+  // Use property definition options if available, otherwise fall back to config
+  const options = propertyDefinition?.options
+    ? (propertyDefinition.options as SelectFieldOption[])
+    : (config.options || []);
+
+  // Disable inline option editing for canonical fields (managed at workspace level)
+  const canEditOptions = !fieldWithPropDef.property_definition_id && onUpdateConfig;
+
   const [draft, setDraft] = useState<string | undefined>(typeof value === "string" ? value : undefined);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [newOptionName, setNewOptionName] = useState("");
@@ -101,7 +114,7 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
   }, [dropdownOpen, options.length]);
 
   const handleAddOption = () => {
-    if (!newOptionName.trim() || !onUpdateConfig) return;
+    if (!newOptionName.trim() || !canEditOptions) return;
 
     const newOption: SelectFieldOption = {
       id: `opt_${Date.now()}`,
@@ -114,7 +127,7 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
       options: [...options, newOption],
     };
 
-    onUpdateConfig(newConfig);
+    onUpdateConfig?.(newConfig);
     setDraft(newOption.id);
     onCommit(newOption.id);
     setNewOptionName("");
@@ -123,14 +136,14 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
 
   const handleDeleteOption = (optionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!onUpdateConfig) return;
+    if (!canEditOptions) return;
 
     const newConfig: StatusFieldConfig = {
       ...config,
       options: options.filter((opt) => opt.id !== optionId),
     };
 
-    onUpdateConfig(newConfig);
+    onUpdateConfig?.(newConfig);
     if (draft === optionId) {
       setDraft(undefined);
       onCommit(null);
@@ -175,7 +188,7 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
                     style={{ backgroundColor: opt.color || "var(--muted-foreground)" }}
                   />
                   <span className="flex-1 text-[var(--foreground)]">{opt.label}</span>
-                  {onUpdateConfig && (
+                  {canEditOptions && (
                     <button
                       onClick={(e) => handleDeleteOption(opt.id, e)}
                       className="opacity-0 group-hover:opacity-100 hover:text-[var(--error)] transition-opacity"
@@ -185,7 +198,7 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
                   )}
                 </div>
               ))}
-              {onUpdateConfig && (
+              {canEditOptions && (
                 <>
                   <div className="border-t border-[var(--border)] my-1" />
                   <div className="px-3 py-2">
@@ -229,7 +242,7 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
         onClick={onStartEdit}
         disabled={saving}
       >
-        {onUpdateConfig && <Plus className="h-3 w-3" />}
+        {canEditOptions && <Plus className="h-3 w-3" />}
         <span>Empty</span>
       </button>
     );

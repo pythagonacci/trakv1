@@ -181,6 +181,7 @@ export async function updatePropertyDefinition(
 
 /**
  * Delete a property definition.
+ * Blocks deletion if any table fields link to this definition.
  * Cascades to delete all entity_properties using this definition.
  */
 export async function deletePropertyDefinition(
@@ -189,6 +190,26 @@ export async function deletePropertyDefinition(
   const access = await requirePropertyDefinitionAccess(definitionId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
+
+  // Check if any table fields link to this property definition
+  const { data: linkedFields, error: checkError } = await supabase
+    .from("table_fields")
+    .select("id, name, table_id")
+    .eq("property_definition_id", definitionId)
+    .limit(100);
+
+  if (checkError) {
+    console.error("deletePropertyDefinition check error:", checkError);
+    return { error: "Failed to check for linked table fields" };
+  }
+
+  if (linkedFields && linkedFields.length > 0) {
+    const fieldCount = linkedFields.length;
+    const sampleFields = linkedFields.slice(0, 3).map(f => f.name).join(", ");
+    return {
+      error: `Cannot delete property definition. ${fieldCount} table field${fieldCount > 1 ? 's are' : ' is'} using it (e.g., ${sampleFields}). Unlink or delete these fields first.`
+    };
+  }
 
   const { error } = await supabase
     .from("property_definitions")

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { type TableField, type PriorityFieldConfig, type PriorityLevelConfig } from "@/types/table";
+import { usePropertyDefinition } from "@/lib/hooks/use-property-queries";
 
 interface Props {
   field: TableField;
@@ -24,7 +25,25 @@ const getPriorityIcon = (order: number) => {
 
 export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving }: Props) {
   const config = (field.config || {}) as PriorityFieldConfig;
-  const levels = config.levels || [];
+
+  // Fetch property definition if field is linked to one
+  const fieldWithPropDef = field as TableField & { property_definition_id?: string };
+  const { data: propertyDefinition } = usePropertyDefinition(fieldWithPropDef.property_definition_id);
+
+  // Use property definition options if available, otherwise fall back to config
+  // Map canonical IDs to order: low=1, medium=2, high=3, urgent=4
+  const levels = propertyDefinition?.options
+    ? (propertyDefinition.options as Array<{ id: string; label: string; color: string }>).map((opt, idx) => {
+        const order = opt.id === "low" ? 1 : opt.id === "medium" ? 2 : opt.id === "high" ? 3 : opt.id === "urgent" ? 4 : idx + 1;
+        return {
+          id: opt.id,
+          label: opt.label,
+          color: opt.color,
+          order,
+        } as PriorityLevelConfig;
+      })
+    : (config.levels || []);
+
   const [draft, setDraft] = useState<string | undefined>(typeof value === "string" ? value : undefined);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);

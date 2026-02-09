@@ -3315,6 +3315,268 @@ export async function executeTool(
           return await wrapResult(deleteTableComment(args.commentId as string, { authContext: authContext ?? undefined }));
 
         // ==================================================================
+        // SHOPIFY ACTIONS
+        // ==================================================================
+        case "searchShopifyProducts": {
+          if (!workspaceId) {
+            return { success: false, error: "No workspace selected" };
+          }
+
+          // Auto-resolve connection if not provided
+          let connectionId = args.connectionId as string | undefined;
+          if (!connectionId) {
+            const connectionsResult = await listShopifyConnections(workspaceId);
+            if ("error" in connectionsResult) {
+              return { success: false, error: connectionsResult.error };
+            }
+            const activeConnections = connectionsResult.data?.filter(c => c.sync_status === "active") || [];
+
+            if (activeConnections.length === 0) {
+              return { success: false, error: "No active Shopify connection found. Please connect a Shopify store first." };
+            } else if (activeConnections.length === 1) {
+              connectionId = activeConnections[0].id;
+            } else if (args.shopName) {
+              // Find by shop name
+              const shopName = (args.shopName as string).toLowerCase();
+              const match = activeConnections.find(c =>
+                c.shop_domain.toLowerCase().includes(shopName) ||
+                (c.shop_name && c.shop_name.toLowerCase().includes(shopName))
+              );
+              if (match) {
+                connectionId = match.id;
+              } else {
+                return { success: false, error: `No Shopify connection found matching "${args.shopName}". Available: ${activeConnections.map(c => c.shop_domain).join(", ")}` };
+              }
+            } else {
+              return { success: false, error: `Multiple Shopify connections found. Please specify which one: ${activeConnections.map(c => c.shop_domain).join(", ")}` };
+            }
+          }
+
+          // Get products from Trak database
+          const productsResult = await getTrakProducts(connectionId, {
+            search: args.searchText as string | undefined,
+            limit: (args.limit as number) || 50,
+            offset: (args.offset as number) || 0,
+          });
+
+          if ("error" in productsResult) {
+            return { success: false, error: productsResult.error };
+          }
+
+          let products = productsResult.data.products;
+
+          // Apply additional filters not supported by getTrakProducts
+          if (args.vendor) {
+            const vendor = (args.vendor as string).toLowerCase();
+            products = products.filter(p => p.vendor?.toLowerCase().includes(vendor));
+          }
+          if (args.productType) {
+            const productType = (args.productType as string).toLowerCase();
+            products = products.filter(p => p.product_type?.toLowerCase().includes(productType));
+          }
+          if (args.tag) {
+            const tag = (args.tag as string).toLowerCase();
+            products = products.filter(p => p.tags?.some(t => t.toLowerCase() === tag));
+          }
+          if (args.status) {
+            const status = (args.status as string).toLowerCase();
+            products = products.filter(p => p.status?.toLowerCase() === status);
+          }
+          if (args.minVariants !== undefined) {
+            products = products.filter(p => (p.variants_count || 0) >= (args.minVariants as number));
+          }
+          if (args.maxVariants !== undefined) {
+            products = products.filter(p => (p.variants_count || 0) <= (args.maxVariants as number));
+          }
+
+          return {
+            success: true,
+            data: {
+              products: products.map(p => ({
+                id: p.id,
+                title: p.title,
+                vendor: p.vendor,
+                productType: p.product_type,
+                status: p.status,
+                tags: p.tags,
+                variantsCount: p.variants_count,
+                featuredImageUrl: p.featured_image_url,
+                lastSyncedAt: p.last_synced_at,
+              })),
+              total: products.length,
+              connectionId,
+            },
+            hint: products.length > 0
+              ? `Found ${products.length} product(s).`
+              : "No products found matching the criteria.",
+          };
+        }
+
+        case "getShopifyProductDetails": {
+          const productId = args.productId as string;
+          if (!productId) {
+            return { success: false, error: "Missing productId" };
+          }
+          return await wrapResult(getProductDetails(productId));
+        }
+
+        case "getShopifyProductSales": {
+          const productId = args.productId as string;
+          const startDate = args.startDate as string;
+          const endDate = args.endDate as string;
+
+          if (!productId) return { success: false, error: "Missing productId" };
+          if (!startDate) return { success: false, error: "Missing startDate (YYYY-MM-DD)" };
+          if (!endDate) return { success: false, error: "Missing endDate (YYYY-MM-DD)" };
+
+          return await wrapResult(getProductUnitsSold(productId, startDate, endDate));
+        }
+
+        case "createProductsTable": {
+          if (!workspaceId) {
+            return { success: false, error: "No workspace selected" };
+          }
+
+          // Resolve tab
+          let tabId = args.tabId as string | undefined;
+          if (!tabId && args.tabName) {
+            const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
+            if (tabSearch.data && tabSearch.data.length > 0) {
+              tabId = tabSearch.data[0].id;
+            }
+          }
+          if (!tabId && context?.currentTabId) {
+            tabId = context.currentTabId;
+          }
+
+          // Resolve connection
+          let connectionId = args.connectionId as string | undefined;
+          if (!connectionId) {
+            const connectionsResult = await listShopifyConnections(workspaceId);
+            if ("error" in connectionsResult) {
+              return { success: false, error: connectionsResult.error };
+            }
+            const activeConnections = connectionsResult.data?.filter(c => c.sync_status === "active") || [];
+            if (activeConnections.length === 0) {
+              return { success: false, error: "No active Shopify connection found." };
+            }
+            connectionId = activeConnections[0].id;
+          }
+
+          // Get products (either specific IDs or filtered)
+          let products: ShopifyProduct[] = [];
+          const productIds = args.productIds as string[] | undefined;
+
+          if (productIds && productIds.length > 0) {
+            // Fetch specific products by ID
+            for (const pid of productIds.slice(0, 100)) {
+              const details = await getProductDetails(pid);
+              if ("data" in details && details.data) {
+                products.push(details.data as ShopifyProduct);
+              }
+            }
+          } else {
+            // Fetch products with filters
+            const productsResult = await getTrakProducts(connectionId, {
+              search: args.searchText as string | undefined,
+              limit: (args.limit as number) || 50,
+            });
+            if ("error" in productsResult) {
+              return { success: false, error: productsResult.error };
+            }
+            products = productsResult.data.products;
+
+            // Apply filters
+            if (args.vendor) {
+              const vendor = (args.vendor as string).toLowerCase();
+              products = products.filter(p => p.vendor?.toLowerCase().includes(vendor));
+            }
+            if (args.productType) {
+              const productType = (args.productType as string).toLowerCase();
+              products = products.filter(p => p.product_type?.toLowerCase().includes(productType));
+            }
+          }
+
+          if (products.length === 0) {
+            return { success: false, error: "No products found to add to the table." };
+          }
+
+          // Create table with product data
+          const tableTitle = (args.title as string) || "Shopify Products";
+          const fields = [
+            { name: "Title", type: "text" },
+            { name: "Vendor", type: "text" },
+            { name: "Type", type: "text" },
+            {
+              name: "Status", type: "status", config: {
+                options: [
+                  { id: "opt-active", label: "Active", color: "#10b981", order: 0 },
+                  { id: "opt-draft", label: "Draft", color: "#f59e0b", order: 1 },
+                  { id: "opt-archived", label: "Archived", color: "#6b7280", order: 2 },
+                ]
+              }
+            },
+            { name: "Variants", type: "number" },
+            { name: "Tags", type: "text" },
+          ];
+
+          const rows = products.map(p => ({
+            data: {
+              "Title": p.title,
+              "Vendor": p.vendor || "",
+              "Type": p.product_type || "",
+              "Status": p.status ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : "",
+              "Variants": p.variants_count || 0,
+              "Tags": p.tags?.join(", ") || "",
+            }
+          }));
+
+          // Use createTableFull to create the table
+          const tableResult = await executeTool(
+            {
+              name: "createTableFull",
+              arguments: {
+                workspaceId,
+                title: tableTitle,
+                projectId: context?.currentProjectId,
+                tabId,
+                fields,
+                rows,
+              },
+            },
+            context
+          );
+
+          if (!tableResult.success) {
+            return { success: false, error: tableResult.error ?? "Failed to create products table." };
+          }
+
+          return {
+            success: true,
+            data: {
+              ...(tableResult.data as Record<string, unknown>),
+              productsCount: products.length,
+            },
+            hint: `Created table "${tableTitle}" with ${products.length} Shopify products.`,
+          };
+        }
+
+        case "refreshShopifyProduct": {
+          const productId = args.productId as string;
+          if (!productId) {
+            return { success: false, error: "Missing productId" };
+          }
+          const result = await wrapResult(refreshProduct(productId));
+          if (result.success) {
+            return {
+              ...result,
+              hint: "Product data refreshed from Shopify. Sales cache has been invalidated.",
+            };
+          }
+          return result;
+        }
+
+        // ==================================================================
         // UNKNOWN TOOL
         // ==================================================================
         default:
@@ -4392,13 +4654,71 @@ function generateOptionId(): string {
 }
 
 function resolveSelectValues(
-  field: { type: string; config: Record<string, unknown> },
+  field: { type: string; config: Record<string, unknown>; property_definition_id?: string },
   rawValue: unknown,
-  allowCreate: boolean
+  allowCreate: boolean,
+  propertyDefinitionOptions?: Array<{ id: string; label: string; color?: string }>
 ): { ids: string[]; updatedConfig?: Record<string, unknown>; missing: boolean } {
   if (rawValue === null || rawValue === undefined) {
     return { ids: [], missing: false };
   }
+
+  // Priority/Status fields: use property definition options (canonical IDs)
+  if ((field.type === "priority" || field.type === "status") && propertyDefinitionOptions) {
+    const inputValues = Array.isArray(rawValue) ? rawValue : [rawValue];
+    const normalizedOptions = new Map(
+      propertyDefinitionOptions.map(opt => [normalizeFieldKey(opt.label), opt])
+    );
+
+    const resolvedIds: string[] = [];
+
+    for (const value of inputValues) {
+      // Handle {id} object format
+      if (value && typeof value === "object") {
+        const asObj = value as Record<string, unknown>;
+        const id = typeof asObj.id === "string" ? asObj.id : undefined;
+        if (id) {
+          // Verify it's a valid canonical ID
+          const exists = propertyDefinitionOptions.some(opt => opt.id === id);
+          if (exists) {
+            resolvedIds.push(id);
+            continue;
+          }
+        }
+      }
+
+      const str = String(value ?? "").trim();
+      if (!str) continue;
+
+      // Check if value is already a canonical ID (case-insensitive)
+      const matchedById = propertyDefinitionOptions.find(
+        opt => opt.id.toLowerCase() === str.toLowerCase()
+      );
+
+      if (matchedById) {
+        resolvedIds.push(matchedById.id);
+        continue;
+      }
+
+      // Try label match (case-insensitive)
+      const normalized = normalizeFieldKey(str);
+      const matchedByLabel = normalizedOptions.get(normalized);
+
+      if (matchedByLabel) {
+        resolvedIds.push(matchedByLabel.id);
+      } else {
+        // Value not found in property definition options
+        const fieldType = field.type === "priority" ? "Priority" : "Status";
+        const validValues = propertyDefinitionOptions.map(opt => `"${opt.id}" (${opt.label})`).join(", ");
+        console.warn(`[resolveSelectValues] Invalid ${fieldType} value: "${str}". Valid options: ${validValues}`);
+        return { ids: [], missing: true };
+      }
+    }
+
+    return { ids: resolvedIds, missing: false };
+  }
+
+  // Regular select fields: use field config options
   const { kind, options } = getOptionEntries(field);
   if (!kind) {
     return { ids: [], missing: true };
@@ -4455,15 +4775,16 @@ function resolveSelectValues(
 }
 
 function resolveUpdateValue(
-  field: { id: string; type: string; config: Record<string, unknown> },
+  field: { id: string; type: string; config: Record<string, unknown>; property_definition_id?: string },
   rawValue: unknown,
-  allowCreateOptions: boolean
+  allowCreateOptions: boolean,
+  propertyDefinitionOptions?: Array<{ id: string; label: string; color?: string }>
 ): { value: unknown; updatedConfig?: Record<string, unknown> } {
   if (isSelectLike(field.type)) {
     if (rawValue === null || rawValue === undefined) {
       return { value: null };
     }
-    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions);
+    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions, propertyDefinitionOptions);
     const value = field.type === "multi_select" ? resolved.ids : resolved.ids[0] ?? null;
     return { value, updatedConfig: resolved.updatedConfig };
   }
@@ -4488,6 +4809,27 @@ async function enhanceFieldsAndNormalizeSelectValues(
 
   const fields = tableResult.data.fields;
 
+  // Fetch property definitions for priority/status fields
+  const propertyDefIds = fields
+    .filter(f => f.property_definition_id)
+    .map(f => f.property_definition_id as string);
+
+  const propertyDefsMap = new Map<string, Array<{ id: string; label: string; color?: string }>>();
+
+  if (propertyDefIds.length > 0) {
+    const supabase = await createSupabaseClient();
+    const { data: propDefs } = await supabase
+      .from("property_definitions")
+      .select("id, options")
+      .in("id", [...new Set(propertyDefIds)]);
+
+    if (propDefs) {
+      for (const pd of propDefs) {
+        propertyDefsMap.set(pd.id, pd.options as Array<{ id: string; label: string; color?: string }>);
+      }
+    }
+  }
+
   // Extract all values for each field from the rows
   const fieldValues = new Map<string, unknown[]>();
   rows.forEach((row) => {
@@ -4501,10 +4843,16 @@ async function enhanceFieldsAndNormalizeSelectValues(
   });
 
   // Enhance select fields that have no options configured
+  // SKIP priority/status fields (they get options from property_definitions)
   const fieldsToUpdate: Array<{ fieldId: string; config: Record<string, unknown> }> = [];
 
   for (const field of fields) {
     if (!isSelectLike(field.type)) continue;
+
+    // Skip priority/status fields - they use property_definitions
+    if ((field.type === "priority" || field.type === "status") && field.property_definition_id) {
+      continue;
+    }
 
     const config = (field.config || {}) as Record<string, unknown>;
     const { options } = getOptionEntries({ type: field.type, config });
@@ -4549,9 +4897,19 @@ async function enhanceFieldsAndNormalizeSelectValues(
         continue;
       }
 
+      // Get property definition options if available
+      const propDefOptions = field.property_definition_id
+        ? propertyDefsMap.get(field.property_definition_id)
+        : undefined;
+
       // Field is a select-like field - normalize the value to option ID
       const config = (field.config || {}) as Record<string, unknown>;
-      const { ids } = resolveSelectValues({ type: field.type, config }, rawValue, false);
+      const { ids } = resolveSelectValues(
+        { type: field.type, config, property_definition_id: field.property_definition_id },
+        rawValue,
+        false,
+        propDefOptions
+      );
 
       if (ids.length > 0) {
         normalized[fieldId] = field.type === "multi_select" ? ids : ids[0];

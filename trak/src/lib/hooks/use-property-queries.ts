@@ -19,6 +19,8 @@ import {
   getEntityLinks,
   setInheritedPropertyVisibility,
 } from "@/app/actions/entity-properties";
+import { getPropertyDefinition } from "@/app/actions/properties/definition-actions";
+import type { PropertyDefinition } from "@/types/properties";
 import type {
   EntityType,
   EntityProperties,
@@ -396,5 +398,26 @@ export function useSetInheritedPropertyVisibility(
         queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
       });
     },
+  });
+}
+
+// ============================================================================
+// Property Definitions
+// ============================================================================
+
+/**
+ * Fetch a property definition by ID (for table fields)
+ */
+export function usePropertyDefinition(propertyDefinitionId?: string | null) {
+  return useQuery({
+    queryKey: ["propertyDefinition", propertyDefinitionId],
+    queryFn: async () => {
+      if (!propertyDefinitionId) return null;
+      const result = await getPropertyDefinition(propertyDefinitionId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(propertyDefinitionId),
+    staleTime: 60_000, // Property definitions change rarely
   });
 }

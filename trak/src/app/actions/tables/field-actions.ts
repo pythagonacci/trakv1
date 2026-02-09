@@ -27,34 +27,63 @@ interface CreateFieldInput {
 export async function createField(input: CreateFieldInput): Promise<ActionResult<TableField>> {
   const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase } = access;
+  const { supabase, table } = access;
 
-  // Auto-populate default config for priority and status fields
   let config = input.config || {};
+  let propertyDefinitionId: string | undefined;
 
-  if (input.type === "priority" && (!config || !("levels" in config) || !(config.levels as any)?.length)) {
-    // Generate default priority levels if not provided
-    config = {
-      ...config,
-      levels: [
-        { id: crypto.randomUUID(), label: "Critical", color: "#ef4444", order: 4 },
-        { id: crypto.randomUUID(), label: "High", color: "#f97316", order: 3 },
-        { id: crypto.randomUUID(), label: "Medium", color: "#3b82f6", order: 2 },
-        { id: crypto.randomUUID(), label: "Low", color: "#6b7280", order: 1 },
-      ],
-    };
-  }
+  // Auto-link priority/status fields to workspace property definitions
+  if (input.type === "priority" || input.type === "status") {
+    // Get workspace ID from table
+    const workspaceId = table.workspace_id;
 
-  if (input.type === "status" && (!config || !("options" in config) || !(config.options as any)?.length)) {
-    // Generate default status options if not provided
-    config = {
-      ...config,
-      options: [
-        { id: crypto.randomUUID(), label: "Not Started", color: "#6b7280" },
-        { id: crypto.randomUUID(), label: "In Progress", color: "#3b82f6" },
-        { id: crypto.randomUUID(), label: "Complete", color: "#10b981" },
-      ],
-    };
+    // Find or create property definition
+    const propertyName = input.type === "priority" ? "Priority" : "Status";
+    const { data: propDef } = await supabase
+      .from("property_definitions")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("name", propertyName)
+      .eq("type", "select")
+      .maybeSingle();
+
+    if (!propDef) {
+      // Create default property definition with canonical IDs
+      const defaultOptions = input.type === "priority"
+        ? [
+            { id: "low", label: "Low", color: "#6b7280" },
+            { id: "medium", label: "Medium", color: "#f59e0b" },
+            { id: "high", label: "High", color: "#f97316" },
+            { id: "urgent", label: "Urgent", color: "#ef4444" },
+          ]
+        : [
+            { id: "todo", label: "To Do", color: "#6b7280" },
+            { id: "in_progress", label: "In Progress", color: "#3b82f6" },
+            { id: "done", label: "Done", color: "#10b981" },
+            { id: "blocked", label: "Blocked", color: "#ef4444" },
+          ];
+
+      const { data: newPropDef, error: createError } = await supabase
+        .from("property_definitions")
+        .insert({
+          workspace_id: workspaceId,
+          name: propertyName,
+          type: "select",
+          options: defaultOptions,
+        })
+        .select("id")
+        .single();
+
+      if (createError || !newPropDef) {
+        return { error: "Failed to create property definition" };
+      }
+      propertyDefinitionId = newPropDef.id;
+    } else {
+      propertyDefinitionId = propDef.id;
+    }
+
+    // Clear legacy config (no longer needed - options come from property_definition)
+    config = {};
   }
 
   const { data, error } = await supabase
@@ -64,6 +93,7 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
       name: input.name || "Untitled Field",
       type: input.type,
       config,
+      property_definition_id: propertyDefinitionId,
       order: input.order ?? null,
       is_primary: input.isPrimary ?? false,
       width: input.width ?? null,
@@ -112,6 +142,58 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
 
   if (updates.config !== undefined) {
     updatePayload.config = nextConfig;
+  }
+
+  // Auto-link priority/status fields to workspace property definitions (same logic as createField)
+  if (updates.type === "priority" || updates.type === "status") {
+    const workspaceId = table.workspace_id;
+    const propertyName = updates.type === "priority" ? "Priority" : "Status";
+
+    const { data: propDef } = await supabase
+      .from("property_definitions")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("name", propertyName)
+      .eq("type", "select")
+      .maybeSingle();
+
+    if (!propDef) {
+      // Create default property definition with canonical IDs
+      const defaultOptions = updates.type === "priority"
+        ? [
+            { id: "low", label: "Low", color: "#6b7280" },
+            { id: "medium", label: "Medium", color: "#f59e0b" },
+            { id: "high", label: "High", color: "#f97316" },
+            { id: "urgent", label: "Urgent", color: "#ef4444" },
+          ]
+        : [
+            { id: "todo", label: "To Do", color: "#6b7280" },
+            { id: "in_progress", label: "In Progress", color: "#3b82f6" },
+            { id: "done", label: "Done", color: "#10b981" },
+            { id: "blocked", label: "Blocked", color: "#ef4444" },
+          ];
+
+      const { data: newPropDef, error: createError } = await supabase
+        .from("property_definitions")
+        .insert({
+          workspace_id: workspaceId,
+          name: propertyName,
+          type: "select",
+          options: defaultOptions,
+        })
+        .select("id")
+        .single();
+
+      if (createError || !newPropDef) {
+        return { error: "Failed to create property definition" };
+      }
+      updatePayload.property_definition_id = newPropDef.id;
+    } else {
+      updatePayload.property_definition_id = propDef.id;
+    }
+
+    // Clear legacy config (options come from property_definition)
+    updatePayload.config = {};
   }
 
   const { data, error: updateError } = await supabase

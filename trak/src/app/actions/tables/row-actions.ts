@@ -98,7 +98,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   // Get all valid field IDs for this table to filter out deleted fields
   const { data: fields, error: fieldsError } = await supabase
     .from("table_fields")
-    .select("id, type, config")
+    .select("id, type, config, property_definition_id")
     .eq("table_id", row.table_id);
 
   if (fieldsError) {
@@ -114,6 +114,32 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
 
   if (["rollup", "formula", "created_time", "last_edited_time", "created_by", "last_edited_by"].includes(field.type)) {
     return { error: "This field is read-only" };
+  }
+
+  // Validate canonical IDs for priority/status fields
+  if ((field.type === "priority" || field.type === "status") && value) {
+    const fieldWithPropDef = field as TableField & { property_definition_id?: string };
+
+    if (fieldWithPropDef.property_definition_id) {
+      // Fetch property definition options to validate
+      const { data: propDef } = await supabase
+        .from("property_definitions")
+        .select("options")
+        .eq("id", fieldWithPropDef.property_definition_id)
+        .maybeSingle();
+
+      if (propDef) {
+        const options = (propDef.options as Array<{ id: string; label: string }>) || [];
+        const validIds = options.map(opt => opt.id);
+
+        if (!validIds.includes(String(value))) {
+          const fieldTypeName = field.type === "priority" ? "Priority" : "Status";
+          return {
+            error: `Invalid ${fieldTypeName.toLowerCase()} value "${value}". Must be one of: ${validIds.join(", ")}`
+          };
+        }
+      }
+    }
   }
 
   // Get set of valid field IDs for filtering
@@ -232,6 +258,41 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   if (!data) {
     console.error("updateCell: No data returned from update");
     return { error: "Failed to update cell: No data returned" };
+  }
+
+  // Sync priority/status updates to entity_properties
+  if ((field.type === "priority" || field.type === "status") && field.property_definition_id) {
+    const { data: tableData } = await supabase
+      .from("tables")
+      .select("workspace_id")
+      .eq("id", row.table_id)
+      .single();
+
+    if (tableData?.workspace_id) {
+      // Upsert to entity_properties
+      if (value === null || value === undefined || value === "") {
+        // Delete entity_property if value is cleared
+        await supabase
+          .from("entity_properties")
+          .delete()
+          .eq("entity_type", "table_row")
+          .eq("entity_id", rowId)
+          .eq("property_definition_id", field.property_definition_id);
+      } else {
+        // Insert or update entity_property
+        await supabase
+          .from("entity_properties")
+          .upsert({
+            entity_type: "table_row",
+            entity_id: rowId,
+            property_definition_id: field.property_definition_id,
+            value: value,
+            workspace_id: tableData.workspace_id,
+          }, {
+            onConflict: "entity_type,entity_id,property_definition_id"
+          });
+      }
+    }
   }
 
   await recomputeFormulasForRow(row.table_id, rowId, fieldId);

@@ -97,8 +97,8 @@ const searchTools: ToolDefinition[] = [
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search tasks by text (matches title)" },
-      status: { type: "string", description: "Filter by status", enum: ["todo", "in-progress", "done"] },
-      priority: { type: "string", description: "Filter by priority", enum: ["low", "medium", "high", "urgent"] },
+      status: { type: "string", description: "Filter by status. Example: \"todo\" (use quoted strings in JSON)", enum: ["todo", "in-progress", "blocked", "done"] },
+      priority: { type: "string", description: "Filter by priority. Example: \"high\" (use quoted strings in JSON)", enum: ["low", "medium", "high", "urgent"] },
       assigneeId: { type: "string", description: "Filter by assignee user ID" },
       assigneeName: { type: "string", description: "Filter by assignee name (partial match)" },
       tagId: { type: "string", description: "Filter by tag ID" },
@@ -262,6 +262,8 @@ const searchTools: ToolDefinition[] = [
       assigneeName: { type: "string", description: "Filter by assignee name (partial match)" },
       tagId: { type: "string", description: "Filter by tag ID" },
       tagName: { type: "string", description: "Filter by tag name (partial match)" },
+      status: { type: "string", description: "Filter by status (via entity_properties)", enum: ["todo", "in_progress", "done", "blocked"] },
+      priority: { type: "string", description: "Filter by priority (via entity_properties)", enum: ["low", "medium", "high", "urgent"] },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],
@@ -413,7 +415,7 @@ const taskActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Task title" },
       assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). Do NOT look up IDs. System resolves names automatically.", items: { type: "string" } },
       tags: { type: "array", description: "List of tag names.", items: { type: "string" } },
-      status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "done"] },
+      status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "blocked", "done"] },
       priority: { type: "string", description: "Task priority", enum: ["low", "medium", "high", "urgent"] },
       description: { type: "string", description: "Task description" },
       dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
@@ -433,7 +435,7 @@ const taskActionTools: ToolDefinition[] = [
       taskId: { type: "string", description: "The task ID to update (optional if lookupName provided)" },
       lookupName: { type: "string", description: "Find task by title to update (use this if you don't have the ID yet)" },
       title: { type: "string", description: "New title" },
-      status: { type: "string", description: "New status", enum: ["todo", "in-progress", "done"] },
+      status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
       priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
       description: { type: "string", description: "New description (set to null to clear)" },
       dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
@@ -455,7 +457,7 @@ const taskActionTools: ToolDefinition[] = [
         description: "Updates to apply to all tasks. Same format as updateTaskItem.",
         properties: {
           title: { type: "string", description: "New title" },
-          status: { type: "string", description: "New status", enum: ["todo", "in-progress", "done"] },
+          status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
           priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
           description: { type: "string", description: "New description (set to null to clear)" },
           dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
@@ -832,9 +834,11 @@ const tableActionTools: ToolDefinition[] = [
       "- They use config.levels (priority) or config.options (status) with specific structure\n" +
       "- Select fields don't have the same visual treatment\n" +
       "- Using the wrong type BREAKS the UI\n\n" +
-      "Default values:\n" +
-      "- Priority fields auto-populate with Critical/High/Medium/Low if config not provided\n" +
-      "- Status fields auto-populate with Not Started/In Progress/Complete if config not provided",
+      "Canonical Values (IMPORTANT):\n" +
+      "- Priority fields use: 'low', 'medium', 'high', 'urgent' (workspace-wide standard)\n" +
+      "- Status fields use: 'todo', 'in_progress', 'done', 'blocked' (workspace-wide standard)\n" +
+      "- These canonical values are consistent across ALL tables in the workspace\n" +
+      "- When updating rows, ALWAYS use these exact values (e.g., 'high' not 'High', 'in_progress' not 'In Progress')",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
@@ -947,7 +951,11 @@ const tableActionTools: ToolDefinition[] = [
       "Use for: Populating tables with data (50 states → ONE call, not 50)\n" +
       "Format: [{ data: { 'FieldName': 'value' } }, ...]\n" +
       "⚠️ Use field NAMES (not IDs) - system resolves automatically\n\n" +
-      "Example: [{ data: { 'State': 'Alabama', 'Capital': 'Montgomery' } }, { data: { 'State': 'Alaska', 'Capital': 'Juneau' } }, ...])\n\n" +
+      "⚠️ CANONICAL VALUES for Priority/Status fields:\n" +
+      "- Priority: 'low', 'medium', 'high', 'urgent'\n" +
+      "- Status: 'todo', 'in_progress', 'done', 'blocked'\n" +
+      "- Use these canonical IDs or display labels ('Low', 'Medium', 'High', 'Urgent', etc.)\n\n" +
+      "Example: [{ data: { 'Task': 'Fix bug', 'Priority': 'high', 'Status': 'todo' } }, { data: { 'Task': 'Write docs', 'Priority': 'medium', 'Status': 'in_progress' } }]\n\n" +
       "Returns: Array of created row objects with rowIds.",
     category: "table",
     parameters: {
@@ -983,13 +991,18 @@ const tableActionTools: ToolDefinition[] = [
   {
     name: "updateTableRowsByFieldNames",
     description:
-      "★ PRIMARY TOOL FOR TABLE UPDATES ★ UPDATE rows using field names and labels (NOT IDs).\n\n" +
+      "★ PRIMARY TOOL FOR TABLE UPDATES ★ UPDATE rows using field names and values (NOT IDs).\n\n" +
       "Auto-resolves:\n" +
       "✓ Field names → field IDs\n" +
-      "✓ Option labels ('High', 'Republican') → option IDs\n" +
+      "✓ Option labels/values → canonical option IDs\n" +
       "✓ Filters rows + updates them in ONE call\n\n" +
+      "⚠️ CANONICAL VALUES for Priority/Status:\n" +
+      "- Priority: 'low', 'medium', 'high', 'urgent' (or labels: 'Low', 'Medium', 'High', 'Urgent')\n" +
+      "- Status: 'todo', 'in_progress', 'done', 'blocked' (or labels: 'To Do', 'In Progress', 'Done', 'Blocked')\n" +
+      "- Both canonical IDs and display labels are accepted and automatically resolved\n\n" +
       "Example: Mark all Republican states as High priority:\n" +
-      "{ tableId: 'xxx', filters: { 'Party': 'Republican' }, updates: { 'Priority': 'High' } }\n\n" +
+      "{ tableId: 'xxx', filters: { 'Party': 'Republican' }, updates: { 'Priority': 'high' } }\n" +
+      "{ tableId: 'xxx', filters: { 'Party': 'Republican' }, updates: { 'Priority': 'High' } } // Both work!\n\n" +
       "To update ALL rows, omit filters or pass an empty object: { tableId, updates }.\n\n" +
       "⚠️ USE THIS instead of getTableSchema + bulkUpdateRows.\n" +
       "Returns: Updated row count and IDs.",
