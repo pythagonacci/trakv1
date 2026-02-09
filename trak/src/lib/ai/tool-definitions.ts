@@ -41,7 +41,8 @@ export type ToolCategory =
   | "comment"
   | "client"
   | "workspace"
-  | "payment";
+  | "payment"
+  | "shopify";
 
 // ============================================================================
 // CONTROL TOOLS
@@ -1467,6 +1468,107 @@ const workspaceActionTools: ToolDefinition[] = [
 
 
 // ============================================================================
+// SHOPIFY TOOLS
+// ============================================================================
+
+const shopifyTools: ToolDefinition[] = [
+  {
+    name: "searchShopifyProducts",
+    description:
+      "SEARCH imported Shopify products (read-only). Use to FIND products by title, vendor, type, tags, or variant count.\\n\\n" +
+      "Connection Resolution: Auto-selects the active connection if workspace has only one. If multiple, specify shopName or connectionId.\\n\\n" +
+      "Example queries:\\n" +
+      "- 'What products have 8 SKUs?' → use minVariants: 8, maxVariants: 8\\n" +
+      "- 'Show products from vendor X' → use vendor filter\\n" +
+      "- 'Find hoodies' → use searchText\\n\\n" +
+      "Returns: Array of product objects with title, vendor, type, status, variants count, etc.",
+    category: "shopify",
+    parameters: {
+      connectionId: { type: "string", description: "Optional Shopify connection ID. Auto-resolved if workspace has one active connection." },
+      shopName: { type: "string", description: "Optional shop name to find connection (e.g., 'my-store.myshopify.com')" },
+      searchText: { type: "string", description: "Search by product title (partial match)" },
+      vendor: { type: "string", description: "Filter by vendor name" },
+      productType: { type: "string", description: "Filter by product type" },
+      tag: { type: "string", description: "Filter by tag (exact match)" },
+      status: { type: "string", description: "Filter by product status", enum: ["active", "draft", "archived"] },
+      minVariants: { type: "number", description: "Minimum number of variants/SKUs" },
+      maxVariants: { type: "number", description: "Maximum number of variants/SKUs" },
+      limit: { type: "number", description: "Maximum results (default 50)" },
+      offset: { type: "number", description: "Offset for pagination (default 0)" },
+    },
+    requiredParams: [],
+  },
+  {
+    name: "getShopifyProductDetails",
+    description:
+      "GET full Shopify product details with variants and inventory (read-only).\\n\\n" +
+      "Returns: Complete product object including:\\n" +
+      "- Product info (title, description, vendor, type, tags, status)\\n" +
+      "- All variants (SKU, price, compare price, options, inventory)\\n" +
+      "- Inventory levels by location\\n\\n" +
+      "Use productId from searchShopifyProducts results.",
+    category: "shopify",
+    parameters: {
+      productId: { type: "string", description: "Trak product ID (from searchShopifyProducts)" },
+    },
+    requiredParams: ["productId"],
+  },
+  {
+    name: "getShopifyProductSales",
+    description:
+      "GET units sold for a Shopify product in a date range (read-only).\\n\\n" +
+      "Returns: { unitsSold, computedAt, cached, warning? }\\n\\n" +
+      "Notes:\\n" +
+      "- Uses cache when available (refreshed hourly)\\n" +
+      "- Queries Shopify orders API for fresh data\\n" +
+      "- For ranges >90 days, computation is done in background\\n\\n" +
+      "Example: 'How many units of [product] sold last month?'",
+    category: "shopify",
+    parameters: {
+      productId: { type: "string", description: "Trak product ID (from searchShopifyProducts)" },
+      startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
+      endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
+    },
+    requiredParams: ["productId", "startDate", "endDate"],
+  },
+  {
+    name: "createProductsTable",
+    description:
+      "CREATE a table populated with Shopify product data.\\n\\n" +
+      "Use when user asks to 'create a table with products' or 'show products in a table'.\\n\\n" +
+      "Auto-generates columns: Title, Vendor, Type, Status, Price Range, Total Inventory, Variants Count.\\n" +
+      "Optional: Specify productIds to include specific products, or use filters to auto-select.\\n\\n" +
+      "Connection Resolution: Auto-selects if workspace has one active connection.",
+    category: "shopify",
+    parameters: {
+      tabId: { type: "string", description: "Tab to create the table in. PREFER 'tabName'." },
+      tabName: { type: "string", description: "Target Tab Name. System finds fuzzy match." },
+      title: { type: "string", description: "Table title (default: 'Shopify Products')" },
+      productIds: { type: "array", description: "Specific product IDs to include", items: { type: "string" } },
+      connectionId: { type: "string", description: "Shopify connection ID (auto-resolved if one active)" },
+      searchText: { type: "string", description: "Filter products by title" },
+      vendor: { type: "string", description: "Filter products by vendor" },
+      productType: { type: "string", description: "Filter products by type" },
+      limit: { type: "number", description: "Max products (default 50)" },
+    },
+    requiredParams: [],
+  },
+  {
+    name: "refreshShopifyProduct",
+    description:
+      "REFRESH a product's data from Shopify API.\\n\\n" +
+      "Syncs latest: title, description, vendor, tags, status, variants, pricing, and inventory.\\n" +
+      "Also invalidates sales cache for fresh recalculation.\\n\\n" +
+      "Use when user asks to 'refresh', 'sync', or 'update' product data.",
+    category: "shopify",
+    parameters: {
+      productId: { type: "string", description: "Trak product ID to refresh" },
+    },
+    requiredParams: ["productId"],
+  },
+];
+
+// ============================================================================
 // EXPORT ALL TOOLS
 // ============================================================================
 
@@ -1485,6 +1587,7 @@ export const allTools: ToolDefinition[] = [
   ...docActionTools,
   ...fileActionTools,
   ...commentActionTools,
+  ...shopifyTools,
 ];
 
 
@@ -1504,6 +1607,7 @@ export const toolsByCategory: Record<ToolCategory, ToolDefinition[]> = {
   comment: commentActionTools,
   workspace: workspaceActionTools,
   payment: [],
+  shopify: shopifyTools,
 };
 
 // Group tools by the primary entity they operate on.
@@ -1741,7 +1845,8 @@ export type ToolGroup =
   | "client"
   | "property"
   | "comment"
-  | "workspace";
+  | "workspace"
+  | "shopify";
 
 /**
  * Get tools for specific groups.
@@ -1810,6 +1915,9 @@ function getToolsForGroup(group: ToolGroup): ToolDefinition[] {
     case "workspace":
       return workspaceActionTools;
 
+    case "shopify":
+      return shopifyTools;
+
     default:
       return [];
   }
@@ -1833,6 +1941,7 @@ export function getToolCountsByGroup(): Record<ToolGroup | "total", number> {
     property: propertyActionTools.length,
     comment: commentActionTools.length,
     workspace: workspaceActionTools.length,
+    shopify: shopifyTools.length,
     total: allTools.length,
   };
 }
