@@ -51,10 +51,9 @@ export default async function ProjectPage({
   const tabsResult = await getProjectTabs(projectId);
   const hierarchicalTabs = tabsResult.data || [];
 
-  // 5. If tabs exist, redirect to the first tab
+  // 5. Redirect to project overview by default (or empty state if no tabs)
   if (hierarchicalTabs.length > 0) {
-    const firstTab = hierarchicalTabs[0];
-    redirect(`/dashboard/projects/${projectId}/tabs/${firstTab.id}`);
+    redirect(`/dashboard/projects/${projectId}/overview`);
   }
 
   return (

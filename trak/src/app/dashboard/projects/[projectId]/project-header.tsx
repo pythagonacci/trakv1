@@ -1,7 +1,7 @@
 "use client";
 
-import { ArrowLeft, Edit, Palette } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowLeft, Edit, Palette, LayoutDashboard } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
 import ClientPageToggle from "./client-page-toggle";
@@ -89,15 +89,30 @@ export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
   const hasDueDate = project.due_date_text || project.due_date_date;
   const dueDateText = formatDueDate();
 
+  const pathname = usePathname();
+  const isOverview = pathname?.endsWith("/overview");
+  const projectOverviewPath = `/dashboard/projects/${project.id}/overview`;
+
   return (
     <div className="space-y-3">
-      <button
-        onClick={() => router.push("/dashboard/projects")}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to projects
-      </button>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <button
+          onClick={() => router.push("/dashboard/projects")}
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to projects
+        </button>
+        {!isOverview && (
+          <button
+            onClick={() => router.push(projectOverviewPath)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Overview
+          </button>
+        )}
+      </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="space-y-2">

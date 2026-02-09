@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff } from "lucide-react";
+import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTabDialog from "./create-tab-dialog";
 import DeleteTabDialog from "./delete-tab-dialog";
@@ -56,6 +56,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
 
   const canDeleteTabs = currentWorkspace?.role === "owner" || currentWorkspace?.role === "admin";
   const activeTabId = pathname.split("/tabs/")[1]?.split("/")[0];
+  const isOverview = pathname?.includes(`/projects/${projectId}/overview`);
 
   useEffect(() => {
     if (editingTabId && editInputRef.current) {
@@ -370,6 +371,21 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
         )}
       >
         <div className="flex items-start gap-3 overflow-x-auto flex-1">
+          <button
+            onClick={() => router.push(`/dashboard/projects/${projectId}/overview`)}
+            className={cn(
+              "relative whitespace-nowrap px-3 py-3 text-sm transition-colors flex flex-col items-start gap-0",
+              isOverview
+                ? "text-[var(--foreground)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+              "font-medium"
+            )}
+          >
+            <span className="truncate max-w-xs text-left inline-flex items-center gap-1.5">
+              <LayoutDashboard className="h-3.5 w-3.5 flex-shrink-0" />
+              Overview
+            </span>
+          </button>
           {tabs.map((tab) => renderTab(tab, 0, variant === "inline"))}
           <button
             onClick={handleAddTab}
@@ -389,6 +405,21 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
 
       {mobileMenuOpen && (
         <div className="mt-2 space-y-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-card lg:hidden">
+          <button
+            onClick={() => {
+              router.push(`/dashboard/projects/${projectId}/overview`);
+              setMobileMenuOpen(false);
+            }}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-[6px] px-3 py-2 text-sm",
+              isOverview
+                ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            )}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            Overview
+          </button>
           {tabs.map((tab) => (
             <div key={tab.id}>
               <button
