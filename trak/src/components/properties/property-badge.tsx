@@ -21,7 +21,7 @@ interface PropertyBadgesProps {
   inherited?: boolean;
   className?: string;
   onClick?: () => void;
-  memberName?: string; // For displaying assignee name
+  memberNames?: string[]; // For displaying assignee names (multiple)
 }
 
 /**
@@ -39,7 +39,7 @@ export function PropertyBadges({
   const hasAnyProperty =
     properties.status ||
     properties.priority ||
-    properties.assignee_id ||
+    (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) ||
     properties.due_date ||
     (properties.tags && properties.tags.length > 0);
 
@@ -53,8 +53,8 @@ export function PropertyBadges({
       {properties.priority && (
         <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
       )}
-      {properties.assignee_id && (
-        <AssigneeBadge memberName={memberName} inherited={inherited} onClick={onClick} />
+      {(properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
+        <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
       )}
       {properties.due_date && (
         <DueDateBadge dueDate={properties.due_date} inherited={inherited} onClick={onClick} />
@@ -130,17 +130,19 @@ export function PriorityBadge({
 }
 
 /**
- * Assignee badge
+ * Assignee badge (supports multiple assignees)
  */
 export function AssigneeBadge({
-  memberName,
+  memberNames,
   inherited = false,
   onClick,
 }: {
-  memberName?: string;
+  memberNames?: string[];
   inherited?: boolean;
   onClick?: () => void;
 }) {
+  const labels = memberNames?.length ? memberNames : undefined;
+  const label = labels?.length ? labels.join(", ") : "Assigned";
   return (
     <button
       type="button"
@@ -152,8 +154,8 @@ export function AssigneeBadge({
         onClick && "cursor-pointer hover:bg-[var(--surface-hover)]"
       )}
     >
-      <User className="h-3 w-3" />
-      {memberName || "Assigned"}
+      <User className="h-3 w-3 flex-shrink-0" />
+      <span className="truncate max-w-[140px]">{label}</span>
     </button>
   );
 }

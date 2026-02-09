@@ -204,11 +204,14 @@ function TaskPropertyBadges({
   const direct = propertiesResult?.direct;
   const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
 
-  // Get member name for assignee badge
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
     const member = members.find((m) => m.id === assigneeId || m.user_id === assigneeId);
     return member?.name || member?.email;
+  };
+  const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
+    const ids = props.assignee_ids?.length ? props.assignee_ids : props.assignee_id ? [props.assignee_id] : [];
+    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
   };
 
   return (
@@ -217,7 +220,7 @@ function TaskPropertyBadges({
         <PropertyBadges
           properties={direct}
           onClick={onOpen}
-          memberName={getMemberName(direct.assignee_id)}
+          memberNames={getMemberNames(direct)}
         />
       )}
       {inherited.map((inh) => (
@@ -226,7 +229,7 @@ function TaskPropertyBadges({
           properties={inh.properties}
           inherited
           onClick={onOpen}
-          memberName={getMemberName(inh.properties.assignee_id)}
+          memberNames={getMemberNames(inh.properties)}
         />
       ))}
     </div>
@@ -461,9 +464,16 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     return raw === "none" ? null : raw;
   };
 
-  const getEffectiveAssigneeId = (taskId: string, task: Task) => {
+  const getEffectiveAssigneeIds = (taskId: string, task: Task): string[] => {
     const props = getEffectiveProperties(taskId, task);
-    return props?.assignee_id ?? null;
+    if (props?.assignee_ids?.length) return props.assignee_ids;
+    if (props?.assignee_id) return [props.assignee_id];
+    return [];
+  };
+
+  const getEffectiveAssigneeId = (taskId: string, task: Task) => {
+    const ids = getEffectiveAssigneeIds(taskId, task);
+    return ids[0] ?? null;
   };
 
   const getEffectiveDueDate = (taskId: string, task: Task) => {
@@ -669,7 +679,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
 
       if (column.groupBy === "status" && column.value) updates.status = statusValue;
       if (column.groupBy === "priority") updates.priority = normalizePriority(priorityValue);
-      if (column.groupBy === "assignee") updates.assignee_id = column.assigneeId ?? null;
+      if (column.groupBy === "assignee") updates.assignee_ids = column.assigneeId ? [column.assigneeId] : [];
       if (column.groupBy === "dueDate") updates.due_date = dueDateValue;
       if (column.groupBy === "tags") updates.tags = tagsValue;
 
@@ -942,11 +952,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     });
   };
 
-  const updateTaskAssignee = async (taskId: string, assigneeId: string | null) => {
-    applyPropertyOverride(taskId, { assignee_id: assigneeId });
+  const updateTaskAssignees = async (taskId: string, assigneeIds: string[]) => {
+    applyPropertyOverride(taskId, { assignee_ids: assigneeIds });
     await setTaskProperties.mutateAsync({
       entityId: taskId,
-      updates: { assignee_id: assigneeId },
+      updates: { assignee_ids: assigneeIds },
     });
   };
 
@@ -1007,7 +1017,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       } else if (column.groupBy === "priority") {
         await updateTaskPriority(taskId, column.value);
       } else if (column.groupBy === "assignee") {
-        await updateTaskAssignee(taskId, column.assigneeId ?? null);
+        const currentIds = getEffectiveAssigneeIds(taskId, task);
+        const newId = column.assigneeId ?? null;
+        const nextIds = newId
+          ? (currentIds.includes(newId) ? currentIds : [...currentIds, newId])
+          : [];
+        await updateTaskAssignees(taskId, nextIds);
       } else if (column.groupBy === "dueDate") {
         await updateTaskDueDate(taskId, resolveDueDateFromBucket(column.dueBucket));
       } else if (column.groupBy === "tags") {
@@ -1047,12 +1062,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     if (boardGroupBy === "assignee") {
       orderedTasks.forEach((task) => {
         const taskId = String(task.id);
-        const effectiveAssigneeId = getEffectiveAssigneeId(taskId, task);
-        const normalizedAssigneeId = normalizeAssigneeId(effectiveAssigneeId);
-        if (normalizedAssigneeId) {
-          assigneeIds.add(normalizedAssigneeId);
-        } else if (task.assignees && task.assignees.length > 0) {
-          assigneeNames.add(task.assignees[0]);
+        const effectiveIds = getEffectiveAssigneeIds(taskId, task);
+        effectiveIds.forEach((id) => {
+          const normalized = normalizeAssigneeId(id);
+          if (normalized) assigneeIds.add(normalized);
+        });
+        if (effectiveIds.length === 0 && task.assignees?.length) {
+          task.assignees.forEach((name) => assigneeNames.add(name));
         }
       });
     }
@@ -1502,19 +1518,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           const effectiveStatus = getEffectiveStatus(String(task.id), task);
           const isDone = effectiveStatus === "done";
           const effectivePriority = getEffectivePriority(String(task.id), task);
-          const effectiveAssigneeId = getEffectiveAssigneeId(String(task.id), task);
+          const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
           const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
           const priorityLabel = effectivePriority
             ? PRIORITY_OPTIONS.find((o) => o.value === effectivePriority)?.label ?? effectivePriority
             : null;
-          const assigneeMember = getWorkspaceMember(effectiveAssigneeId);
-          const assigneeName = effectiveAssigneeId
-            ? assigneeMember?.name || assigneeMember?.email || "Assigned"
-            : null;
+          const assigneeNames = effectiveAssigneeIds
+            .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
+            .filter(Boolean) as string[];
+          const assigneeLabel = assigneeNames.length
+            ? assigneeNames.join(", ")
+            : (task.assignees?.length ? task.assignees.join(", ") : null);
           const dueDateLabel = effectiveDueDate || null;
           const showInlineIcons =
             shouldShowIcons(task) ||
-            Boolean(effectivePriority || effectiveAssigneeId || effectiveDueDate);
+            Boolean(effectivePriority || effectiveAssigneeIds.length || effectiveDueDate);
           
           return (
             <div
@@ -1718,7 +1736,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         </DropdownMenuContent>
                       </DropdownMenu>
 
-                      {/* Assignee */}
+                      {/* Assignees (multiple) */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
@@ -1726,16 +1744,14 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             onClick={(e) => e.stopPropagation()}
                             className={cn(
                               "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                              effectiveAssigneeId
+                              effectiveAssigneeIds.length
                                 ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                                 : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                             )}
-                            title={
-                              assigneeName ? `Assignee: ${assigneeName}` : "Assign"
-                            }
+                            title={assigneeLabel ? `Assignees: ${assigneeLabel}` : "Assign"}
                           >
                             <Users className="h-3 w-3" />
-                            {assigneeName && <span className="max-w-[140px] truncate">{assigneeName}</span>}
+                            {assigneeLabel && <span className="max-w-[140px] truncate">{assigneeLabel}</span>}
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
@@ -1743,26 +1759,35 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             onClick={() =>
                               setTaskProperties.mutate({
                                 entityId: taskEntityId,
-                                updates: { assignee_id: null },
+                                updates: { assignee_ids: null },
                               })
                             }
                           >
-                            Unassigned
+                            Unassigned (clear all)
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          {workspaceMembers.map((m) => (
-                            <DropdownMenuItem
-                              key={m.user_id}
-                              onClick={() =>
-                                setTaskProperties.mutate({
-                                  entityId: taskEntityId,
-                                  updates: { assignee_id: m.user_id },
-                                })
-                              }
-                            >
-                              {m.name || m.email}
-                            </DropdownMenuItem>
-                          ))}
+                          {workspaceMembers.map((m) => {
+                            const isAssigned = effectiveAssigneeIds.includes(m.user_id);
+                            return (
+                              <DropdownMenuItem
+                                key={m.user_id}
+                                onClick={() => {
+                                  const next = isAssigned
+                                    ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
+                                    : [...effectiveAssigneeIds, m.user_id];
+                                  setTaskProperties.mutate({
+                                    entityId: taskEntityId,
+                                    updates: { assignee_ids: next.length ? next : null },
+                                  });
+                                }}
+                              >
+                                <span className="flex items-center gap-2">
+                                  {isAssigned ? "✓ " : ""}
+                                  {m.name || m.email}
+                                </span>
+                              </DropdownMenuItem>
+                            );
+                          })}
                         </DropdownMenuContent>
                       </DropdownMenu>
 
@@ -1977,15 +2002,18 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
                         const effectiveStatus = getEffectiveStatus(taskId, task);
                         const effectivePriority = getEffectivePriority(taskId, task);
-                        const effectiveAssigneeId = getEffectiveAssigneeId(taskId, task);
+                        const effectiveAssigneeIds = getEffectiveAssigneeIds(taskId, task);
                         const effectiveDueDate = getEffectiveDueDate(taskId, task);
                         const effectiveTags = getEffectiveTags(taskId, task);
-                        const assigneeMember = getWorkspaceMember(effectiveAssigneeId);
-                        const assigneeName =
-                          (effectiveAssigneeId &&
-                            (assigneeMember?.name || assigneeMember?.email)) ||
-                          task.assignees?.[0];
-                        const assigneeInitial = assigneeName ? assigneeName.trim()[0]?.toUpperCase() : "?";
+                        const assigneeNames = effectiveAssigneeIds
+                          .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
+                          .filter(Boolean) as string[];
+                        const assigneeLabel = assigneeNames.length
+                          ? assigneeNames.join(", ")
+                          : task.assignees?.length
+                            ? task.assignees.join(", ")
+                            : null;
+                        const assigneeInitial = assigneeLabel ? assigneeLabel.trim()[0]?.toUpperCase() : "?";
 
                         const statusIcon =
                           effectiveStatus === "done" ? (
@@ -2000,7 +2028,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
 
                         const showStatusIcon = shouldShowIcons(task) && boardGroupBy !== "status";
                         const showPriority = Boolean(effectivePriority) && boardGroupBy !== "priority";
-                        const showAssignee = Boolean(assigneeName) && boardGroupBy !== "assignee";
+                        const showAssignee = Boolean(assigneeLabel) && boardGroupBy !== "assignee";
                         const showDueDate = Boolean(effectiveDueDate) && boardGroupBy !== "dueDate";
                         const showTags = effectiveTags.length > 0 && boardGroupBy !== "tags";
 
@@ -2051,12 +2079,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           </span>
                         ) : null;
 
-                        const assigneeBadge = assigneeName ? (
-                          <span className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]">
-                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[9px] font-semibold">
+                        const assigneeBadge = assigneeLabel ? (
+                          <span className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)] max-w-full min-w-0">
+                            <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[9px] font-semibold">
                               {assigneeInitial}
                             </span>
-                            {assigneeName}
+                            <span className="truncate">{assigneeLabel}</span>
                           </span>
                         ) : null;
 

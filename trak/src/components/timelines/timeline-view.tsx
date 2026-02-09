@@ -2410,6 +2410,10 @@ function EditEventDialog({
     const member = findWorkspaceMember(workspaceMembers, assigneeId);
     return member?.name ?? member?.email ?? undefined;
   };
+  const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
+    const ids = (props as any).assignee_ids?.length ? (props as any).assignee_ids : props.assignee_id ? [props.assignee_id] : [];
+    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
+  };
 
   React.useEffect(() => {
     if (isOpen) setLocal(getInitialState());
@@ -2681,7 +2685,7 @@ function EditEventDialog({
                         <PropertyBadges
                           properties={direct}
                           onClick={() => setPropertiesOpen(true)}
-                          memberName={getMemberName(direct.assignee_id)}
+                          memberNames={getMemberNames(direct)}
                         />
                       )}
                       {inherited.map((inh) => (
@@ -2690,7 +2694,7 @@ function EditEventDialog({
                           properties={inh.properties}
                           inherited
                           onClick={() => setPropertiesOpen(true)}
-                          memberName={getMemberName(inh.properties.assignee_id)}
+                          memberNames={getMemberNames(inh.properties)}
                         />
                       ))}
                     </div>

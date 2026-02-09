@@ -83,9 +83,11 @@ export function PropertyMenu({
     });
     return map;
   }, [members]);
-  const selectedAssigneeId = direct?.assignee_id
-    ? memberLookup.get(direct.assignee_id)?.user_id ?? "none"
-    : "none";
+  const selectedAssigneeIds: string[] = direct?.assignee_ids?.length
+    ? direct.assignee_ids
+    : direct?.assignee_id
+      ? [direct.assignee_id]
+      : [];
 
   const handleAddTag = () => {
     if (!newTagInput.trim()) return;
@@ -190,37 +192,74 @@ export function PropertyMenu({
               </Select>
             </div>
 
-            {/* Assignee */}
+            {/* Assignees (multiple) */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Assignee</Label>
-              <Select
-                value={selectedAssigneeId}
-                onValueChange={(value) =>
-                  setProperties.mutate({
-                    assignee_id: value === "none" ? null : value,
-                  })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select assignee..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                      <User className="h-4 w-4" />
-                      Unassigned
+              <Label className="text-sm font-medium">Assignees</Label>
+              <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 rounded-md border border-[var(--border)] bg-[var(--background)]">
+                {selectedAssigneeIds.map((uid) => {
+                  const member = memberLookup.get(uid);
+                  const label = member?.name || member?.email || "Unknown";
+                  return (
+                    <span
+                      key={uid}
+                      className="inline-flex items-center gap-1 rounded bg-[var(--surface)] border border-[var(--border)] px-2 py-1 text-xs"
+                    >
+                      <User className="h-3 w-3" />
+                      {label}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = selectedAssigneeIds.filter((id) => id !== uid);
+                          setProperties.mutate({ assignee_ids: next.length ? next : null });
+                        }}
+                        className="ml-1 hover:text-[var(--error)] transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </span>
-                  </SelectItem>
-                  {members.map((member) => (
-                    <SelectItem key={member.user_id} value={member.user_id}>
-                      <span className="flex items-center gap-2">
+                  );
+                })}
+                <Select
+                  value="_add"
+                  onValueChange={(value) => {
+                    if (value === "_add" || !value) return;
+                    if (value === "none") {
+                      setProperties.mutate({ assignee_ids: null });
+                      return;
+                    }
+                    if (!selectedAssigneeIds.includes(value)) {
+                      setProperties.mutate({ assignee_ids: [...selectedAssigneeIds, value] });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-auto min-w-[120px] border-0 bg-transparent shadow-none focus:ring-0 text-[var(--muted-foreground)]">
+                    <SelectValue placeholder="Add assignee..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
                         <User className="h-4 w-4" />
-                        {member.name || member.email}
+                        Unassigned (clear all)
                       </span>
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {members
+                      .filter((m) => !selectedAssigneeIds.includes(m.user_id))
+                      .map((member) => (
+                        <SelectItem key={member.user_id} value={member.user_id}>
+                          <span className="flex items-center gap-2">
+                            <User className="h-4 w-4" />
+                            {member.name || member.email}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    {members.filter((m) => !selectedAssigneeIds.includes(m.user_id)).length === 0 && (
+                      <SelectItem value="_none" disabled>
+                        All members assigned
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Due Date */}

@@ -92,6 +92,10 @@ export default function BlockWrapper({
     const member = workspaceMembers.find((m) => m.id === assigneeId || m.user_id === assigneeId);
     return member?.name || member?.email;
   };
+  const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
+    const ids = (props as any).assignee_ids?.length ? (props as any).assignee_ids : props.assignee_id ? [props.assignee_id] : [];
+    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
+  };
 
   const directCount = countEntityProperties(direct);
   const inheritedCount = inherited.reduce(
@@ -736,7 +740,7 @@ export default function BlockWrapper({
                   <PropertyBadges
                     properties={direct}
                     onClick={() => setPropertiesOpen(true)}
-                    memberName={getMemberName(direct.assignee_id)}
+                    memberNames={getMemberNames(direct)}
                   />
                 )}
                 {inherited.map((inh) => (
@@ -745,7 +749,7 @@ export default function BlockWrapper({
                     properties={inh.properties}
                     inherited
                     onClick={() => setPropertiesOpen(true)}
-                    memberName={getMemberName(inh.properties.assignee_id)}
+                    memberNames={getMemberNames(inh.properties)}
                   />
                 ))}
               </div>
@@ -790,14 +794,17 @@ export default function BlockWrapper({
 }
 
 function countEntityProperties(
-  props: { status?: unknown; priority?: unknown; assignee_id?: unknown; due_date?: unknown; tags?: unknown } | null | undefined
+  props: { status?: unknown; priority?: unknown; assignee_id?: unknown; assignee_ids?: unknown[]; due_date?: unknown; tags?: unknown } | null | undefined
 ): number {
   if (!props) return 0;
   const tags = Array.isArray(props.tags) ? props.tags : [];
+  const assigneeCount = Array.isArray((props as any).assignee_ids)
+    ? (props as any).assignee_ids.length
+    : (props.assignee_id ? 1 : 0);
   return (
     (props.status ? 1 : 0) +
     (props.priority ? 1 : 0) +
-    (props.assignee_id ? 1 : 0) +
+    assigneeCount +
     (props.due_date ? 1 : 0) +
     tags.length
   );

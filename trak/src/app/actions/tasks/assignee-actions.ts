@@ -115,12 +115,11 @@ export async function setTaskAssignees(
 
   if (assigneePropertyDef) {
     if (normalized.length > 0) {
-      // Upsert: one round-trip instead of delete + insert (unique on entity_type, entity_id, property_definition_id)
-      const primaryAssignee = normalized[0];
-      const assigneeValue = {
-        id: primaryAssignee.id,
-        name: primaryAssignee.name || primaryAssignee.id || "Unknown",
-      };
+      // Store full assignees array in entity_properties for universal properties / multi-assignee
+      const assigneeValue = normalized.map((a) => ({
+        id: a.id,
+        name: a.name || a.id || "Unknown",
+      }));
       const tEp0 = performance.now();
       const { error: epError } = await supabase
         .from("entity_properties")

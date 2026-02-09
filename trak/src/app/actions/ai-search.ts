@@ -21,6 +21,19 @@ interface DateFilter {
   isNull?: boolean;
 }
 
+// Parse Assignee property value: supports single { id, name } or array of { id, name }
+function parseAssigneeValue(
+  value: { id?: string; name?: string } | Array<{ id?: string; name?: string }> | null
+): Array<{ id: string; name: string }> {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .filter((a) => a && (a.id ?? a.name))
+      .map((a) => ({ id: a.id ?? "", name: a.name ?? a.id ?? "" }));
+  }
+  return value.id ? [{ id: value.id, name: value.name ?? "" }] : [];
+}
+
 // ============================================================================
 // RESULT TYPES
 // ============================================================================
@@ -538,9 +551,27 @@ async function getEntitiesWithPropertyFilter(
   const matchingIds: string[] = [];
   const filterValues = Array.isArray(filterValue) ? filterValue : [filterValue];
 
+  console.log(`[getEntitiesWithPropertyFilter] Filtering ${entityType}, filterType: ${filterType}, filterValues:`, filterValues, `total rows: ${data.length}`);
+
+  // Log all the actual values in the database for debugging
+  if (entityType === "task" && filterType === "name" && data.length > 0) {
+    console.log("[getEntitiesWithPropertyFilter] All database status values:", data.map(r => {
+      const v = r.value;
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        return (v as Record<string, unknown>).name;
+      }
+      return v;
+    }));
+  }
+
   for (const row of data) {
     const value = row.value;
     let matches = false;
+
+    // Debug: log value structure for task status filtering
+    if (entityType === "task" && filterType === "name") {
+      console.log(`[getEntitiesWithPropertyFilter] Row value:`, JSON.stringify(value), `type:`, typeof value, `isArray:`, Array.isArray(value));
+    }
 
     if (filterType === "id") {
       // For person property: value is { id, name }
@@ -559,27 +590,50 @@ async function getEntitiesWithPropertyFilter(
       }
     } else {
       // Name-based fuzzy matching - support array of names (match any)
-      const searchNames = filterValues.map(v => v.toLowerCase());
-      if (value && typeof value === "object") {
+      // Normalize search strings: replace underscores/hyphens with spaces for flexible matching
+      const normalizeForMatching = (str: string) => str.toLowerCase().replace(/[_-]/g, " ");
+      const searchNames = filterValues.map(v => normalizeForMatching(v));
+
+      if (typeof value === "string") {
+        // Handle plain string values (e.g., status stored as "todo" instead of {name: "todo"})
+        const valueNormalized = normalizeForMatching(value);
+        matches = searchNames.some(searchName => valueNormalized.includes(searchName));
+
+        if (entityType === "task" && filterType === "name") {
+          console.log(`[getEntitiesWithPropertyFilter] String comparison - DB: "${value}", normalized: "${valueNormalized}", search:`, searchNames, `matches:`, matches);
+        }
+      } else if (value && typeof value === "object") {
         if (Array.isArray(value)) {
           // Multi-select: check if any item.name matches any search name
           matches = value.some((item: any) =>
-            searchNames.some(searchName =>
-              item?.name?.toLowerCase?.()?.includes?.(searchName)
-            )
+            searchNames.some(searchName => {
+              const itemNameNormalized = normalizeForMatching(item?.name || "");
+              return itemNameNormalized.includes(searchName);
+            })
           );
         } else {
           // Single object: check if value.name matches any search name
           const valueObj = value as Record<string, unknown>;
           const name = valueObj.name as string | undefined;
-          const nameLower = name?.toLowerCase?.();
-          matches = nameLower ? searchNames.some(searchName => nameLower.includes(searchName)) : false;
+          const nameNormalized = name ? normalizeForMatching(name) : "";
+
+          // Debug logging for status filtering
+          if (entityType === "task" && filterType === "name") {
+            console.log(`[getEntitiesWithPropertyFilter] Object comparison - DB value: "${name}", normalized: "${nameNormalized}", searchNames:`, searchNames, `matches:`, searchNames.some(searchName => nameNormalized.includes(searchName)));
+          }
+
+          matches = nameNormalized ? searchNames.some(searchName => nameNormalized.includes(searchName)) : false;
         }
       }
     }
 
     if (matches) {
       matchingIds.push(row.entity_id);
+    }
+
+    // Debug: log match result
+    if (entityType === "task" && filterType === "name") {
+      console.log(`[getEntitiesWithPropertyFilter] Final matches result:`, matches);
     }
   }
 
@@ -871,8 +925,10 @@ export async function searchTasks(params: {
       // Filter by status (via entity_properties)
       if (params.status) {
         const statusPropDef = findPropDef("Status");
+        console.log("[searchTasks] Status filter - property def found:", !!statusPropDef);
         if (statusPropDef) {
           const statusFilter = normalizeArrayFilter(params.status);
+          console.log("[searchTasks] Status filter values:", statusFilter);
           if (statusFilter) {
             // For status, we match by name (e.g., "todo", "in_progress", "done")
             // Pass all status values - matches any of them
@@ -884,6 +940,7 @@ export async function searchTasks(params: {
               "name",
               statusFilter
             );
+            console.log("[searchTasks] Status filter - matching task IDs count:", taskIds.length);
             matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
           }
         }
@@ -1063,11 +1120,10 @@ export async function searchTasks(params: {
       const priorityProp = props.find((p) => p.name === "Priority");
       const dueDateProp = props.find((p) => p.name === "Due Date");
 
-      // Parse assignee (person type: { id, name })
-      const assigneeValue = assigneeProp?.value as { id?: string; name?: string } | null;
-      const assignees: Array<{ id: string; name: string }> = assigneeValue?.id
-        ? [{ id: assigneeValue.id, name: assigneeValue.name ?? "" }]
-        : [];
+      // Parse assignee (person type: single { id, name } or array for multiple)
+      const assignees = parseAssigneeValue(
+        assigneeProp?.value as { id?: string; name?: string } | Array<{ id?: string; name?: string }> | null
+      );
 
       // Parse tags (multi_select type: [{ id, name }, ...])
       const tagsValue = tagsProp?.value as Array<{ id: string; name: string; color?: string }> | null;
@@ -1459,6 +1515,8 @@ export async function searchBlocks(
     assigneeName?: string;
     tagId?: string | string[];
     tagName?: string;
+    status?: string | string[];
+    priority?: string | string[];
     limit?: number;
   },
   opts?: { ctx?: SearchContextSuccess }
@@ -1477,7 +1535,9 @@ export async function searchBlocks(
       params.assigneeId ||
       params.assigneeName ||
       params.tagId ||
-      params.tagName
+      params.tagName ||
+      params.status ||
+      params.priority
     );
 
     let matchingBlockIds: string[] | null = null;
@@ -1544,6 +1604,47 @@ export async function searchBlocks(
               tagsPropDef.id,
               "name",
               params.tagName
+            );
+            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
+          }
+        }
+      }
+
+      // Filter by status (via entity_properties)
+      if (params.status) {
+        const statusPropDef = findPropDef("Status");
+        if (statusPropDef) {
+          const statusFilter = normalizeArrayFilter(params.status);
+          if (statusFilter) {
+            // For status, we match by name (e.g., "todo", "in_progress", "done")
+            // Pass all status values - matches any of them
+            const blockIds = await getEntitiesWithPropertyFilter(
+              supabase,
+              workspaceId,
+              "block",
+              statusPropDef.id,
+              "name",
+              statusFilter
+            );
+            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
+          }
+        }
+      }
+
+      // Filter by priority (via entity_properties)
+      if (params.priority) {
+        const priorityPropDef = findPropDef("Priority");
+        if (priorityPropDef) {
+          const priorityFilter = normalizeArrayFilter(params.priority);
+          if (priorityFilter) {
+            // Pass all priority values - matches any of them
+            const blockIds = await getEntitiesWithPropertyFilter(
+              supabase,
+              workspaceId,
+              "block",
+              priorityPropDef.id,
+              "name",
+              priorityFilter
             );
             matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
           }
@@ -1640,11 +1741,10 @@ export async function searchBlocks(
       const statusProp = props.find((p) => p.name === "Status");
       const priorityProp = props.find((p) => p.name === "Priority");
 
-      // Parse assignee (person type: { id, name })
-      const assigneeValue = assigneeProp?.value as { id?: string; name?: string } | null;
-      const assignees: Array<{ id: string; name: string }> = assigneeValue?.id
-        ? [{ id: assigneeValue.id, name: assigneeValue.name ?? "" }]
-        : [];
+      // Parse assignee (person type: single or array)
+      const assignees = parseAssigneeValue(
+        assigneeProp?.value as { id?: string; name?: string } | Array<{ id?: string; name?: string }> | null
+      );
 
       // Parse tags (multi_select type: [{ id, name }, ...])
       const tagsValue = tagsProp?.value as Array<{ id: string; name: string; color?: string }> | null;
@@ -3632,6 +3732,7 @@ interface TableSchemaResult {
 export async function getEntityById(params: {
   entityType: EntityType;
   id: string;
+  authContext?: AuthContext;
 }): Promise<{ data: EntityResult | null; error: string | null }> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -3663,11 +3764,14 @@ export async function getEntityById(params: {
         const statusProp = props.find((p) => p.name === "Status");
         const priorityProp = props.find((p) => p.name === "Priority");
 
-        // Parse assignee (person type: { id, name })
-        const assigneeValue = assigneeProp?.value as { id?: string; name?: string } | null;
-        const assignees = assigneeValue?.id
-          ? [{ assignee_id: assigneeValue.id, assignee_name: assigneeValue.name ?? "" }]
-          : [];
+        // Parse assignee (person type: single or array)
+        const assigneesList = parseAssigneeValue(
+          assigneeProp?.value as { id?: string; name?: string } | Array<{ id?: string; name?: string }> | null
+        );
+        const assignees = assigneesList.map((a) => ({
+          assignee_id: a.id,
+          assignee_name: a.name,
+        }));
 
         // Parse tags (multi_select type: [{ id, name }, ...])
         const tagsValue = tagsProp?.value as Array<{ id: string; name: string; color?: string }> | null;
@@ -4085,6 +4189,7 @@ export async function getEntityContext(params: {
   id: string;
   includeProperties?: boolean;
   includeLinks?: boolean;
+  authContext?: AuthContext;
 }): Promise<{ data: EntityContextResult | null; error: string | null }> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -4187,6 +4292,7 @@ export async function getEntityContextById(params: {
   includeProperties?: boolean;
   includeLinks?: boolean;
   includeRelationships?: boolean;
+  authContext?: AuthContext;
 }): Promise<{ data: EntityContextResult | null; error: string | null }> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -4466,6 +4572,7 @@ export async function getEntityContextById(params: {
  */
 export async function getTableSchema(params: {
   tableId: string;
+  authContext?: AuthContext;
 }): Promise<{ data: TableSchemaResult | null; error: string | null }> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -4550,6 +4657,7 @@ export async function listEntityLinks(params: {
   entityId: string;
   direction?: "outgoing" | "incoming" | "both";
   linkedEntityType?: string;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<{
   id: string;
   direction: "outgoing" | "incoming";
@@ -4654,6 +4762,7 @@ export async function resolveEntityByName(params: {
   name: string;
   projectId?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<ResolvedEntity>> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -5066,6 +5175,7 @@ export async function resolveTableFieldByName(params: {
   tableId: string;
   fieldName: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<ResolvedTableField>> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -5153,6 +5263,7 @@ export async function queryTableRowsByFieldNames(params: {
   filters?: Record<string, unknown>;
   searchText?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TableRowWithFieldNames>> {
   const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
@@ -5279,6 +5390,7 @@ export async function queryTableRowsByFieldNames(params: {
 export async function resolveTableFieldsByNames(params: {
   tableId: string;
   fieldNames: string[];
+  authContext?: AuthContext;
 }): Promise<{
   data: Record<string, { id: string; type: string; confidence: "exact" | "high" | "partial" } | null> | null;
   error: string | null;

@@ -53,7 +53,10 @@ export interface EntityProperties {
   workspace_id: string;
   status: Status | null;
   priority: Priority | null;
+  /** First assignee (for backward compat). Use assignee_ids for full list. */
   assignee_id: string | null;
+  /** All assignee user IDs. Source of truth for multiple assignees. */
+  assignee_ids: string[];
   due_date: string | null; // ISO date string (YYYY-MM-DD)
   tags: string[];
   created_at: string;
@@ -119,7 +122,10 @@ export interface SetEntityPropertiesInput {
   updates: {
     status?: Status | null;
     priority?: Priority | null;
+    /** Single assignee (legacy). Prefer assignee_ids for multiple. */
     assignee_id?: string | null;
+    /** Set/replace all assignees. Replaces assignee_id. */
+    assignee_ids?: string[] | null;
     due_date?: string | null;
     tags?: string[];
   };

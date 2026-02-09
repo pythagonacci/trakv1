@@ -144,6 +144,7 @@ function buildEntityPropertiesFromRows(
     status: null,
     priority: null,
     assignee_id: null,
+    assignee_ids: [],
     due_date: null,
     tags: [],
     created_at: createdAt,
@@ -164,13 +165,23 @@ function buildEntityPropertiesFromRows(
         props.priority = typeof row.value === "string" ? (row.value as any) : null;
         break;
       case "assignee_id":
-        // Handle both old format (string ID) and new format ({id, name})
-        if (typeof row.value === "string") {
+        // Handle array of {id, name}, single {id, name}, or legacy string ID
+        if (Array.isArray(row.value) && row.value.length > 0) {
+          const ids = (row.value as Array<{ id?: string }>)
+            .map((a) => (a && typeof a === "object" && a.id) || null)
+            .filter((id): id is string => Boolean(id));
+          props.assignee_ids = ids;
+          props.assignee_id = ids[0] ?? null;
+        } else if (row.value && typeof row.value === "object" && !Array.isArray(row.value)) {
+          const single = row.value as { id?: string };
+          props.assignee_id = single.id ?? null;
+          props.assignee_ids = props.assignee_id ? [props.assignee_id] : [];
+        } else if (typeof row.value === "string") {
           props.assignee_id = row.value;
-        } else if (row.value && typeof row.value === "object") {
-          props.assignee_id = (row.value as { id: string }).id ?? null;
+          props.assignee_ids = row.value ? [row.value] : [];
         } else {
           props.assignee_id = null;
+          props.assignee_ids = [];
         }
         break;
       case "due_date":
@@ -590,23 +601,33 @@ export async function setEntityProperties(
       )
     );
   }
-  if (updates.assignee_id !== undefined) {
-    // For person properties, store {id, name} instead of just the ID
-    let assigneeValue: { id: string; name: string } | null = null;
-    if (updates.assignee_id) {
-      // Look up the user's name from profiles
-      const { data: profile } = await supabase
+  // Assignees: support assignee_ids (array) or legacy assignee_id (single)
+  const assigneeIdsToSet =
+    updates.assignee_ids !== undefined
+      ? (updates.assignee_ids ?? [])
+      : updates.assignee_id !== undefined
+        ? (updates.assignee_id ? [updates.assignee_id] : [])
+        : null;
+
+  let assigneePayloadForTask: Array<{ id: string; name: string }> | null = null;
+  if (assigneeIdsToSet !== null) {
+    const assigneePayload: Array<{ id: string; name: string }> = [];
+    if (assigneeIdsToSet.length > 0) {
+      const { data: profiles } = await supabase
         .from("profiles")
         .select("id, name, email")
-        .eq("id", updates.assignee_id)
-        .maybeSingle();
-
-      assigneeValue = {
-        id: updates.assignee_id,
-        name: profile?.name || profile?.email || "Unknown",
-      };
+        .in("id", assigneeIdsToSet);
+      const profileMap = new Map(
+        (profiles ?? []).map((p: any) => [p.id, { id: p.id, name: p.name || p.email || "Unknown" }])
+      );
+      for (const id of assigneeIdsToSet) {
+        const p = profileMap.get(id);
+        assigneePayload.push(p ?? { id, name: "Unknown" });
+      }
     }
-
+    assigneePayloadForTask = assigneePayload;
+    const assigneeValue =
+      assigneePayload.length > 0 ? assigneePayload : null;
     upsertPromises.push(
       upsertEntityPropertyValue(
         supabase,
@@ -658,12 +679,12 @@ export async function setEntityProperties(
   if (!refreshed.data) return { error: "Failed to set entity properties" };
   const data = refreshed.data;
 
-  // Keep legacy task fields loosely in sync (so existing task UI/queries don't drift).
-  // Universal properties are the source of truth.
+  // Keep legacy task fields and task_assignees in sync. Universal properties are source of truth.
   if (input.entity_type === "task") {
     const status = (data as any).status as string | null;
     const priority = (data as any).priority as string | null;
     const dueDate = (data as any).due_date as string | null;
+    const assigneeIds = (data as any).assignee_ids as string[] | undefined;
     const assigneeId = (data as any).assignee_id as string | null;
 
     const legacyStatus =
@@ -684,16 +705,19 @@ export async function setEntityProperties(
       status: legacyStatus,
       priority: legacyPriority,
       due_date: dueDate ?? null,
+      assignee_id: assigneeId ?? null,
     };
-
-    if (updates.assignee_id !== undefined) {
-      taskItemUpdates.assignee_id = assigneeId ?? null;
-    }
 
     await supabase
       .from("task_items")
       .update(taskItemUpdates)
       .eq("id", input.entity_id);
+
+    // Sync task_assignees when assignees were updated (so task list and AI use same data)
+    if (assigneePayloadForTask !== null) {
+      const { setTaskAssignees } = await import("@/app/actions/tasks/assignee-actions");
+      await setTaskAssignees(input.entity_id, assigneePayloadForTask, { replaceExisting: true });
+    }
   }
 
   return { data };
