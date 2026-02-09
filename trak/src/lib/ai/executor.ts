@@ -59,6 +59,7 @@ export interface ExecutionContext {
   currentTabId?: string;
   contextTableId?: string;
   contextBlockId?: string;
+  authContext?: import("@/lib/auth-context").AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
 }
 
 export interface ExecuteAICommandOptions {
@@ -999,6 +1000,7 @@ export async function executeAICommand(
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
             undoTracker,
+            authContext: context.authContext,
           });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
 
@@ -1235,6 +1237,7 @@ export async function executeAICommand(
               currentTabId: context.currentTabId,
               currentProjectId: context.currentProjectId,
               undoTracker,
+              authContext: context.authContext,
             }
           );
 
@@ -1382,6 +1385,7 @@ export async function executeAICommand(
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
             undoTracker,
+            authContext: context.authContext,
           }
         );
 
@@ -1924,6 +1928,7 @@ export async function* executeAICommandStream(
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
             undoTracker,
+            authContext: context.authContext,
           });
 
           toolCallsThisRound.push({ tool: toolName, result });
@@ -2112,6 +2117,7 @@ export async function* executeAICommandStream(
               currentTabId: context.currentTabId,
               currentProjectId: context.currentProjectId,
               undoTracker,
+              authContext: context.authContext,
             }
           );
 
@@ -2200,6 +2206,7 @@ export async function* executeAICommandStream(
             currentTabId: context.currentTabId,
             currentProjectId: context.currentProjectId,
             undoTracker,
+            authContext: context.authContext,
           }
         );
 

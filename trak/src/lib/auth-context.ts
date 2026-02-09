@@ -6,6 +6,7 @@ import { getAuthenticatedUser } from "@/lib/auth-utils";
 export type AuthContext = {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
+  workspaceId?: string; // Optional for Slack/API contexts
 };
 
 /**

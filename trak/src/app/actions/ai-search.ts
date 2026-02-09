@@ -348,17 +348,25 @@ export async function getSearchContext(opts?: { authContext?: AuthContext }): Pr
 > {
   let supabase: Awaited<ReturnType<typeof createClient>>;
   let userId: string;
+  let workspaceId: string | null;
+
   if (opts?.authContext) {
     supabase = opts.authContext.supabase;
     userId = opts.authContext.userId;
+    workspaceId = opts.authContext.workspaceId || null;
   } else {
     const user = await getAuthenticatedUser();
     if (!user) return { error: "Unauthorized" };
     supabase = await createClient();
     userId = user.id;
+    workspaceId = null;
   }
 
-  const workspaceId = await getCurrentWorkspaceId();
+  // Get workspace ID from authContext or from cookies
+  if (!workspaceId) {
+    workspaceId = await getCurrentWorkspaceId();
+  }
+
   if (!workspaceId) return { error: "No workspace selected" };
 
   return { error: null, workspaceId, supabase, userId };
@@ -768,8 +776,9 @@ export async function searchTasks(params: {
   createdAt?: DateFilter;
   updatedAt?: DateFilter;
   limit?: number;
+  authContext?: AuthContext; // For Slack and API calls without cookies
 }): Promise<SearchResponse<TaskResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
@@ -1125,8 +1134,9 @@ export async function searchProjects(params: {
   clientId?: string | string[];
   dueDate?: DateFilter;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<ProjectResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -1203,8 +1213,9 @@ export async function searchProjects(params: {
 export async function searchClients(params: {
   searchText?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<ClientResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -1365,8 +1376,9 @@ export async function searchTabs(params: {
   projectId?: string | string[];
   isClientVisible?: boolean;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TabResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -1693,8 +1705,9 @@ export async function searchDocs(params: {
   isArchived?: boolean;
   createdBy?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<DocResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -1783,8 +1796,9 @@ export async function searchDocContent(params: {
   docId: string;
   searchText: string;
   snippetLength?: number;
+  authContext?: AuthContext;
 }): Promise<{ data: { found: boolean; snippets: string[]; matchCount: number } | null; error: string | null }> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -1891,8 +1905,9 @@ export async function searchDocsContentAll(params: {
   snippetLength?: number;
   maxSnippetsPerDoc?: number;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<DocContentSearchResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -1989,8 +2004,9 @@ export async function searchTables(params: {
   searchText?: string;
   projectId?: string | string[];
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TableResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -2057,8 +2073,9 @@ export async function searchTableFields(params: {
   tableId?: string | string[];
   type?: string | string[];
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TableFieldResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -2130,8 +2147,9 @@ export async function searchTableViews(params: {
   tableId?: string | string[];
   type?: string | string[];
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TableViewResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -2213,8 +2231,9 @@ export async function searchTableRows(params: {
   projectId?: string | string[];
   fieldFilters?: Record<string, FieldFilter | string>; // Filter by field ID -> { op, value } or simple string (legacy)
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TableRowResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -2436,8 +2455,9 @@ export async function searchTimelineEvents(params: {
   endDate?: DateFilter;
   isMilestone?: boolean;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TimelineEventResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
@@ -2650,8 +2670,9 @@ export async function searchFiles(params: {
   storagePath?: string;
   createdAt?: DateFilter;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<FileResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -2774,8 +2795,9 @@ export async function searchComments(params: {
   targetId?: string;
   userId?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<CommentResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -2910,8 +2932,9 @@ export async function searchTaskComments(params: {
   taskId?: string | string[];
   authorId?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TaskCommentResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -3000,8 +3023,9 @@ export async function searchPayments(params: {
   minAmount?: number;
   maxAmount?: number;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<PaymentResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -3095,8 +3119,9 @@ export async function searchPayments(params: {
 export async function searchTags(params: {
   searchText?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<TagResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -3255,8 +3280,9 @@ export async function searchPropertyDefinitions(params: {
   searchText?: string;
   type?: string | string[];
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<PropertyDefinitionResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -3314,8 +3340,9 @@ export async function searchEntityProperties(params: {
     value: string | number;
   };
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<EntityPropertyResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -3447,7 +3474,7 @@ export async function searchEntityProperties(params: {
 
     // Map to result format
     const mapped: EntityPropertyResult[] = results.slice(0, limit).map((row) => {
-    const def = coerceRelation<{ name: string; type: string }>(row.property_definitions);
+      const def = coerceRelation<{ name: string; type: string }>(row.property_definitions);
       return {
         id: row.id,
         entity_type: row.entity_type,
@@ -3483,8 +3510,9 @@ export async function searchEntityLinks(params: {
   targetEntityType?: string;
   targetEntityId?: string;
   limit?: number;
+  authContext?: AuthContext;
 }): Promise<SearchResponse<EntityLinkResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -3605,7 +3633,7 @@ export async function getEntityById(params: {
   entityType: EntityType;
   id: string;
 }): Promise<{ data: EntityResult | null; error: string | null }> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   // After error check, supabase and workspaceId are guaranteed to be defined
@@ -4058,7 +4086,7 @@ export async function getEntityContext(params: {
   includeProperties?: boolean;
   includeLinks?: boolean;
 }): Promise<{ data: EntityContextResult | null; error: string | null }> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -4160,7 +4188,7 @@ export async function getEntityContextById(params: {
   includeLinks?: boolean;
   includeRelationships?: boolean;
 }): Promise<{ data: EntityContextResult | null; error: string | null }> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -4439,7 +4467,7 @@ export async function getEntityContextById(params: {
 export async function getTableSchema(params: {
   tableId: string;
 }): Promise<{ data: TableSchemaResult | null; error: string | null }> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -4530,7 +4558,7 @@ export async function listEntityLinks(params: {
   target_entity_type: string;
   target_entity_id: string;
 }>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -4627,7 +4655,7 @@ export async function resolveEntityByName(params: {
   projectId?: string;
   limit?: number;
 }): Promise<SearchResponse<ResolvedEntity>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -5039,7 +5067,7 @@ export async function resolveTableFieldByName(params: {
   fieldName: string;
   limit?: number;
 }): Promise<SearchResponse<ResolvedTableField>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -5126,7 +5154,7 @@ export async function queryTableRowsByFieldNames(params: {
   searchText?: string;
   limit?: number;
 }): Promise<SearchResponse<TableRowWithFieldNames>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -5255,7 +5283,7 @@ export async function resolveTableFieldsByNames(params: {
   data: Record<string, { id: string; type: string; confidence: "exact" | "high" | "partial" } | null> | null;
   error: string | null;
 }> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error };
 
   const { supabase, workspaceId } = ctx;
@@ -5363,8 +5391,9 @@ export async function searchAll(params: {
   includeContent?: boolean;
   limit?: number;
   offset?: number;
+  authContext?: AuthContext;
 }): Promise<PaginatedSearchResponse<SearchAllResult>> {
-  const ctx = await getSearchContext();
+  const ctx = await getSearchContext({ authContext: params.authContext });
   if (ctx.error !== null) return { data: null, error: ctx.error, hasMore: false };
 
   const limitPerType = params.limit ?? 5;

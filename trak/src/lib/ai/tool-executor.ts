@@ -193,6 +193,18 @@ import type { UndoStep, UndoTracker } from "@/lib/ai/undo";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ============================================================================
+// IMPORTS - Shopify Actions
+// ============================================================================
+import {
+  getTrakProducts,
+  getProductDetails,
+  refreshProduct,
+  type ShopifyProduct,
+} from "@/app/actions/shopify-products";
+import { getProductUnitsSold } from "@/app/actions/shopify-sales";
+import { listShopifyConnections } from "@/app/actions/shopify-connection";
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -217,6 +229,7 @@ export interface ToolExecutionContext {
   currentTabId?: string;
   currentProjectId?: string;
   undoTracker?: UndoTracker;
+  authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
 }
 
 const shouldUseTestContext =
@@ -744,9 +757,14 @@ export async function executeTool(
     const workspaceId = context?.workspaceId || await getCurrentWorkspaceId();
 
     // Single shared auth per tool run — pass to all actions that accept authContext to avoid duplicate auth
-    const authResult = await getAuthContext();
-    const authContext: AuthContext | null =
-      authResult && !("error" in authResult) ? authResult : null;
+    // Use provided authContext (e.g., from Slack with service client) or get from cookies
+    let authContext: AuthContext | null = null;
+    if (context?.authContext) {
+      authContext = context.authContext;
+    } else {
+      const authResult = await getAuthContext();
+      authContext = authResult && !("error" in authResult) ? authResult : null;
+    }
 
     const undoTracker = context?.undoTracker;
     const shouldCaptureUndo = Boolean(undoTracker) && isWriteToolName(name);
@@ -798,28 +816,28 @@ export async function executeTool(
         // SEARCH TOOLS
         // ==================================================================
         case "searchTasks":
-          return await wrapResult(searchTasks(args as any));
+          return await wrapResult(searchTasks({ ...args as any, authContext }));
 
         case "searchProjects":
-          return await wrapResult(searchProjects(args as any));
+          return await wrapResult(searchProjects({ ...args as any, authContext }));
 
         case "searchClients":
-          return await wrapResult(searchClients(args as any));
+          return await wrapResult(searchClients({ ...args as any, authContext }));
 
         case "searchWorkspaceMembers":
-          return await wrapResult(searchWorkspaceMembers(args as any));
+          return await wrapResult(searchWorkspaceMembers({ ...args as any, authContext }));
 
         case "searchTabs":
-          return await wrapResult(searchTabs(args as any));
+          return await wrapResult(searchTabs({ ...args as any, authContext }));
 
         case "searchBlocks":
-          return await wrapResult(searchBlocks(args as any));
+          return await wrapResult(searchBlocks({ ...args as any, authContext }));
 
         case "searchDocs":
-          return await wrapResult(searchDocs(args as any));
+          return await wrapResult(searchDocs({ ...args as any, authContext }));
 
         case "searchDocContent":
-          return await wrapResult(searchDocContent(args as any));
+          return await wrapResult(searchDocContent({ ...args as any, authContext }));
 
         case "searchTables":
           if (context?.contextTableId) {
@@ -920,10 +938,10 @@ export async function executeTool(
           return await wrapResult(searchTags(args as any));
 
         case "searchAll":
-          return await wrapResult(searchAll(args as any));
+          return await wrapResult(searchAll({ ...args as any, authContext }));
 
         case "resolveEntityByName":
-          return await wrapResult(resolveEntityByName(args as any));
+          return await wrapResult(resolveEntityByName({ ...args as any, authContext }));
 
         case "getEntityById":
           return await wrapResult(getEntityById(args as any));
