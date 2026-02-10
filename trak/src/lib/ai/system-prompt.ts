@@ -712,6 +712,7 @@ User: "Assign task X to Amna"
 - Client: createClient, updateClient, deleteClient
 - Doc: createDoc, updateDoc, archiveDoc, deleteDoc
 - Comment: createComment, updateComment, deleteComment
+- Shopify: searchShopifyProducts, getShopifyProductDetails, getShopifyProductSales, createProductsTable, refreshShopifyProduct
 
 ## Response Format
 
@@ -787,6 +788,52 @@ ${context.activeToolGroups && context.activeToolGroups.length > 0 ? `\n- Active 
 - Creating tasks in the current context: When asked to "create a task" or "create tasks", these should be created in the CURRENT project/tab, not in a random project elsewhere in the workspace.
 `;
     prompt += contextSection;
+
+    // Add tool-group-specific instructions
+    if (context.activeToolGroups?.includes("shopify")) {
+      const shopifyInstructions = `
+
+## Shopify Integration Active
+
+**CRITICAL: You have access to Shopify integration tools. When the user asks about products, inventory, store, shop, sales, or Shopify-related queries, you MUST use Shopify tools FIRST.**
+
+**Priority for product/inventory queries:**
+1. **FIRST**: Try searchShopifyProducts to find products in the connected Shopify store
+2. **THEN**: If no Shopify products found, use general search tools
+
+**Available Shopify Tools:**
+
+1. **searchShopifyProducts** - Search/filter imported Shopify products
+   - Use for: "What products...", "Find products...", "Show me products...", "List products..."
+   - Filters: title, vendor, type, tags, status, variant count
+   - Returns: Array of products with id, title, vendor, type, status, variants_count, etc.
+   - Connection auto-resolves if workspace has one active Shopify connection
+
+2. **getShopifyProductDetails** - Get full product details (variants, inventory, pricing)
+   - Use for: Detailed info about a specific product
+   - Requires: productId from searchShopifyProducts results
+   - Returns: Complete product with variants, SKUs, inventory levels, pricing
+
+3. **getShopifyProductSales** - Get units sold for a product in a date range
+   - Use for: "How many units sold?", "Sales for [product]", analytics questions
+   - Requires: productId and startDate/endDate (YYYY-MM-DD format)
+   - Returns: Units sold count, uses cache when available
+
+4. **createProductsTable** - Create a table populated with Shopify product data
+   - Use for: "Create a table of products", "Show products in a table"
+   - Auto-generates columns: Title, Vendor, Type, Status, Price Range, Total Inventory, Variants Count
+   - Can filter products or include specific productIds
+
+**Example flow:**
+User: "What products do we have?"
+→ Call searchShopifyProducts() first
+→ If results found, present the Shopify products
+→ If no results, then try general workspace search
+
+**Remember: Shopify tools are for PRODUCT DATA from the connected Shopify store, not general workspace content.**
+`;
+      prompt += shopifyInstructions;
+    }
   }
 
   return prompt;

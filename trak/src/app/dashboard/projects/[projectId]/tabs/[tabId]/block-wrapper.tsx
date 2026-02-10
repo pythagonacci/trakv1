@@ -47,6 +47,7 @@ import {
 } from "@/lib/hooks/use-property-queries";
 import { useAI } from "@/components/ai";
 import ChartCustomizeDialog from "@/components/blocks/chart-customize-dialog";
+import { useBlockAttach } from "./block-attach-context";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -80,6 +81,7 @@ export default function BlockWrapper({
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [chartCustomizeOpen, setChartCustomizeOpen] = useState(false);
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
+  const blockAttach = useBlockAttach();
 
   // Fetch properties for this block
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
@@ -94,7 +96,7 @@ export default function BlockWrapper({
   };
   const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
     const ids = (props as any).assignee_ids?.length ? (props as any).assignee_ids : props.assignee_id ? [props.assignee_id] : [];
-    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
+    return ids.map((id: string) => getMemberName(id)).filter((n: string | undefined): n is string => Boolean(n));
   };
 
   const directCount = countEntityProperties(direct);
@@ -414,6 +416,18 @@ export default function BlockWrapper({
                         )}
                       </DropdownMenuItem>
 
+                      {blockAttach && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            blockAttach.openAttachPicker(block.id);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <Paperclip className="h-4 w-4" />
+                          Attach
+                        </DropdownMenuItem>
+                      )}
+
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => onDelete?.(block.id)}
@@ -571,6 +585,18 @@ export default function BlockWrapper({
                     )}
                   </DropdownMenuItem>
 
+                  {blockAttach && (
+                    <DropdownMenuItem
+                      onClick={() => {
+                        blockAttach.openAttachPicker(block.id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      Attach
+                    </DropdownMenuItem>
+                  )}
+
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => onDelete?.(block.id)}
@@ -716,6 +742,18 @@ export default function BlockWrapper({
                     </span>
                   )}
                 </DropdownMenuItem>
+
+                {blockAttach && block.type !== "task" && block.type !== "timeline" && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      blockAttach.openAttachPicker(block.id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Attach
+                  </DropdownMenuItem>
+                )}
 
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

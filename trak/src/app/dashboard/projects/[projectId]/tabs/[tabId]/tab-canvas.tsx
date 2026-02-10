@@ -23,6 +23,7 @@ import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
 import DocSidebar from "./doc-sidebar";
+import { BlockAttachProvider } from "./block-attach-context";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
@@ -1074,6 +1075,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   return (
     <FileUrlContext.Provider value={initialFileUrls}>
+      <BlockAttachProvider projectId={projectId} workspaceId={workspaceId}>
       <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 space-y-2">
           {!hasBlocks ? (
@@ -1229,11 +1231,11 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           </div>
         )}
         </div>
-        <div id="timeline-event-panel-root" className="min-w-0 shrink-0" />
       </div>
 
       {/* Doc Sidebar */}
       <DocSidebar docId={openDocId} onClose={() => setOpenDocId(null)} />
+      </BlockAttachProvider>
     </FileUrlContext.Provider>
   );
 }

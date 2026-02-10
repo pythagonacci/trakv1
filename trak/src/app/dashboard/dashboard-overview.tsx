@@ -215,7 +215,7 @@ export default function DashboardOverview({
 
       {/* AI Overview Block */}
       <AIOverviewBlock
-        insights={aiInsights}
+        insights={aiInsights ?? null}
         workspaceId={workspaceId}
         userId={userId}
         userName={userName}

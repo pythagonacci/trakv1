@@ -52,4 +52,6 @@ export const queryKeys = {
   entityProperties: (entityType: string, entityId: string) => ['entityProperties', entityType, entityId] as const,
   entityPropertiesWithInheritance: (entityType: string, entityId: string) => ['entityPropertiesInherited', entityType, entityId] as const,
   entityLinks: (entityType: string, entityId: string) => ['entityLinks', entityType, entityId] as const,
+  // Everything view
+  workspaceEverything: (workspaceId: string) => ['workspaceEverything', workspaceId] as const,
 } as const;

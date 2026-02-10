@@ -64,9 +64,9 @@ export async function getProductUnitsSold(
       return { error: "Product not found" };
     }
 
-    const connection = product.shopify_connections;
+    const connection = product.shopify_connections?.[0];
 
-    if (connection.sync_status !== "active") {
+    if (!connection || connection.sync_status !== "active") {
       return { error: "Connection is not active" };
     }
 
@@ -193,13 +193,13 @@ export async function getProductUnitsSold(
           break;
         }
 
-        const variables = {
+        const variables: { first: number; after: string | null; query: string } = {
           first: 50,
           after: cursor,
           query: dateQuery,
         };
 
-        const result = await client.query<any>(ordersQuery, variables);
+        const result: any = await client.query<any>(ordersQuery, variables);
 
         // Process orders
         for (const orderEdge of result.orders.edges) {

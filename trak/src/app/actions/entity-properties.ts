@@ -617,12 +617,12 @@ export async function setEntityProperties(
         .from("profiles")
         .select("id, name, email")
         .in("id", assigneeIdsToSet);
-      const profileMap = new Map(
+      const profileMap = new Map<string, { id: string; name: string }>(
         (profiles ?? []).map((p: any) => [p.id, { id: p.id, name: p.name || p.email || "Unknown" }])
       );
       for (const id of assigneeIdsToSet) {
         const p = profileMap.get(id);
-        assigneePayload.push(p ?? { id, name: "Unknown" });
+        assigneePayload.push(p ? p : { id, name: "Unknown" });
       }
     }
     assigneePayloadForTask = assigneePayload;

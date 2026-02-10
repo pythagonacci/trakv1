@@ -19,6 +19,7 @@ import {
   Palette,
   Square,
   Sparkles,
+  Database,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -285,6 +286,14 @@ function Sidebar({
             collapsed={collapsed}
           >
             Projects
+          </NavLink>
+          <NavLink
+            href="/dashboard/workspace/everything"
+            icon={<Database className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/workspace/everything")}
+            collapsed={collapsed}
+          >
+            Everything
           </NavLink>
           <NavLink
             href="/dashboard/workflow"

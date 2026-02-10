@@ -30,7 +30,7 @@ export type ShopifySyncJob = {
 };
 
 export class ShopifySyncQueue {
-  constructor(private supabase: SupabaseClient) {}
+  constructor(private supabase: SupabaseClient) { }
 
   /**
    * Enqueues a new sync job
@@ -313,7 +313,7 @@ async function processInitialImport(
   let cursor: string | null = null;
 
   while (hasNextPage) {
-    const result = await client.query<any>(query, {
+    const result: any = await client.query(query, {
       first: 50,
       after: cursor,
     });
@@ -410,18 +410,24 @@ async function processInventorySync(
   connection: any,
   client: any
 ): Promise<void> {
+  // Get all product IDs for this connection first
+  const { data: connectionProducts } = await supabase
+    .from("trak_products")
+    .select("id")
+    .eq("connection_id", connection.id);
+
+  const productIds = (connectionProducts ?? []).map((p: { id: string }) => p.id);
+
+  if (productIds.length === 0) {
+    return;
+  }
+
   // Get all variants for this connection
   const { data: variants } = await supabase
     .from("trak_product_variants")
     .select("id, inventory_item_id")
     .eq("inventory_tracked", true)
-    .in(
-      "product_id",
-      supabase
-        .from("trak_products")
-        .select("id")
-        .eq("connection_id", connection.id)
-    );
+    .in("product_id", productIds);
 
   if (!variants || variants.length === 0) {
     return;
@@ -452,7 +458,7 @@ async function processInventorySync(
         }
       `;
 
-      const result = await client.query<any>(inventoryQuery, {
+      const result: any = await client.query(inventoryQuery, {
         inventoryItemId: variant.inventory_item_id,
       });
 
@@ -537,7 +543,7 @@ async function processMetadataSync(
         }
       `;
 
-      const result = await client.query<any>(productQuery, {
+      const result: any = await client.query(productQuery, {
         id: product.shopify_product_id,
       });
 
@@ -645,7 +651,7 @@ async function processSalesComputation(
   let cursor: string | null = null;
 
   while (hasNextPage) {
-    const result = await client.query<any>(ordersQuery, {
+    const result: any = await client.query(ordersQuery, {
       first: 50,
       after: cursor,
       query: dateQuery,

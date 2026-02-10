@@ -16,9 +16,91 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { createPortal } from "react-dom";
 import AttachedFilesList from "./attached-files-list";
+import BlockAttachmentsList from "./block-attachments-list";
+import { useBlockAttach } from "./block-attach-context";
+import { useBlockReferenceSummaries, useDeleteBlockReference } from "@/lib/hooks/use-block-reference-queries";
 import { cn } from "@/lib/utils";
 import DOMPurify from "isomorphic-dompurify";
+import { X } from "lucide-react";
+
+function getCaretRectForContentEditable(el: HTMLElement): { top: number; left: number } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0).cloneRange();
+  range.collapse(true);
+  const rect = range.getBoundingClientRect();
+  return { top: rect.top, left: rect.left };
+}
+
+function getTextAfterAtFromContentEditable(el: HTMLElement): string {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return "";
+  const range = sel.getRangeAt(0);
+  const preRange = document.createRange();
+  preRange.selectNodeContents(el);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  const textBeforeCursor = preRange.toString();
+  const lastAt = textBeforeCursor.lastIndexOf("@");
+  if (lastAt === -1) return "";
+  const after = textBeforeCursor.slice(lastAt + 1);
+  if (after.includes("\n") || after.includes(" ")) return after.split(/[\s\n]/)[0] ?? "";
+  return after;
+}
+
+/** Return the (node, offset) for the character at targetOffset within container (text offset from start). */
+function getNodeAtCharacterOffset(container: Node, targetOffset: number): { node: Node; offset: number } | null {
+  let passed = 0;
+  const walk = (node: Node): { node: Node; offset: number } | null => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = (node.textContent ?? "").length;
+      if (passed + len >= targetOffset) return { node, offset: targetOffset - passed };
+      passed += len;
+      return null;
+    }
+    for (let i = 0; i < node.childNodes.length; i++) {
+      const r = walk(node.childNodes[i]);
+      if (r) return r;
+    }
+    return null;
+  };
+  return walk(container);
+}
+
+/** Replace the "@" and filter text at caret with an inline ref span and place caret after it. */
+function insertInlineBlockRefAtCaret(editableDiv: HTMLElement, refId: string, title: string): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0).cloneRange();
+  const preRange = document.createRange();
+  preRange.selectNodeContents(editableDiv);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  const textBeforeCursor = preRange.toString();
+  const lastAt = textBeforeCursor.lastIndexOf("@");
+  if (lastAt === -1) return false;
+
+  const startPos = getNodeAtCharacterOffset(editableDiv, lastAt);
+  if (!startPos) return false;
+
+  const replaceRange = document.createRange();
+  replaceRange.setStart(startPos.node, startPos.offset);
+  replaceRange.setEnd(range.startContainer, range.startOffset);
+  replaceRange.deleteContents();
+
+  const span = document.createElement("span");
+  span.setAttribute("data-block-ref-id", refId);
+  span.className = "inline-block-ref border-b border-[var(--foreground)] cursor-default";
+  span.textContent = title;
+
+  replaceRange.insertNode(span);
+  const after = document.createRange();
+  after.setStartAfter(span);
+  after.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(after);
+  return true;
+}
 
 interface TextBlockProps {
   block: Block;
@@ -101,6 +183,15 @@ const formatText = (text: string): string => {
       return `<div class="mb-1.5 text-sm text-[var(--foreground)]">${formatted}</div>`;
     }
 
+    // Inline block references: [@title](ref:uuid) -> underlined span
+    formatted = formatted.replace(
+      /\[\@([^\]]*)\]\(ref:([a-f0-9-]+)\)/g,
+      (_, title: string, id: string) => {
+        const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+        return `<span class="inline-block-ref border-b border-[var(--foreground)] cursor-default" data-block-ref-id="${id}">${esc(title)}</span>`;
+      }
+    );
+
     return `<p class="mb-1.5 text-sm leading-relaxed text-[var(--foreground)]">${formatted}</p>`;
   });
 
@@ -109,12 +200,13 @@ const formatText = (text: string): string => {
   // SECURITY: Sanitize HTML to prevent XSS attacks
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: ['strong', 'em', 'code', 'u', 'h1', 'h2', 'h3', 'p', 'div', 'span', 'br'],
-    ALLOWED_ATTR: ['class'],
+    ALLOWED_ATTR: ['class', 'data-block-ref-id'],
     KEEP_CONTENT: true,
   });
 };
 
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
+  const blockAttach = useBlockAttach();
   const blockContent = (block.content || {}) as { text?: string; borderless?: boolean };
   const initialContent = blockContent.text || "";
   const isEmpty = !initialContent || initialContent.trim() === "";
@@ -123,8 +215,13 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
+  const [inlineRefHover, setInlineRefHover] = useState<{ refId: string; rect: DOMRect } | null>(null);
+  const [isInCard, setIsInCard] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { data: refSummaries = [] } = useBlockReferenceSummaries(block.id);
+  const deleteRefMutation = useDeleteBlockReference(block.id);
 
   useEffect(() => {
     const next = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
@@ -133,6 +230,21 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       return () => cancelAnimationFrame(raf);
     }
   }, [block.content, isBorderless]);
+
+  useEffect(() => () => {
+    if (hoverClearRef.current) clearTimeout(hoverClearRef.current);
+  }, []);
+
+  const clearHoverSoon = useCallback(() => {
+    if (hoverClearRef.current) clearTimeout(hoverClearRef.current);
+    hoverClearRef.current = setTimeout(() => setInlineRefHover(null), 200);
+  }, []);
+  const cancelClearHover = useCallback(() => {
+    if (hoverClearRef.current) {
+      clearTimeout(hoverClearRef.current);
+      hoverClearRef.current = null;
+    }
+  }, []);
 
   const editingRef = useRef(false);
 
@@ -434,8 +546,13 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       if (node.nodeType === Node.ELEMENT_NODE) {
         const el = node as HTMLElement;
         const tagName = el.tagName.toLowerCase();
+        const refId = el.getAttribute?.('data-block-ref-id');
         const children = Array.from(node.childNodes);
         const childText = children.map(processNode).join('');
+        
+        if (tagName === 'span' && refId) {
+          return `[@${childText}](ref:${refId})`;
+        }
         
         switch (tagName) {
           case 'h1':
@@ -617,6 +734,34 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
           }}
           onBlur={handleBlur}
           onKeyDown={(e) => {
+            if (e.key === "@") {
+              if (blockAttach) {
+                requestAnimationFrame(() => {
+                  const editableDiv = textareaRef.current;
+                  if (editableDiv) {
+                    const rect = getCaretRectForContentEditable(editableDiv);
+                    if (rect) {
+                      blockAttach.openAttachPicker(block.id, {
+                        position: rect,
+                        onInsertRef: (payload) => {
+                          if (!payload) return;
+                          const { refId, title } = payload;
+                          if (textareaRef.current && insertInlineBlockRefAtCaret(textareaRef.current, refId, title)) {
+                            syncContentFromHTML();
+                          }
+                        },
+                      });
+                    }
+                  }
+                });
+              }
+              return;
+            }
+            if (blockAttach?.isAttachOpenForBlock(block.id) && e.key === "Escape") {
+              e.preventDefault();
+              blockAttach.onAttachClose();
+              return;
+            }
             if (e.key === "Escape") {
               setContent((block.content?.text as string) || "");
               setIsEditing(false);
@@ -624,7 +769,9 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
           }}
           onInput={(e) => {
             const editableDiv = e.currentTarget as HTMLDivElement;
-            // Clear placeholder on first input
+            if (blockAttach?.isAttachOpenForBlock(block.id)) {
+              blockAttach.updateAttachQuery(getTextAfterAtFromContentEditable(editableDiv));
+            }
             const textContent = editableDiv.textContent?.trim() || '';
             if (textContent === 'Click to add text…' || textContent === 'Start typing…') {
               editableDiv.innerHTML = '';
@@ -646,14 +793,56 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
 
   const formatted = formatText(content);
 
+  const viewRef = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = (e.target as HTMLElement).closest?.("[data-block-ref-id]");
+    if (el) {
+      cancelClearHover();
+      setInlineRefHover({ refId: el.getAttribute("data-block-ref-id")!, rect: el.getBoundingClientRect() });
+    }
+  };
+
+  const summary = inlineRefHover ? refSummaries.find((r) => r.id === inlineRefHover.refId) : null;
+
   return (
     <div className="space-y-2">
       <div
         onClick={() => setIsEditing(true)}
-        className="cursor-text text-sm leading-normal text-[var(--foreground)]"
+        onMouseOver={viewRef}
+        onMouseLeave={() => { if (!isInCard) clearHoverSoon(); }}
+        className="cursor-text text-sm leading-normal text-[var(--foreground)] relative"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
+      {summary && inlineRefHover &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed z-50 min-w-[180px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs shadow-lg"
+            style={{ left: inlineRefHover.rect.left, top: inlineRefHover.rect.bottom + 4 }}
+            onMouseEnter={() => { cancelClearHover(); setIsInCard(true); }}
+            onMouseLeave={() => { setIsInCard(false); setInlineRefHover(null); }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-[var(--foreground)]">{summary.title}</div>
+                <div className="text-[10px] uppercase text-[var(--muted-foreground)]">{summary.type_label ?? summary.reference_type}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { deleteRefMutation.mutate(summary.id); setInlineRefHover(null); }}
+                className="shrink-0 text-[var(--tertiary-foreground)] hover:text-red-500"
+                aria-label="Remove link"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}
+      <BlockAttachmentsList
+        blockId={block.id}
+        onAdd={blockAttach ? () => blockAttach.openAttachPicker(block.id) : undefined}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/react-query/query-client";
 import { createTimelineEvent, updateTimelineEvent, deleteTimelineEvent, duplicateTimelineEvent, setTimelineEventBaseline } from "@/app/actions/timelines/event-actions";
 import { createTimelineReference, updateTimelineReference, deleteTimelineReference, bulkImportTableRows, listTimelineReferenceSummaries } from "@/app/actions/timelines/reference-actions";
 import { createTimelineDependency, deleteTimelineDependency, getTimelineDependencies } from "@/app/actions/timelines/dependency-actions";
@@ -54,8 +55,14 @@ export function useCreateTimelineEvent(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createTimelineEvent,
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      // Invalidate entity properties for the newly created event
+      if ("data" in result && result.data?.id) {
+        qc.invalidateQueries({
+          queryKey: queryKeys.entityPropertiesWithInheritance("timeline_event", result.data.id),
+        });
+      }
     },
   });
 }
@@ -65,8 +72,12 @@ export function useUpdateTimelineEvent(blockId: string) {
   return useMutation({
     mutationFn: (input: { eventId: string; updates: Parameters<typeof updateTimelineEvent>[1] }) =>
       updateTimelineEvent(input.eventId, input.updates),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      // Invalidate entity properties to refresh the Properties section
+      qc.invalidateQueries({
+        queryKey: queryKeys.entityPropertiesWithInheritance("timeline_event", variables.eventId),
+      });
     },
   });
 }

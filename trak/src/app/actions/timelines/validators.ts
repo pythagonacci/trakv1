@@ -1,4 +1,4 @@
-import type { DependencyType, ReferenceType, TimelineEventStatus } from "@/types/timeline";
+import type { DependencyType, ReferenceType, TimelineEventStatus, TimelineEventPriority } from "@/types/timeline";
 
 const VALID_DEPENDENCY_TYPES: DependencyType[] = [
   "finish-to-start",
@@ -8,7 +8,12 @@ const VALID_DEPENDENCY_TYPES: DependencyType[] = [
 ];
 
 const VALID_REFERENCE_TYPES: ReferenceType[] = ["doc", "table_row", "block"];
-const VALID_EVENT_STATUSES: TimelineEventStatus[] = ["planned", "in-progress", "blocked", "done"];
+
+// Canonical IDs for status (matches workspace property_definitions)
+const VALID_EVENT_STATUSES: TimelineEventStatus[] = ["todo", "in_progress", "blocked", "done"];
+
+// Canonical IDs for priority (matches workspace property_definitions)
+const VALID_EVENT_PRIORITIES: TimelineEventPriority[] = ["low", "medium", "high", "urgent"];
 
 export function validateTimelineDateRange(startDate: string, endDate: string) {
   const start = new Date(startDate);
@@ -32,6 +37,10 @@ export function validateReferenceType(type: string): type is ReferenceType {
 
 export function validateEventStatus(status: string): status is TimelineEventStatus {
   return VALID_EVENT_STATUSES.includes(status as TimelineEventStatus);
+}
+
+export function validateEventPriority(priority: string): priority is TimelineEventPriority {
+  return VALID_EVENT_PRIORITIES.includes(priority as TimelineEventPriority);
 }
 
 

@@ -24,7 +24,8 @@ export type ToolGroup =
   | "client" // Client operations
   | "property" // Property operations
   | "comment" // Comment operations
-  | "workspace"; // Workspace-level maintenance
+  | "workspace" // Workspace-level maintenance
+  | "shopify"; // Shopify integration operations
 
 export interface IntentClassification {
   /** Tool groups needed for this command */
@@ -104,6 +105,18 @@ const ENTITY_PATTERNS: Record<string, RegExp[]> = {
     /\bclient(?:s)?\b/i,
     /\bcompany(?:ies)?\b/i,
     /\bcustomer(?:s)?\b/i,
+  ],
+  shopify: [
+    /\bshopify\b/i,
+    /\bproduct(?:s)?\b/i,
+    /\bstore(?:s)?\b/i,
+    /\bshop\b/i,
+    /\binventory\b/i,
+    /\bvariant(?:s)?\b/i,
+    /\bsku(?:s)?\b/i,
+    /\bvendor(?:s)?\b/i,
+    /\bsales?\b/i,
+    /\border(?:s)?\b/i,
   ],
 };
 
@@ -286,6 +299,7 @@ export function classifyIntent(userCommand: string): IntentClassification {
     ["create", "update", "delete", "organize"].includes(action)
   );
 
+  // For write actions or create/modify intent, include entity tools
   if (hasWriteAction || hasCreateOrModifyIntent(command)) {
     for (const entity of detectedEntities) {
       // Skip "project" if it's just contextual (e.g., "in the project")
@@ -298,6 +312,12 @@ export function classifyIntent(userCommand: string): IntentClassification {
         toolGroups.push(group);
       }
     }
+  }
+
+  // For Shopify entities, always include Shopify tools (even for read-only queries)
+  // because Shopify tools include search/read operations like searchShopifyProducts
+  if (detectedEntities.includes("shopify") && !toolGroups.includes("shopify")) {
+    toolGroups.push("shopify");
   }
 
   // Special case: if no entities detected but has write actions, include common groups
@@ -355,6 +375,8 @@ function mapEntityToToolGroup(entity: string): ToolGroup | null {
     file: "file",
     client: "client",
     workspace: "workspace",
+    shopify: "shopify",
+    product: "shopify",
   };
 
   return mapping[entity] || null;

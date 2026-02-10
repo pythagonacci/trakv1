@@ -139,7 +139,7 @@ import {
   createTimelineDependency,
   deleteTimelineDependency,
 } from "@/app/actions/timelines/dependency-actions";
-import type { TimelineEventStatus } from "@/types/timeline";
+import type { TimelineEventStatus, TimelineEventPriority } from "@/types/timeline";
 
 // ============================================================================
 // IMPORTS - Property Actions
@@ -3031,6 +3031,7 @@ export async function executeTool(
               startDate: args.startDate as string,
               endDate: args.endDate as string,
               status: args.status as TimelineEventStatus | undefined,
+              priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
               progress: args.progress as number | undefined,
               notes: args.notes as string | undefined,
               color: args.color as string | undefined,
@@ -3061,6 +3062,7 @@ export async function executeTool(
                 startDate: args.startDate as string | undefined,
                 endDate: args.endDate as string | undefined,
                 status: args.status as TimelineEventStatus | undefined,
+                priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
                 progress: args.progress as number | undefined,
                 notes: (args.notes as string | null | undefined) ?? undefined,
                 color: (args.color as string | null | undefined) ?? undefined,
@@ -4905,7 +4907,7 @@ async function enhanceFieldsAndNormalizeSelectValues(
       // Field is a select-like field - normalize the value to option ID
       const config = (field.config || {}) as Record<string, unknown>;
       const { ids } = resolveSelectValues(
-        { type: field.type, config, property_definition_id: field.property_definition_id },
+        { type: field.type, config, property_definition_id: field.property_definition_id ?? undefined },
         rawValue,
         false,
         propDefOptions

@@ -99,12 +99,22 @@ interface BoardColumn {
 
   // Separate component for task description to prevent state loss on re-renders
 // Uses uncontrolled textarea to avoid React state interference
-function TaskDescription({ 
-  task, 
-  updateTask 
-}: { 
-  task: Task; 
+function TaskDescription({
+  task,
+  updateTask,
+  onOpenAttach,
+  isAttachOpenForTask,
+  updateAttachQuery,
+  onAttachClose,
+  getTextAfterAt,
+}: {
+  task: Task;
   updateTask: (taskId: string | number, updates: Partial<Task>) => Promise<void>;
+  onOpenAttach?: (options?: { position: { top: number; left: number } }) => void;
+  isAttachOpenForTask?: boolean;
+  updateAttachQuery?: (q: string) => void;
+  onAttachClose?: () => void;
+  getTextAfterAt?: (value: string, selectionStart: number) => string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastTaskIdRef = useRef(task.id);
@@ -125,6 +135,19 @@ function TaskDescription({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "@") {
+      const textarea = e.currentTarget;
+      requestAnimationFrame(() => {
+        const rect = textarea.getBoundingClientRect();
+        onOpenAttach?.({ position: { top: rect.top - 400 - 8, left: rect.left } });
+      });
+      return;
+    }
+    if (isAttachOpenForTask && e.key === "Escape") {
+      e.preventDefault();
+      onAttachClose?.();
+      return;
+    }
     if (e.key === "Escape") {
       if (textareaRef.current) {
         textareaRef.current.value = task.description ?? "";
@@ -154,9 +177,12 @@ function TaskDescription({
         ref={textareaRef}
         defaultValue={task.description ?? ""}
         onChange={() => {
-          // Update delete button visibility as user types
           if (textareaRef.current) {
             setShowDelete(textareaRef.current.value.length > 0);
+            if (isAttachOpenForTask && updateAttachQuery && getTextAfterAt) {
+              const ta = textareaRef.current;
+              updateAttachQuery(getTextAfterAt(ta.value, ta.selectionStart ?? 0));
+            }
           }
         }}
         onBlur={handleBlur}
@@ -398,6 +424,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
   const [referenceTaskId, setReferenceTaskId] = useState<string | null>(null);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
+  const [attachPosition, setAttachPosition] = useState<{ top: number; left: number } | null>(null);
+  const [attachQuery, setAttachQuery] = useState("");
   const [propertiesTaskId, setPropertiesTaskId] = useState<string | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [taskOrder, setTaskOrder] = useState<string[]>([]);
@@ -1342,10 +1370,25 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     }));
   };
 
-  const openReferencePicker = (taskId: string | number) => {
+  const openReferencePicker = (taskId: string | number, options?: { position?: { top: number; left: number } }) => {
     openReferencesPanel(taskId);
     setReferenceTaskId(String(taskId));
+    setAttachPosition(options?.position ?? null);
+    setAttachQuery("");
     setIsReferenceDialogOpen(true);
+  };
+
+  const closeReferencePicker = () => {
+    setIsReferenceDialogOpen(false);
+    setReferenceTaskId(null);
+    setAttachPosition(null);
+    setAttachQuery("");
+  };
+
+  const getTextAfterAt = (value: string, selectionStart: number) => {
+    const textBefore = value.slice(0, selectionStart);
+    const lastAt = textBefore.lastIndexOf("@");
+    return lastAt === -1 ? "" : textBefore.slice(lastAt + 1);
   };
 
   // Helper to check if icons should be shown for a task
@@ -1588,12 +1631,33 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                 <input
                   type="text"
                   value={editingTaskText}
-                  onChange={(e) => setEditingTaskText(e.target.value)}
+                  onChange={(e) => {
+                    const input = e.currentTarget;
+                    setEditingTaskText(input.value);
+                    if (isReferenceDialogOpen && referenceTaskId === String(task.id)) {
+                      setAttachQuery(getTextAfterAt(input.value, input.selectionStart ?? 0));
+                    }
+                  }}
                   onBlur={() => {
                     updateTask(task.id, { text: editingTaskText });
                     setEditingTaskId(null);
                   }}
                   onKeyDown={(e) => {
+                    if (e.key === "@") {
+                      const input = e.currentTarget;
+                      requestAnimationFrame(() => {
+                        const rect = input.getBoundingClientRect();
+                        openReferencePicker(task.id, {
+                          position: { top: rect.top - 400 - 8, left: rect.left },
+                        });
+                      });
+                      return;
+                    }
+                    if (isReferenceDialogOpen && referenceTaskId === String(task.id) && e.key === "Escape") {
+                      e.preventDefault();
+                      closeReferencePicker();
+                      return;
+                    }
                     if (e.key === "Enter") {
                       updateTask(task.id, { text: editingTaskText });
                       setEditingTaskId(null);
@@ -1642,7 +1706,15 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
 
                   {/* Description - Inline Display */}
                   {task.description !== undefined && (
-                    <TaskDescription task={task} updateTask={updateTask} />
+                    <TaskDescription
+                      task={task}
+                      updateTask={updateTask}
+                      onOpenAttach={(opts) => openReferencePicker(task.id, opts)}
+                      isAttachOpenForTask={isReferenceDialogOpen && referenceTaskId === String(task.id)}
+                      updateAttachQuery={setAttachQuery}
+                      onAttachClose={closeReferencePicker}
+                      getTextAfterAt={getTextAfterAt}
+                    />
                   )}
 
                   {/* Subtasks - Inline Display */}
@@ -2037,12 +2109,33 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             <input
                               type="text"
                               value={editingTaskText}
-                              onChange={(e) => setEditingTaskText(e.target.value)}
+                              onChange={(e) => {
+                                const input = e.currentTarget;
+                                setEditingTaskText(input.value);
+                                if (isReferenceDialogOpen && referenceTaskId === String(task.id)) {
+                                  setAttachQuery(getTextAfterAt(input.value, input.selectionStart ?? 0));
+                                }
+                              }}
                               onBlur={() => {
                                 updateTask(task.id, { text: editingTaskText });
                                 setEditingTaskId(null);
                               }}
                               onKeyDown={(e) => {
+                                if (e.key === "@") {
+                                  const input = e.currentTarget;
+                                  requestAnimationFrame(() => {
+                                    const rect = input.getBoundingClientRect();
+                                    openReferencePicker(task.id, {
+                                      position: { top: rect.top - 400 - 8, left: rect.left },
+                                    });
+                                  });
+                                  return;
+                                }
+                                if (isReferenceDialogOpen && referenceTaskId === String(task.id) && e.key === "Escape") {
+                                  e.preventDefault();
+                                  closeReferencePicker();
+                                  return;
+                                }
                                 if (e.key === "Enter") {
                                   updateTask(task.id, { text: editingTaskText });
                                   setEditingTaskId(null);
@@ -2217,7 +2310,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           isOpen={isReferenceDialogOpen}
           projectId={projectId}
           workspaceId={workspaceId}
-          onClose={() => setIsReferenceDialogOpen(false)}
+          initialSearchQuery=""
+          onClose={closeReferencePicker}
+          variant={attachPosition ? "inline" : "dialog"}
+          position={attachPosition ?? undefined}
+          controlledSearchQuery={attachPosition ? attachQuery : undefined}
           onSelect={async (item) => {
             if (!referenceTaskId) return false;
             const result = await createReferenceMutation.mutateAsync({

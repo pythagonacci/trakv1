@@ -32,7 +32,9 @@ export default async function ShopifyProductsPage({
     redirect("/onboarding");
   }
 
-  const workspaceId = workspaces.workspace.id;
+  // Type assertion needed because Supabase join returns workspace as unknown type
+  const workspace = workspaces.workspace as unknown as { id: string };
+  const workspaceId = workspace.id;
 
   // Get connection_id from query params (optional filter)
   const connectionId = searchParams.connection_id as string | undefined;

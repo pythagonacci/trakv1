@@ -128,7 +128,7 @@ async function handleProjectSelection(params: {
     // Get the original command from the message (if available)
     // For now, we'll just confirm the selection
     const result = await executeSlackAICommand({
-      command: `create task in project ${projectName}`,
+      command: `create task in project ${params.projectName}`,
       workspaceId: connection.workspace_id,
       userId: userLink.trak_user_id,
       projectId: params.projectId,

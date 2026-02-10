@@ -74,7 +74,7 @@ export async function getRecentLinkableItems(input: {
     .eq("workspace_id", input.workspaceId);
 
   const projectIds = (projects || []).map((p: any) => p.id);
-  const projectMap = new Map((projects || []).map((p: any) => [p.id, p.name]));
+  const projectMap = new Map<string, string>((projects || []).map((p: any) => [p.id, p.name]));
 
   // Get tabs from these projects and workflow tabs (no project_id)
   const { data: allTabs } = await supabase
@@ -141,7 +141,7 @@ export async function searchLinkableItems(input: {
     .eq("workspace_id", input.workspaceId);
 
   const projectIds = (projects || []).map((p: any) => p.id);
-  const projectMap = new Map((projects || []).map((p: any) => [p.id, p.name]));
+  const projectMap = new Map<string, string>((projects || []).map((p: any) => [p.id, p.name]));
 
   // Get tabs from these projects and workflow tabs (no project_id)
   const { data: allTabs } = await supabase

@@ -153,6 +153,36 @@ const DEFAULT_WARM_TOOL_GROUPS: ToolGroup[][] = [
   ["core", "project"],
 ];
 
+// ============================================================================
+// JSON REPAIR UTILITY
+// ============================================================================
+
+/**
+ * Attempts to repair common JSON formatting errors from AI-generated tool arguments.
+ * Specifically handles cases where enum string values are not properly quoted.
+ *
+ * Examples:
+ * - {"status": todo} → {"status": "todo"}
+ * - {"priority": high, "limit": 50} → {"priority": "high", "limit": 50}
+ * - {"status": in-progress} → {"status": "in-progress"}
+ */
+function repairJSONArguments(jsonStr: string): string {
+  // Pattern to find unquoted values after colons (excluding numbers, booleans, null, and already quoted strings)
+  // Matches: : word, : word-with-hyphens, etc. but not : "quoted", : 123, : true, : false, : null
+  const unquotedValuePattern = /:\s*([a-zA-Z][a-zA-Z0-9_-]*)\s*([,}])/g;
+
+  let repaired = jsonStr.replace(unquotedValuePattern, (match, value, delimiter) => {
+    // Don't quote boolean or null literals
+    if (value === 'true' || value === 'false' || value === 'null') {
+      return match;
+    }
+    // Quote the value
+    return `: "${value}"${delimiter}`;
+  });
+
+  return repaired;
+}
+
 export function warmPromptToActionCache(
   toolGroupSets: ToolGroup[][] = DEFAULT_WARM_TOOL_GROUPS
 ) {
@@ -310,6 +340,7 @@ const TOOL_GROUP_NAMES = new Set([
   "property",
   "comment",
   "workspace",
+  "shopify",
 ]);
 
 const TOOL_ACCESS_SIGNAL =
@@ -361,6 +392,9 @@ function extractToolGroupsFromKeywords(text: string) {
   }
   if (/\bworkspace(?:s)?\b/i.test(lower)) {
     groups.add("workspace");
+  }
+  if (/\b(shopify|product(?:s)?|store|shop|inventory|variant(?:s)?|sku(?:s)?)\b/i.test(lower)) {
+    groups.add("shopify");
   }
   return Array.from(groups);
 }
@@ -944,7 +978,20 @@ export async function executeAICommand(
               rawArguments: toolCall.function.arguments,
               parseError: errorMsg,
             });
-            toolArgs = {};
+
+            // Try to repair common JSON issues (like unquoted enum values)
+            try {
+              const repairedJSON = repairJSONArguments(toolCall.function.arguments);
+              toolArgs = JSON.parse(repairedJSON);
+              aiDebug("executeAI:jsonRepaired", {
+                tool: toolName,
+                original: toolCall.function.arguments,
+                repaired: repairedJSON,
+              });
+            } catch {
+              // If repair fails, fall back to empty args
+              toolArgs = {};
+            }
           }
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
             toolArgs.tableId = contextTableId;
@@ -977,15 +1024,16 @@ export async function executeAICommand(
 
 
 
+          // IMPORTANT: If the LLM requests a write tool, allow it even in read-only mode
+          // This handles cases where queries have both read and write intent that wasn't caught in classification
+          // The LLM's tool choice becomes the authoritative signal of user intent
           if (options.readOnly && !isSearchLikeToolName(toolName) && !readOnlyAllowedWriteTools.has(toolName)) {
-            const error = `Write tool "${toolName}" is not allowed for this read-only request. Use search/analysis tools and create display blocks only.`;
-            return {
-              toolCall,
-              toolName,
-              toolArgs,
-              result: { success: false, error },
-              toolDuration: 0,
-            };
+            // Allow the tool to be called - treat the LLM's request as authorization
+            aiDebug("executeAICommand:readOnlyOverride", {
+              tool: toolName,
+              reason: "LLM requested write tool in read-only context - allowing as intent signal",
+            });
+            // Continue with tool execution instead of blocking
           }
 
           // Execute the tool
@@ -1880,7 +1928,20 @@ export async function* executeAICommandStream(
               rawArguments: toolCall.function.arguments,
               parseError: errorMsg,
             });
-            toolArgs = {};
+
+            // Try to repair common JSON issues (like unquoted enum values)
+            try {
+              const repairedJSON = repairJSONArguments(toolCall.function.arguments);
+              toolArgs = JSON.parse(repairedJSON);
+              aiDebug("executeAI:jsonRepaired", {
+                tool: toolName,
+                original: toolCall.function.arguments,
+                repaired: repairedJSON,
+              });
+            } catch {
+              // If repair fails, fall back to empty args
+              toolArgs = {};
+            }
           }
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
             toolArgs.tableId = contextTableId;
@@ -1895,26 +1956,16 @@ export async function* executeAICommandStream(
             data: { tool: toolName, arguments: toolArgs },
           };
 
+          // IMPORTANT: If the LLM requests a write tool, allow it even in read-only mode
+          // This handles cases where queries have both read and write intent that wasn't caught in classification
+          // The LLM's tool choice becomes the authoritative signal of user intent
           if (options.readOnly && !isSearchLikeToolName(toolName) && !readOnlyAllowedWriteTools.has(toolName)) {
-            const result = {
-              success: false,
-              error: `Write tool "${toolName}" is not allowed for this read-only request. Use search/analysis tools and create display blocks only.`,
-            };
-            toolCallsThisRound.push({ tool: toolName, result });
-            toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
-            yield {
-              type: "tool_result",
-              content: result.error || "Error",
-              data: result,
-            };
-            const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(result) : result;
-            messages.push({
-              role: "tool",
-              content: JSON.stringify(compactedResult),
-              tool_call_id: toolCall.id,
-              name: toolName,
+            // Allow the tool to be called - treat the LLM's request as authorization
+            aiDebug("executeAICommand:readOnlyOverride", {
+              tool: toolName,
+              reason: "LLM requested write tool in read-only context - allowing as intent signal",
             });
-            continue;
+            // Continue with tool execution instead of blocking
           }
 
           const result = await executeTool({

@@ -32,7 +32,7 @@ export function PropertyBadges({
   inherited = false,
   className,
   onClick,
-  memberName,
+  memberNames,
 }: PropertyBadgesProps) {
   if (!properties) return null;
 

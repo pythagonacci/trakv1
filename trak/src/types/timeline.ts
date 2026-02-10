@@ -1,4 +1,9 @@
-export type TimelineEventStatus = "planned" | "in-progress" | "blocked" | "done";
+// Canonical IDs for status (matches workspace property_definitions)
+export type TimelineEventStatus = "todo" | "in_progress" | "blocked" | "done";
+
+// Canonical IDs for priority (matches workspace property_definitions)
+export type TimelineEventPriority = "low" | "medium" | "high" | "urgent";
+
 export type DependencyType = "finish-to-start" | "start-to-start" | "finish-to-finish" | "start-to-finish";
 export type ReferenceType = "doc" | "table_row" | "block";
 export type TimelineItemType = "event";
@@ -11,6 +16,7 @@ export interface TimelineEvent {
   start_date: string;
   end_date: string;
   status: TimelineEventStatus;
+  priority: TimelineEventPriority | null;  // NEW: Priority field using canonical IDs
   assignee_id: string | null;
   progress: number;
   notes: string | null;
@@ -66,6 +72,7 @@ export interface TimelineItem {
   start_date: string;
   end_date: string;
   status: TimelineEventStatus;
+  priority?: TimelineEventPriority | null;  // NEW: Priority field
   assignee_id: string | null;
   progress: number;
   color: string | null;
