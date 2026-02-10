@@ -1,7 +1,7 @@
 export default function TestDashboard() {
     return (
       <div className="p-8 max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Trak Test Dashboard</h1>
+        <h1 className="text-3xl font-bold mb-8">TWOD Test Dashboard</h1>
         
         <div className="space-y-4">
           <a 

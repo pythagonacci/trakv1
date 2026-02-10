@@ -5,7 +5,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
     <div className="flex min-h-screen items-center justify-center bg-[var(--surface)] px-6 py-12">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.4em] text-[var(--tertiary-foreground)]">Trak</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.4em] text-[var(--tertiary-foreground)]">TWOD</div>
           <h1 className="text-3xl font-bold text-[var(--foreground)]">{title}</h1>
           {subtitle && <p className="text-sm text-[var(--muted-foreground)]">{subtitle}</p>}
         </div>

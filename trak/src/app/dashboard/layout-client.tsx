@@ -182,13 +182,15 @@ function Sidebar({
         collapsed ? "w-16" : "w-56"
       )}
     >
-      <div className={cn(
-        "flex items-center py-3",
-        collapsed ? "justify-center px-2" : "justify-between px-4"
-      )}>
+      <div
+        className={cn(
+          "flex items-center py-3",
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        )}
+      >
         {!collapsed && (
           <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-white/90">
-            Trak
+            TWOD
           </span>
         )}
         <button

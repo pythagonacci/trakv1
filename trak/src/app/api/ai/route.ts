@@ -215,7 +215,7 @@ export async function GET() {
   const hasApiKey = !!process.env.DEEPSEEK_API_KEY;
 
   return NextResponse.json({
-    service: "Trak AI",
+    service: "TWOD AI",
     status: hasApiKey ? "ready" : "not_configured",
     message: hasApiKey
       ? "AI service is ready to accept commands."

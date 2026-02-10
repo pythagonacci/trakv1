@@ -478,7 +478,7 @@ export async function POST(request: NextRequest) {
       : [];
 
     const contextLines: string[] = [];
-    contextLines.push("You are a file analysis assistant for Trak.");
+    contextLines.push("You are a file analysis assistant for TWOD.");
     contextLines.push("Use the provided file data to answer. If insufficient, say so.");
     contextLines.push("Return JSON with keys: text, tables (optional), charts (optional), notes (optional).");
     contextLines.push(`Current location scope: ${tabId ? "tab" : projectId ? "project" : "workspace"}`);

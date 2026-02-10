@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
       const linkUrl = `${NEXT_PUBLIC_APP_URL}/dashboard/settings/integrations/slack/link?team_id=${teamId}&slack_user_id=${slackUserId}`;
       const errorResponse = {
         response_type: "ephemeral",
-        text: `🔗 Please link your Slack account to Trak first:\n${linkUrl}`,
+        text: `🔗 Please link your Slack account to TWOD first:\n${linkUrl}`,
       };
       if (slackRequestId) {
         await saveIdempotency(generateIdempotencyKey(teamId, slackRequestId), errorResponse);

@@ -60,7 +60,7 @@ export default function BuckeyeBrowniesLaunchMock() {
         <TabContent />
 
         <footer className="flex flex-col gap-2 border-t border-[var(--border)] pt-4 text-[11px] uppercase tracking-wide text-[var(--tertiary-foreground)] md:flex-row md:items-center md:justify-between">
-          <span>Built with Trak building blocks</span>
+          <span>Built with TWOD building blocks</span>
           <div className="inline-flex items-center gap-3">
             <span className="inline-flex items-center gap-1">
               <Instagram className="h-3 w-3" /> Buckeye Brownies

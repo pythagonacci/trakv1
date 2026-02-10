@@ -12,7 +12,7 @@ const libreBaskerville = Libre_Baskerville({
 });
 
 export const metadata: Metadata = {
-  title: 'Trak',
+  title: 'TWOD',
   description: 'Project management made simple',
 };
 

@@ -93,7 +93,7 @@ export default function FitnessCoachMock() {
         <TabContent />
 
         <footer className="flex flex-col gap-2 border-t border-[var(--border)] pt-4 text-[11px] uppercase tracking-[0.35em] text-[var(--tertiary-foreground)] md:flex-row md:items-center md:justify-between">
-          <span>Built with Trak coaching blocks</span>
+          <span>Built with TWOD coaching blocks</span>
           <div className="inline-flex items-center gap-3">
             <span className="inline-flex items-center gap-1">
               <Users className="h-3 w-3" /> Coach Lila · Client Marcus

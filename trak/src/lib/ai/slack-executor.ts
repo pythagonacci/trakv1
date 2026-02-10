@@ -71,7 +71,7 @@ export async function executeSlackAICommand(
       if (!projects || projects.length === 0) {
         return {
           success: false,
-          response: "No projects found. Please create a project in Trak first.",
+          response: "No projects found. Please create a project in TWOD first.",
           toolCallsMade: [],
           error: "No projects available",
         };
@@ -93,10 +93,10 @@ export async function executeSlackAICommand(
     const systemPrefix: AIMessage[] = [
       {
         role: "system",
-        content: `You are Trak AI, responding to a Slack slash command.
+        content: `You are TWOD AI, responding to a Slack slash command.
 
 IMPORTANT CONSTRAINTS:
-- You CANNOT create blocks or visual artifacts (this is Slack, not a Trak page)
+- You CANNOT create blocks or visual artifacts (this is Slack, not a TWOD page)
 - Respond with concise text summaries (1-3 sentences maximum)
 - For creation commands, execute the action and confirm completion
 - For search/query commands, return a brief summary (not full details)

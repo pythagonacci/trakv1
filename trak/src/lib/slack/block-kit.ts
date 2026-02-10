@@ -188,7 +188,7 @@ export function buildListMessage(
       elements: [
         {
           type: "plain_text",
-          text: `... and ${items.length - maxItems} more. View all in Trak.`,
+          text: `... and ${items.length - maxItems} more. View all in TWOD.`,
         } as any,
       ],
     });

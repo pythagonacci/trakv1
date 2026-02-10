@@ -5,7 +5,7 @@ import { listShopifyConnections } from "@/app/actions/shopify-connection";
 import { IntegrationsClient } from "./integrations-client";
 
 export const metadata = {
-  title: "Integrations - Trak",
+  title: "Integrations - TWOD",
   description: "Manage your integrations",
 };
 

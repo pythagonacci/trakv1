@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ShopifyProductsClient } from "./products-client";
 
 export const metadata = {
-  title: "Shopify Products - Trak",
+  title: "Shopify Products - TWOD",
   description: "Manage your imported Shopify products",
 };
 

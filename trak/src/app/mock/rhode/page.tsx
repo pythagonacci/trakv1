@@ -82,7 +82,7 @@ export default function RhodePeptideLipShapeMock() {
 
         {/* Footer */}
         <footer className="flex flex-col gap-3 border-t border-[#EBE5E0] pt-6 text-[10px] uppercase tracking-[0.3em] text-[#B5AAA4] md:flex-row md:items-center md:justify-between">
-          <span>Built with Trak</span>
+          <span>Built with TWOD</span>
           <div className="inline-flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
               <Instagram className="h-3 w-3" /> @rhode

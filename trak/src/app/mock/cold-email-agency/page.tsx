@@ -91,7 +91,7 @@ export default function ColdEmailAgencyMock() {
 
         {/* Footer */}
         <footer className="flex flex-col gap-3 border-t border-slate-800 pt-6 text-[10px] uppercase tracking-[0.3em] text-slate-600 md:flex-row md:items-center md:justify-between">
-          <span>Built with Trak</span>
+          <span>Built with TWOD</span>
           <div className="inline-flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
               <Zap className="h-3 w-3 text-violet-500" /> Apex Outreach

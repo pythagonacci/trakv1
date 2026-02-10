@@ -136,7 +136,7 @@ export default function StorageTestPage() {
       setResult(prev => prev + `✅ Using project: ${project.name}\n`);
 
       // Create test file
-      const testFile = new File(['Hello, Trak Storage!'], 'test.txt', { 
+      const testFile = new File(['Hello, TWOD Storage!'], 'test.txt', { 
         type: 'text/plain' 
       });
       const fileId = crypto.randomUUID();

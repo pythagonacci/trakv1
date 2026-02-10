@@ -29,7 +29,7 @@ export default function PopulateBuckeyePage() {
     <div className="max-w-2xl mx-auto p-8">
       <h1 className="text-2xl font-bold mb-4">Populate Buckeye Brownies Project</h1>
       <p className="text-sm text-[var(--muted-foreground)] mb-6">
-        This will add subtabs and content blocks to the Buckeye Brownies project to demonstrate how a real organization would use Trak.
+        This will add subtabs and content blocks to the Buckeye Brownies project to demonstrate how a real organization would use TWOD.
       </p>
 
       <Button onClick={handlePopulate} disabled={loading}>

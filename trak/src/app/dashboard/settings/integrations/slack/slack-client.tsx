@@ -58,7 +58,7 @@ export default function SlackClient({ workspaceId, connection, userLink }: Slack
               Connect Slack
             </h3>
             <p className="text-gray-600 mb-4">
-              Install the Trak app to your Slack workspace and use AI-powered commands directly in Slack.
+              Install the TWOD app to your Slack workspace and use AI-powered commands directly in Slack.
             </p>
             <button
               onClick={handleInstall}
@@ -164,7 +164,7 @@ export default function SlackClient({ workspaceId, connection, userLink }: Slack
       {/* Usage Instructions */}
       <div className="bg-blue-50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-3">
-          Using Trak in Slack
+          Using TWOD in Slack
         </h3>
         <div className="space-y-2 text-sm text-blue-800">
           <p>Use the <code className="bg-blue-100 px-2 py-1 rounded font-mono">/trak</code> command in any Slack channel:</p>
