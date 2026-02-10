@@ -28,7 +28,7 @@ export default async function DashboardPage() {
   }
 
   // Fetch dashboard data with graceful degradation
-  const [projectsResult, docsResult, tasksResult, commentBlocksResult] = await Promise.allSettled([
+  const [projectsResult, docsResult, tasksResult, commentBlocksResult, aiInsightsResult] = await Promise.allSettled([
     // Get projects
     supabase
       .from("projects")
@@ -94,6 +94,12 @@ export default async function DashboardPage() {
       .not("content->>_blockComments", "is", null)
       .order("updated_at", { ascending: false })
       .limit(40),
+
+    // Get AI-generated dashboard insights
+    (async () => {
+      const { getDashboardInsights } = await import("@/app/actions/dashboard-insights");
+      return getDashboardInsights(workspaceId);
+    })(),
   ]);
 
   // Extract results with error handling for graceful degradation
@@ -112,6 +118,10 @@ export default async function DashboardPage() {
   const commentBlocks = commentBlocksResult.status === 'fulfilled' && !commentBlocksResult.value.error
     ? commentBlocksResult.value.data || []
     : [];
+
+  const aiInsights = aiInsightsResult.status === 'fulfilled' && !aiInsightsResult.value.error
+    ? aiInsightsResult.value.data
+    : null;
 
   // Extract uncompleted tasks from project blocks
   const tasks = taskItems
@@ -167,6 +177,9 @@ export default async function DashboardPage() {
       tasks={tasks}
       workspaceId={workspaceId}
       clientFeedback={clientFeedback}
+      aiInsights={aiInsights}
+      userId={user.id}
+      userName={user.email}
     />
   );
 }

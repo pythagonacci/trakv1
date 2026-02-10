@@ -5,11 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   ArrowRight,
-  ArrowUpRight,
   FileText,
-  Users,
   Plus,
-  TrendingUp,
   CheckCircle2,
   Flag,
   Calendar,
@@ -23,6 +20,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/app/dashboard/theme-context";
+import AIOverviewBlock from "./ai-overview-block";
+import type { DashboardInsight } from "@/app/actions/dashboard-insights";
 
 interface Project {
   id: string;
@@ -56,6 +55,9 @@ interface DashboardOverviewProps {
   tasks: Task[];
   workspaceId: string;
   clientFeedback: ClientFeedback[];
+  aiInsights?: DashboardInsight | null;
+  userId: string;
+  userName?: string;
 }
 
 interface ClientFeedback {
@@ -70,7 +72,16 @@ interface ClientFeedback {
   timestamp?: string;
 }
 
-export default function DashboardOverview({ projects, docs, tasks, clientFeedback }: DashboardOverviewProps) {
+export default function DashboardOverview({
+  projects,
+  docs,
+  tasks,
+  clientFeedback,
+  aiInsights,
+  workspaceId,
+  userId,
+  userName
+}: DashboardOverviewProps) {
   const router = useRouter();
   const { theme } = useTheme();
 
@@ -78,20 +89,10 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
     () => projects.filter((p) => p.status !== "complete" && p.project_type === "project"),
     [projects]
   );
-  const internalSpaces = useMemo(
-    () => projects.filter((p) => p.project_type === "internal"),
-    [projects]
-  );
-
-  const totalProjects = projects.length;
-  const inProgressCount = projects.filter((p) => p.status === "in_progress").length;
-  const notStartedCount = projects.filter((p) => p.status === "not_started").length;
-  const completedCount = projects.filter((p) => p.status === "complete").length;
 
   const clientFeedbackItems = clientFeedback.slice(0, 4);
   const teamUpdates = tasks.slice(0, 3);
   const materialUpdates = tasks.slice(3, 6);
-  const clientDocs = docs.slice(0, 3);
   const todayTasks = tasks.slice(0, 6);
   const feedbackCount = clientFeedback.length;
   const formatRelativeTime = (value?: string) => {
@@ -160,9 +161,6 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
     }
   };
 
-  const deliveryPercent = (count: number) =>
-    totalProjects === 0 ? 0 : Math.round((count / totalProjects) * 100);
-
   return (
     <div className="flex flex-col gap-6 pb-10 px-6 md:px-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -214,6 +212,14 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
         />
         <StatCard label="Feedback & updates" value={feedbackCount} />
       </div>
+
+      {/* AI Overview Block */}
+      <AIOverviewBlock
+        insights={aiInsights}
+        workspaceId={workspaceId}
+        userId={userId}
+        userName={userName}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <UpdatesCard
@@ -389,77 +395,6 @@ export default function DashboardOverview({ projects, docs, tasks, clientFeedbac
         </Card>
 
         <div className="flex flex-col gap-4">
-          <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-              <div>
-                <CardTitle className="text-sm font-medium">Client delivery status</CardTitle>
-                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                  How projects are progressing.
-                </p>
-              </div>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => router.push("/dashboard/projects")}>
-                <ArrowUpRight className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-4 px-4 pb-4">
-              <StatBar
-                label="In progress"
-                count={inProgressCount}
-                percent={deliveryPercent(inProgressCount)}
-              />
-              <StatBar
-                label="Not started"
-                count={notStartedCount}
-                percent={deliveryPercent(notStartedCount)}
-              />
-              <StatBar
-                label="Complete"
-                count={completedCount}
-                percent={deliveryPercent(completedCount)}
-              />
-              <p className="pt-1 text-[11px] text-[var(--muted-foreground)]">
-                Tip: Tag projects with <span className="font-medium">@at-risk</span> or{" "}
-                <span className="font-medium">@waiting-on-client</span> so the delivery view stays accurate.
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-              <div>
-                <CardTitle className="text-sm font-medium">Business health</CardTitle>
-                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                  Quick signals tied directly to your workspace data.
-                </p>
-              </div>
-              <span className="flex items-center gap-1 rounded-full border border-border/60 px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
-                <TrendingUp className="h-3 w-3" />
-                Workspace view
-              </span>
-            </CardHeader>
-            <CardContent className="space-y-4 text-xs px-4 pb-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <p className="text-[var(--muted-foreground)]">Projects tracked</p>
-                  <p className="text-base font-semibold">{totalProjects}</p>
-                </div>
-                <MiniStat icon={<Users className="h-4 w-4" />} label="Active teams" value="Workspace level" />
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-[var(--muted-foreground)]">Docs updated</span>
-                  <span className="font-medium">{docs.length}</span>
-                </div>
-                <SimpleProgress value={Math.min(100, docs.length * 5)} />
-              </div>
-              <MiniStat
-                icon={<ArrowUpRight className="h-4 w-4" />}
-                label="Internal spaces"
-                value={`${internalSpaces.length} active`}
-              />
-            </CardContent>
-          </Card>
-
           <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl flex-1">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
               <CardTitle className="text-sm font-medium">Recent docs</CardTitle>
@@ -625,56 +560,6 @@ function UpdateRow({
       </div>
       <ArrowRight className="h-3.5 w-3.5 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
-  );
-}
-
-interface StatBarProps {
-  label: string;
-  count: number;
-  percent: number;
-}
-
-function StatBar({ label, count, percent }: StatBarProps) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-[var(--muted-foreground)]">{label}</span>
-        <span className="font-medium">
-          {count} ({percent}%)
-        </span>
-      </div>
-      <SimpleProgress value={percent} />
-    </div>
-  );
-}
-
-function SimpleProgress({ value }: { value: number }) {
-  const clamped = Math.max(0, Math.min(100, value));
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
-      <div
-        className="h-full rounded-full bg-[var(--secondary)] transition-all"
-        style={{ width: `${clamped}%` }}
-      />
-    </div>
-  );
-}
-
-interface MiniStatProps {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}
-
-function MiniStat({ icon, label, value }: MiniStatProps) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-transparent px-3 py-2 text-xs">
-      {icon}
-      <div>
-        <p className="text-[11px] text-[var(--muted-foreground)]">{label}</p>
-        <p className="text-sm font-medium">{value}</p>
-      </div>
-    </div>
   );
 }
 
