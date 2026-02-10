@@ -53,6 +53,7 @@ export default function DashboardLayoutClient({
   children: React.ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const pathname = usePathname();
   const wasProjectView = useRef<boolean | null>(null);
 
@@ -73,6 +74,7 @@ export default function DashboardLayoutClient({
   return (
     <DashboardHeaderProvider>
       <div className="flex h-full bg-[var(--surface)] text-[var(--foreground)]">
+        {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
         <Sidebar collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -82,6 +84,217 @@ export default function DashboardLayoutClient({
       </div>
     </DashboardHeaderProvider>
   );
+}
+
+function SplashScreen({ onFinish }: { onFinish: () => void }) {
+  const { data: currentUser, isLoading } = useUser();
+  const [typedText, setTypedText] = useState("");
+  const [typingDone, setTypingDone] = useState(false);
+  const [isHiding, setIsHiding] = useState(false);
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [weather, setWeather] = useState<{
+    tempF: number | null;
+    location: string | null;
+    summary: string | null;
+    resolved: boolean;
+  }>({
+    tempF: null,
+    location: null,
+    summary: null,
+    resolved: false,
+  });
+
+  useEffect(() => {
+    if (resolvedName) return;
+    if (!isLoading && currentUser?.name) {
+      setResolvedName(normalizeName(currentUser.name));
+    }
+  }, [currentUser, isLoading, resolvedName]);
+
+  useEffect(() => {
+    if (resolvedName) return;
+    const fallbackTimer = setTimeout(() => {
+      setResolvedName(normalizeName(currentUser?.name || "there"));
+    }, 700);
+    return () => clearTimeout(fallbackTimer);
+  }, [currentUser, resolvedName]);
+
+  const name = resolvedName || "there";
+  const greeting = `Good Morning, ${name}`;
+
+  useEffect(() => {
+    if (!resolvedName) return;
+    let index = 0;
+    const interval = setInterval(() => {
+      index += 1;
+      setTypedText(greeting.slice(0, index));
+      if (index >= greeting.length) {
+        clearInterval(interval);
+        setTypingDone(true);
+      }
+    }, 85);
+
+    return () => clearInterval(interval);
+  }, [greeting, resolvedName]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveWeather = async () => {
+      try {
+        const latitude = 40.7831;
+        const longitude = -73.9712;
+        const weatherRes = await fetch(
+          `/api/weather?lat=${latitude}&lon=${longitude}`
+        );
+        if (!weatherRes.ok) {
+          throw new Error("Weather lookup failed");
+        }
+        const weatherJson = await weatherRes.json();
+
+        const temp = typeof weatherJson?.tempF === "number"
+          ? Math.round(weatherJson.tempF)
+          : null;
+        const wind = typeof weatherJson?.windMph === "number"
+          ? weatherJson.windMph
+          : null;
+        const code = typeof weatherJson?.code === "number"
+          ? weatherJson.code
+          : null;
+
+        const summary = describeWeather(code, wind);
+
+        if (!cancelled) {
+          setWeather({
+            tempF: temp,
+            location: "Manhattan, NY",
+            summary,
+            resolved: true,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setWeather({
+            tempF: null,
+            location: "Manhattan, NY",
+            summary: "Weather unavailable",
+            resolved: true,
+          });
+        }
+      }
+    };
+
+    resolveWeather();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!typingDone || !weather.resolved) return;
+
+    let finalizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const hideTimer = setTimeout(() => {
+      setIsHiding(true);
+      finalizeTimer = setTimeout(() => {
+        onFinish();
+      }, 450);
+    }, 3200);
+
+    return () => {
+      clearTimeout(hideTimer);
+      if (finalizeTimer) clearTimeout(finalizeTimer);
+    };
+  }, [typingDone, weather.resolved, onFinish]);
+
+  return (
+    <div
+      className={cn(
+        "fixed inset-0 z-[90] flex items-center justify-center bg-[var(--background)] text-[var(--foreground)]",
+        "transition-opacity duration-300",
+        isHiding ? "opacity-0 pointer-events-none" : "opacity-100"
+      )}
+    >
+      <div className="flex flex-col items-center gap-4 px-6 text-center">
+        <div
+          className="text-3xl md:text-4xl font-semibold tracking-tight font-playfair"
+          style={{ fontFamily: "var(--font-playfair)" }}
+        >
+          {typedText}
+          {!typingDone && <span className="inline-block w-[0.6ch] animate-pulse">|</span>}
+        </div>
+        <div className="text-sm md:text-base text-[var(--muted-foreground)]">
+          | {weather.tempF ?? "--"}°F | {weather.location || "Locating..."} | {weather.summary || "Fetching weather..."} |
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function describeWeather(code: number | null, windMph: number | null) {
+  const base = weatherCodeSummary(code);
+  if (windMph == null) return base;
+  if (windMph < 6) return `${base} with calm air`;
+  if (windMph < 12) return `${base} with light breeze`;
+  if (windMph < 20) return `${base} with steady breeze`;
+  return `${base} with gusty winds`;
+}
+
+function weatherCodeSummary(code: number | null) {
+  switch (code) {
+    case 0:
+      return "Clear skies";
+    case 1:
+    case 2:
+      return "Mostly sunny";
+    case 3:
+      return "Overcast";
+    case 45:
+    case 48:
+      return "Foggy";
+    case 51:
+    case 53:
+    case 55:
+      return "Light drizzle";
+    case 56:
+    case 57:
+      return "Freezing drizzle";
+    case 61:
+    case 63:
+      return "Light rain";
+    case 65:
+      return "Heavy rain";
+    case 66:
+    case 67:
+      return "Freezing rain";
+    case 71:
+    case 73:
+      return "Light snow";
+    case 75:
+      return "Heavy snow";
+    case 77:
+      return "Snow grains";
+    case 80:
+    case 81:
+    case 82:
+      return "Rain showers";
+    case 85:
+    case 86:
+      return "Snow showers";
+    case 95:
+      return "Thunderstorms";
+    case 96:
+    case 99:
+      return "Thunderstorms with hail";
+    default:
+      return "Mixed conditions";
+  }
+}
+
+function normalizeName(input: string) {
+  const trimmed = input.trim();
+  if (!trimmed) return "There";
+  return trimmed[0].toUpperCase() + trimmed.slice(1);
 }
 
 function AICommandButton({ collapsed }: { collapsed: boolean }) {
