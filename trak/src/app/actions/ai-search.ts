@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import type { AuthContext } from "@/lib/auth-context";
+import { queryEntities } from "@/app/actions/properties/query-actions";
+import type { QueryEntitiesParams, PropertyFilter, EntityReference } from "@/types/properties";
 
 // ============================================================================
 // TYPES
@@ -5454,6 +5456,93 @@ export async function resolveTableFieldsByNames(params: {
   } catch (err) {
     console.error("resolveTableFieldsByNames exception:", err);
     return { data: null, error: "Failed to resolve table fields" };
+  }
+}
+
+// ============================================================================
+// UNIVERSAL ENTITY PROPERTY SEARCH
+// ============================================================================
+
+/**
+ * Universal entity property search across tasks, blocks, timeline events, and table rows.
+ * Intended for broad queries like "everything not done".
+ */
+export async function searchEntitiesByProperties(params: {
+  scope?: "workspace" | "project" | "tab";
+  projectId?: string;
+  tabId?: string;
+  entityTypes?: Array<"task" | "block" | "timeline_event" | "table_row">;
+  status?: string | string[];
+  statusOperator?: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
+  priority?: string | string[];
+  priorityOperator?: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
+  includeInherited?: boolean;
+  limit?: number;
+  authContext?: AuthContext;
+}): Promise<SearchResponse<EntityReference>> {
+  const ctx = await getSearchContext({ authContext: params.authContext });
+  if (ctx.error !== null) return { data: null, error: ctx.error };
+
+  const supabase = ctx.supabase!;
+  const workspaceId = ctx.workspaceId!;
+
+  try {
+    const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
+    const findPropDef = (name: string) =>
+      propDefs.get(name) ||
+      propDefs.get(name.toLowerCase()) ||
+      propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
+
+    const properties: PropertyFilter[] = [];
+
+    const statusValues = normalizeArrayFilter(params.status) ?? null;
+    if (statusValues && statusValues.length > 0) {
+      const statusPropDef = findPropDef("Status");
+      if (statusPropDef) {
+        properties.push({
+          property_definition_id: statusPropDef.id,
+          operator: params.statusOperator ?? "equals",
+          value: statusValues[0],
+        });
+      }
+    }
+
+    const priorityValues = normalizeArrayFilter(params.priority) ?? null;
+    if (priorityValues && priorityValues.length > 0) {
+      const priorityPropDef = findPropDef("Priority");
+      if (priorityPropDef) {
+        properties.push({
+          property_definition_id: priorityPropDef.id,
+          operator: params.priorityOperator ?? "equals",
+          value: priorityValues[0],
+        });
+      }
+    }
+
+    const scope =
+      params.scope ??
+      (params.tabId ? "tab" : params.projectId ? "project" : "workspace");
+
+    const queryParams: QueryEntitiesParams = {
+      scope,
+      workspace_id: workspaceId,
+      project_id: params.projectId,
+      tab_id: params.tabId,
+      entity_types: params.entityTypes,
+      properties,
+      include_inherited: params.includeInherited,
+    };
+
+    const result = await queryEntities({ ...queryParams, authContext: params.authContext });
+    if ("error" in result) {
+      return { data: null, error: result.error };
+    }
+
+    const data = params.limit ? result.data.slice(0, params.limit) : result.data;
+    return { data, error: null };
+  } catch (err) {
+    console.error("searchEntitiesByProperties error:", err);
+    return { data: null, error: "Failed to search entities by properties" };
   }
 }
 

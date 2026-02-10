@@ -316,8 +316,45 @@ const searchTools: ToolDefinition[] = [
     requiredParams: [],
   },
   {
+    name: "searchEntitiesByProperties",
+    description:
+      "SEARCH across multiple entity types using universal entity_properties filters (read-only). " +
+      "Use for broad queries like 'everything not done' or 'all items with high priority'. " +
+      "Returns: Array of entity references (type, id, title, context).",
+    category: "search",
+    parameters: {
+      scope: { type: "string", description: "Scope for the query", enum: ["workspace", "project", "tab"] },
+      projectId: { type: "string", description: "Optional: Limit to a project (required if scope=project)" },
+      tabId: { type: "string", description: "Optional: Limit to a tab (required if scope=tab)" },
+      entityTypes: {
+        type: "array",
+        description: "Entity types to include (default: task, block, timeline_event, table_row)",
+        items: { type: "string", enum: ["task", "block", "timeline_event", "table_row"] },
+      },
+      status: { type: "string", description: "Filter by status value (e.g. todo, in_progress, done, blocked)" },
+      statusOperator: {
+        type: "string",
+        description: "Operator for status filter",
+        enum: ["equals", "not_equals", "contains", "is_empty", "is_not_empty"],
+      },
+      priority: { type: "string", description: "Filter by priority value (e.g. low, medium, high, urgent)" },
+      priorityOperator: {
+        type: "string",
+        description: "Operator for priority filter",
+        enum: ["equals", "not_equals", "contains", "is_empty", "is_not_empty"],
+      },
+      includeInherited: { type: "boolean", description: "Include inherited properties via entity links" },
+      limit: { type: "number", description: "Maximum number of results" },
+    },
+    requiredParams: [],
+  },
+  {
     name: "searchAll",
-    description: "SEARCH across ALL entity types at once (read-only). Use when you don't know which entity type to search or need to search multiple types. Returns: Object with results grouped by entity type. Good for exploratory searches.",
+    description:
+      "SEARCH across ALL entity types by text (read-only). " +
+      "Use when you don't know which entity type to search or need to search multiple types. " +
+      "NOTE: This is text/keyword search only and does NOT apply universal property filters. " +
+      "Returns: Object with results grouped by entity type. Good for exploratory searches.",
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search text" },
@@ -1709,7 +1746,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   file: pickTools(["searchFiles", "fileAnalysisQuery", "renameFile"]),
   member: pickTools(["searchWorkspaceMembers"]),
   tag: pickTools(["searchTags"]),
-  cross_entity: pickTools(["searchAll", "resolveEntityByName", "getEntityById", "getEntityContext"]),
+  cross_entity: pickTools(["searchEntitiesByProperties", "searchAll", "resolveEntityByName", "getEntityById", "getEntityContext"]),
   workspace: pickTools(["reindexWorkspaceContent"]),
 };
 
@@ -1723,6 +1760,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
  */
 export const coreTools: ToolDefinition[] = pickTools([
   // Cross-entity search and resolution
+  "searchEntitiesByProperties",
   "searchAll",
   "unstructuredSearchWorkspace",
   "resolveEntityByName",

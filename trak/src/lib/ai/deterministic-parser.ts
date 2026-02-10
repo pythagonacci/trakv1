@@ -214,6 +214,9 @@ export function parseDeterministicCommand(
   const createTab = matchCreateTab(cleaned, normalized, tokens, context);
   if (createTab) candidates.push(createTab);
 
+  const searchEntitiesByProperties = matchSearchEntitiesByProperties(cleaned, normalized, tokens, context);
+  if (searchEntitiesByProperties) candidates.push(searchEntitiesByProperties);
+
   const searchAll = matchSearchAll(cleaned, normalized, tokens);
   if (searchAll) candidates.push(searchAll);
 
@@ -569,17 +572,90 @@ function matchSearchAll(
 
   if (!/\b(all|everything|anywhere|across)\b/i.test(cleaned)) return null;
 
-  const searchText = extractSearchText(cleaned, normalized, tokens);
+  const searchText = getSearchTextForSearchAll(cleaned, normalized, tokens);
   if (!searchText) return null;
 
-  const args = { searchText, limit: DEFAULT_SEARCH_LIMIT };
+  const statusInfo = detectStatusWithNegation(normalized);
+  const priority = detectPriority(normalized);
+  const propertyArgs: Record<string, unknown> = { limit: DEFAULT_SEARCH_LIMIT };
+  if (statusInfo) {
+    propertyArgs.status = statusInfo.value;
+    if (statusInfo.operator) propertyArgs.statusOperator = statusInfo.operator;
+  }
+  if (priority) {
+    propertyArgs.priority = normalizePriorityValue(priority);
+  }
+
   const confidence = computeConfidence(actionScore, 0.8, 0.9, 0);
 
   return {
-    toolCalls: [{ name: "searchAll", arguments: args }],
+    toolCalls: [
+      { name: "searchAll", arguments: { searchText, limit: DEFAULT_SEARCH_LIMIT } },
+      { name: "searchEntitiesByProperties", arguments: propertyArgs },
+    ],
     confidence,
     reason: "search all",
-    responseTemplate: (results) => buildGenericSearchResponse(results[0], "items"),
+    responseTemplate: (results) => buildGenericSearchResponse(results[1], "items"),
+  };
+}
+
+function matchSearchEntitiesByProperties(
+  cleaned: string,
+  normalized: string,
+  tokens: string[],
+  context: ExecutionContext
+): DeterministicParseResult | null {
+  const cleanedForActionScore = stripTitledContent(cleaned);
+  const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
+  const tokensForActionScore = tokenize(normalizedForActionScore);
+
+  const createScore = scoreAction("create", normalizedForActionScore, tokensForActionScore);
+  if (createScore >= 0.7) return null;
+
+  const actionScore = scoreAction("search", normalizedForActionScore, tokensForActionScore);
+  if (actionScore < MIN_ACTION_SCORE) return null;
+
+  if (!/\b(all|everything|anywhere|across)\b/i.test(cleaned)) return null;
+
+  const hasSpecificEntity =
+    /\b(tasks?|to-?dos?|timeline|event(?:s)?|table(?:s)?|row(?:s)?|block(?:s)?|doc(?:s)?|file(?:s)?|tag(?:s)?)\b/i.test(cleaned);
+  if (hasSpecificEntity) return null;
+
+  const statusInfo = detectStatusWithNegation(normalized);
+  const priority = detectPriority(normalized);
+
+  if (!statusInfo && !priority) return null;
+
+  const propertyArgs: Record<string, unknown> = {
+    limit: DEFAULT_SEARCH_LIMIT,
+  };
+
+  if (statusInfo) {
+    propertyArgs.status = statusInfo.value;
+    if (statusInfo.operator) propertyArgs.statusOperator = statusInfo.operator;
+  }
+
+  if (priority) {
+    propertyArgs.priority = normalizePriorityValue(priority);
+  }
+
+  if (/\b(this|current)\s+project\b/i.test(cleaned) && context.currentProjectId) {
+    propertyArgs.scope = "project";
+    propertyArgs.projectId = context.currentProjectId;
+  }
+
+  const confidence = computeConfidence(actionScore, 0.85, 0.85, 0);
+
+  const searchText = getSearchTextForSearchAll(cleaned, normalized, tokens);
+
+  return {
+    toolCalls: [
+      { name: "searchAll", arguments: { searchText, limit: DEFAULT_SEARCH_LIMIT } },
+      { name: "searchEntitiesByProperties", arguments: propertyArgs },
+    ],
+    confidence,
+    reason: "search entities by properties",
+    responseTemplate: (results) => buildGenericSearchResponse(results[1], "items"),
   };
 }
 
@@ -1049,6 +1125,34 @@ function detectTaskStatus(normalized: string) {
     if (synonyms.some((term) => normalized.includes(term))) return status;
   }
   return undefined;
+}
+
+function normalizeStatusValue(value: string) {
+  if (value === "in-progress" || value === "in progress") return "in_progress";
+  return value;
+}
+
+function normalizePriorityValue(value: string) {
+  return value.replace("-", "_");
+}
+
+function detectStatusWithNegation(normalized: string): { value: string; operator?: "not_equals" } | undefined {
+  const negatedDone = /(?:not|isn't|is not|isnt|aren't|are not|arent)\s+(done|completed|complete|finished|closed)/i.test(normalized);
+  if (negatedDone) {
+    return { value: "done", operator: "not_equals" };
+  }
+
+  const status = detectTaskStatus(normalized);
+  if (!status) return undefined;
+
+  return { value: normalizeStatusValue(status) };
+}
+
+function getSearchTextForSearchAll(cleaned: string, normalized: string, tokens: string[]) {
+  const searchText = extractSearchText(cleaned, normalized, tokens);
+  if (searchText && searchText.trim().length > 0) return searchText;
+  const cleanedText = cleaned.trim();
+  return cleanedText.length > 0 ? cleanedText : null;
 }
 
 function detectProjectStatus(normalized: string) {

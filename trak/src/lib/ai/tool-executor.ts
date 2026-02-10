@@ -24,6 +24,7 @@ import {
   searchTimelineEvents,
   searchFiles,
   searchTags,
+  searchEntitiesByProperties,
   searchAll,
   resolveEntityByName,
   getEntityById,
@@ -936,6 +937,9 @@ export async function executeTool(
 
         case "searchTags":
           return await wrapResult(searchTags(args as any));
+
+        case "searchEntitiesByProperties":
+          return await wrapResult(searchEntitiesByProperties({ ...(args as any), authContext }));
 
         case "searchAll":
           return await wrapResult(searchAll({ ...args as any, authContext }));
