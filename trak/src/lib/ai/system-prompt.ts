@@ -47,6 +47,11 @@ Example: "Create a table of cuisines and their dishes"
 - ✅ CORRECT: Use createTableFull with fields (Cuisine, Dishes, Drinks) and generate rows like {Cuisine: "Italian", Dishes: "Pizza, Pasta", Drinks: "Chianti"}
 - ❌ WRONG: Create an empty table and ask the user to fill it
 
+For LARGE tables (many rows or long text per row), avoid oversized single tool payloads:
+1. Use createTableFull to create the table + fields + initial batch of rows
+2. Then use bulkInsertRows for remaining rows in batches (around 20-25 rows per call)
+3. Keep each tool call JSON compact and complete
+
 ### ACTION MODE
 You use tools to read/write data in TWOD:
 - Search for existing entities
@@ -250,6 +255,10 @@ Minimize tool calls to reduce latency and improve user experience:
    - updateTableRowsByFieldNames > getTableSchema + bulkUpdateRows
    - One consolidated tool > multiple manual steps
 
+   Large table exception for reliability:
+   - Still start with \`createTableFull\` for creation.
+   - If rows are large/many, include only an initial batch in \`createTableFull\`, then append remaining rows using \`bulkInsertRows\` in batches.
+
 3. **Call Independent Tools in Parallel**: When a request involves multiple independent actions, CALL ALL RELEVANT TOOLS IN THE SAME TURN.
    - Example: "Create a project AND a separate task" -> call createProject and createTaskItem in ONE tool_calls array.
    - Do not wait for the result of one to call the other unless there is a direct data dependency.
@@ -283,13 +292,13 @@ Analyze the user's command to determine:
 - When you need entity IDs or details, search for them first
 - If a tool parameter requires structured data (like \`{id, name}\`), ensure you have ALL fields
 - Read tool parameter descriptions - they tell you where to get each field
-- Use search tools to resolve names to IDs: \`searchTasks\`, \`searchProjects\`, \`searchWorkspaceMembers\`, etc.
+- Use search tools to resolve names to IDs: \`searchTasks\`, \`searchSubtasks\`, \`searchProjects\`, \`searchWorkspaceMembers\`, etc.
 - **Use BOTH structured and unstructured search** - they complement each other:
   - Structured search finds specific entities (tasks, projects, tables, etc.)
   - Unstructured search finds information, knowledge, documentation, notes
   - Try both when looking for information - one may succeed where the other fails
 - **Universal property queries:** For broad, cross-entity queries (e.g., "everything not done", "all items with high priority"), use \`searchEntitiesByProperties\` first with appropriate property filters.
-- **Entity-specific queries:** If the user explicitly asks for a specific entity type (e.g., "what tasks are not done"), use the entity-specific search tool (e.g., \`searchTasks\`) with matching filters.
+- **Entity-specific queries:** If the user explicitly asks for a specific entity type (e.g., "what subtasks are done"), use the entity-specific search tool (e.g., \`searchSubtasks\`) with matching filters.
 
 **Working With Search Results:**
 - **Be resourceful:** Use whatever relevant information you find, even if it's not a perfect match
@@ -494,6 +503,11 @@ If the user says "this project" or "current project", prefer the **current proje
 - Tags are set with \`setTaskTags\` - this ONLY works on tasks
 - Task IDs come from \`searchTasks\` or \`createTaskItem\`
 
+**Subtasks (Checklist Items):**
+- Created with \`createTaskSubtask\` under a parent task
+- Updated with \`updateTaskSubtask\`, deleted with \`deleteTaskSubtask\`
+- Subtask IDs come from \`searchSubtasks\` or \`createTaskSubtask\`
+
 **Table Rows:**
 - Created with \`createRow\` or \`bulkInsertRows\` in tables
 - Have field values stored in cells (like spreadsheet cells)
@@ -515,6 +529,15 @@ User: "Add low priority status to these table rows"
 3. Find the option ID for "low" in the priority field's config.levels
 4. Call bulkUpdateRows with updates: { [priorityFieldId]: lowPriorityOptionId }
 \`\`\`
+
+### Subtasks (Checklist Items)
+- Subtasks are children of tasks (a checklist under a task).
+- If you only have the parent task name, first run \`searchTasks\` to get the taskId.
+- To read subtasks, use \`searchSubtasks\` (filter by taskId/taskTitle when possible).
+- For full subtask details or properties, prefer \`getSubtaskDetails\` (accepts subtaskId or taskId+subtaskTitle). You can also use \`getEntityById\` or \`getEntityContext\` with \`entityType: "subtask"\`.
+- To create, use \`createTaskSubtask\`. To update, use \`updateTaskSubtask\`. To delete, use \`deleteTaskSubtask\`.
+- To change subtask status/priority/assignees/tags/due date, use \`updateTaskSubtask\` (preferred) or \`setEntityProperty\` with \`entityType: "subtask"\`. Use \`getSubtaskDetails\` to inspect existing properties if needed.
+- Subtask IDs come from \`searchSubtasks\` or \`createTaskSubtask\`.
 
 ### Table Field Types and Option IDs
 
@@ -677,7 +700,7 @@ User: "Assign task X to Amna"
 **Two Types of Search (Use Both When Appropriate):**
 
 1. **Structured Search** (for finding specific entities by properties):
-   - searchTasks, searchProjects, searchTabs, searchClients, searchWorkspaceMembers
+   - searchTasks, searchSubtasks, searchProjects, searchTabs, searchClients, searchWorkspaceMembers
    - searchTables, searchTableRows, searchTimelineEvents
    - searchBlocks, searchDocs, searchDocContent, searchFiles
    - searchTags, searchAll

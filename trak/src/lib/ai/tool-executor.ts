@@ -12,6 +12,8 @@
 // ============================================================================
 import {
   searchTasks,
+  searchSubtasks,
+  getSubtaskDetails,
   searchProjects,
   searchClients,
   searchWorkspaceMembers,
@@ -155,6 +157,7 @@ import {
   setEntityProperty,
   removeEntityProperty,
 } from "@/app/actions/properties/entity-property-actions";
+import { setEntityProperties } from "@/app/actions/entity-properties";
 
 // ============================================================================
 // IMPORTS - Client Actions
@@ -287,6 +290,87 @@ function isWriteToolName(name: string) {
     name === "fileAnalysisQuery" ||
     name === "reindexWorkspaceContent"
   );
+}
+
+const FIXED_PROPERTY_NAME_MAP: Record<string, "status" | "priority" | "assignee_ids" | "due_date" | "tags"> = {
+  status: "status",
+  priority: "priority",
+  assignee: "assignee_ids",
+  assignees: "assignee_ids",
+  assignee_id: "assignee_ids",
+  assignee_ids: "assignee_ids",
+  due: "due_date",
+  due_date: "due_date",
+  dueDate: "due_date",
+  tag: "tags",
+  tags: "tags",
+};
+
+function normalizePropertyName(value: unknown): keyof typeof FIXED_PROPERTY_NAME_MAP | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .trim()
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  return (FIXED_PROPERTY_NAME_MAP[normalized] ? normalized : null) as keyof typeof FIXED_PROPERTY_NAME_MAP | null;
+}
+
+async function resolveAssigneeIdsFromValue(
+  value: unknown,
+  authContext: AuthContext | null
+): Promise<string[]> {
+  const ids = new Set<string>();
+  const names: string[] = [];
+
+  const addFromEntry = (entry: any) => {
+    if (!entry) return;
+    if (typeof entry === "string") {
+      if (isUuid(entry)) ids.add(entry);
+      else names.push(entry);
+      return;
+    }
+    if (typeof entry === "object") {
+      const id = typeof entry.id === "string" ? entry.id : typeof entry.user_id === "string" ? entry.user_id : null;
+      const name = typeof entry.name === "string" ? entry.name : typeof entry.email === "string" ? entry.email : null;
+      if (id && isUuid(id)) ids.add(id);
+      else if (name) names.push(name);
+    }
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(addFromEntry);
+  } else {
+    addFromEntry(value);
+  }
+
+  if (names.length === 0) return Array.from(ids);
+
+  const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+  if ("error" in ctxResult && ctxResult.error !== null) return Array.from(ids);
+  const ctx = "error" in ctxResult ? null : ctxResult;
+  if (!ctx) return Array.from(ids);
+
+  for (const name of names) {
+    const result = await searchWorkspaceMembers({ searchText: name, limit: 5 }, { ctx });
+    const members = result.data ?? [];
+    if (members.length === 0) continue;
+    const exact = members.find((m) => m.name?.toLowerCase() === name.toLowerCase() || m.email?.toLowerCase() === name.toLowerCase());
+    const chosen = exact ?? members[0];
+    if (chosen?.user_id) ids.add(chosen.user_id);
+  }
+
+  return Array.from(ids);
+}
+
+const LEGACY_TOOL_ALIASES: Record<string, string> = {
+  createSubtask: "createTaskSubtask",
+  updateSubtask: "updateTaskSubtask",
+  deleteSubtask: "deleteTaskSubtask",
+};
+
+function normalizeToolName(name: string): string {
+  return LEGACY_TOOL_ALIASES[name] ?? name;
 }
 
 function toStringArray(value: unknown): string[] {
@@ -744,10 +828,15 @@ export async function executeTool(
   context?: ToolExecutionContext
 ): Promise<ToolCallResult> {
   const { name, arguments: args } = toolCall;
+  const requestedToolName = name;
+  const toolName = normalizeToolName(name);
   const t0 = performance.now();
 
   try {
-    aiDebug("executeTool:start", { tool: name, ...summarizeToolArgs(args) });
+    aiDebug("executeTool:start", { tool: requestedToolName, resolvedTool: toolName, ...summarizeToolArgs(args) });
+    if (requestedToolName !== toolName) {
+      aiDebug("executeTool:alias", { requestedTool: requestedToolName, resolvedTool: toolName });
+    }
 
     // If context is provided (test mode), set it globally for server actions to use
     if (shouldUseTestContext && context?.workspaceId && context?.userId) {
@@ -768,13 +857,13 @@ export async function executeTool(
     }
 
     const undoTracker = context?.undoTracker;
-    const shouldCaptureUndo = Boolean(undoTracker) && isWriteToolName(name);
+    const shouldCaptureUndo = Boolean(undoTracker) && isWriteToolName(toolName);
     const supabaseForUndo = shouldCaptureUndo
       ? (authContext?.supabase ?? await createSupabaseClient())
       : null;
     const preUndoSteps = shouldCaptureUndo && supabaseForUndo
       ? await captureUndoStepsBefore({
-        toolName: name,
+        toolName,
         toolArgs: args,
         supabase: supabaseForUndo,
         workspaceId: workspaceId ?? undefined,
@@ -782,7 +871,7 @@ export async function executeTool(
       : [];
 
     const runTool = async (): Promise<ToolCallResult> => {
-      switch (name) {
+      switch (toolName) {
         // ==================================================================
         // CONTROL TOOLS
         // ==================================================================
@@ -818,6 +907,20 @@ export async function executeTool(
         // ==================================================================
         case "searchTasks":
           return await wrapResult(searchTasks({ ...args as any, authContext }));
+
+        case "searchSubtasks":
+          return await wrapResult(searchSubtasks({ ...args as any, authContext }));
+
+        case "getSubtaskDetails":
+          return await wrapResult(
+            getSubtaskDetails({
+              subtaskId: args.subtaskId as string | undefined,
+              taskId: args.taskId as string | undefined,
+              subtaskTitle: args.subtaskTitle as string | undefined,
+              includeProperties: args.includeProperties as boolean | undefined,
+              authContext: authContext ?? undefined,
+            })
+          );
 
         case "searchProjects":
           return await wrapResult(searchProjects({ ...args as any, authContext }));
@@ -961,6 +1064,24 @@ export async function executeTool(
         // ==================================================================
         case "createTaskItem":
           {
+            const parentTaskId = typeof args.parentTaskId === "string" ? args.parentTaskId.trim() : "";
+            if (parentTaskId.length > 0) {
+              const title = typeof args.title === "string" ? args.title.trim() : "";
+              if (!title) {
+                return { success: false, error: "Missing title for subtask creation" };
+              }
+              return await wrapResult(
+                createTaskSubtask({
+                  taskId: parentTaskId,
+                  title,
+                  description: args.description as string | null | undefined,
+                  completed: args.status === "done" ? true : undefined,
+                  displayOrder: args.displayOrder as number | undefined,
+                  authContext: authContext ?? undefined,
+                })
+              );
+            }
+
             const timing: Record<string, number> = {};
             const needBlock = !(args.taskBlockId as string);
             const assigneeArgs =
@@ -1687,7 +1808,9 @@ export async function executeTool(
             createTaskSubtask({
               taskId: args.taskId as string,
               title: args.title as string,
+              description: args.description as string | null | undefined,
               completed: args.completed as boolean | undefined,
+              displayOrder: args.displayOrder as number | undefined,
               authContext: authContext ?? undefined,
             })
           );
@@ -1696,7 +1819,19 @@ export async function executeTool(
           return await wrapResult(
             updateTaskSubtask(args.subtaskId as string, {
               title: args.title as string | undefined,
+              description: args.description as string | null | undefined,
               completed: args.completed as boolean | undefined,
+              displayOrder: args.displayOrder as number | undefined,
+              status: args.status as any,
+              priority: args.priority as any,
+              assignee_ids: Array.isArray(args.assigneeIds)
+                ? (args.assigneeIds as string[])
+                : Array.isArray(args.assignee_ids)
+                  ? (args.assignee_ids as string[])
+                  : undefined,
+              assignee_id: (args.assigneeId ?? args.assignee_id) as string | null | undefined,
+              due_date: (args.dueDate ?? args.due_date) as any,
+              tags: Array.isArray(args.tags) ? (args.tags as string[]) : undefined,
             })
           );
 
@@ -2214,12 +2349,21 @@ export async function executeTool(
               };
             }
 
-            await maybeEnsureFieldsForRows(resolvedTableId, normalizedRows);
+            const rowsWithSourceMetadata = await annotateRowsWithSourceMetadataForTable({
+              tableId: resolvedTableId,
+              rows: normalizedRows as Array<Record<string, unknown>>,
+              authContext: authContext ?? undefined,
+            });
+
+            await maybeEnsureFieldsForRows(
+              resolvedTableId,
+              rowsWithSourceMetadata as Array<{ data: Record<string, unknown>; order?: number | string | null }>
+            );
             await maybeRemoveDefaultRows(resolvedTableId);
 
             const mappingResult = await mapRowDataToFieldIds(
               resolvedTableId,
-              normalizedRows
+              rowsWithSourceMetadata as Array<{ data: Record<string, unknown>; order?: number | string | null }>
             );
 
             if (mappingResult.warnings.length > 0) {
@@ -2248,6 +2392,17 @@ export async function executeTool(
                 rows: rowsWithNormalizedSelects,
               })
             );
+
+            if (result.success) {
+              const insertedIds = (result.data as { insertedIds?: string[] } | undefined)?.insertedIds ?? [];
+              if (insertedIds.length > 0) {
+                await syncPriorityStatusToEntityProperties(
+                  resolvedTableId,
+                  insertedIds,
+                  authContext ?? undefined
+                );
+              }
+            }
 
             // Attach warnings if any fields were unmatched
             if (mappingResult.warnings.length > 0) {
@@ -2447,6 +2602,7 @@ export async function executeTool(
 
           if (updateResult.success) {
             updateResult.data = { updated: matchedRowIds.length, rowIds: matchedRowIds };
+            await syncPriorityStatusToEntityProperties(tableId, matchedRowIds, authContext ?? undefined);
           }
 
           if (timingEnabled) {
@@ -2636,45 +2792,57 @@ export async function executeTool(
               };
             }
 
+            rows = await annotateRowsWithSourceMetadata({
+              rows,
+              workspaceId,
+              supabase: authContext?.supabase ?? await createSupabaseClient(),
+            });
+
+            const hasSourceMetadata = rows.some((row) =>
+              hasValidRowSourceMetadata((row as Record<string, unknown>)?.source_entity_type, (row as Record<string, unknown>)?.source_entity_id)
+            );
+
             // Enhance field types with smart inference from row data
             fields = enhanceFieldsWithInference(fields, rows);
             rows = normalizeRowsForSelectFields(fields, rows);
 
-            // RPC fast-path: create table + fields + rows in one DB transaction
-            const rpcResult = await createTableFullRpc({
-              workspaceId,
-              title,
-              description,
-              projectId,
-              fields,
-              rows,
-              authContext: authContext ?? undefined,
-            });
+            if (!hasSourceMetadata) {
+              // RPC fast-path: create table + fields + rows in one DB transaction
+              const rpcResult = await createTableFullRpc({
+                workspaceId,
+                title,
+                description,
+                projectId,
+                fields,
+                rows,
+                authContext: authContext ?? undefined,
+              });
 
-            if (!("error" in rpcResult)) {
-              const { tableId, fieldsCreated, rowsInserted } = rpcResult.data;
-              let blockId: string | null = null;
+              if (!("error" in rpcResult)) {
+                const { tableId, fieldsCreated, rowsInserted } = rpcResult.data;
+                let blockId: string | null = null;
 
-              // Create table block (UI visibility) if needed
-              if (tabId) {
-                const blockResult = await createBlock({
-                  tabId,
-                  type: "table",
-                  content: { tableId },
-                  authContext: authContext ?? undefined,
-                });
-                if ("error" in blockResult) {
-                  await deleteTable(tableId, { authContext: authContext ?? undefined });
-                  return { success: false, error: blockResult.error ?? "Failed to create table block." };
+                // Create table block (UI visibility) if needed
+                if (tabId) {
+                  const blockResult = await createBlock({
+                    tabId,
+                    type: "table",
+                    content: { tableId },
+                    authContext: authContext ?? undefined,
+                  });
+                  if ("error" in blockResult) {
+                    await deleteTable(tableId, { authContext: authContext ?? undefined });
+                    return { success: false, error: blockResult.error ?? "Failed to create table block." };
+                  }
+                  blockId = blockResult.data.id;
                 }
-                blockId = blockResult.data.id;
-              }
 
-              return {
-                success: true,
-                data: { tableId, fieldsCreated, rowsInserted, blockId },
-                hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
-              };
+                return {
+                  success: true,
+                  data: { tableId, fieldsCreated, rowsInserted, blockId },
+                  hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
+                };
+              }
             }
 
             // Step 1: Create table
@@ -2735,17 +2903,21 @@ export async function executeTool(
                 { name: "bulkInsertRows", arguments: { tableId, rows } },
                 context
               );
-              if (!rowsResult.success) {
-                if (blockId) {
-                  await deleteBlock(blockId, { authContext: authContext ?? undefined });
-                }
-                await deleteTable(tableId, { authContext: authContext ?? undefined });
-                return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
+            if (!rowsResult.success) {
+              if (blockId) {
+                await deleteBlock(blockId, { authContext: authContext ?? undefined });
               }
-              insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
-                ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
-                : [];
+              await deleteTable(tableId, { authContext: authContext ?? undefined });
+              return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
             }
+            insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
+              ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
+              : [];
+
+            if (insertedRows.length > 0) {
+              await syncPriorityStatusToEntityProperties(tableId, insertedRows as string[], authContext ?? undefined);
+            }
+          }
 
             return {
               success: true,
@@ -2787,8 +2959,13 @@ export async function executeTool(
               (Array.isArray(args.insertRows) && args.insertRows.length > 0) ||
               (args.updateRows && typeof args.updateRows === "object") ||
               (Array.isArray(args.deleteRowIds) && args.deleteRowIds.length > 0);
+            const hasSourceMetadataInInsertRows =
+              Array.isArray(args.insertRows) &&
+              (args.insertRows as Array<Record<string, unknown>>).some((row) =>
+                hasValidRowSourceMetadata(row?.source_entity_type, row?.source_entity_id)
+              );
 
-            if (hasRpcOps && !context?.undoTracker) {
+            if (hasRpcOps && !context?.undoTracker && !hasSourceMetadataInInsertRows) {
               // RPC fast-path: apply all operations in one DB transaction
               const rpcResult = await updateTableFullRpc({
                 tableId,
@@ -3125,14 +3302,54 @@ export async function executeTool(
           );
 
         case "setEntityProperty":
-          return await wrapResult(
-            setEntityProperty({
-              entity_type: args.entityType as any,
-              entity_id: args.entityId as string,
-              property_definition_id: args.propertyDefinitionId as string,
-              value: args.value as PropertyValue,
-            })
-          );
+          {
+            const entityType = args.entityType as any;
+            const entityId = args.entityId as string;
+            const propertyNameRaw = (args as any).propertyName ?? (args as any).propertyKey;
+            const normalizedName = normalizePropertyName(propertyNameRaw);
+            const propertyValue = (args as any).propertyValue ?? (args as any).value;
+
+            if (normalizedName) {
+              if (!workspaceId) {
+                return { success: false, error: "No workspace selected" };
+              }
+              const fixedKey = FIXED_PROPERTY_NAME_MAP[normalizedName];
+              const updates: Record<string, unknown> = {};
+
+              if (fixedKey === "status") updates.status = propertyValue;
+              if (fixedKey === "priority") updates.priority = propertyValue;
+              if (fixedKey === "due_date") updates.due_date = propertyValue;
+              if (fixedKey === "tags") {
+                updates.tags = Array.isArray(propertyValue)
+                  ? propertyValue
+                  : propertyValue
+                    ? [String(propertyValue)]
+                    : [];
+              }
+              if (fixedKey === "assignee_ids") {
+                const assigneeIds = await resolveAssigneeIdsFromValue(propertyValue, authContext);
+                updates.assignee_ids = assigneeIds;
+              }
+
+              return await wrapResult(
+                setEntityProperties({
+                  entity_type: entityType,
+                  entity_id: entityId,
+                  workspace_id: workspaceId,
+                  updates,
+                })
+              );
+            }
+
+            return await wrapResult(
+              setEntityProperty({
+                entity_type: entityType,
+                entity_id: entityId,
+                property_definition_id: args.propertyDefinitionId as string,
+                value: args.value as PropertyValue,
+              })
+            );
+          }
 
         case "removeEntityProperty":
           return await wrapResult(
@@ -3616,31 +3833,31 @@ export async function executeTool(
         default:
           return {
             success: false,
-            error: `Unknown tool: ${name}`,
+            error: `Unknown tool: ${requestedToolName}`,
           };
       }
     };
 
     const result = await runTool();
     if (shouldCaptureUndo && undoTracker && result.success) {
-      const postUndoSteps = buildUndoStepsAfter(name, args, result);
+      const postUndoSteps = buildUndoStepsAfter(toolName, args, result);
       const combined = [...postUndoSteps, ...preUndoSteps];
       if (combined.length > 0) {
         undoTracker.addBatch(combined);
       } else {
-        undoTracker.skipTool(name);
+        undoTracker.skipTool(toolName);
       }
     }
     return result;
   } catch (error) {
-    aiDebug("executeTool:error", { tool: name, error });
-    console.error(`[executeTool] Error executing ${name}:`, error);
+    aiDebug("executeTool:error", { tool: requestedToolName, resolvedTool: toolName, error });
+    console.error(`[executeTool] Error executing ${requestedToolName}:`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   } finally {
-    aiDebug("executeTool:done", { tool: name, ms: Math.round(performance.now() - t0) });
+    aiDebug("executeTool:done", { tool: requestedToolName, resolvedTool: toolName, ms: Math.round(performance.now() - t0) });
     // Clear test context if it was set
     if (shouldUseTestContext && context?.workspaceId && context?.userId) {
       await clearTestContext();
@@ -4253,6 +4470,12 @@ function normalizeRowsForSelectFields(
       if (!field) continue;
       const fieldType = String(field.type ?? "");
       if (!isSelectLike(fieldType)) continue;
+
+      // Status/Priority are universal properties backed by workspace property_definitions.
+      // Do not remap them using temporary field config options, or canonical values
+      // like "todo"/"high" get converted into transient option IDs.
+      if (fieldType === "status" || fieldType === "priority") continue;
+
       const config = field.config as Record<string, unknown> | undefined;
       if (!config) continue;
 
@@ -4656,6 +4879,225 @@ async function mapRowDataToFieldIds(
   return { rows: mappedRows, warnings };
 }
 
+type SourceLinkedInsertRow = {
+  data: Record<string, unknown>;
+  order?: number | string | null;
+  source_entity_type?: unknown;
+  source_entity_id?: unknown;
+  source_sync_mode?: unknown;
+  [key: string]: unknown;
+};
+
+async function annotateRowsWithSourceMetadataForTable(params: {
+  tableId: string;
+  rows: Array<Record<string, unknown>>;
+  authContext?: AuthContext;
+}): Promise<Array<Record<string, unknown>>> {
+  if (!params.rows.length) return params.rows;
+  const tableResult = await getTable(params.tableId, { authContext: params.authContext });
+  if ("error" in tableResult) return params.rows;
+  return annotateRowsWithSourceMetadata({
+    rows: params.rows,
+    workspaceId: tableResult.data.table.workspace_id,
+    supabase: params.authContext?.supabase ?? await createSupabaseClient(),
+  });
+}
+
+async function annotateRowsWithSourceMetadata(params: {
+  rows: Array<Record<string, unknown>>;
+  workspaceId: string;
+  supabase: SupabaseClient;
+}): Promise<Array<Record<string, unknown>>> {
+  const normalizedRows = params.rows.map((row) => normalizeSourceMetadataOnRow(row as SourceLinkedInsertRow));
+  const candidateIds = new Set<string>();
+
+  normalizedRows.forEach((row) => {
+    if (typeof row.source_entity_id === "string") {
+      candidateIds.add(row.source_entity_id);
+      return;
+    }
+    const candidate = extractSourceCandidateIdFromRow(row);
+    if (candidate) candidateIds.add(candidate.id);
+  });
+
+  if (candidateIds.size === 0) return normalizedRows;
+
+  const ids = Array.from(candidateIds);
+  const [taskResult, timelineResult] = await Promise.all([
+    params.supabase
+      .from("task_items")
+      .select("id")
+      .eq("workspace_id", params.workspaceId)
+      .in("id", ids),
+    params.supabase
+      .from("timeline_events")
+      .select("id")
+      .eq("workspace_id", params.workspaceId)
+      .in("id", ids),
+  ]);
+
+  const taskIds = new Set(
+    ((taskResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
+  const timelineIds = new Set(
+    ((timelineResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
+
+  return normalizedRows.map((row) => {
+    if (hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) {
+      return row;
+    }
+
+    const candidate = extractSourceCandidateIdFromRow(row);
+    if (!candidate) return row;
+
+    const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds);
+    if (!inferredType) return row;
+
+    return {
+      ...row,
+      source_entity_type: inferredType,
+      source_entity_id: candidate.id,
+      source_sync_mode: "snapshot",
+    };
+  });
+}
+
+async function syncPriorityStatusToEntityProperties(
+  tableId: string,
+  rowIds: string[],
+  authContext?: AuthContext
+): Promise<void> {
+  if (!tableId || rowIds.length === 0) return;
+
+  const tableResult = await getTable(tableId, { authContext });
+  if ("error" in tableResult || !tableResult.data?.table) return;
+
+  const workspaceId = tableResult.data.table.workspace_id as string | undefined;
+  const fields = tableResult.data.fields || [];
+  const relevantFields = fields.filter(
+    (field) =>
+      (field.type === "priority" || field.type === "status") &&
+      field.property_definition_id
+  );
+
+  if (!workspaceId || relevantFields.length === 0) return;
+
+  const supabase = authContext?.supabase ?? await createSupabaseClient();
+  const { data: rows } = await supabase
+    .from("table_rows")
+    .select("id, data")
+    .eq("table_id", tableId)
+    .in("id", rowIds);
+
+  if (!rows || rows.length === 0) return;
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+
+  for (const rowId of rowIds) {
+    const row = rowsById.get(rowId);
+    if (!row || !row.data) continue;
+
+    for (const field of relevantFields) {
+      const fieldValue = (row.data as Record<string, unknown>)[field.id];
+      if (fieldValue === null || fieldValue === undefined || fieldValue === "") continue;
+
+      await supabase
+        .from("entity_properties")
+        .upsert(
+          {
+            entity_type: "table_row",
+            entity_id: rowId,
+            property_definition_id: field.property_definition_id,
+            value: fieldValue,
+            workspace_id: workspaceId,
+          },
+          { onConflict: "entity_type,entity_id,property_definition_id" }
+        );
+    }
+  }
+}
+
+function normalizeSourceMetadataOnRow(row: SourceLinkedInsertRow): SourceLinkedInsertRow {
+  const sourceEntityType = normalizeSourceEntityType(row.source_entity_type);
+  const sourceEntityId = normalizeSourceEntityId(row.source_entity_id);
+  if (!sourceEntityType || !sourceEntityId) {
+    return {
+      ...row,
+      source_entity_type: undefined,
+      source_entity_id: undefined,
+      source_sync_mode: undefined,
+    };
+  }
+  return {
+    ...row,
+    source_entity_type: sourceEntityType,
+    source_entity_id: sourceEntityId,
+    source_sync_mode: normalizeSourceSyncMode(row.source_sync_mode),
+  };
+}
+
+function hasValidRowSourceMetadata(sourceType: unknown, sourceId: unknown): boolean {
+  return Boolean(normalizeSourceEntityType(sourceType) && normalizeSourceEntityId(sourceId));
+}
+
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | null {
+  if (value === "task" || value === "timeline_event") return value;
+  return null;
+}
+
+function normalizeSourceEntityId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return isUuid(value) ? value : null;
+}
+
+function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
+  return value === "live" ? "live" : "snapshot";
+}
+
+function extractSourceCandidateIdFromRow(
+  row: SourceLinkedInsertRow
+): { id: string; hintedType?: "task" | "timeline_event" } | null {
+  const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
+  const normalizedEntries = Object.entries(data).map(([key, value]) => [normalizeSourceKey(key), value] as const);
+  const normalizedMap = new Map(normalizedEntries);
+
+  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" }> = [
+    { keys: ["task_id", "taskid"], hintedType: "task" },
+    { keys: ["timeline_event_id", "timelineeventid", "event_id", "eventid"], hintedType: "timeline_event" },
+    { keys: ["source_id", "entity_id", "id"] },
+  ];
+
+  for (const entry of candidateKeys) {
+    for (const key of entry.keys) {
+      const value = normalizedMap.get(key);
+      const id = normalizeSourceEntityId(value);
+      if (id) return { id, hintedType: entry.hintedType };
+    }
+  }
+
+  return null;
+}
+
+function normalizeSourceKey(value: string): string {
+  return normalizeFieldKey(value).replace(/[^a-z0-9]+/g, "_");
+}
+
+function inferSourceEntityTypeForCandidate(
+  candidate: { id: string; hintedType?: "task" | "timeline_event" },
+  taskIds: Set<string>,
+  timelineIds: Set<string>
+): "task" | "timeline_event" | null {
+  if (candidate.hintedType === "task" && taskIds.has(candidate.id)) return "task";
+  if (candidate.hintedType === "timeline_event" && timelineIds.has(candidate.id)) return "timeline_event";
+
+  const inTasks = taskIds.has(candidate.id);
+  const inTimeline = timelineIds.has(candidate.id);
+  if (inTasks && !inTimeline) return "task";
+  if (!inTasks && inTimeline) return "timeline_event";
+  return null;
+}
+
 function normalizeFieldKey(value: string): string {
   return String(value).trim().toLowerCase();
 }
@@ -4819,6 +5261,9 @@ function resolveUpdateValue(
       return { value: null };
     }
     const resolved = resolveSelectValues(field, rawValue, allowCreateOptions, propertyDefinitionOptions);
+    if (resolved.missing) {
+      return { value: null };
+    }
     const value = field.type === "multi_select" ? resolved.ids : resolved.ids[0] ?? null;
     return { value, updatedConfig: resolved.updatedConfig };
   }
@@ -4938,7 +5383,7 @@ async function enhanceFieldsAndNormalizeSelectValues(
 
       // Field is a select-like field - normalize the value to option ID
       const config = (field.config || {}) as Record<string, unknown>;
-      const { ids } = resolveSelectValues(
+      const { ids, missing } = resolveSelectValues(
         { type: field.type, config, property_definition_id: field.property_definition_id ?? undefined },
         rawValue,
         false,
@@ -4948,8 +5393,8 @@ async function enhanceFieldsAndNormalizeSelectValues(
       if (ids.length > 0) {
         normalized[fieldId] = field.type === "multi_select" ? ids : ids[0];
       } else {
-        // Keep original if no match (shouldn't happen after enhancement)
-        normalized[fieldId] = rawValue;
+        // Drop invalid select-like values to avoid persisting unknown option IDs.
+        normalized[fieldId] = missing ? null : rawValue;
       }
     }
 

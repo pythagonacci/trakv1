@@ -14,7 +14,7 @@ export interface ToolParameter {
   description: string;
   required?: boolean;
   enum?: string[];
-  items?: { type: string };
+  items?: { type: string; enum?: string[] };
   properties?: Record<string, ToolParameter>;
 }
 
@@ -93,7 +93,7 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchTasks",
-    description: "SEARCH for task items (read-only). Use this when you need to FIND or VIEW tasks, not modify them. Filters: title, status, priority, assignee, tags, due date, project. Returns: Array of task objects with IDs, titles, and all properties. Use task IDs from results for subsequent update/delete operations.",
+    description: "SEARCH for parent task items (read-only). Use this when you need to FIND or VIEW tasks, not modify them. For subtasks/checklist items, use searchSubtasks instead. Filters: title, status, priority, assignee, tags, due date, project. Returns: Array of task objects with IDs, titles, and all properties. Use task IDs from results for subsequent update/delete operations.",
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search tasks by text (matches title)" },
@@ -116,6 +116,35 @@ const searchTools: ToolDefinition[] = [
         },
       },
       limit: { type: "number", description: "Maximum number of results (default 50)" },
+    },
+    requiredParams: [],
+  },
+  {
+    name: "searchSubtasks",
+    description:
+      "SEARCH for subtasks/checklist items (read-only). Use this to FIND or VIEW subtasks by text, completion status, or parent task. If you only have the task name, use searchTasks to get taskId or pass taskTitle. Returns: Array of subtask objects with IDs and parent task context. Use subtask IDs from results for update/delete operations.",
+    category: "search",
+    parameters: {
+      searchText: { type: "string", description: "Search subtasks by text (matches title or description)" },
+      completed: { type: "boolean", description: "Filter by completion status" },
+      taskId: { type: "string", description: "Filter by parent task ID" },
+      taskTitle: { type: "string", description: "Filter by parent task title (partial match)" },
+      projectId: { type: "string", description: "Filter by project ID (via parent task)" },
+      tabId: { type: "string", description: "Filter by tab ID (via parent task)" },
+      limit: { type: "number", description: "Maximum number of results (default 50)" },
+    },
+    requiredParams: [],
+  },
+  {
+    name: "getSubtaskDetails",
+    description:
+      "GET a single subtask (read-only). Provide subtaskId OR (taskId + subtaskTitle). Use when you need full details and parent task context. Optional: includeProperties to fetch subtask properties. Returns: subtask object with context.",
+    category: "search",
+    parameters: {
+      subtaskId: { type: "string", description: "The subtask ID" },
+      taskId: { type: "string", description: "Parent task ID (required if using subtaskTitle)" },
+      subtaskTitle: { type: "string", description: "Subtask title (used with taskId to resolve the subtask)" },
+      includeProperties: { type: "boolean", description: "Include entity properties (default true)" },
     },
     requiredParams: [],
   },
@@ -328,8 +357,8 @@ const searchTools: ToolDefinition[] = [
       tabId: { type: "string", description: "Optional: Limit to a tab (required if scope=tab)" },
       entityTypes: {
         type: "array",
-        description: "Entity types to include (default: task, block, timeline_event, table_row)",
-        items: { type: "string", enum: ["task", "block", "timeline_event", "table_row"] },
+        description: "Entity types to include (default: task, subtask, block, timeline_event, table_row)",
+        items: { type: "string", enum: ["task", "subtask", "block", "timeline_event", "table_row"] },
       },
       status: { type: "string", description: "Filter by status value (e.g. todo, in_progress, done, blocked)" },
       statusOperator: {
@@ -361,7 +390,7 @@ const searchTools: ToolDefinition[] = [
       projectId: { type: "string", description: "Optional: Filter results to specific project" },
       entityTypes: {
         type: "array",
-        description: "Entity types to search",
+        description: "Entity types to search (supports task + subtask)",
         items: { type: "string" },
       },
       includeContent: { type: "boolean", description: "Include content in search (default false)" },
@@ -378,7 +407,7 @@ const searchTools: ToolDefinition[] = [
       entityType: {
         type: "string",
         description: "Type of entity to resolve",
-        enum: ["task", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
+        enum: ["task", "subtask", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
       },
       name: { type: "string", description: "Name to search for" },
       projectId: { type: "string", description: "Optional: Limit search to specific project" },
@@ -394,7 +423,7 @@ const searchTools: ToolDefinition[] = [
       entityType: {
         type: "string",
         description: "Type of entity",
-        enum: ["task", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
+        enum: ["task", "subtask", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
       },
       id: { type: "string", description: "The entity ID" },
     },
@@ -408,7 +437,7 @@ const searchTools: ToolDefinition[] = [
       entityType: {
         type: "string",
         description: "Type of entity",
-        enum: ["block", "task", "timeline_event", "table_row"],
+        enum: ["block", "task", "subtask", "timeline_event", "table_row"],
       },
       id: { type: "string", description: "The entity ID" },
     },
@@ -520,6 +549,7 @@ const taskActionTools: ToolDefinition[] = [
     name: "duplicateTasksToBlock",
     description:
       "DUPLICATE tasks into another task block WITHOUT moving originals. Use to create a new task list/board while keeping the originals in place. Copies title, status, priority, description, dates, and optionally assignees/tags.\n\n" +
+      "Default behavior: duplicates are snapshot copies of the source task. They can later be switched to live sync in the UI.\n\n" +
       "Inputs:\n" +
       "- taskIds: array of task IDs to duplicate (from searchTasks)\n" +
       "- targetBlockId: destination task block id\n" +
@@ -538,6 +568,7 @@ const taskActionTools: ToolDefinition[] = [
     name: "createTaskBoardFromTasks",
     description:
       "CREATE a new TASK BOARD from existing tasks. This creates a NEW task block in a tab, duplicates the provided tasks into it (leaving originals untouched), and sets the block to board view.\n\n" +
+      "Default behavior: duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
       "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.\n\n" +
       "Defaults: viewMode=board, boardGroupBy=status.",
     category: "task",
@@ -643,23 +674,46 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "createTaskSubtask",
-    description: "CREATE a subtask/checklist item within a task. Use to add checklist items to tasks. Required: taskId and title. Returns: New subtask object with ID.",
+    description: "CREATE a subtask/checklist item within a task. Use to add checklist items to tasks. Required: taskId and title. Optional: description, completed, displayOrder. Returns: New subtask object with ID.",
     category: "task",
     parameters: {
       taskId: { type: "string", description: "The parent task ID" },
       title: { type: "string", description: "Subtask title" },
+      description: { type: "string", description: "Optional subtask description (set to null to clear)" },
       completed: { type: "boolean", description: "Whether the subtask is completed" },
+      displayOrder: { type: "number", description: "Optional display order within the task" },
     },
     requiredParams: ["taskId", "title"],
   },
   {
     name: "updateTaskSubtask",
-    description: "UPDATE a subtask's title or completion status. Use to modify existing subtasks. Required: subtaskId. Returns: Updated subtask object.",
+    description:
+      "UPDATE a subtask's title, description, completion status, display order, or universal properties (status/priority/assignees/tags/due date). " +
+      "Required: subtaskId. Returns: Updated subtask object.",
     category: "task",
     parameters: {
       subtaskId: { type: "string", description: "The subtask ID" },
       title: { type: "string", description: "New title" },
+      description: { type: "string", description: "New description (set to null to clear)" },
       completed: { type: "boolean", description: "Whether the subtask is completed" },
+      displayOrder: { type: "number", description: "New display order within the task" },
+      status: {
+        type: "string",
+        description: "Subtask status (todo, in_progress, blocked, done)",
+        enum: ["todo", "in_progress", "blocked", "done"],
+      },
+      priority: {
+        type: "string",
+        description: "Subtask priority (none, low, medium, high, urgent)",
+        enum: ["none", "low", "medium", "high", "urgent"],
+      },
+      assigneeIds: { type: "array", description: "Array of assignee user IDs", items: { type: "string" } },
+      assigneeId: { type: "string", description: "Single assignee user ID (legacy)" },
+      dueDate: {
+        type: "object",
+        description: "Due date or range { start?: YYYY-MM-DD, end?: YYYY-MM-DD }",
+      },
+      tags: { type: "array", description: "Array of tag names", items: { type: "string" } },
     },
     requiredParams: ["subtaskId"],
   },
@@ -992,6 +1046,10 @@ const tableActionTools: ToolDefinition[] = [
       "- Priority: 'low', 'medium', 'high', 'urgent'\n" +
       "- Status: 'todo', 'in_progress', 'done', 'blocked'\n" +
       "- Use these canonical IDs or display labels ('Low', 'Medium', 'High', 'Urgent', etc.)\n\n" +
+      "Optional per-row source metadata for workflow copies:\n" +
+      "- source_entity_type: 'task' | 'timeline_event'\n" +
+      "- source_entity_id: source UUID\n" +
+      "- source_sync_mode: 'snapshot' | 'live'\n\n" +
       "Example: [{ data: { 'Task': 'Fix bug', 'Priority': 'high', 'Status': 'todo' } }, { data: { 'Task': 'Write docs', 'Priority': 'medium', 'Status': 'in_progress' } }]\n\n" +
       "Returns: Array of created row objects with rowIds.",
     category: "table",
@@ -1000,7 +1058,7 @@ const tableActionTools: ToolDefinition[] = [
       tableName: { type: "string", description: "Target Table Name (e.g. 'Q1 Goals'). System finds fuzzy match." },
       rows: {
         type: "array",
-        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' } }, ...]",
+        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },
@@ -1099,6 +1157,9 @@ const tableActionTools: ToolDefinition[] = [
       "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n" +
       "Example: 'Create a table called Q1 Targets'\n\n" +
       "⚠️ SUPER TOOL: This is 3-5x faster than createTable + bulkCreateFields + bulkInsertRows sequence.\n\n" +
+      "For large datasets, keep arguments compact:\n" +
+      "- Put schema + initial rows in createTableFull\n" +
+      "- Then use bulkInsertRows for remaining rows in batches (~20-25 rows per call)\n\n" +
       "Auto-creates table → creates fields → inserts rows in one atomic operation.",
     category: "table",
     parameters: {
@@ -1114,7 +1175,7 @@ const tableActionTools: ToolDefinition[] = [
       },
       rows: {
         type: "array",
-        description: "Array of row objects where each object has a 'data' property containing field names and values. Format: [{ data: { 'FieldName': 'value' } }, ...]",
+        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },
@@ -1311,15 +1372,19 @@ const propertyActionTools: ToolDefinition[] = [
   },
   {
     name: "setEntityProperty",
-    description: "Set a property value on an entity (task, block, timeline_event, table_row).",
+    description:
+      "Set a property value on an entity (task, subtask, block, timeline_event, table_row). " +
+      "Provide EITHER propertyDefinitionId+value (for custom properties) OR propertyName+propertyValue (for fixed properties like status/priority/assignees/due_date/tags).",
     category: "property",
     parameters: {
-      entityType: { type: "string", description: "Entity type", enum: ["task", "block", "timeline_event", "table_row"] },
+      entityType: { type: "string", description: "Entity type", enum: ["task", "subtask", "block", "timeline_event", "table_row"] },
       entityId: { type: "string", description: "The entity ID" },
       propertyDefinitionId: { type: "string", description: "The property definition ID" },
       value: { type: "object", description: "The value to set (format depends on property type)" },
+      propertyName: { type: "string", description: "Fixed property name (status, priority, assignee, due_date, tags)" },
+      propertyValue: { type: "object", description: "Fixed property value (format depends on property)" },
     },
-    requiredParams: ["entityType", "entityId", "propertyDefinitionId", "value"],
+    requiredParams: ["entityType", "entityId"],
   },
   {
     name: "removeEntityProperty",
@@ -1687,6 +1752,8 @@ const pickTools = (names: string[]): ToolDefinition[] =>
 export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   task: pickTools([
     "searchTasks",
+    "searchSubtasks",
+    "getSubtaskDetails",
     "createTaskItem",
     "bulkCreateTasks",
     "updateTaskItem",
@@ -1770,6 +1837,8 @@ export const coreTools: ToolDefinition[] = pickTools([
 
   // Entity-specific searches (read-only, always useful)
   "searchTasks",
+  "searchSubtasks",
+  "getSubtaskDetails",
   "searchProjects",
   "searchTabs",
   "searchWorkspaceMembers",

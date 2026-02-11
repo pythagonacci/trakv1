@@ -15,6 +15,11 @@ import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 import { classifyIntent, type IntentClassification, type ToolGroup } from "./intent-classifier";
 import { tryDeterministicCommand } from "./simple-commands";
 import { createUndoTracker, type UndoBatch } from "@/lib/ai/undo";
+import {
+  buildWriteConfirmationRequest,
+  matchesApprovedWriteAction,
+  type WriteConfirmationApproval,
+} from "./write-confirmation";
 
 // ============================================================================
 // TYPES
@@ -91,6 +96,14 @@ export interface ExecuteAICommandOptions {
    * Useful when you want the model to see tool results and synthesize a response.
    */
   disableOptimisticEarlyExit?: boolean;
+  /**
+   * Pause before write tools and ask the user to confirm.
+   */
+  requireWriteConfirmation?: boolean;
+  /**
+   * One-shot approval to continue a previously paused write tool call.
+   */
+  approvedWriteAction?: WriteConfirmationApproval | null;
 }
 
 interface ChatCompletionResponse {
@@ -124,7 +137,18 @@ const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const MAX_TOOL_ITERATIONS = 25; // Prevent infinite loops
 const TOOL_REPEAT_THRESHOLD = 2;
-const TOOL_CALL_MAX_TOKENS = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 2048);
+const parsedToolCallMaxTokens = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 8192);
+const TOOL_CALL_MAX_TOKENS = Math.max(8192, Number.isFinite(parsedToolCallMaxTokens) ? parsedToolCallMaxTokens : 8192);
+const parsedToolCallMaxTokensMax = Number(process.env.AI_TOOL_CALL_MAX_TOKENS_MAX ?? 12288);
+const TOOL_CALL_MAX_TOKENS_MAX = Math.max(
+  TOOL_CALL_MAX_TOKENS,
+  Number.isFinite(parsedToolCallMaxTokensMax) ? parsedToolCallMaxTokensMax : 12288
+);
+const parsedToolCallLengthRetryLimit = Number(process.env.AI_TOOL_CALL_LENGTH_RETRY_LIMIT ?? 2);
+const TOOL_CALL_LENGTH_RETRY_LIMIT = Math.max(
+  0,
+  Number.isFinite(parsedToolCallLengthRetryLimit) ? Math.floor(parsedToolCallLengthRetryLimit) : 2
+);
 const FINAL_RESPONSE_MAX_TOKENS = Number(process.env.AI_FINAL_MAX_TOKENS ?? 1024);
 const TOOL_RESULT_MAX_ITEMS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS ?? 25);
 const TOOL_RESULT_MAX_STRING_CHARS = Number(process.env.AI_TOOL_RESULT_MAX_STRING_CHARS ?? 2000);
@@ -181,6 +205,114 @@ function repairJSONArguments(jsonStr: string): string {
   });
 
   return repaired;
+}
+
+function endsWithOddBackslashes(value: string): boolean {
+  let count = 0;
+  for (let i = value.length - 1; i >= 0; i -= 1) {
+    if (value[i] !== "\\") break;
+    count += 1;
+  }
+  return count % 2 === 1;
+}
+
+function closeOpenJsonStructures(value: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (const ch of value) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+    if (ch === "{" || ch === "[") {
+      stack.push(ch);
+      continue;
+    }
+    if (ch === "}" && stack[stack.length - 1] === "{") {
+      stack.pop();
+      continue;
+    }
+    if (ch === "]" && stack[stack.length - 1] === "[") {
+      stack.pop();
+    }
+  }
+
+  let suffix = "";
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    suffix += stack[i] === "{" ? "}" : "]";
+  }
+  return value + suffix;
+}
+
+function repairTruncatedJSONArguments(jsonStr: string): string | null {
+  const start = jsonStr.indexOf("{");
+  if (start === -1) return null;
+
+  const base = jsonStr.slice(start).trim();
+  if (!base) return null;
+
+  const maxCuts = Math.min(3000, Math.max(0, base.length - 2));
+  for (let cut = 0; cut <= maxCuts; cut += 1) {
+    let candidate = base.slice(0, base.length - cut).trim();
+    if (!candidate) break;
+
+    // Remove incomplete trailing token fragments before closure.
+    candidate = candidate.replace(/[,:]\s*$/, "");
+
+    if (endsWithOddBackslashes(candidate)) {
+      candidate += "\\";
+    }
+
+    // If still inside a string, close the quote before closing braces/brackets.
+    let inString = false;
+    let escaped = false;
+    for (const ch of candidate) {
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (ch === "\"") inString = false;
+      } else if (ch === "\"") {
+        inString = true;
+      }
+    }
+    if (inString) {
+      candidate += "\"";
+    }
+
+    candidate = closeOpenJsonStructures(candidate);
+
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {
+      // Keep trimming.
+    }
+  }
+
+  return null;
 }
 
 export function warmPromptToActionCache(
@@ -256,6 +388,7 @@ const STRUCTURED_SEARCH_FALLBACK_TOOLS = new Set([
   "searchFiles",
   "searchAll",
   "searchTasks",
+  "searchSubtasks",
   "searchProjects",
   "searchTabs",
   "searchClients",
@@ -433,7 +566,15 @@ function trimToolsForIntent(
     "getEntityById",
   ]);
 
-  if (intent.entities.includes("task") || lower.includes("task")) keep.add("searchTasks");
+  if (
+    intent.entities.includes("task") ||
+    lower.includes("task") ||
+    lower.includes("subtask") ||
+    lower.includes("checklist")
+  ) {
+    keep.add("searchTasks");
+  }
+  if (lower.includes("subtask") || lower.includes("checklist")) keep.add("searchSubtasks");
   if (intent.entities.includes("project") || lower.includes("project")) keep.add("searchProjects");
   if (intent.entities.includes("tab") || lower.includes("tab")) keep.add("searchTabs");
   if (intent.entities.includes("block") || lower.includes("block")) keep.add("searchBlocks");
@@ -497,6 +638,8 @@ function summarizeToolCall(toolName: string, result: ToolCallResult) {
       return `Deleted rows.${countText}`;
     case "createTaskItem":
       return `Created task.${countText}`;
+    case "createTaskSubtask":
+      return `Created subtask.${countText}`;
     case "updateTaskItem":
       return `Updated task.${countText}`;
     case "createProject":
@@ -581,7 +724,7 @@ function compactToolResult(result: ToolCallResult): ToolCallResult {
  */
 const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
   create: {
-    task: ["createTaskItem"],
+    task: ["createTaskItem", "createTaskSubtask"],
     project: ["createProject"],
     table: ["createTableFull", "createTable", "createField", "bulkCreateFields", "createRow", "bulkInsertRows"],
     tab: ["createTab"],
@@ -870,6 +1013,8 @@ export async function executeAICommand(
 
   // Track all tool calls made
   const allToolCallsMade: ExecutionResult["toolCallsMade"] = [];
+  let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
+  let toolCallLengthRetries = 0;
   let lastToolSignature: string | null = null;
   let lastToolRepeatCount = 0;
   let lastToolName: string | null = null;
@@ -897,6 +1042,7 @@ export async function executeAICommand(
     "setTaskAssignees",
     "bulkSetTaskAssignees",
     "deleteTaskItem",
+    "createTaskSubtask",
     "updateTaskSubtask",
     "deleteTaskSubtask",
   ]);
@@ -930,9 +1076,10 @@ export async function executeAICommand(
       aiDebug("executeAICommand:iteration", { iterations });
       // Call the AI
       const llmStart = timingEnabled ? Date.now() : 0;
-      const maxTokens = messages.some((message) => message.role === "tool")
+      const hasToolResultsInConversation = messages.some((message) => message.role === "tool");
+      const maxTokens = hasToolResultsInConversation
         ? FINAL_RESPONSE_MAX_TOKENS
-        : TOOL_CALL_MAX_TOKENS;
+        : toolCallTokenBudget;
       const response =
         provider === "openai"
           ? await callOpenAI(openAIKey as string, messages, tools, maxTokens)
@@ -960,11 +1107,38 @@ export async function executeAICommand(
 
       const choice = response.choices[0];
       const assistantMessage = choice.message;
+      const finishReason = choice.finish_reason;
       aiDebug("executeAICommand:assistant", {
         contentLength: assistantMessage.content?.length ?? 0,
         toolCalls: assistantMessage.tool_calls?.map((tc) => tc.function.name) ?? [],
-        finishReason: choice.finish_reason,
+        finishReason,
       });
+
+      // If the model stopped because of length while emitting tool calls,
+      // retry immediately with a larger tool-call token budget.
+      // This avoids truncated JSON arguments for write-heavy tool calls.
+      if (
+        !hasToolResultsInConversation &&
+        finishReason === "length" &&
+        (assistantMessage.tool_calls?.length ?? 0) > 0
+      ) {
+        const nextBudget = Math.min(
+          Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
+          TOOL_CALL_MAX_TOKENS_MAX
+        );
+        if (toolCallLengthRetries < TOOL_CALL_LENGTH_RETRY_LIMIT && nextBudget > toolCallTokenBudget) {
+          aiDebug("executeAI:toolCallLengthRetry", {
+            retry: toolCallLengthRetries + 1,
+            fromMaxTokens: toolCallTokenBudget,
+            toMaxTokens: nextBudget,
+          });
+          toolCallTokenBudget = nextBudget;
+          toolCallLengthRetries += 1;
+          continue;
+        }
+      } else {
+        toolCallLengthRetries = 0;
+      }
 
       // Add assistant message to history
       messages.push({
@@ -984,6 +1158,8 @@ export async function executeAICommand(
         const toolExecutionPromises = assistantMessage.tool_calls.map(async (toolCall) => {
           const toolName = toolCall.function.name;
           let toolArgs: Record<string, unknown>;
+          let parseFailure: string | null = null;
+          let usedTruncateRepair = false;
 
           try {
             toolArgs = JSON.parse(toolCall.function.arguments);
@@ -1004,11 +1180,48 @@ export async function executeAICommand(
                 original: toolCall.function.arguments,
                 repaired: repairedJSON,
               });
-            } catch {
-              // If repair fails, fall back to empty args
-              toolArgs = {};
+            } catch (repairError) {
+              // Last resort: trim incomplete tail and close open JSON structures.
+              const repairedTruncated = repairTruncatedJSONArguments(toolCall.function.arguments);
+              if (repairedTruncated) {
+                try {
+                  toolArgs = JSON.parse(repairedTruncated);
+                  usedTruncateRepair = true;
+                  aiDebug("executeAI:jsonTruncateRepaired", {
+                    tool: toolName,
+                    originalLength: toolCall.function.arguments.length,
+                    repairedLength: repairedTruncated.length,
+                  });
+                } catch (truncatedParseError) {
+                  const repairErrorMsg =
+                    repairError instanceof Error ? repairError.message : String(repairError);
+                  const truncatedParseErrorMsg =
+                    truncatedParseError instanceof Error
+                      ? truncatedParseError.message
+                      : String(truncatedParseError);
+                  parseFailure = `Failed to parse tool arguments JSON (${errorMsg}). Repair failed (${repairErrorMsg}). Truncate repair failed (${truncatedParseErrorMsg}).`;
+                  toolArgs = {};
+                }
+              } else {
+                const repairErrorMsg =
+                  repairError instanceof Error ? repairError.message : String(repairError);
+                parseFailure = `Failed to parse tool arguments JSON (${errorMsg}). Repair failed (${repairErrorMsg}).`;
+                toolArgs = {};
+              }
             }
           }
+
+          // Never execute write tools with tail-truncated/repaired JSON.
+          // This prevents partial inserts/updates when the model output was cut off.
+          if (usedTruncateRepair && !isSearchLikeToolName(toolName) && !parseFailure) {
+            aiDebug("executeAI:jsonTruncateRejected", {
+              tool: toolName,
+              reason: "truncated_repair_on_write_tool",
+            });
+            parseFailure =
+              "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+          }
+
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
             toolArgs.tableId = contextTableId;
           }
@@ -1054,18 +1267,23 @@ export async function executeAICommand(
 
           // Execute the tool
           const toolStart = timingEnabled ? Date.now() : 0;
-          const result = await executeTool({
-            name: toolName,
-            arguments: toolArgs,
-          }, {
-            workspaceId: context.workspaceId,
-            userId: context.userId,
-            contextTableId,
-            currentTabId: context.currentTabId,
-            currentProjectId: context.currentProjectId,
-            undoTracker,
-            authContext: context.authContext,
-          });
+          const result = parseFailure
+            ? ({
+              success: false,
+              error: `${parseFailure} Ask the model to retry the tool call with valid JSON arguments.`,
+            } as ToolCallResult)
+            : await executeTool({
+              name: toolName,
+              arguments: toolArgs,
+            }, {
+              workspaceId: context.workspaceId,
+              userId: context.userId,
+              contextTableId,
+              currentTabId: context.currentTabId,
+              currentProjectId: context.currentProjectId,
+              undoTracker,
+              authContext: context.authContext,
+            });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
 
           return { toolCall, toolName, toolArgs, result, toolDuration };
@@ -1691,6 +1909,7 @@ function getHumanFriendlyToolMessage(toolName: string): string {
   };
 
   const entityPatterns: Record<string, string> = {
+    subtask: "subtask",
     task: "task",
     project: "project",
     table: "table",
@@ -1749,7 +1968,13 @@ export async function* executeAICommandStream(
   previousMessages: AIMessage[] = [],
   options: ExecuteAICommandOptions = {}
 ): AsyncGenerator<{
-  type: "thinking" | "tool_call" | "tool_result" | "response_delta" | "response";
+  type:
+    | "thinking"
+    | "tool_call"
+    | "tool_result"
+    | "response_delta"
+    | "response"
+    | "confirmation_required";
   content: string;
   data?: unknown;
 }> {
@@ -1772,6 +1997,9 @@ export async function* executeAICommandStream(
 
   // Track empty argument calls to prevent infinite loops when LLM calls tools with no args (streaming path)
   const emptyArgCallCount = new Map<string, number>();
+  let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
+  let toolCallLengthRetries = 0;
+  let approvedWriteConsumed = false;
 
   if (!openAIKey && !deepseekKey) {
     yield {
@@ -1817,7 +2045,7 @@ export async function* executeAICommandStream(
   const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
-  if (!options.disableDeterministic) {
+  if (!options.disableDeterministic && !options.requireWriteConfirmation) {
     const simpleResult = await tryDeterministicCommand(commandForModel, context);
     if (simpleResult) {
       yield {
@@ -1881,9 +2109,10 @@ export async function* executeAICommandStream(
     };
 
     try {
-      const maxTokens = messages.some((message) => message.role === "tool")
+      const hasToolResultsInConversation = messages.some((message) => message.role === "tool");
+      const maxTokens = hasToolResultsInConversation
         ? FINAL_RESPONSE_MAX_TOKENS
-        : TOOL_CALL_MAX_TOKENS;
+        : toolCallTokenBudget;
       const timingEnabled = isAITimingEnabled();
       const llmStart = timingEnabled ? Date.now() : 0;
       const stream = streamChatCompletion({
@@ -1895,6 +2124,7 @@ export async function* executeAICommandStream(
       });
       let streamedContent = "";
       let streamedToolCalls: AIToolCall[] | undefined;
+      let streamedFinishReason: string | null = null;
 
       for await (const chunk of stream) {
         if (chunk.type === "delta" && chunk.content) {
@@ -1912,7 +2142,31 @@ export async function* executeAICommandStream(
           }
           streamedContent = chunk.content || streamedContent;
           streamedToolCalls = chunk.toolCalls;
+          streamedFinishReason = chunk.finishReason ?? null;
         }
+      }
+
+      if (
+        !hasToolResultsInConversation &&
+        streamedFinishReason === "length" &&
+        (streamedToolCalls?.length ?? 0) > 0
+      ) {
+        const nextBudget = Math.min(
+          Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
+          TOOL_CALL_MAX_TOKENS_MAX
+        );
+        if (toolCallLengthRetries < TOOL_CALL_LENGTH_RETRY_LIMIT && nextBudget > toolCallTokenBudget) {
+          aiDebug("executeAI:toolCallLengthRetry", {
+            retry: toolCallLengthRetries + 1,
+            fromMaxTokens: toolCallTokenBudget,
+            toMaxTokens: nextBudget,
+          });
+          toolCallTokenBudget = nextBudget;
+          toolCallLengthRetries += 1;
+          continue;
+        }
+      } else {
+        toolCallLengthRetries = 0;
       }
 
       const assistantMessage = streamedToolCalls
@@ -1930,6 +2184,8 @@ export async function* executeAICommandStream(
         for (const toolCall of assistantMessage.tool_calls) {
           const toolName = toolCall.function.name;
           let toolArgs: Record<string, unknown>;
+          let parseFailure: string | null = null;
+          let usedTruncateRepair = false;
 
           try {
             toolArgs = JSON.parse(toolCall.function.arguments);
@@ -1960,16 +2216,74 @@ export async function* executeAICommandStream(
                 original: toolCall.function.arguments,
                 repaired: repairedJSON,
               });
-            } catch {
-              // If repair fails, fall back to empty args
-              toolArgs = {};
+            } catch (repairError) {
+              // Last resort: trim incomplete tail and close open JSON structures.
+              const repairedTruncated = repairTruncatedJSONArguments(toolCall.function.arguments);
+              if (repairedTruncated) {
+                try {
+                  toolArgs = JSON.parse(repairedTruncated);
+                  usedTruncateRepair = true;
+                  aiDebug("executeAI:jsonTruncateRepaired", {
+                    tool: toolName,
+                    originalLength: toolCall.function.arguments.length,
+                    repairedLength: repairedTruncated.length,
+                  });
+                } catch (truncatedParseError) {
+                  const repairErrorMsg =
+                    repairError instanceof Error ? repairError.message : String(repairError);
+                  const truncatedParseErrorMsg =
+                    truncatedParseError instanceof Error
+                      ? truncatedParseError.message
+                      : String(truncatedParseError);
+                  parseFailure = `Failed to parse tool arguments JSON (${errorMsg}). Repair failed (${repairErrorMsg}). Truncate repair failed (${truncatedParseErrorMsg}).`;
+                  toolArgs = {};
+                }
+              } else {
+                const repairErrorMsg =
+                  repairError instanceof Error ? repairError.message : String(repairError);
+                parseFailure = `Failed to parse tool arguments JSON (${errorMsg}). Repair failed (${repairErrorMsg}).`;
+                toolArgs = {};
+              }
             }
           }
+
+          // Never execute write tools with tail-truncated/repaired JSON.
+          // This prevents partial inserts/updates when the model output was cut off.
+          if (usedTruncateRepair && !isSearchLikeToolName(toolName) && !parseFailure) {
+            aiDebug("executeAI:jsonTruncateRejected", {
+              tool: toolName,
+              reason: "truncated_repair_on_write_tool",
+            });
+            parseFailure =
+              "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+          }
+
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
             toolArgs.tableId = contextTableId;
           }
           if (contextBlockId && blockIdTools.has(toolName) && !("blockId" in toolArgs)) {
             toolArgs.blockId = contextBlockId;
+          }
+
+          const isWriteTool = !isSearchLikeToolName(toolName);
+          if (options.requireWriteConfirmation && isWriteTool && !parseFailure) {
+            const approved = !approvedWriteConsumed && matchesApprovedWriteAction(
+              toolName,
+              toolArgs,
+              options.approvedWriteAction
+            );
+
+            if (!approved) {
+              const confirmation = await buildWriteConfirmationRequest(toolName, toolArgs);
+              yield {
+                type: "confirmation_required",
+                content: confirmation.question,
+                data: confirmation,
+              };
+              return;
+            }
+
+            approvedWriteConsumed = true;
           }
 
           yield {
@@ -1990,19 +2304,24 @@ export async function* executeAICommandStream(
             // Continue with tool execution instead of blocking
           }
 
-          const result = await executeTool({
-            name: toolName,
-            arguments: toolArgs,
-          }, {
-            workspaceId: context.workspaceId,
-            userId: context.userId,
-            contextTableId: context.contextTableId,
-            contextBlockId: context.contextBlockId,
-            currentTabId: context.currentTabId,
-            currentProjectId: context.currentProjectId,
-            undoTracker,
-            authContext: context.authContext,
-          });
+          const result = parseFailure
+            ? ({
+              success: false,
+              error: `${parseFailure} Ask the model to retry the tool call with valid JSON arguments.`,
+            } as ToolCallResult)
+            : await executeTool({
+              name: toolName,
+              arguments: toolArgs,
+            }, {
+              workspaceId: context.workspaceId,
+              userId: context.userId,
+              contextTableId: context.contextTableId,
+              contextBlockId: context.contextBlockId,
+              currentTabId: context.currentTabId,
+              currentProjectId: context.currentProjectId,
+              undoTracker,
+              authContext: context.authContext,
+            });
 
           toolCallsThisRound.push({ tool: toolName, result });
           toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
@@ -2332,7 +2651,7 @@ export async function* executeAICommandStream(
         },
       };
       return;
-    } catch (error) {
+    } catch {
       yield {
         type: "response",
         content: "An error occurred while processing your command.",
@@ -2357,7 +2676,7 @@ type StreamChatCompletionArgs = {
 
 type StreamChatCompletionChunk =
   | { type: "delta"; content: string }
-  | { type: "done"; content: string; toolCalls?: AIToolCall[] };
+  | { type: "done"; content: string; toolCalls?: AIToolCall[]; finishReason?: string | null };
 
 async function* streamChatCompletion({
   provider,
@@ -2415,6 +2734,48 @@ async function* streamChatCompletion({
   let buffer = "";
   const contentParts: string[] = [];
   const toolCallAcc = new Map<number, AIToolCall>();
+  let finishReason: string | null = null;
+
+  const processSSELine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    const choice = parsed?.choices?.[0];
+    const delta = choice?.delta;
+    if (typeof choice?.finish_reason === "string") {
+      finishReason = choice.finish_reason;
+    }
+    if (!delta) return;
+
+    if (typeof delta.content === "string" && delta.content.length > 0) {
+      contentParts.push(delta.content);
+    }
+
+    const deltaToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+    for (const toolCall of deltaToolCalls) {
+      const index = typeof toolCall.index === "number" ? toolCall.index : 0;
+      const existing = toolCallAcc.get(index) || {
+        id: toolCall.id || "",
+        type: "function" as const,
+        function: { name: "", arguments: "" },
+      };
+      if (toolCall.id) existing.id = toolCall.id;
+      if (toolCall.type) existing.type = toolCall.type;
+      if (toolCall.function?.name) existing.function.name = toolCall.function.name;
+      if (toolCall.function?.arguments) {
+        existing.function.arguments += toolCall.function.arguments;
+      }
+      toolCallAcc.set(index, existing);
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -2424,45 +2785,23 @@ async function* streamChatCompletion({
     buffer = lines.pop() || "";
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const payload = trimmed.slice(5).trim();
-      if (!payload) continue;
-      if (payload === "[DONE]") {
-        buffer = "";
-        break;
+      const beforeLen = contentParts.length;
+      processSSELine(line);
+      if (contentParts.length > beforeLen) {
+        yield { type: "delta", content: contentParts[contentParts.length - 1] || "" };
       }
+    }
+  }
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(payload);
-      } catch {
-        continue;
-      }
-      const choice = parsed?.choices?.[0];
-      const delta = choice?.delta;
-      if (!delta) continue;
-
-      if (typeof delta.content === "string" && delta.content.length > 0) {
-        contentParts.push(delta.content);
-        yield { type: "delta", content: delta.content };
-      }
-
-      const deltaToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
-      for (const toolCall of deltaToolCalls) {
-        const index = typeof toolCall.index === "number" ? toolCall.index : 0;
-        const existing = toolCallAcc.get(index) || {
-          id: toolCall.id || "",
-          type: "function" as const,
-          function: { name: "", arguments: "" },
-        };
-        if (toolCall.id) existing.id = toolCall.id;
-        if (toolCall.type) existing.type = toolCall.type;
-        if (toolCall.function?.name) existing.function.name = toolCall.function.name;
-        if (toolCall.function?.arguments) {
-          existing.function.arguments += toolCall.function.arguments;
-        }
-        toolCallAcc.set(index, existing);
+  // Flush decoder + trailing buffer (some providers omit final newline).
+  buffer += decoder.decode();
+  if (buffer.trim().length > 0) {
+    const trailingLines = buffer.split("\n");
+    for (const line of trailingLines) {
+      const beforeLen = contentParts.length;
+      processSSELine(line);
+      if (contentParts.length > beforeLen) {
+        yield { type: "delta", content: contentParts[contentParts.length - 1] || "" };
       }
     }
   }
@@ -2473,9 +2812,9 @@ async function* streamChatCompletion({
     .filter((call) => call.function?.name);
 
   if (toolCalls.length > 0) {
-    yield { type: "done", content: "", toolCalls };
+    yield { type: "done", content: "", toolCalls, finishReason };
     return;
   }
 
-  yield { type: "done", content: contentParts.join("") };
+  yield { type: "done", content: contentParts.join(""), finishReason };
 }
