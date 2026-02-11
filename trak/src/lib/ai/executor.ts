@@ -645,6 +645,16 @@ function narrowToolsForSingleAction(
   );
 }
 
+function extractShopifyMention(command: string) {
+  const mentionRegex = /(^|\\s)@shopify(\\b|\\s)/gi;
+  const hasMention = mentionRegex.test(command);
+  if (!hasMention) {
+    return { hasMention: false, cleanedCommand: command };
+  }
+  const cleaned = command.replace(mentionRegex, " ").replace(/\\s+/g, " ").trim();
+  return { hasMention: true, cleanedCommand: cleaned.length > 0 ? cleaned : command };
+}
+
 // ============================================================================
 // AI EXECUTOR
 // ============================================================================
@@ -676,6 +686,8 @@ export async function executeAICommand(
     }
     : null;
   const undoTracker = createUndoTracker();
+  const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
+  const commandForModel = cleanedCommand;
   let timingLogged = false;
   const logTiming = () => {
     if (!timing || timingLogged) return;
@@ -739,9 +751,13 @@ export async function executeAICommand(
 
   // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
-  const intent = applyContextualToolGroups(classifyIntent(userCommand), context);
-  if (options.forcedToolGroups && options.forcedToolGroups.length > 0) {
-    const toolGroups = new Set<ToolGroup>(options.forcedToolGroups);
+  const intent = applyContextualToolGroups(classifyIntent(commandForModel), context);
+  const forcedToolGroups = new Set<ToolGroup>(options.forcedToolGroups ?? []);
+  if (hasShopifyMention) {
+    forcedToolGroups.add("shopify");
+  }
+  if (forcedToolGroups.size > 0) {
+    const toolGroups = new Set<ToolGroup>(forcedToolGroups);
     toolGroups.add("core");
     intent.toolGroups = Array.from(toolGroups);
   }
@@ -751,7 +767,7 @@ export async function executeAICommand(
 
   // Fast path: simple pattern-matched commands skip the LLM entirely
   if (!options.disableDeterministic) {
-    const simpleResult = await tryDeterministicCommand(userCommand, context, { undoTracker });
+    const simpleResult = await tryDeterministicCommand(commandForModel, context, { undoTracker });
     if (simpleResult) return withTiming(simpleResult);
   }
 
@@ -763,14 +779,14 @@ export async function executeAICommand(
   // indicating a second independent action rather than a list continuation.
   const ACTION_VERBS = /\b(?:and)\s+(?:assign|add|set|tag|move|delete|remove|update|rename|change|populate|fill|insert|attach|link|copy|duplicate|archive|complete|close|open|share|export|import)\b/i;
   const isMultiStepCommand =
-    /\b(?:then|also|after that|next)\b/i.test(userCommand) ||
-    /\b(?:with|w\/|columns?|fields?|rows?)\b/i.test(userCommand) ||
-    ACTION_VERBS.test(userCommand) ||
+    /\b(?:then|also|after that|next)\b/i.test(commandForModel) ||
+    /\b(?:with|w\/|columns?|fields?|rows?)\b/i.test(commandForModel) ||
+    ACTION_VERBS.test(commandForModel) ||
     intent.actions.length > 1;
 
   // Build the system prompt with context
   const promptBuildStart = timingEnabled ? Date.now() : 0;
-  const promptMode = shouldUseFastPrompt(userCommand, intent, conversationHistory) ? "fast" : "full";
+  const promptMode = shouldUseFastPrompt(commandForModel, intent, conversationHistory) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
     workspaceName: context.workspaceName,
@@ -790,13 +806,13 @@ export async function executeAICommand(
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
     ...conversationHistory,
-    { role: "user", content: userCommand },
+    { role: "user", content: commandForModel },
   ];
 
   let activeIntent = intent;
   let toolUpgradeAttempted = false;
   let relevantTools = narrowToolsForSingleAction(
-    trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand),
+    trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, commandForModel),
     activeIntent
   );
 
@@ -1138,7 +1154,7 @@ export async function executeAICommand(
                 trimToolsForIntent(
                   getToolsByGroups(activeIntent.toolGroups),
                   activeIntent,
-                  userCommand
+                  commandForModel
                 ),
                 activeIntent
               );
@@ -1245,8 +1261,8 @@ export async function executeAICommand(
         const structuredSearchEmpty = structuredSearchesThisRound.every((call) =>
           isEmptySearchResult(call.result)
         );
-        const semanticQuery = looksLikeSemanticQuery(userCommand);
-        const knowledgeQuery = looksLikeKnowledgeQuery(userCommand);
+        const semanticQuery = looksLikeSemanticQuery(commandForModel);
+        const knowledgeQuery = looksLikeKnowledgeQuery(commandForModel);
         // Only count successful unstructured search calls, not blocked/failed attempts
         const unstructuredAlready =
           toolCallsThisRound.some((call) => call.tool === "unstructuredSearchWorkspace" && call.result.success) ||
@@ -1263,9 +1279,9 @@ export async function executeAICommand(
           hasStructuredSearchThisRound &&
           (structuredSearchEmpty || knowledgeQuery || semanticQuery) &&
           !unstructuredAlready &&
-          userCommand.trim().length >= 4
+          commandForModel.trim().length >= 4
         ) {
-          const autoToolArgs = { query: userCommand };
+          const autoToolArgs = { query: commandForModel };
           const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           aiDebug("executeAICommand:autoUnstructuredFallback", {
             query: autoToolArgs.query,
@@ -1331,10 +1347,10 @@ export async function executeAICommand(
             structuredSearchEmpty,
             knowledgeQuery,
             semanticQuery,
-            commandLength: userCommand.trim().length,
+            commandLength: commandForModel.trim().length,
             reason: !structuredSearchEmpty && !knowledgeQuery && !semanticQuery
               ? "Query not semantic/knowledge-based and structured search had results"
-              : userCommand.trim().length < 4
+              : commandForModel.trim().length < 4
                 ? "Query too short"
                 : "Unknown",
           });
@@ -1416,9 +1432,9 @@ export async function executeAICommand(
         !autoUnstructuredFallbackUsed &&
         !hasAnySearchTool &&
         !hasWriteIntent &&
-        looksLikeSemanticQuery(userCommand)
+        looksLikeSemanticQuery(commandForModel)
       ) {
-        const autoToolArgs = { query: userCommand };
+        const autoToolArgs = { query: commandForModel };
         const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         aiDebug("executeAICommand:autoUnstructuredNoSearch", {
           query: autoToolArgs.query,
@@ -1482,7 +1498,7 @@ export async function executeAICommand(
           toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(upgradeGroups as any[])])),
         };
         relevantTools = narrowToolsForSingleAction(
-          trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, userCommand),
+          trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, commandForModel),
           activeIntent
         );
         tools = getCachedTools(relevantTools);
@@ -1744,6 +1760,8 @@ export async function* executeAICommandStream(
   const toolCallsMade: ExecutionResult["toolCallsMade"] = [];
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
   let autoUnstructuredFallbackUsed = false;
+  const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
+  const commandForModel = cleanedCommand;
 
   // Track tool repeats to prevent infinite loops (streaming path)
   let lastToolSignature: string | null = null;
@@ -1766,9 +1784,13 @@ export async function* executeAICommandStream(
   // All chart creation is now handled by the LLM via tool calls
   // Removed all deterministic chart detection to prevent false positives
 
-  let intent = applyContextualToolGroups(classifyIntent(userCommand), context);
-  if (options.forcedToolGroups && options.forcedToolGroups.length > 0) {
-    const toolGroups = new Set<ToolGroup>(options.forcedToolGroups);
+  let intent = applyContextualToolGroups(classifyIntent(commandForModel), context);
+  const forcedToolGroups = new Set<ToolGroup>(options.forcedToolGroups ?? []);
+  if (hasShopifyMention) {
+    forcedToolGroups.add("shopify");
+  }
+  if (forcedToolGroups.size > 0) {
+    const toolGroups = new Set<ToolGroup>(forcedToolGroups);
     toolGroups.add("core");
     intent = { ...intent, toolGroups: Array.from(toolGroups) };
   }
@@ -1796,7 +1818,7 @@ export async function* executeAICommandStream(
 
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
   if (!options.disableDeterministic) {
-    const simpleResult = await tryDeterministicCommand(userCommand, context);
+    const simpleResult = await tryDeterministicCommand(commandForModel, context);
     if (simpleResult) {
       yield {
         type: "response",
@@ -1809,10 +1831,10 @@ export async function* executeAICommandStream(
 
   // Fix D: Detect multi-step commands to prevent premature early-exit on writes
   const isMultiStepCommand =
-    /\b(?:and|then|also|after that|next)\b/i.test(userCommand) ||
+    /\b(?:and|then|also|after that|next)\b/i.test(commandForModel) ||
     intent.actions.length > 1;
 
-  const promptMode = shouldUseFastPrompt(userCommand, intent, []) ? "fast" : "full";
+  const promptMode = shouldUseFastPrompt(commandForModel, intent, []) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
     workspaceName: context.workspaceName,
@@ -1827,12 +1849,12 @@ export async function* executeAICommandStream(
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
     ...previousMessages,
-    { role: "user", content: userCommand },
+    { role: "user", content: commandForModel },
   ];
 
   // Fix C: Narrow tools for single-action intents to reduce payload size
   const relevantTools = narrowToolsForSingleAction(
-    trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, userCommand),
+    trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, commandForModel),
     intent
   );
   const tools = toOpenAIFormat(relevantTools);
@@ -2122,8 +2144,8 @@ export async function* executeAICommandStream(
         const structuredSearchEmpty = structuredSearchesThisRound.every((call) =>
           isEmptySearchResult(call.result)
         );
-        const semanticQuery = looksLikeSemanticQuery(userCommand);
-        const knowledgeQuery = looksLikeKnowledgeQuery(userCommand);
+        const semanticQuery = looksLikeSemanticQuery(commandForModel);
+        const knowledgeQuery = looksLikeKnowledgeQuery(commandForModel);
         // Only count successful unstructured search calls, not blocked/failed attempts
         const unstructuredAlready =
           toolCallsThisRound.some((call) => call.tool === "unstructuredSearchWorkspace" && call.result.success) ||
@@ -2140,9 +2162,9 @@ export async function* executeAICommandStream(
           hasStructuredSearchThisRound &&
           (structuredSearchEmpty || knowledgeQuery || semanticQuery) &&
           !unstructuredAlready &&
-          userCommand.trim().length >= 4
+          commandForModel.trim().length >= 4
         ) {
-          const autoToolArgs = { query: userCommand };
+          const autoToolArgs = { query: commandForModel };
           const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           aiDebug("executeAICommandStream:autoUnstructuredFallback", {
             query: autoToolArgs.query,
@@ -2215,10 +2237,10 @@ export async function* executeAICommandStream(
             structuredSearchEmpty,
             knowledgeQuery,
             semanticQuery,
-            commandLength: userCommand.trim().length,
+            commandLength: commandForModel.trim().length,
             reason: !structuredSearchEmpty && !knowledgeQuery && !semanticQuery
               ? "Query not semantic/knowledge-based and structured search had results"
-              : userCommand.trim().length < 4
+              : commandForModel.trim().length < 4
                 ? "Query too short"
                 : "Unknown",
           });
@@ -2234,9 +2256,9 @@ export async function* executeAICommandStream(
         !autoUnstructuredFallbackUsed &&
         !hasAnySearchTool &&
         !hasWriteIntent &&
-        looksLikeSemanticQuery(userCommand)
+        looksLikeSemanticQuery(commandForModel)
       ) {
-        const autoToolArgs = { query: userCommand };
+        const autoToolArgs = { query: commandForModel };
         const autoToolCallId = `auto_unstructured_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         aiDebug("executeAICommandStream:autoUnstructuredNoSearch", {
           query: autoToolArgs.query,

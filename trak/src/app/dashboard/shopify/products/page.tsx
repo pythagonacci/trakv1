@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { ShopifyProductsClient } from "./products-client";
 
 export const metadata = {
@@ -11,7 +12,7 @@ export const metadata = {
 export default async function ShopifyProductsPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   // Check authentication
   const user = await getAuthenticatedUser();
@@ -19,25 +20,16 @@ export default async function ShopifyProductsPage({
     redirect("/login");
   }
 
-  // Get workspace from context
-  const supabase = await createClient();
-  const { data: workspaces } = await supabase
-    .from("workspace_members")
-    .select("workspace:workspaces(*)")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
-
-  if (!workspaces?.workspace) {
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) {
     redirect("/onboarding");
   }
 
-  // Type assertion needed because Supabase join returns workspace as unknown type
-  const workspace = workspaces.workspace as unknown as { id: string };
-  const workspaceId = workspace.id;
+  const supabase = await createClient();
 
   // Get connection_id from query params (optional filter)
-  const connectionId = searchParams.connection_id as string | undefined;
+  const resolvedSearchParams = await searchParams;
+  const connectionId = resolvedSearchParams.connection_id as string | undefined;
 
   // Fetch products from database
   let query = supabase

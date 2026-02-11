@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { listShopifyConnections } from "@/app/actions/shopify-connection";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { IntegrationsClient } from "./integrations-client";
 
 export const metadata = {
@@ -12,7 +13,7 @@ export const metadata = {
 export default async function IntegrationsPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   // Check authentication
   const user = await getAuthenticatedUser();
@@ -20,30 +21,19 @@ export default async function IntegrationsPage({
     redirect("/login");
   }
 
-  // Get workspace from context (assume first workspace for now)
-  const supabase = await createClient();
-  const { data: workspaces } = await supabase
-    .from("workspace_members")
-    .select("workspace:workspaces(*)")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
-
-  if (!workspaces?.workspace) {
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) {
     redirect("/onboarding");
   }
-
-  // Type assertion needed because Supabase join returns workspace as unknown type
-  const workspace = workspaces.workspace as unknown as { id: string };
-  const workspaceId = workspace.id;
 
   // Fetch Shopify connections
   const connectionsResult = await listShopifyConnections(workspaceId);
   const connections = "data" in connectionsResult ? connectionsResult.data : [];
 
   // Check for success/error messages from OAuth callback
-  const success = searchParams.success === "true";
-  const error = searchParams.error as string | undefined;
+  const resolvedSearchParams = await searchParams;
+  const success = resolvedSearchParams.success === "true";
+  const error = resolvedSearchParams.error as string | undefined;
 
   return (
     <IntegrationsClient

@@ -3332,6 +3332,20 @@ export async function executeTool(
           let connectionId = args.connectionId as string | undefined;
           if (!connectionId) {
             const connectionsResult = await listShopifyConnections(workspaceId);
+            aiDebug("shopify:connectionsLookup", {
+              workspaceId,
+              tool: "searchShopifyProducts",
+              hasError: "error" in connectionsResult,
+              total: "data" in connectionsResult ? connectionsResult.data?.length ?? 0 : 0,
+              active:
+                "data" in connectionsResult
+                  ? (connectionsResult.data?.filter(c => c.sync_status === "active") ?? []).length
+                  : 0,
+              shopDomains:
+                "data" in connectionsResult
+                  ? (connectionsResult.data?.map(c => c.shop_domain).filter(Boolean) ?? [])
+                  : [],
+            });
             if ("error" in connectionsResult) {
               return { success: false, error: connectionsResult.error };
             }
@@ -3459,6 +3473,20 @@ export async function executeTool(
           let connectionId = args.connectionId as string | undefined;
           if (!connectionId) {
             const connectionsResult = await listShopifyConnections(workspaceId);
+            aiDebug("shopify:connectionsLookup", {
+              workspaceId,
+              tool: "createProductsTable",
+              hasError: "error" in connectionsResult,
+              total: "data" in connectionsResult ? connectionsResult.data?.length ?? 0 : 0,
+              active:
+                "data" in connectionsResult
+                  ? (connectionsResult.data?.filter(c => c.sync_status === "active") ?? []).length
+                  : 0,
+              shopDomains:
+                "data" in connectionsResult
+                  ? (connectionsResult.data?.map(c => c.shop_domain).filter(Boolean) ?? [])
+                  : [],
+            });
             if ("error" in connectionsResult) {
               return { success: false, error: connectionsResult.error };
             }
