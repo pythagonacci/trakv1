@@ -16,91 +16,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createPortal } from "react-dom";
 import AttachedFilesList from "./attached-files-list";
-import BlockAttachmentsList from "./block-attachments-list";
-import { useBlockAttach } from "./block-attach-context";
-import { useBlockReferenceSummaries, useDeleteBlockReference } from "@/lib/hooks/use-block-reference-queries";
 import { cn } from "@/lib/utils";
 import DOMPurify from "isomorphic-dompurify";
-import { X } from "lucide-react";
-
-function getCaretRectForContentEditable(el: HTMLElement): { top: number; left: number } | null {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0).cloneRange();
-  range.collapse(true);
-  const rect = range.getBoundingClientRect();
-  return { top: rect.top, left: rect.left };
-}
-
-function getTextAfterAtFromContentEditable(el: HTMLElement): string {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return "";
-  const range = sel.getRangeAt(0);
-  const preRange = document.createRange();
-  preRange.selectNodeContents(el);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const textBeforeCursor = preRange.toString();
-  const lastAt = textBeforeCursor.lastIndexOf("@");
-  if (lastAt === -1) return "";
-  const after = textBeforeCursor.slice(lastAt + 1);
-  if (after.includes("\n") || after.includes(" ")) return after.split(/[\s\n]/)[0] ?? "";
-  return after;
-}
-
-/** Return the (node, offset) for the character at targetOffset within container (text offset from start). */
-function getNodeAtCharacterOffset(container: Node, targetOffset: number): { node: Node; offset: number } | null {
-  let passed = 0;
-  const walk = (node: Node): { node: Node; offset: number } | null => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = (node.textContent ?? "").length;
-      if (passed + len >= targetOffset) return { node, offset: targetOffset - passed };
-      passed += len;
-      return null;
-    }
-    for (let i = 0; i < node.childNodes.length; i++) {
-      const r = walk(node.childNodes[i]);
-      if (r) return r;
-    }
-    return null;
-  };
-  return walk(container);
-}
-
-/** Replace the "@" and filter text at caret with an inline ref span and place caret after it. */
-function insertInlineBlockRefAtCaret(editableDiv: HTMLElement, refId: string, title: string): boolean {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return false;
-  const range = sel.getRangeAt(0).cloneRange();
-  const preRange = document.createRange();
-  preRange.selectNodeContents(editableDiv);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const textBeforeCursor = preRange.toString();
-  const lastAt = textBeforeCursor.lastIndexOf("@");
-  if (lastAt === -1) return false;
-
-  const startPos = getNodeAtCharacterOffset(editableDiv, lastAt);
-  if (!startPos) return false;
-
-  const replaceRange = document.createRange();
-  replaceRange.setStart(startPos.node, startPos.offset);
-  replaceRange.setEnd(range.startContainer, range.startOffset);
-  replaceRange.deleteContents();
-
-  const span = document.createElement("span");
-  span.setAttribute("data-block-ref-id", refId);
-  span.className = "inline-block-ref border-b border-[var(--foreground)] cursor-default";
-  span.textContent = title;
-
-  replaceRange.insertNode(span);
-  const after = document.createRange();
-  after.setStartAfter(span);
-  after.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(after);
-  return true;
-}
+import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
+import { getLinkableItemHref } from "@/lib/references/navigation";
 
 interface TextBlockProps {
   block: Block;
@@ -111,6 +32,14 @@ interface TextBlockProps {
 }
 
 type SaveStatus = "idle" | "saving" | "saved";
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
 // Format markdown text to HTML
 const formatText = (text: string): string => {
@@ -145,6 +74,12 @@ const formatText = (text: string): string => {
       // Replace underline tags with styled version
       formatted = formatted.replace(/<u>(.*?)<\/u>/g, '<u class="underline text-[var(--foreground)]">$1</u>');
     }
+    // Convert markdown links to anchors
+    formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+      const safeLabel = escapeHtml(label);
+      const safeUrl = escapeHtml(url);
+      return `<a href="${safeUrl}" title="${safeLabel}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${safeLabel}</a>`;
+    });
     // Process markdown formatting (do this before HTML tag replacement to avoid conflicts)
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-[var(--foreground)]">$1</strong>');
     formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
@@ -183,15 +118,6 @@ const formatText = (text: string): string => {
       return `<div class="mb-1.5 text-sm text-[var(--foreground)]">${formatted}</div>`;
     }
 
-    // Inline block references: [@title](ref:uuid) -> underlined span
-    formatted = formatted.replace(
-      /\[\@([^\]]*)\]\(ref:([a-f0-9-]+)\)/g,
-      (_, title: string, id: string) => {
-        const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-        return `<span class="inline-block-ref border-b border-[var(--foreground)] cursor-default" data-block-ref-id="${id}">${esc(title)}</span>`;
-      }
-    );
-
     return `<p class="mb-1.5 text-sm leading-relaxed text-[var(--foreground)]">${formatted}</p>`;
   });
 
@@ -199,14 +125,13 @@ const formatText = (text: string): string => {
 
   // SECURITY: Sanitize HTML to prevent XSS attacks
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['strong', 'em', 'code', 'u', 'h1', 'h2', 'h3', 'p', 'div', 'span', 'br'],
-    ALLOWED_ATTR: ['class', 'data-block-ref-id'],
+    ALLOWED_TAGS: ['strong', 'em', 'code', 'u', 'h1', 'h2', 'h3', 'p', 'div', 'span', 'br', 'a'],
+    ALLOWED_ATTR: ['class', 'href', 'title', 'data-ref-link', 'target', 'rel'],
     KEEP_CONTENT: true,
   });
 };
 
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
-  const blockAttach = useBlockAttach();
   const blockContent = (block.content || {}) as { text?: string; borderless?: boolean };
   const initialContent = blockContent.text || "";
   const isEmpty = !initialContent || initialContent.trim() === "";
@@ -215,13 +140,13 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
-  const [inlineRefHover, setInlineRefHover] = useState<{ refId: string; rect: DOMRect } | null>(null);
-  const [isInCard, setIsInCard] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hoverClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { data: refSummaries = [] } = useBlockReferenceSummaries(block.id);
-  const deleteRefMutation = useDeleteBlockReference(block.id);
+  const mentionRangeRef = useRef<Range | null>(null);
+  const mentionStartRef = useRef<{ node: Node; offset: number } | null>(null);
+  const mentionEndRef = useRef<{ node: Node; offset: number } | null>(null);
+  const [mentionSearchQuery, setMentionSearchQuery] = useState("");
+  const referencePicker = useBlockReferencePicker();
 
   useEffect(() => {
     const next = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
@@ -230,21 +155,6 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       return () => cancelAnimationFrame(raf);
     }
   }, [block.content, isBorderless]);
-
-  useEffect(() => () => {
-    if (hoverClearRef.current) clearTimeout(hoverClearRef.current);
-  }, []);
-
-  const clearHoverSoon = useCallback(() => {
-    if (hoverClearRef.current) clearTimeout(hoverClearRef.current);
-    hoverClearRef.current = setTimeout(() => setInlineRefHover(null), 200);
-  }, []);
-  const cancelClearHover = useCallback(() => {
-    if (hoverClearRef.current) {
-      clearTimeout(hoverClearRef.current);
-      hoverClearRef.current = null;
-    }
-  }, []);
 
   const editingRef = useRef(false);
 
@@ -546,13 +456,8 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       if (node.nodeType === Node.ELEMENT_NODE) {
         const el = node as HTMLElement;
         const tagName = el.tagName.toLowerCase();
-        const refId = el.getAttribute?.('data-block-ref-id');
         const children = Array.from(node.childNodes);
         const childText = children.map(processNode).join('');
-        
-        if (tagName === 'span' && refId) {
-          return `[@${childText}](ref:${refId})`;
-        }
         
         switch (tagName) {
           case 'h1':
@@ -571,6 +476,11 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             return '<u>' + childText + '</u>';
           case 'code':
             return '`' + childText + '`';
+          case 'a': {
+            const href = el.getAttribute('href');
+            if (!href) return childText;
+            return `[${childText}](${href})`;
+          }
         case 'br':
             return '\n';
         case 'p':
@@ -612,6 +522,285 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       syncContentFromHTML();
       updateActiveFormatting();
     }
+  };
+
+  const insertInlineReference = useCallback(
+    (item: LinkableItem, searchQuery?: string) => {
+      const href = getLinkableItemHref({
+        referenceType: item.referenceType,
+        id: item.id,
+        tabId: item.tabId,
+        projectId: item.projectId,
+        isWorkflow: item.isWorkflow,
+      });
+      if (!href) return;
+
+      const editableDiv = textareaRef.current;
+      if (!editableDiv) return;
+
+      const label = `@${item.name}`;
+      const markdown = `[${label}](${href})`;
+      // Create HTML link element for immediate display
+      const linkHtml = `<a href="${escapeHtml(href)}" title="${escapeHtml(label)}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${escapeHtml(label)}</a>`;
+
+      // Use the tracked start and end ranges if available
+      if (mentionStartRef.current && mentionEndRef.current) {
+        try {
+          // Verify the nodes are still in the DOM
+          if (editableDiv.contains(mentionStartRef.current.node) && 
+              editableDiv.contains(mentionEndRef.current.node)) {
+            const range = document.createRange();
+            range.setStart(mentionStartRef.current.node, mentionStartRef.current.offset);
+            range.setEnd(mentionEndRef.current.node, mentionEndRef.current.offset);
+            
+            // Verify the range is valid
+            if (range.toString().startsWith("@")) {
+              range.deleteContents();
+              // Insert HTML link element directly for immediate visual feedback
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = linkHtml;
+              const linkElement = tempDiv.firstChild;
+              if (linkElement) {
+                range.insertNode(linkElement);
+                range.setStartAfter(linkElement);
+                range.collapse(true);
+                const selection = window.getSelection();
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+                
+                mentionStartRef.current = null;
+                mentionEndRef.current = null;
+                mentionRangeRef.current = null;
+                setMentionSearchQuery("");
+                // Sync immediately to update state
+                syncContentFromHTML();
+                editableDiv.focus();
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error replacing mention with tracked range:", e);
+        }
+      }
+
+      // Fallback: try to find "@" + search query in text content by finding current cursor
+      const query = mentionSearchQuery || searchQuery || "";
+      const selection = window.getSelection();
+      if (mentionStartRef.current && selection && selection.rangeCount > 0) {
+        try {
+          // Get current cursor position
+          const cursorRange = selection.getRangeAt(0);
+          const cursorNode = cursorRange.startContainer;
+          const cursorOffset = cursorRange.startOffset;
+          
+          // Try to create range from "@" to cursor
+          if (editableDiv.contains(mentionStartRef.current.node) && editableDiv.contains(cursorNode)) {
+            const range = document.createRange();
+            range.setStart(mentionStartRef.current.node, mentionStartRef.current.offset);
+            range.setEnd(cursorNode, cursorOffset);
+            
+            const rangeText = range.toString();
+            if (rangeText.startsWith("@")) {
+              range.deleteContents();
+              const textNode = document.createTextNode(markdown);
+              range.insertNode(textNode);
+              range.setStartAfter(textNode);
+              range.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              
+              mentionStartRef.current = null;
+              mentionEndRef.current = null;
+              mentionRangeRef.current = null;
+              setMentionSearchQuery("");
+              syncContentFromHTML();
+              editableDiv.focus();
+              return;
+            }
+          }
+        } catch (e) {
+          console.error("Error replacing mention with cursor range:", e);
+        }
+      }
+      
+      // Another fallback: try to find "@" + search query in text content
+      if (mentionStartRef.current && query) {
+        try {
+          const textContent = editableDiv.textContent || "";
+          const atIndex = textContent.indexOf("@");
+          
+          if (atIndex !== -1) {
+            // Find the "@" node
+            const walker = document.createTreeWalker(
+              editableDiv,
+              NodeFilter.SHOW_TEXT,
+              null
+            );
+            
+            let charCount = 0;
+            let atNode: Node | null = null;
+            let atOffset = 0;
+            
+            while (walker.nextNode()) {
+              const node = walker.currentNode;
+              const text = node.textContent || "";
+              const nodeStart = charCount;
+              const nodeEnd = charCount + text.length;
+              
+              if (atIndex >= nodeStart && atIndex < nodeEnd) {
+                atNode = node;
+                atOffset = atIndex - nodeStart;
+                break;
+              }
+              charCount = nodeEnd;
+            }
+            
+            if (atNode) {
+              const range = document.createRange();
+              range.setStart(atNode, atOffset);
+              
+              // Calculate end position: "@" + query length
+              const endPos = atIndex + 1 + query.length;
+              let remaining = query.length + 1;
+              let endNode: Node | null = atNode;
+              let endOffset = atOffset;
+              
+              // Reset walker and find end node
+              walker.currentNode = editableDiv;
+              charCount = 0;
+              let foundStart = false;
+              
+              while (walker.nextNode()) {
+                const node = walker.currentNode;
+                const text = node.textContent || "";
+                const nodeStart = charCount;
+                const nodeEnd = charCount + text.length;
+                
+                if (!foundStart && node === atNode) {
+                  foundStart = true;
+                  const charsInNode = text.length - atOffset;
+                  if (remaining <= charsInNode) {
+                    endNode = node;
+                    endOffset = atOffset + remaining;
+                    break;
+                  }
+                  remaining -= charsInNode;
+                } else if (foundStart) {
+                  if (remaining <= text.length) {
+                    endNode = node;
+                    endOffset = remaining;
+                    break;
+                  }
+                  remaining -= text.length;
+                }
+                charCount = nodeEnd;
+              }
+              
+              if (endNode) {
+                range.setEnd(endNode, endOffset);
+                range.deleteContents();
+                // Insert HTML link element directly for immediate visual feedback
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = linkHtml;
+                const linkElement = tempDiv.firstChild;
+                if (linkElement) {
+                  range.insertNode(linkElement);
+                  range.setStartAfter(linkElement);
+                  range.collapse(true);
+                  const selection = window.getSelection();
+                  selection?.removeAllRanges();
+                  selection?.addRange(range);
+                  mentionStartRef.current = null;
+                  mentionEndRef.current = null;
+                  mentionRangeRef.current = null;
+                  setMentionSearchQuery("");
+                  // Sync immediately to update state
+                  syncContentFromHTML();
+                  editableDiv.focus();
+                  return;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error replacing mention:", e);
+        }
+      }
+
+      // Fallback: use the stored range if available (just "@")
+      const range = mentionRangeRef.current;
+      if (range) {
+        range.deleteContents();
+        // Insert HTML link element directly for immediate visual feedback
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = linkHtml;
+        const linkElement = tempDiv.firstChild;
+        if (linkElement) {
+          range.insertNode(linkElement);
+          range.setStartAfter(linkElement);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+      } else {
+        // Insert HTML link element directly
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = linkHtml;
+        const linkElement = tempDiv.firstChild;
+        if (linkElement) {
+          editableDiv.appendChild(linkElement);
+        }
+      }
+
+      mentionRangeRef.current = null;
+      mentionStartRef.current = null;
+      mentionEndRef.current = null;
+      setMentionSearchQuery("");
+      syncContentFromHTML();
+      editableDiv.focus();
+    },
+    [syncContentFromHTML, mentionSearchQuery]
+  );
+
+  const getCaretRect = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    const rects = range.getClientRects();
+    if (rects.length > 0) return rects[0];
+
+    // Fallback: insert a temporary marker to measure caret position
+    const marker = document.createElement("span");
+    marker.textContent = "\u200b";
+    range.insertNode(marker);
+    const rect = marker.getBoundingClientRect();
+    marker.parentNode?.removeChild(marker);
+    // Restore caret after removing marker
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return rect;
+  };
+
+  // Helper to get text offset from a node/offset position
+  const getTextOffset = (container: Node, targetNode: Node, targetOffset: number): number => {
+    let offset = 0;
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+    
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node === targetNode) {
+        return offset + targetOffset;
+      }
+      offset += (node.textContent || "").length;
+    }
+    return offset;
   };
 
   if (isEditing) {
@@ -734,48 +923,103 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
           }}
           onBlur={handleBlur}
           onKeyDown={(e) => {
-            if (e.key === "@") {
-              if (blockAttach) {
-                requestAnimationFrame(() => {
-                  const editableDiv = textareaRef.current;
-                  if (editableDiv) {
-                    const rect = getCaretRectForContentEditable(editableDiv);
-                    if (rect) {
-                      blockAttach.openAttachPicker(block.id, {
-                        position: rect,
-                        onInsertRef: (payload) => {
-                          if (!payload) return;
-                          const { refId, title } = payload;
-                          if (textareaRef.current && insertInlineBlockRefAtCaret(textareaRef.current, refId, title)) {
-                            syncContentFromHTML();
-                          }
-                        },
-                      });
-                    }
-                  }
-                });
-              }
-              return;
-            }
-            if (blockAttach?.isAttachOpenForBlock(block.id) && e.key === "Escape") {
+            if (e.key === "@" && referencePicker && projectId && workspaceId) {
               e.preventDefault();
-              blockAttach.onAttachClose();
+              const selection = window.getSelection();
+              if (selection && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const textNode = document.createTextNode("@");
+                range.insertNode(textNode);
+                // Store the start position for later replacement
+                mentionStartRef.current = { node: textNode, offset: 0 };
+                mentionEndRef.current = { node: textNode, offset: 1 }; // Initially just after "@"
+                // Create a range that selects the inserted "@"
+                const mentionRange = document.createRange();
+                mentionRange.setStart(textNode, 0);
+                mentionRange.setEnd(textNode, 1);
+                mentionRangeRef.current = mentionRange;
+                // Move caret after the "@"
+                range.setStartAfter(textNode);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                
+                // Get the cursor position (after the "@") for better positioning
+                const cursorRect = range.getBoundingClientRect();
+                // Use cursor position instead of "@" position for better alignment
+                const rect = cursorRect.width > 0 ? cursorRect : mentionRange.getBoundingClientRect();
+                
+                setMentionSearchQuery("");
+                referencePicker.openPicker({ 
+                  onSelect: insertInlineReference, 
+                  anchorRect: rect,
+                  initialQuery: ""
+                });
+              } else {
+                mentionRangeRef.current = null;
+                mentionStartRef.current = null;
+                mentionEndRef.current = null;
+                setMentionSearchQuery("");
+                referencePicker.openPicker({ onSelect: insertInlineReference });
+              }
               return;
             }
             if (e.key === "Escape") {
               setContent((block.content?.text as string) || "");
               setIsEditing(false);
+              mentionStartRef.current = null;
+              mentionEndRef.current = null;
+              mentionRangeRef.current = null;
+              setMentionSearchQuery("");
             }
           }}
           onInput={(e) => {
             const editableDiv = e.currentTarget as HTMLDivElement;
-            if (blockAttach?.isAttachOpenForBlock(block.id)) {
-              blockAttach.updateAttachQuery(getTextAfterAtFromContentEditable(editableDiv));
-            }
+            // Clear placeholder on first input
             const textContent = editableDiv.textContent?.trim() || '';
             if (textContent === 'Click to add text…' || textContent === 'Start typing…') {
               editableDiv.innerHTML = '';
             }
+            
+            // Sync search query if we're in mention mode and update the end range
+            if (mentionStartRef.current && referencePicker) {
+              const selection = window.getSelection();
+              if (selection && selection.rangeCount > 0) {
+                const cursorRange = selection.getRangeAt(0);
+                const textContent = editableDiv.textContent || "";
+                
+                // Find "@" position
+                const atIndex = textContent.indexOf("@");
+                if (atIndex !== -1) {
+                  // Get text from "@" to cursor
+                  const cursorPos = getTextOffset(editableDiv, cursorRange.startContainer, cursorRange.startOffset);
+                  if (cursorPos > atIndex) {
+                    const query = textContent.slice(atIndex + 1, cursorPos);
+                    setMentionSearchQuery(query);
+                    
+                    // Update the end range to current cursor position
+                    mentionEndRef.current = {
+                      node: cursorRange.startContainer,
+                      offset: cursorRange.startOffset,
+                    };
+                    
+                    // Update the picker's search query
+                    if (referencePicker.updateQuery) {
+                      referencePicker.updateQuery(query);
+                    } else {
+                      // Fallback: re-open with new query
+                      const rect = mentionRangeRef.current?.getBoundingClientRect();
+                      referencePicker.openPicker({
+                        onSelect: insertInlineReference,
+                        anchorRect: rect || undefined,
+                        initialQuery: query,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+            
             syncContentFromHTML();
           }}
           className="w-full resize-none bg-transparent px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
@@ -793,56 +1037,20 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
 
   const formatted = formatText(content);
 
-  const viewRef = (e: React.MouseEvent<HTMLDivElement>) => {
-    const el = (e.target as HTMLElement).closest?.("[data-block-ref-id]");
-    if (el) {
-      cancelClearHover();
-      setInlineRefHover({ refId: el.getAttribute("data-block-ref-id")!, rect: el.getBoundingClientRect() });
-    }
-  };
-
-  const summary = inlineRefHover ? refSummaries.find((r) => r.id === inlineRefHover.refId) : null;
-
   return (
     <div className="space-y-2">
       <div
-        onClick={() => setIsEditing(true)}
-        onMouseOver={viewRef}
-        onMouseLeave={() => { if (!isInCard) clearHoverSoon(); }}
-        className="cursor-text text-sm leading-normal text-[var(--foreground)] relative"
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('a[data-ref-link=\"true\"]')) {
+            return;
+          }
+          setIsEditing(true);
+        }}
+        className="cursor-text text-sm leading-normal text-[var(--foreground)]"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
-      {summary && inlineRefHover &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            className="fixed z-50 min-w-[180px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs shadow-lg"
-            style={{ left: inlineRefHover.rect.left, top: inlineRefHover.rect.bottom + 4 }}
-            onMouseEnter={() => { cancelClearHover(); setIsInCard(true); }}
-            onMouseLeave={() => { setIsInCard(false); setInlineRefHover(null); }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-medium text-[var(--foreground)]">{summary.title}</div>
-                <div className="text-[10px] uppercase text-[var(--muted-foreground)]">{summary.type_label ?? summary.reference_type}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => { deleteRefMutation.mutate(summary.id); setInlineRefHover(null); }}
-                className="shrink-0 text-[var(--tertiary-foreground)] hover:text-red-500"
-                aria-label="Remove link"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}
-      <BlockAttachmentsList
-        blockId={block.id}
-        onAdd={blockAttach ? () => blockAttach.openAttachPicker(block.id) : undefined}
-      />
     </div>
   );
 }
