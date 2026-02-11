@@ -268,7 +268,7 @@ export async function searchLinkableEntities(
         content,
         tabs!inner(
           id,
-          title,
+          name,
           project_id,
           projects!inner(workspace_id)
         )
@@ -284,7 +284,7 @@ export async function searchLinkableEntities(
           type: "block",
           id: block.id,
           title,
-          context: (block.tabs as any)?.title ?? "",
+          context: (block.tabs as any)?.name ?? "",
         });
       }
     }
@@ -294,7 +294,7 @@ export async function searchLinkableEntities(
   if (types.includes("task") && results.length < limit) {
     const { data: tasks } = await supabase
       .from("task_items")
-      .select("id, title, tab_id, tabs(title)")
+      .select("id, title, tab_id, tabs(name)")
       .eq("workspace_id", workspaceId)
       .ilike("title", `%${searchQuery}%`)
       .limit(limit - results.length);
@@ -304,7 +304,7 @@ export async function searchLinkableEntities(
         type: "task",
         id: task.id,
         title: task.title,
-        context: (task.tabs as any)?.title ?? "",
+        context: (task.tabs as any)?.name ?? "",
       });
     }
   }
@@ -378,7 +378,7 @@ async function resolveEntityReference(
     case "block": {
       const { data } = await supabase
         .from("blocks")
-        .select("id, type, content, tabs(title)")
+        .select("id, type, content, tabs(name)")
         .eq("id", entityId)
         .maybeSingle();
 
@@ -387,14 +387,14 @@ async function resolveEntityReference(
         type: "block",
         id: data.id,
         title: getBlockTitle(data),
-        context: data.tabs?.title ?? "",
+        context: data.tabs?.name ?? "",
       };
     }
 
     case "task": {
       const { data } = await supabase
         .from("task_items")
-        .select("id, title, tabs(title)")
+        .select("id, title, tabs(name)")
         .eq("id", entityId)
         .maybeSingle();
 
@@ -403,7 +403,23 @@ async function resolveEntityReference(
         type: "task",
         id: data.id,
         title: data.title,
-        context: data.tabs?.title ?? "",
+        context: data.tabs?.name ?? "",
+      };
+    }
+
+    case "subtask": {
+      const { data } = await supabase
+        .from("task_subtasks")
+        .select("id, title, task_items(title)")
+        .eq("id", entityId)
+        .maybeSingle();
+
+      if (!data) return null;
+      return {
+        type: "subtask",
+        id: data.id,
+        title: data.title,
+        context: (data.task_items as any)?.title ?? "",
       };
     }
 

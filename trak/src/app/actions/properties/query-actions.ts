@@ -186,6 +186,40 @@ export async function queryEntitiesGroupedBy(
 
 // Helper functions
 
+async function getTableIdsFromTableBlocks(
+  supabase: any,
+  workspaceId: string,
+  opts: { projectId?: string; tabId?: string }
+): Promise<string[]> {
+  let blockQuery = supabase
+    .from("blocks")
+    .select("id, content, tab_id, tabs!inner(project_id, projects!inner(workspace_id))")
+    .eq("tabs.projects.workspace_id", workspaceId)
+    .eq("type", "table");
+
+  if (opts.projectId) {
+    blockQuery = blockQuery.eq("tabs.project_id", opts.projectId);
+  }
+  if (opts.tabId) {
+    blockQuery = blockQuery.eq("tab_id", opts.tabId);
+  }
+
+  const { data: blocks } = await blockQuery;
+  const tableIds = new Set<string>();
+
+  for (const block of blocks ?? []) {
+    const content = (block as any).content ?? {};
+    const tableId =
+      (typeof content.tableId === "string" && content.tableId) ||
+      (typeof content.table_id === "string" && content.table_id) ||
+      (typeof content.table === "string" && content.table) ||
+      null;
+    if (tableId) tableIds.add(tableId);
+  }
+
+  return Array.from(tableIds);
+}
+
 /**
  * Query entities of a specific type.
  */
@@ -207,7 +241,7 @@ async function queryEntitiesByType(
           content,
           tabs!inner(
             id,
-            title,
+            name,
             project_id,
             projects!inner(
               id,
@@ -230,7 +264,7 @@ async function queryEntitiesByType(
         id: string;
         type: string;
         content: Record<string, unknown> | null;
-        tabs?: { title?: string } | null;
+        tabs?: { name?: string } | null;
       }>;
 
       // Apply property filters
@@ -247,7 +281,7 @@ async function queryEntitiesByType(
           type: "block",
           id: block.id,
           title: getBlockTitle(block),
-          context: (block.tabs as any)?.title ?? "",
+          context: (block.tabs as any)?.name ?? "",
         });
       }
       break;
@@ -256,22 +290,31 @@ async function queryEntitiesByType(
     case "task": {
       let query = supabase
         .from("task_items")
-        .select("id, title, tab_id, tabs(title)")
+        .select("id, title, tab_id, project_id, tabs(name, project_id)")
         .eq("workspace_id", params.workspace_id);
 
       // Apply scope filters
       if (params.scope === "project" && params.project_id) {
-        query = query.eq("project_id", params.project_id);
+        // Defer to post-fetch filtering to handle tasks missing project_id but linked to a tab.
       } else if (params.scope === "tab" && params.tab_id) {
         query = query.eq("tab_id", params.tab_id);
       }
 
       const { data: tasks } = await query;
-      const typedTasks = (tasks ?? []) as Array<{
+      let typedTasks = (tasks ?? []) as Array<{
         id: string;
         title: string;
-        tabs?: { title?: string } | null;
+        project_id?: string | null;
+        tabs?: { name?: string } | null;
       }>;
+
+      if (params.scope === "project" && params.project_id) {
+        typedTasks = typedTasks.filter((task) => {
+          const tabProjectId = (task.tabs as any)?.project_id ?? null;
+          const taskProjectId = task.project_id ?? null;
+          return taskProjectId === params.project_id || tabProjectId === params.project_id;
+        });
+      }
 
       // Apply property filters
       const filteredTasks = await filterByProperties(
@@ -287,7 +330,45 @@ async function queryEntitiesByType(
           type: "task",
           id: task.id,
           title: task.title,
-          context: (task.tabs as any)?.title ?? "",
+          context: (task.tabs as any)?.name ?? "",
+        });
+      }
+      break;
+    }
+
+    case "subtask": {
+      let query = supabase
+        .from("task_subtasks")
+        .select("id, title, task_id, task_items!inner(id, title, workspace_id, project_id, tab_id, tabs(name))")
+        .eq("task_items.workspace_id", params.workspace_id);
+
+      if (params.scope === "project" && params.project_id) {
+        query = query.eq("task_items.project_id", params.project_id);
+      } else if (params.scope === "tab" && params.tab_id) {
+        query = query.eq("task_items.tab_id", params.tab_id);
+      }
+
+      const { data: subtasks } = await query;
+      const typedSubtasks = (subtasks ?? []) as Array<{
+        id: string;
+        title: string;
+        task_items?: { title?: string; tabs?: { name?: string } | null } | null;
+      }>;
+
+      const filteredSubtasks = await filterByProperties(
+        supabase,
+        "subtask",
+        typedSubtasks,
+        params.properties,
+        params.include_inherited
+      );
+
+      for (const subtask of filteredSubtasks) {
+        results.push({
+          type: "subtask",
+          id: subtask.id,
+          title: subtask.title,
+          context: (subtask.task_items as any)?.title ?? "",
         });
       }
       break;
@@ -347,32 +428,73 @@ async function queryEntitiesByType(
     }
 
     case "table_row": {
-      let query = supabase
-        .from("table_rows")
-        .select(
-          `
+      const baseSelect = `
+        id,
+        data,
+        table_id,
+        tables!inner(
           id,
-          data,
-          tables!inner(
-            id,
-            title,
-            workspace_id,
-            project_id,
-            table_fields(id, name, is_primary)
-          )
-        `
+          title,
+          workspace_id,
+          project_id,
+          table_fields(id, name, is_primary)
         )
-        .eq("tables.workspace_id", params.workspace_id);
+      `;
 
-      // Apply scope filters
+      let rows: any[] = [];
+
       if (params.scope === "project" && params.project_id) {
-        query = query.eq("tables.project_id", params.project_id);
-      }
-      // Note: table_rows don't have direct tab scope
+        const { data: rowsByProject } = await supabase
+          .from("table_rows")
+          .select(baseSelect)
+          .eq("tables.workspace_id", params.workspace_id)
+          .eq("tables.project_id", params.project_id);
 
-      const { data: rows } = await query;
+        rows = rowsByProject ?? [];
+
+        const tableIdsFromBlocks = await getTableIdsFromTableBlocks(supabase, params.workspace_id, {
+          projectId: params.project_id,
+        });
+        if (tableIdsFromBlocks.length > 0) {
+          const { data: rowsByBlocks } = await supabase
+            .from("table_rows")
+            .select(baseSelect)
+            .eq("tables.workspace_id", params.workspace_id)
+            .in("table_id", tableIdsFromBlocks);
+          rows = [...rows, ...((rowsByBlocks ?? []) as any[])];
+        }
+
+        const rowMap = new Map<string, any>();
+        for (const row of rows) {
+          if (!row?.id) continue;
+          rowMap.set(row.id, row);
+        }
+        rows = Array.from(rowMap.values());
+      } else if (params.scope === "tab" && params.tab_id) {
+        const tableIdsFromBlocks = await getTableIdsFromTableBlocks(supabase, params.workspace_id, {
+          tabId: params.tab_id,
+        });
+        if (tableIdsFromBlocks.length === 0) {
+          rows = [];
+        } else {
+          const { data: rowsByBlocks } = await supabase
+            .from("table_rows")
+            .select(baseSelect)
+            .eq("tables.workspace_id", params.workspace_id)
+            .in("table_id", tableIdsFromBlocks);
+          rows = rowsByBlocks ?? [];
+        }
+      } else {
+        const { data: rowsAll } = await supabase
+          .from("table_rows")
+          .select(baseSelect)
+          .eq("tables.workspace_id", params.workspace_id);
+        rows = rowsAll ?? [];
+      }
+
       const typedRows = (rows ?? []) as Array<{
         id: string;
+        table_id?: string;
         data: Record<string, unknown>;
         tables?:
           | { title?: string; table_fields?: Array<{ id: string; name: string; is_primary: boolean }> }
@@ -537,37 +659,54 @@ async function filterByProperties<T extends { id: string }>(
 /**
  * Check if a value matches a filter.
  */
-function matchesFilter(value: unknown, filter: PropertyFilter): boolean {
-  if (Array.isArray(value)) {
-    switch (filter.operator) {
-      case "equals":
-        return value.includes(filter.value);
-      case "not_equals":
-        return !value.includes(filter.value);
-      case "contains":
-        return value.some((item) =>
-          typeof item === "string" && typeof filter.value === "string"
-            ? item.toLowerCase().includes(filter.value.toLowerCase())
-            : item === filter.value
-        );
-      case "is_empty":
-        return value.length === 0;
-      case "is_not_empty":
-        return value.length > 0;
-      default:
-        break;
-    }
+function normalizeComparableStrings(value: unknown): string[] {
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return [String(value)];
   }
+  if (Array.isArray(value)) {
+    const flattened: string[] = [];
+    for (const item of value) {
+      flattened.push(...normalizeComparableStrings(item));
+    }
+    return flattened;
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const candidates: string[] = [];
+    for (const key of ["id", "value", "name", "label"]) {
+      const v = obj[key];
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+        candidates.push(String(v));
+      }
+    }
+    return candidates;
+  }
+  return [];
+}
+
+function matchesFilter(value: unknown, filter: PropertyFilter): boolean {
+  const filterValueString = typeof filter.value === "string" ? filter.value.toLowerCase() : null;
+  const comparableStrings = filterValueString
+    ? normalizeComparableStrings(value).map((v) => v.toLowerCase())
+    : [];
+
   switch (filter.operator) {
     case "equals":
+      if (filterValueString) {
+        return comparableStrings.includes(filterValueString);
+      }
       return value === filter.value;
 
     case "not_equals":
+      if (filterValueString) {
+        return !comparableStrings.includes(filterValueString);
+      }
       return value !== filter.value;
 
     case "contains":
-      if (typeof value === "string" && typeof filter.value === "string") {
-        return value.toLowerCase().includes(filter.value.toLowerCase());
+      if (filterValueString) {
+        return comparableStrings.some((entry) => entry.includes(filterValueString));
       }
       return false;
 
