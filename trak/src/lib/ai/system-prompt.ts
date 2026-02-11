@@ -797,7 +797,7 @@ ${context.activeToolGroups && context.activeToolGroups.length > 0 ? `\n- Active 
 
 ## Shopify Integration Active
 
-**CRITICAL: You have access to Shopify integration tools. When the user asks about products, inventory, store, shop, sales, or Shopify-related queries, you MUST use Shopify tools FIRST.**
+**CRITICAL: You have access to Shopify integration tools. When the user asks about products, inventory, store, shop, sales, or Shopify-related queries, you MUST use Shopify tools FIRST and avoid general search tools unless Shopify results are empty or the user explicitly asks about workspace content.**
 
 **Priority for product/inventory queries:**
 1. **FIRST**: Try searchShopifyProducts to find products in the connected Shopify store

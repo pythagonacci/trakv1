@@ -334,6 +334,10 @@ SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for com
    - Use for semantic/conceptual queries across all content
    - Good for: "Q1 marketing campaigns", "budget discussions", "anything mentioning revenue"
 
+SHOPIFY PRIORITY:
+- If the user asks about Shopify products, inventory, store/shop, SKUs/variants, or sales, use Shopify tools FIRST.
+- Call searchShopifyProducts before any general workspace search. Only fall back to general search if Shopify results are empty or the user explicitly asks about workspace content.
+
 FALLBACK BEHAVIOR:
 - If structured search returns no results, TRY unstructuredSearchWorkspace
 - If unstructured search is too broad, REFINE with structured filters
