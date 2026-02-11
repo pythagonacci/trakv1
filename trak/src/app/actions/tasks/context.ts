@@ -138,3 +138,40 @@ export async function requireTaskItemAccess(
 
   return { supabase, userId, task } as const;
 }
+
+export async function requireTaskSubtaskAccess(
+  subtaskId: string,
+  opts?: { authContext?: AuthContext }
+) {
+  let supabase: SupabaseClient;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" } as const;
+    supabase = client;
+    userId = user.id;
+  }
+
+  const { data: subtask, error: subtaskError } = await supabase
+    .from("task_subtasks")
+    .select("id, task_id")
+    .eq("id", subtaskId)
+    .single();
+  if (subtaskError || !subtask) return { error: "Subtask not found" } as const;
+
+  const { data: task } = await supabase
+    .from("task_items")
+    .select("id, workspace_id")
+    .eq("id", subtask.task_id)
+    .single();
+  if (!task) return { error: "Task not found" } as const;
+
+  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
+  if (!membership) return { error: "Not a member of this workspace" } as const;
+
+  return { supabase, userId, subtask, task } as const;
+}

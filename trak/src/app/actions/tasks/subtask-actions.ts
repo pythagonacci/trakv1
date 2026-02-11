@@ -3,12 +3,14 @@
 import { requireTaskItemAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TaskSubtask } from "@/types/task";
+import type { EntityProperties, Status } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
 
 export async function createTaskSubtask(input: {
   taskId: string;
   title: string;
+  description?: string | null;
   completed?: boolean;
   displayOrder?: number;
   authContext?: AuthContext;
@@ -22,6 +24,7 @@ export async function createTaskSubtask(input: {
     .insert({
       task_id: input.taskId,
       title: input.title,
+      description: input.description ?? null,
       completed: input.completed ?? false,
       display_order: input.displayOrder ?? 0,
     })
@@ -29,12 +32,30 @@ export async function createTaskSubtask(input: {
     .single();
 
   if (error || !data) return { error: "Failed to create subtask" };
+  const { setEntityProperties } = await import("@/app/actions/entity-properties");
+  await setEntityProperties({
+    entity_type: "subtask",
+    entity_id: data.id,
+    workspace_id: access.task.workspace_id,
+    updates: { status: (input.completed ? "done" : "todo") as any },
+  });
   return { data: data as TaskSubtask };
 }
 
 export async function updateTaskSubtask(
   subtaskId: string,
-  updates: Partial<{ title: string; completed: boolean; displayOrder: number }>,
+  updates: Partial<{
+    title: string;
+    description: string | null;
+    completed: boolean;
+    displayOrder: number;
+    status: Status;
+    priority: EntityProperties["priority"];
+    assignee_ids: string[];
+    assignee_id: string | null;
+    due_date: EntityProperties["due_date"];
+    tags: string[];
+  }>,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TaskSubtask>> {
   let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
@@ -74,17 +95,57 @@ export async function updateTaskSubtask(
 
   const payload: Record<string, any> = {};
   if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.description !== undefined) payload.description = updates.description;
   if (updates.completed !== undefined) payload.completed = updates.completed;
   if (updates.displayOrder !== undefined) payload.display_order = updates.displayOrder;
 
-  const { data, error } = await supabase
-    .from("task_subtasks")
-    .update(payload)
-    .eq("id", subtaskId)
-    .select("*")
-    .single();
+  let data: TaskSubtask | null = null;
+  if (Object.keys(payload).length > 0) {
+    const { data: updated, error } = await supabase
+      .from("task_subtasks")
+      .update(payload)
+      .eq("id", subtaskId)
+      .select("*")
+      .single();
+    if (error || !updated) return { error: "Failed to update subtask" };
+    data = updated as TaskSubtask;
+  }
 
-  if (error || !data) return { error: "Failed to update subtask" };
+  const propertyUpdates: Partial<EntityProperties> = {};
+  if (updates.status !== undefined) propertyUpdates.status = updates.status;
+  if (updates.completed !== undefined && updates.status === undefined) {
+    propertyUpdates.status = updates.completed ? "done" : "todo";
+  }
+  if (updates.priority !== undefined) propertyUpdates.priority = updates.priority;
+  if (updates.assignee_ids !== undefined) propertyUpdates.assignee_ids = updates.assignee_ids;
+  if (updates.assignee_id !== undefined) propertyUpdates.assignee_id = updates.assignee_id;
+  if (updates.due_date !== undefined) propertyUpdates.due_date = updates.due_date;
+  if (updates.tags !== undefined) propertyUpdates.tags = updates.tags;
+
+  if (Object.keys(payload).length === 0 && Object.keys(propertyUpdates).length === 0) {
+    return { error: "No updates provided" };
+  }
+
+  if (Object.keys(propertyUpdates).length > 0) {
+    const { setEntityProperties } = await import("@/app/actions/entity-properties");
+    await setEntityProperties({
+      entity_type: "subtask",
+      entity_id: subtaskId,
+      workspace_id: task.workspace_id,
+      updates: propertyUpdates,
+    });
+  }
+
+  if (!data) {
+    const { data: refreshed, error: refreshError } = await supabase
+      .from("task_subtasks")
+      .select("*")
+      .eq("id", subtaskId)
+      .single();
+    if (refreshError || !refreshed) return { error: "Failed to load updated subtask" };
+    data = refreshed as TaskSubtask;
+  }
+
   return { data: data as TaskSubtask };
 }
 
@@ -126,5 +187,7 @@ export async function deleteTaskSubtask(subtaskId: string, opts?: { authContext?
 
   const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
   if (error) return { error: "Failed to delete subtask" };
+  const { recomputeTaskPropertiesFromSubtasks } = await import("@/app/actions/entity-properties");
+  await recomputeTaskPropertiesFromSubtasks(subtask.task_id);
   return { data: null };
 }

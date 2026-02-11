@@ -120,6 +120,15 @@ export async function getWorkspaceIdForEntity(
       return data?.workspace_id ?? null;
     }
 
+    case "subtask": {
+      const { data } = await supabase
+        .from("task_subtasks")
+        .select("task_id, task_items!inner(workspace_id)")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data?.task_items as any)?.workspace_id ?? null;
+    }
+
     case "timeline_event": {
       const { data } = await supabase
         .from("timeline_events")

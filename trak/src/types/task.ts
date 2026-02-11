@@ -1,6 +1,7 @@
 export type TaskStatus = "todo" | "in-progress" | "done";
 export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 export type TaskReferenceType = "doc" | "table_row" | "task" | "block" | "tab";
+export type TaskSourceSyncMode = "snapshot" | "live";
 
 export interface TaskItem {
   id: string;
@@ -12,6 +13,8 @@ export interface TaskItem {
   status: TaskStatus;
   priority: TaskPriority;
   assignee_id: string | null;
+  source_task_id: string | null;
+  source_sync_mode: TaskSourceSyncMode;
   description: string | null;
   due_date: string | null;
   due_time: string | null;
@@ -32,8 +35,21 @@ export interface TaskSubtask {
   id: string;
   task_id: string;
   title: string;
+  description: string | null;
   completed: boolean;
   display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskSubtaskReference {
+  id: string;
+  workspace_id: string;
+  subtask_id: string;
+  reference_type: TaskReferenceType;
+  reference_id: string;
+  table_id: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -84,6 +100,6 @@ export interface TaskReference {
 export interface TaskBlockContent {
   title: string;
   hideIcons?: boolean;
-  viewMode?: "list" | "board";
+  viewMode?: "list" | "board" | "table";
   boardGroupBy?: "status" | "priority" | "assignee" | "dueDate" | "tags";
 }

@@ -330,6 +330,12 @@ export interface TableRow {
   id: string;
   /** Parent table identifier */
   table_id: string;
+  /** Source entity type when this row is a workflow representation copy */
+  source_entity_type: TableRowSourceEntityType | null;
+  /** Source entity ID when this row is a workflow representation copy */
+  source_entity_id: string | null;
+  /** Sync behavior for source-linked rows */
+  source_sync_mode: TableRowSourceSyncMode;
   /** Cell values keyed by field ID */
   data: TableRowData;
   /** Fractional order used for stable sorting */
@@ -343,6 +349,10 @@ export interface TableRow {
   /** Last editor user ID */
   updated_by: string | null;
 }
+
+export type TableRowSourceEntityType = "task" | "timeline_event";
+
+export type TableRowSourceSyncMode = "snapshot" | "live";
 
 export interface TableView {
   /** View identifier (UUID) */
