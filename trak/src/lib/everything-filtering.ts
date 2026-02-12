@@ -1,5 +1,6 @@
 import type { EverythingItem, FilterConfig, DueDatePreset } from "@/types/everything";
 import { isAfter, isBefore, isToday, isTomorrow, isThisWeek, isThisMonth, parseISO, startOfWeek, endOfWeek, addWeeks, startOfMonth, endOfMonth, addMonths, isWithinInterval } from "date-fns";
+import { getDueDateEnd, hasDueDate } from "@/lib/due-date";
 
 /**
  * Apply filters to everything items
@@ -103,15 +104,16 @@ function isNextMonth(date: Date): boolean {
 /**
  * Check if a date matches a due date preset
  */
-function matchesDueDatePreset(dueDate: string | null, preset: DueDatePreset): boolean {
+function matchesDueDatePreset(dueDate: EverythingItem["properties"]["due_date"], preset: DueDatePreset): boolean {
   if (preset === "no_date") {
-    return !dueDate;
+    return !hasDueDate(dueDate);
   }
 
-  if (!dueDate) return false;
+  const endDate = getDueDateEnd(dueDate);
+  if (!endDate) return false;
 
   try {
-    const date = parseISO(dueDate);
+    const date = parseISO(endDate);
     const now = new Date();
 
     switch (preset) {
@@ -142,13 +144,14 @@ function matchesDueDatePreset(dueDate: string | null, preset: DueDatePreset): bo
  * Check if a date is within a date range
  */
 function matchesDueDateRange(
-  dueDate: string | null,
+  dueDate: EverythingItem["properties"]["due_date"],
   range: { start: string | null; end: string | null }
 ): boolean {
-  if (!dueDate) return false;
+  const endDate = getDueDateEnd(dueDate);
+  if (!endDate) return false;
 
   try {
-    const date = parseISO(dueDate);
+    const date = parseISO(endDate);
 
     if (range.start && range.end) {
       const start = parseISO(range.start);

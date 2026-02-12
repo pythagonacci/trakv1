@@ -77,3 +77,14 @@ export function useTheme() {
   return context;
 }
 
+const fallbackThemeContext: ThemeContextType = {
+  theme: "default",
+  setTheme: () => {},
+  isDark: false,
+};
+
+// Use this in components that can render outside a ThemeProvider (e.g., public pages).
+export function useThemeOptional() {
+  const context = useContext(ThemeContext);
+  return context ?? fallbackThemeContext;
+}

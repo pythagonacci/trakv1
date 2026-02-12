@@ -81,6 +81,7 @@ export function EverythingFilters({
               options={[
                 { value: "timeline_event", label: "Timeline Events" },
                 { value: "task", label: "Tasks" },
+                { value: "subtask", label: "Subtasks" },
                 { value: "table_row", label: "Table Rows" },
                 { value: "block", label: "Blocks" },
               ]}

@@ -148,12 +148,12 @@ export function RelationSelector({ field, currentLinks, onSelect, onClose }: Pro
               ? `Showing ${filteredRows.length} of ${rows.length} loaded (filtered)`
               : `Showing ${rows.length} of ${totalRows} rows`}
           </div>
-          <div className="max-h-80 overflow-y-auto border border-[var(--border)] rounded-[2px]">
+          <div className="max-h-80 overflow-y-auto border border-[var(--border)] rounded-[4px]">
             {loading && (
-              <div className="p-4 text-sm text-[var(--muted-foreground)]">Loading rows...</div>
+              <div className="p-4 text-xs text-[var(--muted-foreground)]">Loading rows...</div>
             )}
             {!loading && filteredRows.length === 0 && (
-              <div className="p-4 text-sm text-[var(--muted-foreground)]">No rows found.</div>
+              <div className="p-4 text-xs text-[var(--muted-foreground)]">No rows found.</div>
             )}
             {!loading &&
               filteredRows.map((row) => {
@@ -175,7 +175,7 @@ export function RelationSelector({ field, currentLinks, onSelect, onClose }: Pro
                       onChange={() => toggleRow(row.id)}
                       className="h-4 w-4 accent-[var(--primary)]"
                     />
-                    <span className="text-sm text-[var(--foreground)] truncate">{String(value || "Untitled")}</span>
+                    <span className="text-xs text-[var(--foreground)] truncate">{String(value || "Untitled")}</span>
                   </button>
                 );
               })}

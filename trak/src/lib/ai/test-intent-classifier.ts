@@ -42,6 +42,16 @@ const testCases = [
     description: "Task creation",
   },
   {
+    command: "add a checklist item to the onboarding task",
+    expectedGroups: ["core", "task"],
+    description: "Checklist item creation",
+  },
+  {
+    command: "The parent task is Dashboard Display. The subtask title should be Auto Refresh AI Integration.",
+    expectedGroups: ["core", "task"],
+    description: "Subtask follow-up details should stay write-capable",
+  },
+  {
     command: "create a project for Q1 planning",
     expectedGroups: ["core", "project"],
     description: "Project creation",
@@ -57,6 +67,11 @@ const testCases = [
     command: "update the status field in the states table",
     expectedGroups: ["core", "table"],
     description: "Table field update",
+  },
+  {
+    command: "set checklist status to blocked",
+    expectedGroups: ["core", "task", "property"],
+    description: "Subtask status update requires property tools",
   },
 
   // Complex multi-entity operations

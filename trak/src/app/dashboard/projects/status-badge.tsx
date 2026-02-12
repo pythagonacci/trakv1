@@ -1,13 +1,13 @@
 "use client";
 
-import { useTheme } from "@/app/dashboard/theme-context";
+import { useThemeOptional } from "@/app/dashboard/theme-context";
 
 interface StatusBadgeProps {
   status: "not_started" | "in_progress" | "complete";
 }
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
-  const { theme } = useTheme();
+  const { theme } = useThemeOptional();
   const isBrutalist = theme === "brutalist";
   
   // SARAJEVO ARTS PALETTE for status badges

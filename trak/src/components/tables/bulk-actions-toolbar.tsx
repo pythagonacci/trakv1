@@ -112,7 +112,7 @@ export function BulkActionsToolbar({
   };
 
   return (
-    <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--background)] px-4 py-2 flex items-center gap-4">
+    <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 flex items-center gap-4">
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-[var(--foreground)]">
           {selectedCount} row{selectedCount !== 1 ? "s" : ""} selected
@@ -120,7 +120,7 @@ export function BulkActionsToolbar({
         <button
           type="button"
           onClick={onClearSelection}
-          className="h-6 w-6 inline-flex items-center justify-center rounded-[2px] border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+          className="h-6 w-6 inline-flex items-center justify-center rounded-[6px] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
         >
           <X className="h-3 w-3" />
         </button>
@@ -143,7 +143,7 @@ export function BulkActionsToolbar({
       <div className="h-4 w-px bg-[var(--border)]" />
       <div className="flex items-center gap-2">
         <select
-          className="h-8 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"
+          className="h-8 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"
           value={selectedFieldId}
           onChange={(e) => {
             setSelectedFieldId(e.target.value);
@@ -158,13 +158,13 @@ export function BulkActionsToolbar({
           ))}
         </select>
         {selectedField && (
-          <span className="rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+          <span className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
             {selectedField.type.replace("_", " ")}
           </span>
         )}
         {selectedField && options.length > 0 && !isMulti && (
           <select
-            className="h-8 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"
+            className="h-8 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"
             value={optionValue}
             onChange={(e) => setOptionValue(e.target.value)}
           >
@@ -179,7 +179,7 @@ export function BulkActionsToolbar({
         {selectedField && options.length > 0 && isMulti && (
           <select
             multiple
-            className="h-20 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+            className="h-20 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
             value={multiValue}
             onChange={(e) => {
               const next = Array.from(e.target.selectedOptions).map((opt) => opt.value);
@@ -196,7 +196,7 @@ export function BulkActionsToolbar({
         {selectedField && options.length === 0 && selectedField.type === "checkbox" && (
           <button
             type="button"
-            className={`h-8 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs ${
+            className={`h-8 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs ${
               booleanValue ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"
             }`}
             onClick={() => setBooleanValue((prev) => !prev)}
@@ -209,7 +209,7 @@ export function BulkActionsToolbar({
           selectedField.type !== "checkbox" &&
           selectedField.type !== "long_text" && (
             <input
-              className="h-8 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"
+              className="h-8 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"
               type={
                 selectedField.type === "number"
                   ? "number"
@@ -230,7 +230,7 @@ export function BulkActionsToolbar({
           )}
         {selectedField && selectedField.type === "long_text" && (
           <textarea
-            className="h-20 min-w-[200px] rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+            className="h-20 min-w-[200px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
             value={textValue}
             onChange={(e) => setTextValue(e.target.value)}
             placeholder="Enter text..."

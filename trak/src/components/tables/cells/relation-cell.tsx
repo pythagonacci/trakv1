@@ -76,7 +76,7 @@ export function RelationCell({
           type="button"
           onClick={handleOpen}
           disabled={saving}
-          className="text-sm text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors"
+          className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors"
         >
           Empty
         </button>
@@ -84,7 +84,7 @@ export function RelationCell({
       {labels.slice(0, 3).map((label, idx) => (
         <span
           key={`${label}-${idx}`}
-          className="inline-flex items-center gap-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--foreground)]"
+          className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--foreground)]"
         >
           <span className="truncate max-w-[120px]">{label}</span>
           <button
@@ -97,7 +97,7 @@ export function RelationCell({
         </span>
       ))}
       {labels.length > 3 && (
-        <span className="inline-flex items-center rounded-[2px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)]">
+        <span className="inline-flex items-center rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)]">
           +{labels.length - 3} more
         </span>
       )}
@@ -105,7 +105,7 @@ export function RelationCell({
         type="button"
         onClick={handleOpen}
         disabled={saving}
-        className="h-6 w-6 inline-flex items-center justify-center rounded-[2px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+        className="h-6 w-6 inline-flex items-center justify-center rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
         title="Add relation"
       >
         <Plus className="h-3 w-3" />

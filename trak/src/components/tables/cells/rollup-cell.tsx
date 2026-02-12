@@ -145,7 +145,7 @@ export function RollupCell({ field, value, rowId, tableId, fieldMap }: Props) {
   };
 
   return (
-    <div ref={cellRef} className="relative group inline-flex items-center gap-2 text-sm text-[var(--foreground)] font-mono">
+    <div ref={cellRef} className="relative group inline-flex items-center gap-2 text-xs text-[var(--foreground)] font-mono">
       <span className={isError ? "text-[var(--error)]" : "text-[var(--foreground)]"}>{displayValue}</span>
       {retrying && <Loader2 className="h-3 w-3 animate-spin text-[var(--muted-foreground)]" />}
       {!retrying &&
@@ -157,7 +157,7 @@ export function RollupCell({ field, value, rowId, tableId, fieldMap }: Props) {
       {tooltipPosition && (
         <div
           ref={tooltipRef}
-          className="fixed w-72 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--foreground)] shadow-lg z-[9999]"
+          className="fixed w-72 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--foreground)] shadow-lg z-[9999]"
           style={{
             top: `${tooltipPosition.top}px`,
             left: `${tooltipPosition.left}px`,
@@ -184,7 +184,7 @@ export function RollupCell({ field, value, rowId, tableId, fieldMap }: Props) {
           type="button"
           onClick={handleRetry}
           disabled={retrying}
-          className="mt-2 inline-flex items-center gap-1 rounded-[2px] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--foreground)] hover:bg-[var(--surface-hover)] disabled:opacity-60"
+          className="mt-2 inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--foreground)] hover:bg-[var(--surface-hover)] disabled:opacity-60"
         >
           {retrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
           Retry

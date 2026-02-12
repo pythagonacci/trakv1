@@ -76,6 +76,7 @@ const ACTION_SYNONYMS: Record<string, Array<{ term: string; weight: number }>> =
 
 const ENTITY_SYNONYMS: Record<string, string[]> = {
   task: ["task", "tasks", "todo", "to-do", "to do", "item", "items"],
+  subtask: ["subtask", "subtasks", "checklist", "checklists", "checklist item", "checklist items"],
   project: ["project", "projects", "initiative", "initiatives"],
   table: ["table", "tables", "spreadsheet", "grid", "sheet"],
   doc: ["doc", "docs", "document", "documents", "note", "notes"],
@@ -126,6 +127,7 @@ const STOP_WORDS = new Set([
 const TASK_STATUS_SYNONYMS: Record<string, string[]> = {
   todo: ["todo", "to do", "backlog", "not started", "open"],
   "in-progress": ["in progress", "in-progress", "doing", "active"],
+  blocked: ["blocked", "on hold", "stuck"],
   done: ["done", "complete", "completed", "closed", "finished"],
 };
 
@@ -144,6 +146,7 @@ const PRIORITY_SYNONYMS: Record<string, string[]> = {
 
 const ENTITY_FUZZY_PENALTY: Record<keyof typeof ENTITY_SYNONYMS, number> = {
   task: 0.85,
+  subtask: 0.85,
   project: 0.85,
   table: 0.85,
   doc: 0.8,
@@ -219,6 +222,9 @@ export function parseDeterministicCommand(
 
   const searchAll = matchSearchAll(cleaned, normalized, tokens);
   if (searchAll) candidates.push(searchAll);
+
+  const searchSubtasks = matchSearchSubtasks(cleaned, normalized, tokens);
+  if (searchSubtasks) candidates.push(searchSubtasks);
 
   const searchTasks = matchSearchTasks(cleaned, normalized, tokens, now);
   if (searchTasks) candidates.push(searchTasks);
@@ -665,6 +671,8 @@ function matchSearchTasks(
   tokens: string[],
   now: Date
 ): DeterministicParseResult | null {
+  if (looksLikeSubtaskCreationFollowup(cleaned)) return null;
+
   // Strip titled content before action scoring to avoid matching action words in task titles
   const cleanedForActionScore = stripTitledContent(cleaned);
   const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
@@ -716,6 +724,59 @@ function matchSearchTasks(
     confidence,
     reason: "search tasks",
     responseTemplate: (results) => buildTaskSearchResponse(results[0]),
+  };
+}
+
+function matchSearchSubtasks(
+  cleaned: string,
+  normalized: string,
+  tokens: string[]
+): DeterministicParseResult | null {
+  if (looksLikeSubtaskCreationFollowup(cleaned)) return null;
+
+  const cleanedForActionScore = stripTitledContent(cleaned);
+  const normalizedForActionScore = normalizeForMatch(stripQuotedText(cleanedForActionScore));
+  const tokensForActionScore = tokenize(normalizedForActionScore);
+
+  const createScore = scoreAction("create", normalizedForActionScore, tokensForActionScore);
+  if (createScore >= 0.7) return null;
+
+  const actionScore = inferImplicitSearch(
+    scoreAction("search", normalizedForActionScore, tokensForActionScore),
+    cleanedForActionScore,
+    ENTITY_SYNONYMS.subtask
+  );
+  const entityScore = scoreEntity("subtask", normalized, tokens);
+  if (actionScore < MIN_ACTION_SCORE || entityScore < MIN_ENTITY_SCORE) return null;
+
+  const completion = detectSubtaskCompletion(normalized);
+  const taskTitle = extractSubtaskParentTitle(cleaned);
+
+  const args: Record<string, unknown> = { limit: DEFAULT_SEARCH_LIMIT };
+  if (completion !== undefined) args.completed = completion;
+  if (taskTitle) args.taskTitle = taskTitle;
+
+  const explicitSearchText = extractExplicitSearchText(cleaned);
+  const hasFilters = Boolean(completion !== undefined || taskTitle);
+  let searchText = explicitSearchText ?? (!hasFilters ? extractSearchText(cleaned, normalized, tokens) : null);
+  if (searchText && taskTitle && searchText.toLowerCase() === taskTitle.toLowerCase()) {
+    searchText = null;
+  }
+  if (searchText) args.searchText = searchText;
+
+  if (!searchText && !hasFilters) return null;
+
+  let argsScore = 0.5;
+  if (searchText) argsScore += 0.15;
+  if (hasFilters) argsScore += 0.15;
+
+  const confidence = computeConfidence(actionScore, entityScore, clamp(argsScore, 0, 1), 0);
+
+  return {
+    toolCalls: [{ name: "searchSubtasks", arguments: args }],
+    confidence,
+    reason: "search subtasks",
+    responseTemplate: (results) => buildSubtaskSearchResponse(results[0]),
   };
 }
 
@@ -840,6 +901,16 @@ function buildTaskSearchResponse(result: DeterministicToolCallResult | undefined
   if (!tasks.length) return "No tasks found.";
   const list = tasks.slice(0, 10).map((task) => `• ${task.title ?? "Untitled"} (${task.status ?? "todo"})`);
   return `Found ${tasks.length} task(s):\n${list.join("\n")}`;
+}
+
+function buildSubtaskSearchResponse(result: DeterministicToolCallResult | undefined) {
+  if (!result?.success) return buildErrorResponse("searchSubtasks", result);
+  const subtasks = Array.isArray(result.data) ? (result.data as Array<{ title?: string; completed?: boolean }>) : [];
+  if (!subtasks.length) return "No subtasks found.";
+  const list = subtasks
+    .slice(0, 10)
+    .map((subtask) => `• ${subtask.title ?? "Untitled"} (${subtask.completed ? "done" : "todo"})`);
+  return `Found ${subtasks.length} subtask(s):\n${list.join("\n")}`;
 }
 
 function buildProjectSearchResponse(result: DeterministicToolCallResult | undefined) {
@@ -1100,6 +1171,27 @@ function extractExplicitSearchText(cleaned: string) {
   return null;
 }
 
+function extractSubtaskParentTitle(value: string) {
+  const match = value.match(
+    /\b(?:subtasks?|checklist(?: items?)?)\s+(?:for|in|on|under|within|of)\s+['"]?(.+?)['"]?(?:$|,|;|\s+\b(?:with|due|assigned|tagged|priority|status)\b)/i
+  );
+  if (match) return cleanTitle(trimTrailingClause(match[1]));
+
+  const matchTask = value.match(
+    /\b(?:for|in|on|under|within)\s+(?:task|tasks?)\s+['"]?(.+?)['"]?(?:$|,|;|\s+\b(?:with|due|assigned|tagged|priority|status)\b)/i
+  );
+  if (matchTask) return cleanTitle(trimTrailingClause(matchTask[1]));
+
+  return null;
+}
+
+function looksLikeSubtaskCreationFollowup(value: string): boolean {
+  return (
+    /\bparent\s+task\s+is\b/i.test(value) &&
+    /\b(subtask|checklist(?:\s+item)?)\s+title\s+(?:is|should\s+be)\b/i.test(value)
+  );
+}
+
 function extractAssignees(value: string) {
   const match = value.match(/\bassigned\s+to\s+(.+?)(?=$|,|;|\bwith\b|\btag\b|\bdue\b|\bpriority\b|\bstatus\b)/i);
   if (!match) return [];
@@ -1123,6 +1215,17 @@ function splitNameList(value: string) {
 function detectTaskStatus(normalized: string) {
   for (const [status, synonyms] of Object.entries(TASK_STATUS_SYNONYMS)) {
     if (synonyms.some((term) => normalized.includes(term))) return status;
+  }
+  return undefined;
+}
+
+function detectSubtaskCompletion(normalized: string): boolean | undefined {
+  if (/\b(not done|not completed|incomplete|unfinished|unchecked|not checked|not finished|open)\b/i.test(normalized)) {
+    return false;
+  }
+  if (/\b(todo|to-do|to do|pending)\b/i.test(normalized)) return false;
+  if (/\b(done|completed|complete|finished|checked|checked off)\b/i.test(normalized)) {
+    return true;
   }
   return undefined;
 }

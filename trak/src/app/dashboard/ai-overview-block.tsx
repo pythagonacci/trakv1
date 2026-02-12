@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   Card,
   CardContent,
@@ -69,9 +69,13 @@ export default function AIOverviewBlock({
   const [insights, setInsights] = useState(initialInsights);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const refreshInFlight = useRef(false);
+  const autoRefreshMs = 3 * 60 * 60 * 1000;
 
   // Handle regenerate button click
-  const handleRegenerate = () => {
+  const handleRegenerate = useCallback(() => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     setError(null);
     startTransition(async () => {
       try {
@@ -88,9 +92,20 @@ export default function AIOverviewBlock({
         }
       } catch (err) {
         setError(String(err));
+      } finally {
+        refreshInFlight.current = false;
       }
     });
-  };
+  }, [startTransition, userId, userName, workspaceId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.hidden) return;
+      handleRegenerate();
+    }, autoRefreshMs);
+
+    return () => window.clearInterval(interval);
+  }, [autoRefreshMs, handleRegenerate]);
 
   // Loading state during regeneration
   if (isPending) {

@@ -12,6 +12,8 @@ export function ItemTypeIcon({ type, className = "h-4 w-4" }: ItemTypeIconProps)
       return <Calendar className={className} />;
     case "task":
       return <CheckSquare className={className} />;
+    case "subtask":
+      return <CheckSquare className={className} />;
     case "table_row":
       return <Table className={className} />;
     case "block":
@@ -25,6 +27,7 @@ export function getEntityTypeLabel(type: EntityType): string {
   const labels: Record<EntityType, string> = {
     timeline_event: "Timeline Event",
     task: "Task",
+    subtask: "Subtask",
     table_row: "Table Row",
     block: "Block",
   };

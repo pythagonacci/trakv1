@@ -120,12 +120,12 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
   if (editing && dropdownOpen) {
     return (
       <div className="relative w-full" ref={dropdownRef}>
-        <div className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-[2px] px-2 py-1.5 min-h-[32px]">
+        <div className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-[4px] px-2 py-1.5 min-h-[32px]">
           <div className="flex flex-wrap gap-1">
             {selectedOptions.map((opt) => (
               <span
                 key={opt.id}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[2px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
                 style={{ backgroundColor: opt.color ? `${opt.color}20` : undefined }}
               >
                 {opt.label}
@@ -145,20 +145,20 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
             </span>
           </div>
         </div>
-        <div className="absolute top-full left-0 min-w-[240px] mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[2px] shadow-lg z-10 max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 min-w-[240px] mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] shadow-lg z-10 max-h-60 overflow-y-auto">
           {options.map((opt) => {
             const isSelected = selectedIds.includes(opt.id);
             return (
               <div
                 key={opt.id}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm group"
+                className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs group"
                 onClick={() => toggleOption(opt.id)}
               >
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => {}}
-                  className="h-4 w-4 rounded-[2px] border-[var(--border)] bg-[var(--surface)]"
+                  className="h-4 w-4 rounded-[4px] border-[var(--border)] bg-[var(--surface)]"
                 />
                 <span
                   className="flex-1 text-[var(--foreground)]"
@@ -194,12 +194,12 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
                         handleAddOption();
                       }
                     }}
-                    className="flex-1 bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] outline-none rounded-[2px] px-2 py-1"
+                    className="flex-1 bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--foreground)] outline-none rounded-[4px] px-2 py-1"
                   />
                   <button
                     onClick={handleAddOption}
                     disabled={!newOptionName.trim()}
-                    className="h-7 w-7 inline-flex items-center justify-center rounded-[2px] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+                    className="h-7 w-7 inline-flex items-center justify-center rounded-[4px] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -215,7 +215,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
   if (selectedOptions.length === 0) {
     return (
       <button
-        className="w-full text-left text-sm text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 flex items-center gap-1"
+        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 flex items-center gap-1"
         onClick={onStartEdit}
         disabled={saving}
       >
@@ -238,7 +238,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
         {visibleOptions.map((opt) => (
           <span
             key={opt.id}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[2px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
             style={{ backgroundColor: opt.color ? `${opt.color}20` : undefined }}
           >
             {opt.label}
@@ -251,7 +251,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
           </span>
         ))}
         {remainingCount > 0 && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-[2px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--muted-foreground)]">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--muted-foreground)]">
             +{remainingCount} more
           </span>
         )}

@@ -11,6 +11,10 @@ import { recomputeFormulasForRow } from "./formula-actions";
 import { recomputeRollupsForRow, recomputeRollupsForTargetRowChanged } from "./rollup-actions";
 import type { TableField } from "@/types/table";
 import type { TableRow } from "@/types/table";
+import type { TableRowSourceEntityType, TableRowSourceSyncMode } from "@/types/table";
+import { updateTaskItem } from "@/app/actions/tasks/item-actions";
+import { updateTimelineEvent } from "@/app/actions/timelines/event-actions";
+import { validateEventPriority, validateEventStatus } from "@/app/actions/timelines/validators";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -18,6 +22,9 @@ interface CreateRowInput {
   tableId: string;
   data?: Record<string, unknown>;
   order?: string | number | null;
+  sourceEntityType?: TableRowSourceEntityType | null;
+  sourceEntityId?: string | null;
+  sourceSyncMode?: TableRowSourceSyncMode;
   authContext?: AuthContext;
 }
 
@@ -25,6 +32,8 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
   const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
+  const sourceEntityId = isUuidString(input.sourceEntityId) ? input.sourceEntityId : null;
+  const sourceEntityType = sourceEntityId ? input.sourceEntityType ?? null : null;
 
   const { data, error } = await supabase
     .from("table_rows")
@@ -32,6 +41,9 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
       table_id: input.tableId,
       data: input.data || {},
       order: input.order ?? null,
+      source_entity_type: sourceEntityType,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: input.sourceSyncMode ?? "snapshot",
       created_by: userId,
       updated_by: userId,
     })
@@ -98,7 +110,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   // Get all valid field IDs for this table to filter out deleted fields
   const { data: fields, error: fieldsError } = await supabase
     .from("table_fields")
-    .select("id, type, config, property_definition_id")
+    .select("id, name, type, config, is_primary, property_definition_id")
     .eq("table_id", row.table_id);
 
   if (fieldsError) {
@@ -295,6 +307,14 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     }
   }
 
+  // Best-effort source sync for editable workflow representations.
+  await syncTableRowEditToSource({
+    row,
+    field,
+    value,
+    authContext: { supabase, userId },
+  });
+
   await recomputeFormulasForRow(row.table_id, rowId, fieldId);
   await recomputeRollupsForTargetRowChanged(rowId, row.table_id, fieldId);
 
@@ -378,6 +398,7 @@ export async function duplicateRow(rowId: string, opts?: { authContext?: AuthCon
   const access = await getRowContext(rowId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, row } = access;
+  const sourceEntityId = isUuidString(row.source_entity_id) ? row.source_entity_id : null;
 
   const { data, error } = await supabase
     .from("table_rows")
@@ -385,6 +406,9 @@ export async function duplicateRow(rowId: string, opts?: { authContext?: AuthCon
       table_id: row.table_id,
       data: row.data,
       order: Number(row.order) + 0.001,
+      source_entity_type: sourceEntityId ? row.source_entity_type ?? null : null,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: row.source_sync_mode ?? "snapshot",
       created_by: userId,
       updated_by: userId,
     })
@@ -395,6 +419,35 @@ export async function duplicateRow(rowId: string, opts?: { authContext?: AuthCon
     return { error: "Failed to duplicate row" };
   }
   return { data };
+}
+
+export async function setTableRowsSourceSyncMode(input: {
+  tableId: string;
+  mode: TableRowSourceSyncMode;
+  sourceEntityType?: TableRowSourceEntityType;
+  authContext?: AuthContext;
+}): Promise<ActionResult<{ updatedCount: number }>> {
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase } = access;
+
+  let query = supabase
+    .from("table_rows")
+    .update({ source_sync_mode: input.mode })
+    .eq("table_id", input.tableId)
+    .not("source_entity_id", "is", null);
+
+  if (input.sourceEntityType) {
+    query = query.eq("source_entity_type", input.sourceEntityType);
+  }
+
+  const { data, error } = await query.select("id");
+
+  if (error) {
+    return { error: "Failed to update row source sync mode" };
+  }
+
+  return { data: { updatedCount: (data || []).length } };
 }
 
 // ---------------------------------------------------------------------------
@@ -420,7 +473,7 @@ async function getRowContext(rowId: string, opts?: { authContext?: AuthContext }
 
   const { data: row, error } = await supabase
     .from("table_rows")
-    .select("id, table_id, data, order")
+    .select("id, table_id, data, order, source_entity_type, source_entity_id, source_sync_mode")
     .eq("id", rowId)
     .maybeSingle();
 
@@ -441,4 +494,240 @@ async function getRowContext(rowId: string, opts?: { authContext?: AuthContext }
   }
 
   return { supabase: access.supabase, userId, row };
+}
+
+async function syncTableRowEditToSource(params: {
+  row: {
+    source_entity_type?: string | null;
+    source_entity_id?: string | null;
+    source_sync_mode?: string | null;
+  };
+  field: TableField;
+  value: unknown;
+  authContext: AuthContext;
+}): Promise<void> {
+  const { row, field, value, authContext } = params;
+
+  if (!row.source_entity_id || row.source_sync_mode !== "live") return;
+  if (!row.source_entity_type) return;
+
+  try {
+    if (row.source_entity_type === "task") {
+      const taskUpdates = mapTaskUpdateFromField(field, value);
+      if (!taskUpdates) return;
+      await updateTaskItem(row.source_entity_id, taskUpdates, { authContext });
+      return;
+    }
+
+    if (row.source_entity_type === "timeline_event") {
+      const timelineUpdates = mapTimelineUpdateFromField(field, value);
+      if (!timelineUpdates) return;
+      await updateTimelineEvent(row.source_entity_id, timelineUpdates, { authContext });
+    }
+  } catch (error) {
+    console.error("syncTableRowEditToSource error:", error);
+  }
+}
+
+function mapTaskUpdateFromField(
+  field: TableField,
+  value: unknown
+):
+  | Partial<{
+      title: string;
+      status: "todo" | "in-progress" | "done";
+      priority: "urgent" | "high" | "medium" | "low" | "none";
+      description: string | null;
+      dueDate: string | null;
+      startDate: string | null;
+    }>
+  | null {
+  const normalizedFieldName = normalizeFieldName(field.name);
+  const textValue = valueToString(value);
+
+  if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "task") {
+    return { title: textValue ?? "" };
+  }
+
+  if (field.type === "status" || normalizedFieldName === "status") {
+    const status = normalizeTaskStatus(resolveSelectLikeValue(field, value));
+    return status ? { status } : null;
+  }
+
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    const priority = normalizeTaskPriority(resolveSelectLikeValue(field, value));
+    return priority ? { priority } : null;
+  }
+
+  if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
+    return { description: textValue };
+  }
+
+  if (field.type === "date" || normalizedFieldName.includes("date")) {
+    const dateValue = normalizeDateForTask(value);
+    if (normalizedFieldName.includes("start")) {
+      return { startDate: dateValue };
+    }
+    if (normalizedFieldName.includes("due") || normalizedFieldName === "date") {
+      return { dueDate: dateValue };
+    }
+  }
+
+  return null;
+}
+
+function mapTimelineUpdateFromField(
+  field: TableField,
+  value: unknown
+):
+  | Partial<{
+      title: string;
+      status: "todo" | "in_progress" | "blocked" | "done";
+      priority: "low" | "medium" | "high" | "urgent" | null;
+      startDate: string;
+      endDate: string;
+      progress: number;
+      notes: string | null;
+      isMilestone: boolean;
+    }>
+  | null {
+  const normalizedFieldName = normalizeFieldName(field.name);
+  const textValue = valueToString(value);
+
+  if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "event") {
+    return { title: textValue ?? "" };
+  }
+
+  if (field.type === "status" || normalizedFieldName === "status") {
+    const status = normalizeTimelineStatus(resolveSelectLikeValue(field, value));
+    return status ? { status } : null;
+  }
+
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    const priority = normalizeTimelinePriority(resolveSelectLikeValue(field, value));
+    return priority !== undefined ? { priority } : null;
+  }
+
+  if (normalizedFieldName.includes("progress")) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return { progress: Math.max(0, Math.min(100, Math.round(parsed))) };
+  }
+
+  if (normalizedFieldName.includes("milestone")) {
+    const bool = toBoolean(value);
+    return typeof bool === "boolean" ? { isMilestone: bool } : null;
+  }
+
+  if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
+    return { notes: textValue };
+  }
+
+  if (field.type === "date" || normalizedFieldName.includes("date")) {
+    const iso = normalizeDateTimeForTimeline(value);
+    if (!iso) return null;
+    if (normalizedFieldName.includes("end")) return { endDate: iso };
+    if (normalizedFieldName.includes("start") || normalizedFieldName === "date") return { startDate: iso };
+  }
+
+  return null;
+}
+
+function normalizeFieldName(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+}
+
+function valueToString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.label === "string") return obj.label;
+    if (typeof obj.name === "string") return obj.name;
+    if (typeof obj.value === "string") return obj.value;
+    if (typeof obj.id === "string") return obj.id;
+  }
+  return null;
+}
+
+function normalizeTaskStatus(value: unknown): "todo" | "in-progress" | "done" | null {
+  const normalized = valueToString(value)?.toLowerCase().replace(/[\s_]+/g, "-");
+  if (!normalized) return null;
+  if (["todo", "to-do", "not-started", "notstarted"].includes(normalized)) return "todo";
+  if (["in-progress", "inprogress", "doing"].includes(normalized)) return "in-progress";
+  if (["done", "completed", "complete", "finished"].includes(normalized)) return "done";
+  return null;
+}
+
+function normalizeTaskPriority(value: unknown): "urgent" | "high" | "medium" | "low" | "none" | null {
+  const normalized = valueToString(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (["urgent", "high", "medium", "low", "none"].includes(normalized)) {
+    return normalized as "urgent" | "high" | "medium" | "low" | "none";
+  }
+  return null;
+}
+
+function normalizeDateForTask(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim();
+  }
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeTimelineStatus(value: unknown): "todo" | "in_progress" | "blocked" | "done" | null {
+  const normalized = valueToString(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (["todo", "to_do", "not_started"].includes(normalized)) return "todo";
+  if (["in_progress", "inprogress", "doing"].includes(normalized)) return "in_progress";
+  if (["blocked", "on_hold"].includes(normalized)) return "blocked";
+  if (["done", "complete", "completed", "finished"].includes(normalized)) return "done";
+  return validateEventStatus(normalized) ? normalized : null;
+}
+
+function normalizeTimelinePriority(value: unknown): "low" | "medium" | "high" | "urgent" | null | undefined {
+  if (value === null) return null;
+  if (value === undefined || value === "") return undefined;
+  const normalized = valueToString(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return undefined;
+  return validateEventPriority(normalized) ? normalized : undefined;
+}
+
+function normalizeDateTimeForTimeline(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function toBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  const normalized = valueToString(value)?.toLowerCase().trim();
+  if (!normalized) return null;
+  if (["true", "yes", "1"].includes(normalized)) return true;
+  if (["false", "no", "0"].includes(normalized)) return false;
+  return null;
+}
+
+function resolveSelectLikeValue(field: TableField, value: unknown): unknown {
+  const raw = valueToString(value);
+  if (!raw) return value;
+  const config = (field.config || {}) as Record<string, unknown>;
+  const options =
+    field.type === "priority"
+      ? ((config.levels as Array<{ id?: string; label?: string }> | undefined) ?? [])
+      : ((config.options as Array<{ id?: string; label?: string }> | undefined) ?? []);
+  const match = options.find((option) => option.id === raw);
+  return match?.label ?? value;
+}
+
+function isUuidString(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
 }

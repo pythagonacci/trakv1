@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { X, Eye, EyeOff, Calendar as CalendarIcon, User, Tag as TagIcon } from "lucide-react";
+import { buildDueDateRange, formatDueDateRange, hasDueDate, normalizeDueDateRange } from "@/lib/due-date";
+import { DateRangeCalendar } from "@/components/due-date-calendar";
 import {
   useEntityPropertiesWithInheritance,
   useSetEntityProperties,
@@ -48,6 +50,13 @@ interface PropertyMenuProps {
   entityId: string;
   workspaceId: string;
   entityTitle?: string;
+  disabledFields?: Partial<{
+    status: boolean;
+    priority: boolean;
+    assignees: boolean;
+    dueDate: boolean;
+    tags: boolean;
+  }>;
 }
 
 /**
@@ -60,6 +69,7 @@ export function PropertyMenu({
   entityId,
   workspaceId,
   entityTitle,
+  disabledFields,
 }: PropertyMenuProps) {
   const [newTagInput, setNewTagInput] = useState("");
 
@@ -73,6 +83,8 @@ export function PropertyMenu({
 
   const direct = propertiesResult?.direct;
   const inherited = propertiesResult?.inherited ?? [];
+  const statusDisabled = Boolean(disabledFields?.status);
+  const assigneesDisabled = Boolean(disabledFields?.assignees);
   const memberLookup = React.useMemo(() => {
     const map = new Map<string, (typeof members)[number]>();
     members.forEach((member) => {
@@ -88,6 +100,9 @@ export function PropertyMenu({
     : direct?.assignee_id
       ? [direct.assignee_id]
       : [];
+  const dueDateRange = normalizeDueDateRange(direct?.due_date);
+  const hasDirectDueDate = Boolean(dueDateRange?.start || dueDateRange?.end);
+  const dueDateLabel = formatDueDateRange(dueDateRange) ?? "No due date";
 
   const handleAddTag = () => {
     if (!newTagInput.trim()) return;
@@ -127,35 +142,46 @@ export function PropertyMenu({
             {/* Status */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">Status</Label>
-              <Select
-                value={direct?.status || "none"}
-                onValueChange={(value) =>
-                  setProperties.mutate({
-                    status: value === "none" ? null : (value as Status),
-                  })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select status..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    <span className="text-[var(--muted-foreground)]">None</span>
-                  </SelectItem>
-                  {STATUS_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
-                          STATUS_COLORS[option.value]
-                        )}
-                      >
-                        {option.label}
-                      </span>
+              {statusDisabled ? (
+                <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+                  {direct?.status
+                    ? STATUS_OPTIONS.find((option) => option.value === direct.status)?.label || direct.status
+                    : "None"}{" "}
+                  <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                    (Derived)
+                  </span>
+                </div>
+              ) : (
+                <Select
+                  value={direct?.status || "none"}
+                  onValueChange={(value) =>
+                    setProperties.mutate({
+                      status: value === "none" ? null : (value as Status),
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select status..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      <span className="text-[var(--muted-foreground)]">None</span>
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
+                            STATUS_COLORS[option.value]
+                          )}
+                        >
+                          {option.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* Priority */}
@@ -196,6 +222,9 @@ export function PropertyMenu({
             <div className="space-y-2">
               <Label className="text-sm font-medium">Assignees</Label>
               <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 rounded-md border border-[var(--border)] bg-[var(--background)]">
+                {selectedAssigneeIds.length === 0 && (
+                  <span className="text-xs text-[var(--muted-foreground)]">Unassigned</span>
+                )}
                 {selectedAssigneeIds.map((uid) => {
                   const member = memberLookup.get(uid);
                   const label = member?.name || member?.email || "Unknown";
@@ -206,85 +235,97 @@ export function PropertyMenu({
                     >
                       <User className="h-3 w-3" />
                       {label}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = selectedAssigneeIds.filter((id) => id !== uid);
-                          setProperties.mutate({ assignee_ids: next.length ? next : null });
-                        }}
-                        className="ml-1 hover:text-[var(--error)] transition-colors"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      {!assigneesDisabled && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = selectedAssigneeIds.filter((id) => id !== uid);
+                            setProperties.mutate({ assignee_ids: next.length ? next : null });
+                          }}
+                          className="ml-1 hover:text-[var(--error)] transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </span>
                   );
                 })}
-                <Select
-                  value="_add"
-                  onValueChange={(value) => {
-                    if (value === "_add" || !value) return;
-                    if (value === "none") {
-                      setProperties.mutate({ assignee_ids: null });
-                      return;
-                    }
-                    if (!selectedAssigneeIds.includes(value)) {
-                      setProperties.mutate({ assignee_ids: [...selectedAssigneeIds, value] });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-7 w-auto min-w-[120px] border-0 bg-transparent shadow-none focus:ring-0 text-[var(--muted-foreground)]">
-                    <SelectValue placeholder="Add assignee..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">
-                      <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                        <User className="h-4 w-4" />
-                        Unassigned (clear all)
-                      </span>
-                    </SelectItem>
-                    {members
-                      .filter((m) => !selectedAssigneeIds.includes(m.user_id))
-                      .map((member) => (
-                        <SelectItem key={member.user_id} value={member.user_id}>
-                          <span className="flex items-center gap-2">
-                            <User className="h-4 w-4" />
-                            {member.name || member.email}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    {members.filter((m) => !selectedAssigneeIds.includes(m.user_id)).length === 0 && (
-                      <SelectItem value="_none" disabled>
-                        All members assigned
+                {!assigneesDisabled && (
+                  <Select
+                    value="_add"
+                    onValueChange={(value) => {
+                      if (value === "_add" || !value) return;
+                      if (value === "none") {
+                        setProperties.mutate({ assignee_ids: null });
+                        return;
+                      }
+                      if (!selectedAssigneeIds.includes(value)) {
+                        setProperties.mutate({ assignee_ids: [...selectedAssigneeIds, value] });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-7 w-auto min-w-[120px] border-0 bg-transparent shadow-none focus:ring-0 text-[var(--muted-foreground)]">
+                      <SelectValue placeholder="Add assignee..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
+                          <User className="h-4 w-4" />
+                          Unassigned (clear all)
+                        </span>
                       </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+                      {members
+                        .filter((m) => !selectedAssigneeIds.includes(m.user_id))
+                        .map((member) => (
+                          <SelectItem key={member.user_id} value={member.user_id}>
+                            <span className="flex items-center gap-2">
+                              <User className="h-4 w-4" />
+                              {member.name || member.email}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      {members.filter((m) => !selectedAssigneeIds.includes(m.user_id)).length === 0 && (
+                        <SelectItem value="_none" disabled>
+                          All members assigned
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+                {assigneesDisabled && (
+                  <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                    Derived
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Due Date */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">Due Date</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={direct?.due_date || ""}
-                  onChange={(e) =>
+              <div className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3">
+                <DateRangeCalendar
+                  range={{ start: dueDateRange?.start ?? null, end: dueDateRange?.end ?? null }}
+                  onChange={(nextRange) =>
                     setProperties.mutate({
-                      due_date: e.target.value || null,
+                      due_date: buildDueDateRange(nextRange.start, nextRange.end),
                     })
                   }
-                  className="flex-1"
                 />
-                {direct?.due_date && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setProperties.mutate({ due_date: null })}
-                    className="flex-shrink-0"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                <div className="mt-2 flex items-center justify-between text-xs text-[var(--muted-foreground)]">
+                  <span>Selection:</span>
+                  <span className="font-medium text-[var(--foreground)]">{dueDateLabel}</span>
+                </div>
+                {hasDirectDueDate && (
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setProperties.mutate({ due_date: null })}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -389,10 +430,15 @@ export function PropertyMenu({
                             </span>
                           </div>
                         )}
-                        {inh.properties.due_date && (
+                        {hasDueDate(normalizeDueDateRange(inh.properties.due_date)) && (
                           <div className="flex items-center gap-2">
                             <span className="text-[var(--muted-foreground)]">Due:</span>
-                            <span>{new Date(inh.properties.due_date).toLocaleDateString()}</span>
+                            <span>
+                              {formatDueDateRange(
+                                normalizeDueDateRange(inh.properties.due_date),
+                                (iso) => new Date(iso).toLocaleDateString()
+                              )}
+                            </span>
                           </div>
                         )}
                         {inh.properties.tags && inh.properties.tags.length > 0 && (

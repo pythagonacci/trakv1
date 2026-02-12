@@ -54,6 +54,8 @@ const ENTITY_PATTERNS: Record<string, RegExp[]> = {
     /\bassign(?:ee|ment)?\b/i,
     /\btag(?:s)?\b/i,
     /\bsubtask(?:s)?\b/i,
+    /\bchecklist(?:s)?\b/i,
+    /\bchecklist\s+item(?:s)?\b/i,
   ],
   project: [
     /\bproject(?:s)?\b/i,
@@ -331,6 +333,13 @@ export function classifyIntent(userCommand: string): IntentClassification {
     }
   }
 
+  const mentionsSubtask = /\b(subtask|subtasks|checklist|checklists|checklist item|checklist items)\b/i.test(command);
+  const mentionsProperty =
+    /\b(status|priority|assignee|assignees|tag|tags|due date|due)\b/i.test(command);
+  if (mentionsSubtask && mentionsProperty && !toolGroups.includes("property")) {
+    toolGroups.push("property");
+  }
+
   const confidence = calculateConfidence(detectedEntities, detectedActions);
   const reasoning = buildReasoning(detectedEntities, detectedActions, toolGroups);
 
@@ -355,6 +364,9 @@ function hasCreateOrModifyIntent(command: string): boolean {
     /(?:add|set|mark|assign).*(?:to|as)\b/i, // "add X to Y", "mark as done"
     /populate(?:d)?\s+with/i, // "populated with"
     /(?:\d+|many|multiple|several)\s+(?:tasks?|rows?|items?)/i, // "50 tasks", "multiple rows"
+    /\bparent\s+task\s+is\b/i, // "parent task is Dashboard Display"
+    /\bsubtask\s+title\s+(?:is|should\s+be)\b/i, // "subtask title should be ..."
+    /\bchecklist(?:\s+item)?\s+title\s+(?:is|should\s+be)\b/i,
   ];
 
   return createIndicators.some((pattern) => pattern.test(command));

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { executeWorkflowAICommandStream } from "@/lib/ai/workflow-executor";
+import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 
 /**
  * POST /api/workflow/stream
@@ -25,9 +26,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json()) as { tabId?: string; command?: string };
+    const body = (await request.json()) as {
+      tabId?: string;
+      command?: string;
+      confirmation?: WriteConfirmationApproval | null;
+      resumeFromConfirmation?: boolean;
+    };
     const tabId = String(body?.tabId || "").trim();
     const command = String(body?.command || "").trim();
+    const confirmation = body?.confirmation ?? null;
+    const resumeFromConfirmation = Boolean(body?.resumeFromConfirmation);
 
     if (!tabId) {
       return new Response(
@@ -60,7 +68,12 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const generator = executeWorkflowAICommandStream({ tabId, command });
+          const generator = executeWorkflowAICommandStream({
+            tabId,
+            command,
+            confirmation,
+            resumeFromConfirmation,
+          });
           for await (const event of generator) {
             const data = JSON.stringify(event);
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));

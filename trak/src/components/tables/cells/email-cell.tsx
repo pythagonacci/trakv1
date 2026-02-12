@@ -64,7 +64,7 @@ export function EmailCell({ value, editing, onStartEdit, onCommit, onCancel, sav
           type="email"
           className={`w-full bg-[var(--surface)] border ${
             error ? 'border-[var(--error)]' : 'border-[var(--border-strong)]'
-          } text-sm text-[var(--foreground)] outline-none rounded-[2px] px-2 py-1`}
+          } text-xs text-[var(--foreground)] outline-none rounded-[4px] px-2 py-1`}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
@@ -96,7 +96,7 @@ export function EmailCell({ value, editing, onStartEdit, onCommit, onCancel, sav
   if (!emailString) {
     return (
       <button
-        className="w-full text-left text-sm text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
+        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
         onClick={onStartEdit}
         disabled={saving}
       >
@@ -110,7 +110,7 @@ export function EmailCell({ value, editing, onStartEdit, onCommit, onCancel, sav
       <Mail className="h-3 w-3 text-[var(--muted-foreground)] flex-shrink-0" />
       <a
         href={`mailto:${emailString}`}
-        className="text-sm text-[var(--primary)] hover:underline truncate flex-1"
+        className="text-xs text-[var(--primary)] hover:underline truncate flex-1"
         onClick={(e) => e.stopPropagation()}
       >
         {emailString}

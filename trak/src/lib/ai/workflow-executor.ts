@@ -670,6 +670,12 @@ BLOCK CREATION:
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
 
+CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
+- When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information
+- NEVER create text blocks with generic or made-up content - always base them on actual workspace data
+- Use unstructuredSearchWorkspace, searchTasks, searchProjects, searchDocs, or other search tools BEFORE calling createBlock
+- Example flow: "Create a summary of our priorities" → searchTasks/unstructuredSearchWorkspace → analyze results → createBlock with actual findings
+
 IMPORTANT SAFETY:
 - Do NOT modify existing tasks, projects, or data unless the user explicitly asks you to update/delete/move/assign.
 - For read-only requests, use search/analysis tools. Create blocks only when the output should persist as a page artifact.
@@ -1057,6 +1063,12 @@ BLOCK CREATION:
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
+
+CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
+- When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information
+- NEVER create text blocks with generic or made-up content - always base them on actual workspace data
+- Use unstructuredSearchWorkspace, searchTasks, searchProjects, searchDocs, or other search tools BEFORE calling createBlock
+- Example flow: "Create a summary of our priorities" → searchTasks/unstructuredSearchWorkspace → analyze results → createBlock with actual findings
 
 IMPORTANT SAFETY:
 - Do NOT modify existing tasks, projects, or data unless the user explicitly asks you to update/delete/move/assign.

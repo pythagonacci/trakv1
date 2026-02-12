@@ -87,7 +87,7 @@ export function FormulaCell({ field, value, rowId, tableId }: Props) {
   };
 
   return (
-    <div ref={cellRef} className="relative group inline-flex items-center gap-2 text-sm">
+    <div ref={cellRef} className="relative group inline-flex items-center gap-2 text-xs">
       <span className={`${isError ? "text-[var(--error)]" : "text-[var(--foreground)]"} font-mono`}>
         {formatted}
       </span>
@@ -98,7 +98,7 @@ export function FormulaCell({ field, value, rowId, tableId }: Props) {
 
       {formula && tooltipPosition && (
         <div
-          className="fixed w-64 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--foreground)] shadow-popover z-[9999]"
+          className="fixed w-64 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--foreground)] shadow-popover z-[9999]"
           style={{ top: `${tooltipPosition.top}px`, left: `${tooltipPosition.left}px` }}
         >
           {isError ? (
@@ -112,7 +112,7 @@ export function FormulaCell({ field, value, rowId, tableId }: Props) {
                 type="button"
                 onClick={handleRetry}
                 disabled={retrying}
-                className="mt-2 inline-flex items-center gap-1 rounded-[2px] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--foreground)] hover:bg-[var(--surface-hover)] disabled:opacity-60"
+                className="mt-2 inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--foreground)] hover:bg-[var(--surface-hover)] disabled:opacity-60"
               >
                 {retrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
                 Retry

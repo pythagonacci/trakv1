@@ -225,7 +225,7 @@ export function TableHeaderRow({
               if (el) el.indeterminate = someSelected;
             }}
             onChange={() => onToggleAllRows?.()}
-            className="h-3.5 w-3.5 accent-[var(--primary)]"
+            className="h-3.5 w-3.5 rounded-[4px] accent-[var(--primary)]"
           />
         </div>
         {fields.map((field, idx) => {
@@ -274,7 +274,7 @@ export function TableHeaderRow({
         <div className="flex items-center justify-center border-l border-black/10 bg-[#d8d8d8]/20 min-w-[40px]">
           <button
             onClick={onAddField}
-            className="inline-flex items-center justify-center w-8 h-6 rounded-[2px] border border-dashed border-black/25 bg-transparent text-[var(--muted-foreground)] hover:border-black/40 hover:bg-black/5 hover:text-[var(--foreground)] transition-colors duration-150 text-sm"
+            className="inline-flex items-center justify-center w-8 h-6 rounded-[4px] border border-dashed border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)] transition-colors duration-150 text-sm"
             title="Add column"
           >
             +
@@ -388,10 +388,10 @@ function FieldHeader({
   };
 
   return (
-    <div className="px-2 py-0.5 flex items-center gap-1.5 border-r border-black/10 bg-[#d8d8d8]/20 relative min-h-0">
+    <div className="px-3 py-2 flex items-center gap-1.5 border-r border-black/10 bg-[#d8d8d8]/20 relative min-h-0">
       <div className="flex-1 overflow-hidden min-w-0">
         <input
-          className="w-full bg-transparent text-xs font-semibold text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none truncate border border-transparent focus:border-black/30 rounded-[2px] px-1.5 py-0.5"
+          className="w-full bg-transparent text-[10px] font-medium uppercase tracking-wide text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none truncate border border-transparent focus:border-[var(--border-strong)] rounded-[4px] px-1.5 py-0.5"
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
           onBlur={commitName}
@@ -403,7 +403,7 @@ function FieldHeader({
         />
         <div className="mt-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)] flex items-center gap-1">
           {field.type !== "text" && (
-            <span className="rounded-[1px] px-1 py-[1px] bg-black/10 border border-black/15 text-[9px] text-[var(--foreground)]">{field.type}</span>
+            <span className="rounded-[4px] px-1 py-[1px] bg-black/10 border border-black/15 text-[9px] text-[var(--foreground)]">{field.type}</span>
           )}
           {sort && (
             <span className="text-[var(--foreground)] flex items-center gap-0.5">
@@ -417,7 +417,7 @@ function FieldHeader({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="relative z-20 h-6 w-6 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
+            className="relative z-20 h-6 w-6 inline-flex items-center justify-center rounded-[4px] text-[var(--tertiary-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
             aria-label="Field actions"
           >
             <Settings className="h-3.5 w-3.5" />
@@ -572,7 +572,7 @@ function FieldHeader({
                 {draftOptions.map((opt, idx) => (
                   <div key={opt.id || idx} className="flex items-center gap-2">
                     <input
-                      className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[2px] px-2 py-1 text-xs text-[var(--foreground)] outline-none"
+                      className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] px-2 py-1 text-xs text-[var(--foreground)] outline-none"
                       value={opt.label ?? ""}
                       onChange={(e) => {
                         const next = [...draftOptions];
@@ -584,7 +584,7 @@ function FieldHeader({
                     />
                     <input
                       type="color"
-                      className="h-7 w-9 bg-[var(--surface)] border border-[var(--border)] rounded-[2px]"
+                      className="h-7 w-9 bg-[var(--surface)] border border-[var(--border)] rounded-[4px]"
                       value={opt.color || "#cccccc"}
                       onChange={(e) => {
                         const next = [...draftOptions];
@@ -606,7 +606,7 @@ function FieldHeader({
                   </div>
                 ))}
                 <button
-                  className="w-full rounded-[2px] border border-dashed border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
+                  className="w-full rounded-[4px] border border-dashed border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
                   onClick={() => {
                     const newOpt = {
                       id: crypto.randomUUID ? crypto.randomUUID() : `opt-${Date.now()}`,

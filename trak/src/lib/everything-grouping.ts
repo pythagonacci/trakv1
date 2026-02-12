@@ -1,6 +1,7 @@
 import type { EverythingItem, BoardGroup, GroupByField } from "@/types/everything";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 import { parseISO, isToday, isTomorrow, isThisWeek, isBefore, isAfter } from "date-fns";
+import { getDueDateEnd, hasDueDate } from "@/lib/due-date";
 
 /**
  * Group items by a specific field for board view
@@ -204,11 +205,13 @@ function getItemGroupIds(item: EverythingItem, groupBy: GroupByField): string[] 
 /**
  * Get the due date group for a date
  */
-function getDueDateGroup(dueDate: string | null): string {
-  if (!dueDate) return "no_date";
+function getDueDateGroup(dueDate: EverythingItem["properties"]["due_date"]): string {
+  if (!hasDueDate(dueDate)) return "no_date";
 
   try {
-    const date = parseISO(dueDate);
+    const endDate = getDueDateEnd(dueDate);
+    if (!endDate) return "no_date";
+    const date = parseISO(endDate);
     const now = new Date();
 
     if (isBefore(date, now) && !isToday(date)) return "overdue";
@@ -259,6 +262,7 @@ function getEntityTypeLabel(entityType: string): string {
   const labels: Record<string, string> = {
     timeline_event: "Timeline Events",
     task: "Tasks",
+    subtask: "Subtasks",
     table_row: "Table Rows",
     block: "Blocks",
   };

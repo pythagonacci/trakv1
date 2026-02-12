@@ -49,6 +49,7 @@ import ReferencePicker from "@/components/timelines/reference-picker";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import DOMPurify from "isomorphic-dompurify";
 import { PropertyBadges, PropertyMenu } from "@/components/properties";
+import { DateRangeCalendar } from "@/components/due-date-calendar";
 import {
   useEntitiesProperties,
   useEntityPropertiesWithInheritance,
@@ -2534,7 +2535,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
                           >
                             <Calendar className="h-3 w-3" />
-                            {dueDateLabel && <span className="max-w-[110px] truncate">{dueDateLabel}</span>}
+                            {dueDateLabel && <span className="whitespace-nowrap">{dueDateLabel}</span>}
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
@@ -2543,48 +2544,18 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="p-2 space-y-2">
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                                  Start
-                                </span>
-                                <Input
-                                  type="date"
-                                  value={effectiveDueDate?.start ?? ""}
-                                  onChange={(e) =>
-                                    setTaskProperties.mutate({
-                                      entityId: taskEntityId,
-                                      updates: {
-                                        due_date: buildDueDateRange(
-                                          e.target.value || null,
-                                          effectiveDueDate?.end ?? null
-                                        ),
-                                      },
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                                  Due
-                                </span>
-                                <Input
-                                  type="date"
-                                  value={effectiveDueDate?.end ?? ""}
-                                  onChange={(e) =>
-                                    setTaskProperties.mutate({
-                                      entityId: taskEntityId,
-                                      updates: {
-                                        due_date: buildDueDateRange(
-                                          effectiveDueDate?.start ?? null,
-                                          e.target.value || null
-                                        ),
-                                      },
-                                    })
-                                  }
-                                />
-                              </div>
-                            </div>
+                            <DateRangeCalendar
+                              range={{
+                                start: effectiveDueDate?.start ?? null,
+                                end: effectiveDueDate?.end ?? null,
+                              }}
+                              onChange={(nextRange) =>
+                                setTaskProperties.mutate({
+                                  entityId: taskEntityId,
+                                  updates: { due_date: buildDueDateRange(nextRange.start, nextRange.end) },
+                                })
+                              }
+                            />
                             {hasDueDateValue && (
                               <>
                                 <DropdownMenuSeparator />
@@ -3345,7 +3316,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
                           >
                             {shouldShowIcons(task) && <Calendar className="h-3 w-3" />}
-                            <span className="max-w-[140px] truncate">{dueDateLabel || "No due date"}</span>
+                            <span className="whitespace-nowrap">{dueDateLabel || "No due date"}</span>
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
@@ -3353,45 +3324,19 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           className="w-64"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div className="p-2 space-y-2">
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                                  Start
-                                </span>
-                                <Input
-                                  type="date"
-                                  value={effectiveDueDate?.start ?? ""}
-                                  onChange={(e) =>
-                                    updateTaskDueDate(
-                                      String(task.id),
-                                      buildDueDateRange(
-                                        e.target.value || null,
-                                        effectiveDueDate?.end ?? null
-                                      )
-                                    )
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                                  Due
-                                </span>
-                                <Input
-                                  type="date"
-                                  value={effectiveDueDate?.end ?? ""}
-                                  onChange={(e) =>
-                                    updateTaskDueDate(
-                                      String(task.id),
-                                      buildDueDateRange(
-                                        effectiveDueDate?.start ?? null,
-                                        e.target.value || null
-                                      )
-                                    )
-                                  }
-                                />
-                              </div>
-                            </div>
+                          <div className="space-y-2">
+                            <DateRangeCalendar
+                              range={{
+                                start: effectiveDueDate?.start ?? null,
+                                end: effectiveDueDate?.end ?? null,
+                              }}
+                              onChange={(nextRange) =>
+                                updateTaskDueDate(
+                                  String(task.id),
+                                  buildDueDateRange(nextRange.start, nextRange.end)
+                                )
+                              }
+                            />
                             {hasDueDateValue && (
                               <>
                                 <DropdownMenuSeparator />

@@ -8,7 +8,16 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import { createTable, getTable, updateTable, deleteTable, duplicateTable, listWorkspaceTables } from "@/app/actions/tables/table-actions";
 import { createField, updateField, deleteField, reorderFields, updateFieldConfig } from "@/app/actions/tables/field-actions";
-import { createRow, updateRow, updateCell, deleteRow, deleteRows, reorderRows, duplicateRow } from "@/app/actions/tables/row-actions";
+import {
+  createRow,
+  updateRow,
+  updateCell,
+  deleteRow,
+  deleteRows,
+  reorderRows,
+  duplicateRow,
+  setTableRowsSourceSyncMode,
+} from "@/app/actions/tables/row-actions";
 import { createView, getView, updateView, deleteView, setDefaultView, listViews } from "@/app/actions/tables/view-actions";
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
 import { getTableData, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
@@ -535,8 +544,34 @@ export function useBulkDuplicateRows(tableId: string) {
 export function useBulkInsertRows(tableId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>) =>
+    mutationFn: (
+      rows: Array<{
+        data: Record<string, unknown>;
+        order?: number | string | null;
+        source_entity_type?: "task" | "timeline_event" | null;
+        source_entity_id?: string | null;
+        source_sync_mode?: "snapshot" | "live" | null;
+      }>
+    ) =>
       bulkInsertRows({ tableId, rows }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function useSetTableRowsSourceSyncMode(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      mode: "snapshot" | "live";
+      sourceEntityType?: "task" | "timeline_event";
+    }) =>
+      setTableRowsSourceSyncMode({
+        tableId,
+        mode: input.mode,
+        sourceEntityType: input.sourceEntityType,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
     },

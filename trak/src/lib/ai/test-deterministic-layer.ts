@@ -80,6 +80,31 @@ const CASES: TestCase[] = [
     expected: { tools: ["searchTasks"], args: [{ searchText: "onboarding" }] },
   },
   {
+    name: "search subtasks about onboarding",
+    command: "find subtasks about onboarding",
+    expected: { tools: ["searchSubtasks"], args: [{ searchText: "onboarding" }] },
+  },
+  {
+    name: "completed subtasks",
+    command: "show completed subtasks",
+    expected: { tools: ["searchSubtasks"], args: [{ completed: true }] },
+  },
+  {
+    name: "incomplete checklist items",
+    command: "show incomplete checklist items",
+    expected: { tools: ["searchSubtasks"], args: [{ completed: false }] },
+  },
+  {
+    name: "subtasks for task title",
+    command: "show subtasks for Website Redesign",
+    expected: { tools: ["searchSubtasks"], args: [{ taskTitle: "Website Redesign" }] },
+  },
+  {
+    name: "subtask creation follow-up should not be treated as search",
+    command: "The parent task is Dashboard Display. The subtask title should be Auto Refresh AI Integration.",
+    shouldExecute: false,
+  },
+  {
     name: "create task called",
     command: "create task called \"Fix login bug\"",
     expected: { tools: ["createTaskItem"], args: [{ title: "Fix login bug" }] },

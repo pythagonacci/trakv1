@@ -8,6 +8,7 @@ import {
   FileText,
   CheckSquare,
   Link2,
+  AtSign,
   Minus,
   Table,
   Calendar,
@@ -26,6 +27,7 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
+import { hasDueDate, normalizeDueDateRange } from "@/lib/due-date";
 import { type Block } from "@/app/actions/block";
 import {
   DropdownMenu,
@@ -47,7 +49,8 @@ import {
 } from "@/lib/hooks/use-property-queries";
 import { useAI } from "@/components/ai";
 import ChartCustomizeDialog from "@/components/blocks/chart-customize-dialog";
-import { useBlockAttach } from "./block-attach-context";
+import BlockReferencesPanel from "@/components/blocks/block-references-panel";
+import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
@@ -81,7 +84,7 @@ export default function BlockWrapper({
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [chartCustomizeOpen, setChartCustomizeOpen] = useState(false);
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
-  const blockAttach = useBlockAttach();
+  const referencePicker = useBlockReferencePicker();
 
   // Fetch properties for this block
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
@@ -95,8 +98,12 @@ export default function BlockWrapper({
     return member?.name || member?.email;
   };
   const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
-    const ids = (props as any).assignee_ids?.length ? (props as any).assignee_ids : props.assignee_id ? [props.assignee_id] : [];
-    return ids.map((id: string) => getMemberName(id)).filter((n: string | undefined): n is string => Boolean(n));
+    const ids: Array<string | null> = props.assignee_ids?.length
+      ? props.assignee_ids
+      : props.assignee_id
+        ? [props.assignee_id]
+        : [];
+    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
   };
 
   const directCount = countEntityProperties(direct);
@@ -119,6 +126,7 @@ export default function BlockWrapper({
 
   const isDragging = externalIsDragging || isDraggingInternal;
   const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
+  const isTempBlock = block.id.startsWith("temp-");
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -293,6 +301,20 @@ export default function BlockWrapper({
                     />
                   </>
                 )}
+                {workspaceId && projectId && referencePicker && !isTempBlock && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      referencePicker.openPicker();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    title="Attach reference"
+                    aria-label="Attach reference"
+                  >
+                    <AtSign className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 {block.type === "table" && (
                   <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                     <DropdownMenuTrigger asChild>
@@ -416,18 +438,6 @@ export default function BlockWrapper({
                         )}
                       </DropdownMenuItem>
 
-                      {blockAttach && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            blockAttach.openAttachPicker(block.id);
-                            setMenuOpen(false);
-                          }}
-                        >
-                          <Paperclip className="h-4 w-4" />
-                          Attach
-                        </DropdownMenuItem>
-                      )}
-
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => onDelete?.(block.id)}
@@ -462,6 +472,20 @@ export default function BlockWrapper({
             >
               <MessageSquare className="h-3.5 w-3.5" />
             </button>
+            {workspaceId && projectId && referencePicker && !isTempBlock && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  referencePicker.openPicker();
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                title="Attach reference"
+                aria-label="Attach reference"
+              >
+                <AtSign className="h-3.5 w-3.5" />
+              </button>
+            )}
             {block.type === "table" && (
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
@@ -584,18 +608,6 @@ export default function BlockWrapper({
                     </span>
                     )}
                   </DropdownMenuItem>
-
-                  {blockAttach && (
-                    <DropdownMenuItem
-                      onClick={() => {
-                        blockAttach.openAttachPicker(block.id);
-                        setMenuOpen(false);
-                      }}
-                    >
-                      <Paperclip className="h-4 w-4" />
-                      Attach
-                    </DropdownMenuItem>
-                  )}
 
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -743,18 +755,6 @@ export default function BlockWrapper({
                   )}
                 </DropdownMenuItem>
 
-                {blockAttach && block.type !== "task" && block.type !== "timeline" && (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      blockAttach.openAttachPicker(block.id);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <Paperclip className="h-4 w-4" />
-                    Attach
-                  </DropdownMenuItem>
-                )}
-
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => onDelete?.(block.id)}
@@ -790,6 +790,12 @@ export default function BlockWrapper({
                     memberNames={getMemberNames(inh.properties)}
                   />
                 ))}
+              </div>
+            )}
+
+            {workspaceId && projectId && !isTempBlock && (
+              <div className="pt-2">
+                <BlockReferencesPanel blockId={block.id} readOnly={readOnly} />
               </div>
             )}
           </div>
@@ -839,11 +845,12 @@ function countEntityProperties(
   const assigneeCount = Array.isArray((props as any).assignee_ids)
     ? (props as any).assignee_ids.length
     : (props.assignee_id ? 1 : 0);
+  const dueDate = hasDueDate(normalizeDueDateRange(props.due_date));
   return (
     (props.status ? 1 : 0) +
     (props.priority ? 1 : 0) +
     assigneeCount +
-    (props.due_date ? 1 : 0) +
+    (dueDate ? 1 : 0) +
     tags.length
   );
 }

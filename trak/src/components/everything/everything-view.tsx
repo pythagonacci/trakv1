@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useWorkspaceEverything } from "@/lib/hooks/use-everything-queries";
 import { useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import { applyFilters } from "@/lib/everything-filtering";
+import { getDueDateEnd } from "@/lib/due-date";
 import { EverythingHeader } from "./everything-header";
 import { EverythingTableView } from "./everything-table-view";
 import { EverythingBoardView } from "./everything-board-view";
@@ -81,8 +82,8 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
           bVal = b.properties.priority || "";
           break;
         case "due_date":
-          aVal = a.properties.due_date || "";
-          bVal = b.properties.due_date || "";
+          aVal = getDueDateEnd(a.properties.due_date) || "";
+          bVal = getDueDateEnd(b.properties.due_date) || "";
           break;
         case "created_at":
           aVal = a.created_at;

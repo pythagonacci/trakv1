@@ -4,6 +4,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { getBlockWithContext } from "@/app/actions/ai-context";
+import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 
 /**
  * POST /api/ai/stream
@@ -71,12 +72,13 @@ export async function POST(request: NextRequest) {
 
     // 4. Parse request body
     const body = await request.json();
-    const { command, projectId, tabId, contextBlockId, messages } = body as {
+    const { command, projectId, tabId, contextBlockId, messages, confirmation } = body as {
       command: string;
       projectId?: string;
       tabId?: string;
       contextBlockId?: string;
       messages?: AIMessage[];
+      confirmation?: WriteConfirmationApproval | null;
     };
 
     // 5. Handle context block if provided
@@ -85,8 +87,12 @@ export async function POST(request: NextRequest) {
     if (contextBlockId) {
       const blockContext = await getBlockWithContext({ blockId: contextBlockId });
       if (blockContext.data) {
-        const ctx = blockContext.data as any;
-        const block = ctx.block as { id: string; type: string; content?: Record<string, unknown> };
+        const ctx = blockContext.data as {
+          block: { id: string; type: string; content?: Record<string, unknown> };
+          tab?: { name?: string | null } | null;
+          project?: { name?: string | null } | null;
+        };
+        const block = ctx.block;
         const blockType = block.type;
         const content = (block.content || {}) as Record<string, unknown>;
         const tableId = blockType === "table" ? String(content.tableId || "") : "";
@@ -139,7 +145,10 @@ export async function POST(request: NextRequest) {
             currentTabId: tabId,
             contextTableId,
             contextBlockId,
-          }, [...contextMessages, ...(messages || [])]);
+          }, [...contextMessages, ...(messages || [])], {
+            requireWriteConfirmation: true,
+            approvedWriteAction: confirmation,
+          });
 
           for await (const event of generator) {
             const data = JSON.stringify(event);

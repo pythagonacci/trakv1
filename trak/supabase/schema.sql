@@ -935,8 +935,8 @@ CREATE TABLE public.entity_inherited_display (
     source_entity_id uuid NOT NULL,
     property_definition_id uuid NOT NULL,
     is_visible boolean DEFAULT true NOT NULL,
-    CONSTRAINT entity_inherited_display_entity_type_check CHECK ((entity_type = ANY (ARRAY['block'::text, 'task'::text, 'timeline_event'::text, 'table_row'::text]))),
-    CONSTRAINT entity_inherited_display_source_entity_type_check CHECK ((source_entity_type = ANY (ARRAY['block'::text, 'task'::text, 'timeline_event'::text, 'table_row'::text])))
+    CONSTRAINT entity_inherited_display_entity_type_check CHECK ((entity_type = ANY (ARRAY['block'::text, 'task'::text, 'subtask'::text, 'timeline_event'::text, 'table_row'::text]))),
+    CONSTRAINT entity_inherited_display_source_entity_type_check CHECK ((source_entity_type = ANY (ARRAY['block'::text, 'task'::text, 'subtask'::text, 'timeline_event'::text, 'table_row'::text])))
 );
 
 
@@ -955,8 +955,8 @@ CREATE TABLE public.entity_links (
     workspace_id uuid NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT entity_links_no_self_link CHECK ((NOT ((source_entity_type = target_entity_type) AND (source_entity_id = target_entity_id)))),
-    CONSTRAINT entity_links_source_entity_type_check CHECK ((source_entity_type = ANY (ARRAY['block'::text, 'task'::text, 'timeline_event'::text, 'table_row'::text]))),
-    CONSTRAINT entity_links_target_entity_type_check CHECK ((target_entity_type = ANY (ARRAY['block'::text, 'task'::text, 'timeline_event'::text, 'table_row'::text])))
+    CONSTRAINT entity_links_source_entity_type_check CHECK ((source_entity_type = ANY (ARRAY['block'::text, 'task'::text, 'subtask'::text, 'timeline_event'::text, 'table_row'::text]))),
+    CONSTRAINT entity_links_target_entity_type_check CHECK ((target_entity_type = ANY (ARRAY['block'::text, 'task'::text, 'subtask'::text, 'timeline_event'::text, 'table_row'::text])))
 );
 
 
@@ -975,7 +975,7 @@ CREATE TABLE public.entity_properties (
     workspace_id uuid NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT entity_properties_entity_type_check1 CHECK ((entity_type = ANY (ARRAY['block'::text, 'task'::text, 'timeline_event'::text, 'table_row'::text])))
+    CONSTRAINT entity_properties_entity_type_check1 CHECK ((entity_type = ANY (ARRAY['block'::text, 'task'::text, 'subtask'::text, 'timeline_event'::text, 'table_row'::text])))
 );
 
 
@@ -1367,6 +1367,26 @@ CREATE TABLE public.task_references (
 ALTER TABLE public.task_references OWNER TO postgres;
 
 --
+-- Name: task_subtask_references; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.task_subtask_references (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    workspace_id uuid NOT NULL,
+    subtask_id uuid NOT NULL,
+    reference_type text NOT NULL,
+    reference_id uuid NOT NULL,
+    table_id uuid,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT task_subtask_references_reference_type_check CHECK ((reference_type = ANY (ARRAY['doc'::text, 'table_row'::text, 'task'::text, 'block'::text, 'tab'::text])))
+);
+
+
+ALTER TABLE public.task_subtask_references OWNER TO postgres;
+
+--
 -- Name: task_subtasks; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1374,6 +1394,7 @@ CREATE TABLE public.task_subtasks (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     task_id uuid NOT NULL,
     title text NOT NULL,
+    description text,
     completed boolean DEFAULT false,
     display_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1884,6 +1905,14 @@ ALTER TABLE ONLY public.task_items
 
 ALTER TABLE ONLY public.task_references
     ADD CONSTRAINT task_references_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: task_subtask_references task_subtask_references_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.task_subtask_references
+    ADD CONSTRAINT task_subtask_references_pkey PRIMARY KEY (id);
 
 
 --
@@ -2748,6 +2777,34 @@ CREATE INDEX idx_task_references_workspace ON public.task_references USING btree
 
 
 --
+-- Name: idx_task_subtask_references_table; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_task_subtask_references_table ON public.task_subtask_references USING btree (table_id) WHERE (table_id IS NOT NULL);
+
+
+--
+-- Name: idx_task_subtask_references_target; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_task_subtask_references_target ON public.task_subtask_references USING btree (reference_type, reference_id);
+
+
+--
+-- Name: idx_task_subtask_references_subtask; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_task_subtask_references_subtask ON public.task_subtask_references USING btree (subtask_id);
+
+
+--
+-- Name: idx_task_subtask_references_workspace; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_task_subtask_references_workspace ON public.task_subtask_references USING btree (workspace_id);
+
+
+--
 -- Name: idx_task_subtasks_task; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3039,6 +3096,13 @@ CREATE TRIGGER task_items_set_updated_at BEFORE UPDATE ON public.task_items FOR 
 --
 
 CREATE TRIGGER task_references_set_updated_at BEFORE UPDATE ON public.task_references FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: task_subtask_references task_subtask_references_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER task_subtask_references_set_updated_at BEFORE UPDATE ON public.task_subtask_references FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -3662,6 +3726,38 @@ ALTER TABLE ONLY public.task_references
 
 ALTER TABLE ONLY public.task_references
     ADD CONSTRAINT task_references_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+
+--
+-- Name: task_subtask_references task_subtask_references_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.task_subtask_references
+    ADD CONSTRAINT task_subtask_references_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: task_subtask_references task_subtask_references_table_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.task_subtask_references
+    ADD CONSTRAINT task_subtask_references_table_id_fkey FOREIGN KEY (table_id) REFERENCES public.tables(id) ON DELETE SET NULL;
+
+
+--
+-- Name: task_subtask_references task_subtask_references_subtask_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.task_subtask_references
+    ADD CONSTRAINT task_subtask_references_subtask_id_fkey FOREIGN KEY (subtask_id) REFERENCES public.task_subtasks(id) ON DELETE CASCADE;
+
+
+--
+-- Name: task_subtask_references task_subtask_references_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.task_subtask_references
+    ADD CONSTRAINT task_subtask_references_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
 
 
 --
@@ -4428,6 +4524,42 @@ CREATE POLICY "Task references updatable by workspace members" ON public.task_re
 --
 
 CREATE POLICY "Task references visible to workspace members" ON public.task_references FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: task_subtask_references Task subtask references deletable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Task subtask references deletable by workspace members" ON public.task_subtask_references FOR DELETE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: task_subtask_references Task subtask references insertable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Task subtask references insertable by workspace members" ON public.task_subtask_references FOR INSERT WITH CHECK ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: task_subtask_references Task subtask references updatable by workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Task subtask references updatable by workspace members" ON public.task_subtask_references FOR UPDATE USING ((workspace_id IN ( SELECT workspace_members.workspace_id
+   FROM public.workspace_members
+  WHERE (workspace_members.user_id = auth.uid()))));
+
+
+--
+-- Name: task_subtask_references Task subtask references visible to workspace members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Task subtask references visible to workspace members" ON public.task_subtask_references FOR SELECT USING ((workspace_id IN ( SELECT workspace_members.workspace_id
    FROM public.workspace_members
   WHERE (workspace_members.user_id = auth.uid()))));
 
@@ -5289,6 +5421,12 @@ ALTER TABLE public.task_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.task_references ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: task_subtask_references; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.task_subtask_references ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: task_subtasks; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -5840,6 +5978,15 @@ GRANT ALL ON TABLE public.task_items TO service_role;
 GRANT ALL ON TABLE public.task_references TO anon;
 GRANT ALL ON TABLE public.task_references TO authenticated;
 GRANT ALL ON TABLE public.task_references TO service_role;
+
+
+--
+-- Name: TABLE task_subtask_references; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.task_subtask_references TO anon;
+GRANT ALL ON TABLE public.task_subtask_references TO authenticated;
+GRANT ALL ON TABLE public.task_subtask_references TO service_role;
 
 
 --

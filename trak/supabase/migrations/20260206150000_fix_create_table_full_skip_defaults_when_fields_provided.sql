@@ -78,7 +78,7 @@ BEGIN
       CONTINUE;
     END IF;
 
-    INSERT INTO public.table_fields (table_id, name, type, config, is_primary)
+    INSERT INTO public.table_fields (table_id, name, type, config, is_primary, property_definition_id)
     VALUES (
       v_table_id,
       v_field_name,
@@ -88,6 +88,19 @@ BEGIN
       CASE
         WHEN v_fields_created = 0 THEN COALESCE((v_field->>'isPrimary')::boolean, true)
         ELSE COALESCE((v_field->>'isPrimary')::boolean, false)
+      END,
+      CASE
+        WHEN COALESCE(v_field->>'type', 'text') = 'priority' THEN (
+          SELECT id FROM public.property_definitions
+          WHERE workspace_id = p_workspace_id AND name = 'Priority' AND type = 'select'
+          LIMIT 1
+        )
+        WHEN COALESCE(v_field->>'type', 'text') = 'status' THEN (
+          SELECT id FROM public.property_definitions
+          WHERE workspace_id = p_workspace_id AND name = 'Status' AND type = 'select'
+          LIMIT 1
+        )
+        ELSE NULL
       END
     );
     v_fields_created := v_fields_created + 1;

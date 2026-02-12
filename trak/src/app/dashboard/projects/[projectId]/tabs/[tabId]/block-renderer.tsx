@@ -4,6 +4,7 @@ import { type Block } from "@/app/actions/block";
 import dynamic from "next/dynamic";
 import BlockWrapper from "./block-wrapper";
 import LazyBlockWrapper from "./lazy-block-wrapper";
+import { BlockReferencePickerProvider } from "@/components/blocks/block-reference-picker-provider";
 
 // Lightweight components - static import (always used)
 import TextBlock from "./text-block";
@@ -118,25 +119,27 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
   if (block.original_block_id) {
     return (
       <LazyBlockWrapper blockId={block.id}>
-        <BlockWrapper
-          block={block}
-          workspaceId={workspaceId}
-          projectId={projectId}
-          onDelete={onDelete}
-          onConvert={onConvert}
-          onUpdate={onUpdate}
-          onAddBlockAbove={onAddBlockAbove}
-          onAddBlockBelow={onAddBlockBelow}
-          isDragging={isDragging}
-        >
-          <BlockReferenceRenderer
-            originalBlockId={block.original_block_id}
+        <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
+          <BlockWrapper
+            block={block}
             workspaceId={workspaceId}
             projectId={projectId}
-            tabId={tabId}
+            onDelete={onDelete}
+            onConvert={onConvert}
             onUpdate={onUpdate}
-          />
-        </BlockWrapper>
+            onAddBlockAbove={onAddBlockAbove}
+            onAddBlockBelow={onAddBlockBelow}
+            isDragging={isDragging}
+          >
+            <BlockReferenceRenderer
+              originalBlockId={block.original_block_id}
+              workspaceId={workspaceId}
+              projectId={projectId}
+              tabId={tabId}
+              onUpdate={onUpdate}
+            />
+          </BlockWrapper>
+        </BlockReferencePickerProvider>
       </LazyBlockWrapper>
     );
   }
@@ -188,22 +191,24 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
 
   return (
     <LazyBlockWrapper blockId={block.id}>
-      <BlockWrapper
-        block={block}
-        workspaceId={workspaceId}
-        projectId={projectId}
-        onDelete={onDelete}
-        onConvert={onConvert}
-        onUpdate={onUpdate}
-        onAddBlockAbove={onAddBlockAbove}
-        onAddBlockBelow={onAddBlockBelow}
-        isDragging={isDragging}
-      >
-        {/* Use key to force re-render when type changes - ensures correct component renders */}
-        <div key={`${block.id}-${block.type}`}>
-          {renderBlockContent()}
-        </div>
-      </BlockWrapper>
+      <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
+        <BlockWrapper
+          block={block}
+          workspaceId={workspaceId}
+          projectId={projectId}
+          onDelete={onDelete}
+          onConvert={onConvert}
+          onUpdate={onUpdate}
+          onAddBlockAbove={onAddBlockAbove}
+          onAddBlockBelow={onAddBlockBelow}
+          isDragging={isDragging}
+        >
+          {/* Use key to force re-render when type changes - ensures correct component renders */}
+          <div key={`${block.id}-${block.type}`}>
+            {renderBlockContent()}
+          </div>
+        </BlockWrapper>
+      </BlockReferencePickerProvider>
     </LazyBlockWrapper>
   );
 }

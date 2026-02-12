@@ -26,6 +26,7 @@ import {
   useBulkDuplicateRows,
   useBulkUpdateRows,
   useBulkInsertRows,
+  useSetTableRowsSourceSyncMode,
 } from "@/lib/hooks/use-table-queries";
 import { TableHeaderRow } from "./table-header-row";
 import { TableRow } from "./table-row";
@@ -51,6 +52,7 @@ import { BoardView } from "./board-view";
 import { TableTimelineView } from "./table-timeline-view";
 import Toast from "@/app/dashboard/projects/toast";
 import { TableImportModal, type ImportColumnMapping } from "./table-import-modal";
+import { Switch } from "@/components/ui/switch";
 import {
   parsePastedTable,
   isStructuredData,
@@ -161,6 +163,7 @@ export function TableView({ tableId }: Props) {
   const bulkDuplicateRows = useBulkDuplicateRows(tableId);
   const bulkUpdateRows = useBulkUpdateRows(tableId);
   const bulkInsertRows = useBulkInsertRows(tableId);
+  const setSourceSyncMode = useSetTableRowsSourceSyncMode(tableId);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
   const editableFields = useMemo(
@@ -279,6 +282,24 @@ export function TableView({ tableId }: Props) {
 
   // Rows arrive filtered/sorted from the server based on view config
   const sortedRows = rows || [];
+  const sourceLinkedRows = useMemo(
+    () => (rowData?.rows ?? []).filter((row) => Boolean(row.source_entity_id && row.source_entity_type)),
+    [rowData?.rows]
+  );
+  const hasSourceLinkedRows = sourceLinkedRows.length > 0;
+  const sourceEntityTypes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          sourceLinkedRows
+            .map((row) => row.source_entity_type)
+            .filter((type): type is "task" | "timeline_event" => Boolean(type))
+        )
+      ),
+    [sourceLinkedRows]
+  );
+  const liveSourceSyncEnabled =
+    hasSourceLinkedRows && sourceLinkedRows.every((row) => row.source_sync_mode === "live");
   const groupByConfig = view?.config?.groupBy;
   const groupByField = groupByConfig
     ? fields.find((f) => f.id === groupByConfig.fieldId)
@@ -1276,68 +1297,116 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
     return <TableViewLoadingState />;
   }
 
+  const sourceTypeLabel = sourceEntityTypes
+    .map((type) => (type === "timeline_event" ? "timeline events" : "tasks"))
+    .join(" and ");
+
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+    <div className="p-3">
       {error && (
-        <div className="px-3 py-2 text-sm text-[var(--error-foreground)] bg-[var(--error)]/20 border-b border-[var(--error)]/30">
+        <div className="mb-2 rounded-[6px] border border-[var(--error)]/30 bg-[var(--error)]/20 px-3 py-2 text-sm text-[var(--error-foreground)]">
           {error}
         </div>
       )}
-      <TableHeaderCompact
-        tableId={tableId}
-        tableTitle={tableData?.table.title}
-        views={views || (view ? [view] : [])}
-        activeViewId={effectiveViewId}
-        fields={fields}
-        filters={filters}
-        onSearch={(q) => setSearch(q)}
-        onColumnSearch={handleColumnSearch}
-        onFiltersChange={(next) => {
-          setFilters(next);
-          persistViewConfig(sorts, next);
-        }}
-        searchInputRef={searchInputRef}
-        openSearchTick={openSearchTick}
-        groupBy={groupByConfig}
-        onGroupByChange={handleGroupByChange}
-        onCreateView={(type) => {
-          const label = type.charAt(0).toUpperCase() + type.slice(1);
-          const config: ViewConfig | undefined =
-            type === "timeline" && dateFields.length > 0
-              ? { timelineConfig: { dateFieldId: dateFields[0].id } }
-              : undefined;
-          createView.mutate(
-            { name: `${label} view`, type, config },
-            {
-              onSuccess: (res) => {
-                if ("data" in res && res.data?.id) {
-                  setActiveViewId(res.data.id);
-                }
-              },
-            }
-          );
-        }}
-        onRenameView={(viewId, name) => {
-          setActiveViewId(viewId);
-          updateView.mutate({ name });
-        }}
-        onDeleteView={(viewId) => {
-          deleteView.mutate(viewId);
-        }}
-        onSetDefault={(viewId) => setDefaultView.mutate(viewId)}
-        onSwitchView={(viewId) => {
-          setActiveViewId(viewId);
-        }}
-        onUpdateTableTitle={(title) => {
-          updateTable.mutate({ title }, {
-            onError: (err) => setError(err instanceof Error ? err.message : "Failed to update table title"),
-          });
-        }}
-        hasDateFields={dateFields.length > 0}
-      />
+      <div className="mb-2">
+        <TableHeaderCompact
+          tableId={tableId}
+          tableTitle={tableData?.table.title}
+          views={views || (view ? [view] : [])}
+          activeViewId={effectiveViewId}
+          fields={fields}
+          filters={filters}
+          onSearch={(q) => setSearch(q)}
+          onColumnSearch={handleColumnSearch}
+          onFiltersChange={(next) => {
+            setFilters(next);
+            persistViewConfig(sorts, next);
+          }}
+          searchInputRef={searchInputRef}
+          openSearchTick={openSearchTick}
+          groupBy={groupByConfig}
+          onGroupByChange={handleGroupByChange}
+          onCreateView={(type) => {
+            const label = type.charAt(0).toUpperCase() + type.slice(1);
+            const config: ViewConfig | undefined =
+              type === "timeline" && dateFields.length > 0
+                ? { timelineConfig: { dateFieldId: dateFields[0].id } }
+                : undefined;
+            createView.mutate(
+              { name: `${label} view`, type, config },
+              {
+                onSuccess: (res) => {
+                  if ("data" in res && res.data?.id) {
+                    setActiveViewId(res.data.id);
+                  }
+                },
+              }
+            );
+          }}
+          onRenameView={(viewId, name) => {
+            setActiveViewId(viewId);
+            updateView.mutate({ name });
+          }}
+          onDeleteView={(viewId) => {
+            deleteView.mutate(viewId);
+          }}
+          onSetDefault={(viewId) => setDefaultView.mutate(viewId)}
+          onSwitchView={(viewId) => {
+            setActiveViewId(viewId);
+          }}
+          onUpdateTableTitle={(title) => {
+            updateTable.mutate({ title }, {
+              onError: (err) => setError(err instanceof Error ? err.message : "Failed to update table title"),
+            });
+          }}
+          hasDateFields={dateFields.length > 0}
+        />
+      </div>
+      {hasSourceLinkedRows && (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+          <p className="text-[10px] text-[var(--muted-foreground)]">
+            Source-linked {sourceTypeLabel || "rows"} are editable copies. Global search and Everything use the source entity once.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-medium text-[var(--muted-foreground)]">Sync edits to source</span>
+            <Switch
+              checked={liveSourceSyncEnabled}
+              disabled={setSourceSyncMode.isPending}
+              onCheckedChange={(checked) => {
+                setSourceSyncMode.mutate(
+                  { mode: checked ? "live" : "snapshot" },
+                  {
+                    onSuccess: (res) => {
+                      if ("error" in res) {
+                        setToast({
+                          message: res.error || "Failed to update source sync mode.",
+                          type: "error",
+                        });
+                        return;
+                      }
+                      setToast({
+                        message: checked
+                          ? "Live sync enabled for source-linked rows."
+                          : "Rows are now snapshot copies.",
+                        type: "success",
+                      });
+                    },
+                    onError: (error) => {
+                      setToast({
+                        message: error instanceof Error ? error.message : "Failed to update source sync mode.",
+                        type: "error",
+                      });
+                    },
+                  }
+                );
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {viewType === "table" && hiddenFieldList.length > 0 && (
-        <div className="px-3 py-2 text-xs text-[var(--muted-foreground)] flex items-center gap-2">
+        <div className="mb-2 px-3 py-2 text-xs text-[var(--muted-foreground)] flex items-center gap-2">
           <EyeOff className="h-4 w-4" />
           Hidden columns:
           {hiddenFieldList.map((f) => (
@@ -1352,15 +1421,6 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         </div>
       )}
 
-      <BulkActionsToolbar
-        selectedCount={selectedRows.size}
-        fields={fields}
-        onDelete={handleBulkDelete}
-        onDuplicate={handleBulkDuplicate}
-        onExport={handleBulkExport}
-        onUpdateField={handleBulkUpdateField}
-        onClearSelection={() => setSelectedRows(new Set())}
-      />
       <BulkDeleteDialog
         open={deleteDialogOpen}
         rowCount={selectedRows.size}
@@ -1371,10 +1431,23 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         onConfirm={confirmBulkDelete}
       />
       {viewType === "table" && (
-        <div className="relative w-full" ref={containerRef}>
-          <div className="overflow-x-auto w-full" style={{ maxHeight: '480px', overflowY: 'scroll' }}>
-            <div style={{ width: 'max-content', minWidth: '100%' }}>
-              <div className="max-h-[480px] overflow-x-hidden divide-y divide-[var(--border)] scrollbar-thin" style={{ width: 'max-content', minWidth: '100%', overflowY: 'scroll' }}>
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+          <BulkActionsToolbar
+            selectedCount={selectedRows.size}
+            fields={fields}
+            onDelete={handleBulkDelete}
+            onDuplicate={handleBulkDuplicate}
+            onExport={handleBulkExport}
+            onUpdateField={handleBulkUpdateField}
+            onClearSelection={() => setSelectedRows(new Set())}
+          />
+          <div className="relative w-full" ref={containerRef}>
+          <div className="overflow-x-auto w-full" style={{ maxHeight: "480px", overflowY: "scroll" }}>
+            <div style={{ width: "max-content", minWidth: "100%" }}>
+              <div
+                className="max-h-[480px] overflow-x-hidden scrollbar-thin"
+                style={{ width: "max-content", minWidth: "100%", overflowY: "scroll" }}
+              >
                 <TableHeaderRow
                   fields={fields}
                   columnTemplate={columnTemplate}
@@ -1457,8 +1530,8 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                             workspaceMembers={workspaceMembers}
                             onCellKeyDown={handleCellKeyDown}
                             cellRefs={cellRefs}
-                        editRequest={editRequest || undefined}
-                        onEditRequestHandled={() => setEditRequest(null)}
+                            editRequest={editRequest || undefined}
+                            onEditRequestHandled={() => setEditRequest(null)}
                             draggable
                             onDragStart={(id, e) => {
                               e.dataTransfer.setData("rowId", id);
@@ -1497,8 +1570,8 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                       workspaceMembers={workspaceMembers}
                       onCellKeyDown={handleCellKeyDown}
                       cellRefs={cellRefs}
-                  editRequest={editRequest || undefined}
-                  onEditRequestHandled={() => setEditRequest(null)}
+                      editRequest={editRequest || undefined}
+                      onEditRequestHandled={() => setEditRequest(null)}
                       onUpdateFieldConfig={handleUpdateFieldConfig}
                     />
                   ))
@@ -1514,7 +1587,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                           onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
                         });
                       }}
-                      className="px-3 py-1 text-sm rounded-md bg-[var(--surface-hover)] text-[var(--foreground)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-colors duration-150 border border-[var(--border)]"
+                      className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                     >
                       Add your first row
                     </button>
@@ -1534,51 +1607,56 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                   onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
                 });
               }}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors duration-150"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
             >
               <Plus className="h-3 w-3" />
               Add row
             </button>
           </div>
         </div>
+        </div>
       )}
 
       {viewType === "board" && (
-        <BoardView
-          fields={fields}
-          rows={sortedRows}
-          groupBy={groupByConfig}
-          workspaceMembers={workspaceMembers}
-          selectedRows={selectedRows}
-          onSelectRow={handleSelectRow}
-          onUpdateCell={handleCellChange}
-          onCreateRow={(data) => {
-            setError(null);
-            createRow.mutate({ data }, {
-              onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-            });
-          }}
-          onContextMenu={handleCellContextMenu}
-        />
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+          <BoardView
+            fields={fields}
+            rows={sortedRows}
+            groupBy={groupByConfig}
+            workspaceMembers={workspaceMembers}
+            selectedRows={selectedRows}
+            onSelectRow={handleSelectRow}
+            onUpdateCell={handleCellChange}
+            onCreateRow={(data) => {
+              setError(null);
+              createRow.mutate({ data }, {
+                onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
+              });
+            }}
+            onContextMenu={handleCellContextMenu}
+          />
+        </div>
       )}
 
       {viewType === "timeline" && (
-        <TableTimelineView
-          fields={fields}
-          rows={sortedRows}
-          dateFieldId={view?.config?.timelineConfig?.dateFieldId}
-          groupBy={groupByConfig}
-          workspaceMembers={workspaceMembers}
-          selectedRows={selectedRows}
-          onSelectRow={handleSelectRow}
-          onUpdateCell={handleCellChange}
-          onDateFieldChange={handleTimelineDateFieldChange}
-          onContextMenu={handleCellContextMenu}
-        />
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+          <TableTimelineView
+            fields={fields}
+            rows={sortedRows}
+            dateFieldId={view?.config?.timelineConfig?.dateFieldId}
+            groupBy={groupByConfig}
+            workspaceMembers={workspaceMembers}
+            selectedRows={selectedRows}
+            onSelectRow={handleSelectRow}
+            onUpdateCell={handleCellChange}
+            onDateFieldChange={handleTimelineDateFieldChange}
+            onContextMenu={handleCellContextMenu}
+          />
+        </div>
       )}
 
       {["list", "gallery", "calendar"].includes(viewType) && (
-        <div className="p-6 text-sm text-gray-500">
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-gray-500">
           This view type is coming soon.
         </div>
       )}

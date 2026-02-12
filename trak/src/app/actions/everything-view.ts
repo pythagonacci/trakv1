@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getEntitiesProperties } from "@/app/actions/entity-properties";
+import { buildDueDateRange, normalizeDueDateRange } from "@/lib/due-date";
 import type { EverythingItem, EverythingOptions, EverythingResult } from "@/types/everything";
 import type { EntityType, Status, Priority } from "@/types/properties";
 
@@ -27,7 +29,7 @@ export async function getWorkspaceEverything(
 
   // If RPC function doesn't exist yet, fall back to manual query
   if (queryError && (queryError.code === 'PGRST202' || queryError.message?.includes('does not exist') || queryError.message?.includes('Could not find'))) {
-    return await getWorkspaceEverythingFallback(supabase, workspaceId, limit, offset);
+    return await getWorkspaceEverythingFallback(supabase, workspaceId, limit, offset, options);
   }
 
   if (queryError) {
@@ -36,12 +38,17 @@ export async function getWorkspaceEverything(
   }
 
   const items = (rawItems || []).map(mapRawItemToEverythingItem);
+  const normalizedItems = await maybeFilterWorkflowTaskCopies(
+    supabase,
+    items,
+    options?.includeWorkflowRepresentations
+  );
 
   return {
     data: {
-      items,
-      total: items.length,
-      hasMore: items.length === limit,
+      items: normalizedItems,
+      total: normalizedItems.length,
+      hasMore: normalizedItems.length === limit,
     },
   };
 }
@@ -54,7 +61,8 @@ async function getWorkspaceEverythingFallback(
   supabase: any,
   workspaceId: string,
   limit: number,
-  offset: number
+  offset: number,
+  options?: EverythingOptions
 ): Promise<ActionResult<EverythingResult>> {
   const items: EverythingItem[] = [];
 
@@ -160,7 +168,7 @@ async function getWorkspaceEverythingFallback(
           status: event.status as Status,
           priority: event.priority as Priority | null,
           assignee_ids: props?.assignee_ids || [],
-          due_date: event.start_date, // Use start_date as due_date for timeline events
+          due_date: buildDueDateRange(event.start_date, null), // Use start_date as due_date for timeline events
           tags: props?.tags || [],
         },
         created_at: event.created_at,
@@ -178,6 +186,7 @@ async function getWorkspaceEverythingFallback(
       status,
       priority,
       due_date,
+      start_date,
       created_at,
       updated_at,
       task_block_id,
@@ -229,7 +238,7 @@ async function getWorkspaceEverythingFallback(
           status: task.status as Status,
           priority: task.priority as Priority | null,
           assignee_ids: props?.assignee_ids || [],
-          due_date: task.due_date,
+          due_date: buildDueDateRange(task.start_date ?? null, task.due_date ?? null),
           tags: props?.tags || [],
         },
         created_at: task.created_at,
@@ -323,7 +332,7 @@ async function getWorkspaceEverythingFallback(
               status: props.status as Status | null,
               priority: props.priority as Priority | null,
               assignee_ids: props.assignee_ids || [],
-              due_date: props.due_date,
+              due_date: normalizeDueDateRange(props.due_date),
               tags: props.tags || [],
             },
             created_at: row.created_at,
@@ -347,6 +356,12 @@ async function getWorkspaceEverythingFallback(
     `)
     .in('tab_id', tabIds);
 
+  const blockIds = (blocks ?? []).map((block: any) => block.id);
+  const blockPropsResult = blockIds.length
+    ? await getEntitiesProperties("block", blockIds, workspaceId)
+    : { data: {} as Record<string, any> };
+  const blockPropsById = "error" in blockPropsResult ? {} : blockPropsResult.data;
+
   // Process blocks
   if (blocks) {
     for (const block of blocks) {
@@ -356,15 +371,16 @@ async function getWorkspaceEverythingFallback(
       const project = projectById.get(tab.project_id);
       if (!project) continue;
 
-      // Get properties from entity_properties
-      const { data: props } = await supabase
-        .from('entity_properties')
-        .select('status, priority, assignee_ids, due_date, tags')
-        .eq('entity_type', 'block')
-        .eq('entity_id', block.id)
-        .maybeSingle();
-
-      if (!props || (!props.status && !props.priority && (!props.assignee_ids || props.assignee_ids.length === 0) && !props.due_date && (!props.tags || props.tags.length === 0))) continue;
+      const props = blockPropsById[block.id];
+      const hasProps = Boolean(
+        props &&
+          (props.status ||
+            props.priority ||
+            (Array.isArray(props.assignee_ids) ? props.assignee_ids.length > 0 : props.assignee_id) ||
+            props.due_date ||
+            (Array.isArray(props.tags) && props.tags.length > 0))
+      );
+      if (!hasProps) continue;
 
       // Generate block name based on type and content
       let blockName = 'Block';
@@ -392,11 +408,11 @@ async function getWorkspaceEverythingFallback(
           url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block.id}`,
         },
         properties: {
-          status: props.status as Status | null,
-          priority: props.priority as Priority | null,
-          assignee_ids: props.assignee_ids || [],
-          due_date: props.due_date,
-          tags: props.tags || [],
+          status: props?.status as Status | null,
+          priority: props?.priority as Priority | null,
+          assignee_ids: props?.assignee_ids || (props?.assignee_id ? [props.assignee_id] : []),
+          due_date: normalizeDueDateRange(props?.due_date ?? null),
+          tags: props?.tags || [],
         },
         created_at: block.created_at,
         updated_at: block.updated_at,
@@ -404,19 +420,73 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
+  const normalizedItems = await maybeFilterWorkflowTaskCopies(
+    supabase,
+    items,
+    options?.includeWorkflowRepresentations
+  );
+
   // Sort by updated_at descending
-  items.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  normalizedItems.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
   // Apply limit and offset
-  const paginatedItems = items.slice(offset, offset + limit);
+  const paginatedItems = normalizedItems.slice(offset, offset + limit);
 
   return {
     data: {
       items: paginatedItems,
-      total: items.length,
-      hasMore: offset + limit < items.length,
+      total: normalizedItems.length,
+      hasMore: offset + limit < normalizedItems.length,
     },
   };
+}
+
+async function maybeFilterWorkflowTaskCopies(
+  supabase: any,
+  items: EverythingItem[],
+  includeWorkflowRepresentations?: boolean
+): Promise<EverythingItem[]> {
+  if (includeWorkflowRepresentations) return items;
+
+  const taskIds = items
+    .filter((item) => item.type === "task")
+    .map((item) => item.id);
+  const tableRowIds = items
+    .filter((item) => item.type === "table_row")
+    .map((item) => item.id);
+
+  if (taskIds.length === 0 && tableRowIds.length === 0) return items;
+
+  const [taskResult, rowResult] = await Promise.all([
+    taskIds.length > 0
+      ? supabase.from("task_items").select("id, source_task_id").in("id", taskIds)
+      : Promise.resolve({ data: [], error: null }),
+    tableRowIds.length > 0
+      ? supabase.from("table_rows").select("id, source_entity_id").in("id", tableRowIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (taskResult.error || rowResult.error) {
+    console.error("maybeFilterWorkflowTaskCopies error:", taskResult.error || rowResult.error);
+    return items;
+  }
+
+  const copiedTaskIds = new Set(
+    ((taskResult.data || []) as Array<{ id: string; source_task_id: string | null }>)
+      .filter((task) => Boolean(task.source_task_id))
+      .map((task) => task.id)
+  );
+  const copiedRowIds = new Set(
+    ((rowResult.data || []) as Array<{ id: string; source_entity_id: string | null }>)
+      .filter((row) => Boolean(row.source_entity_id))
+      .map((row) => row.id)
+  );
+
+  return items.filter((item) => {
+    if (item.type === "task") return !copiedTaskIds.has(item.id);
+    if (item.type === "table_row") return !copiedRowIds.has(item.id);
+    return true;
+  });
 }
 
 /**
@@ -441,7 +511,7 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
       status: raw.status as Status | null,
       priority: raw.priority as Priority | null,
       assignee_ids: raw.assignee_ids || [],
-      due_date: raw.due_date,
+      due_date: normalizeDueDateRange(raw.due_date),
       tags: raw.tags || [],
     },
     created_at: raw.created_at,

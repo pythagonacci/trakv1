@@ -354,13 +354,19 @@ export async function bulkDuplicateRows(input: {
 
   if (!rows || rows.length === 0) return { data: null };
 
-  const payload = rows.map((row, idx) => ({
-    table_id: row.table_id,
-    data: row.data,
-    order: Number(row.order) + 0.001 * (idx + 1),
-    created_by: userId,
-    updated_by: userId,
-  }));
+  const payload = rows.map((row, idx) => {
+    const sourceEntityId = normalizeSourceEntityId(row.source_entity_id ?? null);
+    return {
+      table_id: row.table_id,
+      data: row.data,
+      order: Number(row.order) + 0.001 * (idx + 1),
+      source_entity_type: sourceEntityId ? normalizeSourceEntityType(row.source_entity_type ?? null) : null,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: row.source_sync_mode ?? "snapshot",
+      created_by: userId,
+      updated_by: userId,
+    };
+  });
 
   const { error } = await supabase.from("table_rows").insert(payload);
   if (error) return { error: "Failed to duplicate rows" };
@@ -369,7 +375,13 @@ export async function bulkDuplicateRows(input: {
 
 export async function bulkInsertRows(input: {
   tableId: string;
-  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>;
+  rows: Array<{
+    data: Record<string, unknown>;
+    order?: number | string | null;
+    source_entity_type?: "task" | "timeline_event" | null;
+    source_entity_id?: string | null;
+    source_sync_mode?: "snapshot" | "live" | null;
+  }>;
 }): Promise<ActionResult<{ insertedIds: string[] }>> {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
@@ -381,7 +393,11 @@ export async function bulkInsertRows(input: {
 
   if (!input.rows.length) return { data: { insertedIds: [] } };
 
-  if (!RPC_DISABLED) {
+  const hasSourceMetadata = input.rows.some(
+    (row) => Boolean(row.source_entity_type && row.source_entity_id)
+  );
+
+  if (!RPC_DISABLED && !hasSourceMetadata) {
     const rpcResult = await supabase.rpc(RPC_BULK_INSERT_ROWS, {
       p_table_id: input.tableId,
       p_rows: input.rows,
@@ -414,13 +430,19 @@ export async function bulkInsertRows(input: {
     (fields || []).filter((field) => !readOnlyTypes.has(field.type)).map((field) => field.id)
   );
 
-  const cleanedRows = input.rows.map((row) => ({
-    table_id: input.tableId,
-    data: sanitizeRowData(row.data || {}, validIds),
-    order: row.order ?? null,
-    created_by: userId,
-    updated_by: userId,
-  }));
+  const cleanedRows = input.rows.map((row) => {
+    const sourceEntityId = normalizeSourceEntityId(row.source_entity_id);
+    return {
+      table_id: input.tableId,
+      data: sanitizeRowData(row.data || {}, validIds),
+      order: row.order ?? null,
+      source_entity_type: sourceEntityId ? normalizeSourceEntityType(row.source_entity_type) : null,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: normalizeSourceSyncMode(row.source_sync_mode),
+      created_by: userId,
+      updated_by: userId,
+    };
+  });
 
   const chunkSize = 100;
   const insertedIds: string[] = [];
@@ -447,4 +469,20 @@ export async function bulkInsertRows(input: {
   );
 
   return { data: { insertedIds } };
+}
+
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | null {
+  if (value === "task" || value === "timeline_event") return value;
+  return null;
+}
+
+function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
+  return value === "live" ? "live" : "snapshot";
+}
+
+function normalizeSourceEntityId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }

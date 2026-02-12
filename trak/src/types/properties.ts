@@ -5,7 +5,7 @@
 // Entity Types
 // ============================================================================
 
-export type EntityType = 'block' | 'task' | 'timeline_event' | 'table_row';
+export type EntityType = 'block' | 'task' | 'subtask' | 'timeline_event' | 'table_row';
 
 // ============================================================================
 // Property Values
@@ -13,6 +13,10 @@ export type EntityType = 'block' | 'task' | 'timeline_event' | 'table_row';
 
 export type Status = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export interface DueDateRange {
+  start: string | null;
+  end: string | null;
+}
 
 export const STATUS_OPTIONS: { value: Status; label: string; color: string }[] = [
   { value: 'todo', label: 'To-Do', color: 'gray' },
@@ -57,7 +61,7 @@ export interface EntityProperties {
   assignee_id: string | null;
   /** All assignee user IDs. Source of truth for multiple assignees. */
   assignee_ids: string[];
-  due_date: string | null; // ISO date string (YYYY-MM-DD)
+  due_date: DueDateRange | null; // { start, end } in ISO date format (YYYY-MM-DD)
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -126,7 +130,7 @@ export interface SetEntityPropertiesInput {
     assignee_id?: string | null;
     /** Set/replace all assignees. Replaces assignee_id. */
     assignee_ids?: string[] | null;
-    due_date?: string | null;
+    due_date?: DueDateRange | null;
     tags?: string[];
   };
 }
@@ -191,7 +195,14 @@ export interface PropertyDefinition {
   updated_at: string;
 }
 
-export type PropertyValue = string | number | boolean | string[] | null;
+export type PropertyValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | Record<string, unknown>
+  | Array<Record<string, unknown>>
+  | null;
 
 export interface CreatePropertyDefinitionInput {
   workspace_id: string;
@@ -257,6 +268,7 @@ export interface QueryEntitiesParams {
   filters?: QueryFilter[];
   properties?: PropertyFilter[];
   include_inherited?: boolean;
+  include_workflow_representations?: boolean;
 }
 
 export interface QueryFilter {

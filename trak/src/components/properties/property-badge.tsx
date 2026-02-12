@@ -14,7 +14,9 @@ import {
   type EntityProperties,
   type Status,
   type Priority,
+  type DueDateRange,
 } from "@/types/properties";
+import { formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
 
 interface PropertyBadgesProps {
   properties: EntityProperties | null;
@@ -40,7 +42,7 @@ export function PropertyBadges({
     properties.status ||
     properties.priority ||
     (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) ||
-    properties.due_date ||
+    hasDueDate(properties.due_date) ||
     (properties.tags && properties.tags.length > 0);
 
   if (!hasAnyProperty) return null;
@@ -56,8 +58,8 @@ export function PropertyBadges({
       {(properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
         <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
       )}
-      {properties.due_date && (
-        <DueDateBadge dueDate={properties.due_date} inherited={inherited} onClick={onClick} />
+      {hasDueDate(properties.due_date) && (
+        <DueDateBadge dueDate={properties.due_date as DueDateRange} inherited={inherited} onClick={onClick} />
       )}
       {properties.tags &&
         properties.tags.map((tag) => (
@@ -168,12 +170,14 @@ export function DueDateBadge({
   inherited = false,
   onClick,
 }: {
-  dueDate: string;
+  dueDate: DueDateRange;
   inherited?: boolean;
   onClick?: () => void;
 }) {
-  const formatted = formatDueDate(dueDate);
-  const isOverdue = new Date(dueDate) < new Date() && !isToday(dueDate);
+  const formatted = formatDueDateRange(dueDate, formatDueDateValue);
+  if (!formatted) return null;
+  const endDate = getDueDateEnd(dueDate);
+  const isOverdue = endDate ? new Date(endDate) < new Date() && !isToday(endDate) : false;
 
   return (
     <button
@@ -230,7 +234,7 @@ export function TagBadge({
 /**
  * Format a date string for display
  */
-function formatDueDate(dateString: string): string {
+function formatDueDateValue(dateString: string): string {
   try {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return dateString;

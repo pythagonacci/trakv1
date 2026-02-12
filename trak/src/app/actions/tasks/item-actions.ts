@@ -2,7 +2,7 @@
 
 import { requireTaskBlockAccess, requireTaskItemAccess, type TaskTimingSink } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { TaskItem, TaskPriority, TaskStatus } from "@/types/task";
+import type { TaskItem, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -358,31 +358,47 @@ export async function duplicateTasksToBlock(input: {
 
   for (const task of orderedTasks) {
     nextOrder += 1;
-    const { data: created, error: createError } = await supabase
+    const baseInsert = {
+      task_block_id: block.id,
+      workspace_id: block.workspace_id,
+      project_id: block.project_id,
+      tab_id: block.tab_id,
+      title: task.title,
+      status: task.status ?? "todo",
+      priority: task.priority ?? "none",
+      description: task.description ?? null,
+      due_date: task.due_date ?? null,
+      due_time: task.due_time ?? null,
+      due_time_end: task.due_time_end ?? null,
+      start_date: task.start_date ?? null,
+      hide_icons: task.hide_icons ?? false,
+      display_order: nextOrder,
+      recurring_enabled: task.recurring_enabled ?? false,
+      recurring_frequency: task.recurring_frequency ?? null,
+      recurring_interval: task.recurring_interval ?? null,
+      created_by: userId,
+      updated_by: userId,
+    };
+
+    let createResult = await supabase
       .from("task_items")
       .insert({
-        task_block_id: block.id,
-        workspace_id: block.workspace_id,
-        project_id: block.project_id,
-        tab_id: block.tab_id,
-        title: task.title,
-        status: task.status ?? "todo",
-        priority: task.priority ?? "none",
-        description: task.description ?? null,
-        due_date: task.due_date ?? null,
-        due_time: task.due_time ?? null,
-        due_time_end: task.due_time_end ?? null,
-        start_date: task.start_date ?? null,
-        hide_icons: task.hide_icons ?? false,
-        display_order: nextOrder,
-        recurring_enabled: task.recurring_enabled ?? false,
-        recurring_frequency: task.recurring_frequency ?? null,
-        recurring_interval: task.recurring_interval ?? null,
-        created_by: userId,
-        updated_by: userId,
+        ...baseInsert,
+        source_task_id: task.id,
+        source_sync_mode: "snapshot",
       })
       .select("id")
       .single();
+
+    if (createResult.error && /source_task_id|source_sync_mode/i.test(createResult.error.message || "")) {
+      createResult = await supabase
+        .from("task_items")
+        .insert(baseInsert)
+        .select("id")
+        .single();
+    }
+
+    const { data: created, error: createError } = createResult;
 
     if (createError || !created) {
       skipped.push(task.id);
@@ -429,6 +445,27 @@ export async function duplicateTasksToBlock(input: {
   }
 
   return { data: { createdCount: createdTaskIds.length, createdTaskIds, skipped } };
+}
+
+export async function setTaskSyncModeForBlock(input: {
+  taskBlockId: string;
+  mode: TaskSourceSyncMode;
+  authContext?: AuthContext;
+}): Promise<ActionResult<{ updatedCount: number }>> {
+  const access = await requireTaskBlockAccess(input.taskBlockId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase } = access;
+
+  const { data, error } = await supabase
+    .from("task_items")
+    .update({ source_sync_mode: input.mode })
+    .eq("task_block_id", input.taskBlockId)
+    .not("source_task_id", "is", null)
+    .select("id");
+
+  if (error) return { error: "Failed to update task sync mode" };
+
+  return { data: { updatedCount: (data || []).length } };
 }
 
 export async function deleteTaskItem(taskId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {

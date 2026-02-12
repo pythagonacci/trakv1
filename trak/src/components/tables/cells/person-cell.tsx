@@ -75,15 +75,15 @@ export function PersonCell({
       <div className="relative w-full" ref={dropdownRef}>
         <input
           type="text"
-          className="w-full bg-[var(--surface)] border border-[var(--border-strong)] text-sm text-[var(--foreground)] outline-none rounded-[2px] px-2 py-1"
+          className="w-full bg-[var(--surface)] border border-[var(--border-strong)] text-xs text-[var(--foreground)] outline-none rounded-[4px] px-2 py-1"
           placeholder="Search people..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           autoFocus
         />
-        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[2px] shadow-lg z-10 max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] shadow-lg z-10 max-h-60 overflow-y-auto">
           <div
-            className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm text-[var(--muted-foreground)]"
+            className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs text-[var(--muted-foreground)]"
             onClick={() => {
               setSelectedUserId(undefined);
               onCommit(null);
@@ -93,7 +93,7 @@ export function PersonCell({
             Clear
           </div>
           {filteredMembers.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-[var(--muted-foreground)]">
+            <div className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
               No members found
             </div>
           ) : (
@@ -109,7 +109,7 @@ export function PersonCell({
               return (
                 <div
                   key={member.id}
-                  className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm flex items-center gap-2"
+                  className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs flex items-center gap-2"
                   onClick={() => {
                     setSelectedUserId(member.id);
                     onCommit(member.id);
@@ -139,7 +139,7 @@ export function PersonCell({
   if (!selectedUser) {
     return (
       <button
-        className="w-full text-left text-sm text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
+        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
         onClick={onStartEdit}
         disabled={saving}
       >
@@ -169,7 +169,7 @@ export function PersonCell({
         >
           {initials}
         </div>
-        <span className="text-sm text-[var(--foreground)] truncate flex-1">{displayName}</span>
+        <span className="text-xs text-[var(--foreground)] truncate flex-1">{displayName}</span>
         <button
           onClick={(e) => {
             e.stopPropagation();

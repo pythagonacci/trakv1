@@ -130,10 +130,10 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
             <div
               ref={dropdownRef}
               style={dropdownStyle}
-              className="bg-[var(--surface)] border border-[var(--border-strong)] rounded-[2px] shadow-lg overflow-y-auto"
+              className="bg-[var(--surface)] border border-[var(--border-strong)] rounded-[4px] shadow-lg overflow-y-auto"
             >
               <div
-                className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm text-[var(--muted-foreground)]"
+                className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs text-[var(--muted-foreground)]"
                 onClick={() => {
                   setDraft(undefined);
                   onCommit(null);
@@ -145,7 +145,7 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
               {sortedLevels.map((level: PriorityLevelConfig) => (
                 <div
                   key={level.id}
-                  className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-sm flex items-center gap-2"
+                  className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs flex items-center gap-2"
                   onClick={() => {
                     setDraft(level.id);
                     onCommit(level.id);
@@ -168,7 +168,7 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
   if (!selectedLevel) {
     return (
       <button
-        className="w-full text-left text-sm text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
+        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
         onClick={onStartEdit}
         disabled={saving}
       >
@@ -184,7 +184,7 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
       disabled={saving}
     >
       <span
-        className="inline-flex items-center gap-2 px-2 py-1 rounded-[2px] text-sm font-medium border border-[var(--border)]"
+        className="inline-flex items-center gap-2 px-2 py-1 rounded-[4px] text-xs font-medium border border-[var(--border)]"
         style={{
           backgroundColor: selectedLevel.color ? `${selectedLevel.color}20` : 'var(--surface-muted)',
           color: selectedLevel.color || 'var(--foreground)',

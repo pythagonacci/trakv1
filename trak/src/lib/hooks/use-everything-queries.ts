@@ -51,7 +51,7 @@ export function useUpdateEverythingItem(workspaceId: string) {
         status?: EverythingItem["properties"]["status"];
         priority?: EverythingItem["properties"]["priority"];
         assignee_ids?: string[];
-        due_date?: string | null;
+        due_date?: EverythingItem["properties"]["due_date"];
         tags?: string[];
       };
     }) => {

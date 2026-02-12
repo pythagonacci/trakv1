@@ -26,6 +26,7 @@ import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
 import { formatBlockText } from "@/lib/format-block-text";
 import type { UndoBatch } from "@/lib/ai/undo";
+import type { WriteConfirmationApproval, WriteConfirmationRequest } from "@/lib/ai/write-confirmation";
 
 interface UploadingFile {
   id: string;
@@ -59,6 +60,10 @@ interface SearchEntry {
   sources?: SearchSource[];
   results?: SearchResultItem[];
   error?: string;
+}
+
+interface PendingWriteConfirmation extends WriteConfirmationRequest {
+  originalCommand: string;
 }
 
 const isSearchLikeToolName = (name: string) =>
@@ -131,6 +136,8 @@ export function AICommandPalette() {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
+  const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
+  const [writeClarificationInput, setWriteClarificationInput] = useState("");
   const [contextFiles, setContextFiles] = useState<Array<{ id: string; file_name: string }>>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -236,6 +243,8 @@ export function AICommandPalette() {
   useEffect(() => {
     if (!isOpen) {
       initializedModeRef.current = false;
+      setPendingWriteConfirmation(null);
+      setWriteClarificationInput("");
       return;
     }
     if (initializedModeRef.current) return;
@@ -254,11 +263,16 @@ export function AICommandPalette() {
   }, [messages, isLoading, isSyncing, assistantMessages, assistantLoading, searchEntries, searchLoading]);
 
   useEffect(() => {
-    if (mode === "file") return;
-    setShowMentions(false);
-    setMentionQuery("");
-    setMentionIndex(null);
-    setIsDragging(false);
+    if (mode !== "file") {
+      setShowMentions(false);
+      setMentionQuery("");
+      setMentionIndex(null);
+      setIsDragging(false);
+    }
+    if (mode !== "assistant") {
+      setPendingWriteConfirmation(null);
+      setWriteClarificationInput("");
+    }
   }, [mode]);
 
   const triggerUploadSummary = async (sessionId: string, fileIds: string[]) => {
@@ -277,10 +291,207 @@ export function AICommandPalette() {
         }),
       });
       await refreshMessages(sessionId);
-    } catch (error) {
+    } catch {
       setToast({ message: "Failed to summarize uploaded file", type: "error" });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const runAssistantCommand = async (params: {
+    command: string;
+    appendUserMessage?: boolean;
+    confirmation?: WriteConfirmationApproval | null;
+  }) => {
+    const { command, appendUserMessage = true, confirmation } = params;
+    const trimmedCommand = command.trim();
+    if (!trimmedCommand) return;
+
+    const outboundHistory = assistantMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+    if (appendUserMessage) {
+      const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: trimmedCommand };
+      setAssistantMessages((prev) => [...prev, userMessage]);
+      outboundHistory.push({ role: "user", content: trimmedCommand });
+    }
+
+    setAssistantLoading(true);
+    setStreamingStatus(null);
+    setStreamingResponse(null);
+
+    try {
+      const response = await fetch("/api/ai/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          command: trimmedCommand,
+          projectId: pathMatch.projectId,
+          tabId: pathMatch.tabId,
+          contextBlockId: contextBlock?.blockId,
+          messages: outboundHistory.slice(-10).map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          confirmation,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        setToast({ message: errorText || "Failed to run AI command", type: "error" });
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        setToast({ message: "Streaming not supported", type: "error" });
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResponse = "";
+      let receivedConfirmation: PendingWriteConfirmation | null = null;
+      const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string }; isWrite: boolean }> = [];
+      let responseUndoBatches: UndoBatch[] = [];
+      let didWrite = false;
+      const markWrite = () => {
+        if (!didWrite) {
+          didWrite = true;
+          void queryClient.invalidateQueries();
+          router.refresh();
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          if (!jsonStr) continue;
+
+          try {
+            const event = JSON.parse(jsonStr) as {
+              type:
+                | "thinking"
+                | "tool_call"
+                | "tool_result"
+                | "response_delta"
+                | "response"
+                | "confirmation_required"
+                | "error"
+                | "done";
+              content?: string;
+              data?: unknown;
+            };
+
+            switch (event.type) {
+              case "thinking":
+                setStreamingStatus(event.content || "Analyzing...");
+                setStreamingResponse(null);
+                break;
+              case "tool_call":
+                setStreamingStatus(event.content || "Working on it...");
+                setStreamingResponse(null);
+                if (event.data && typeof event.data === "object" && "tool" in event.data) {
+                  const toolName = (event.data as { tool: string }).tool;
+                  toolCalls.push({ tool: toolName, isWrite: !isSearchLikeToolName(toolName) });
+                }
+                break;
+              case "tool_result":
+                if (event.data && typeof event.data === "object" && "success" in event.data) {
+                  const result = event.data as { success: boolean; error?: string };
+                  if (toolCalls.length > 0) {
+                    const lastCall = toolCalls[toolCalls.length - 1];
+                    lastCall.result = result;
+                    if (result.success && lastCall.isWrite) {
+                      markWrite();
+                    }
+                  }
+                }
+                setStreamingStatus(null);
+                break;
+              case "response_delta":
+                setStreamingStatus(null);
+                setStreamingResponse((prev) => `${prev ?? ""}${event.content ?? ""}`);
+                break;
+              case "response":
+                finalResponse = event.content || "";
+                setStreamingStatus(null);
+                setStreamingResponse(null);
+                if (event.data && typeof event.data === "object") {
+                  const payload = event.data as { toolCallsMade?: unknown; undoBatches?: unknown };
+                  if (Array.isArray(payload.undoBatches)) {
+                    responseUndoBatches = payload.undoBatches as UndoBatch[];
+                  }
+                  if ("toolCallsMade" in payload) {
+                    const toolCallsMade = payload.toolCallsMade;
+                    if (hasSuccessfulWriteToolCall(toolCallsMade)) {
+                      markWrite();
+                    }
+                  }
+                }
+                break;
+              case "confirmation_required":
+                if (event.data && typeof event.data === "object") {
+                  const payload = event.data as WriteConfirmationRequest;
+                  if (typeof payload.tool === "string" && typeof payload.question === "string") {
+                    receivedConfirmation = {
+                      ...payload,
+                      arguments: payload.arguments as Record<string, unknown>,
+                      originalCommand: trimmedCommand,
+                    };
+                  }
+                }
+                setStreamingStatus(null);
+                setStreamingResponse(null);
+                break;
+              case "error":
+                setToast({ message: event.content || "An error occurred", type: "error" });
+                setStreamingStatus(null);
+                setStreamingResponse(null);
+                return;
+              case "done":
+                break;
+            }
+          } catch {
+            // Skip malformed JSON
+          }
+        }
+      }
+
+      if (receivedConfirmation) {
+        setPendingWriteConfirmation(receivedConfirmation);
+        return;
+      }
+
+      setAssistantMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: finalResponse,
+          toolCalls: toolCalls.length > 0
+            ? toolCalls.map(({ tool, result }) => ({ tool, result }))
+            : undefined,
+          undoBatches: responseUndoBatches,
+        },
+      ]);
+    } catch {
+      setToast({ message: "Failed to send message", type: "error" });
+    } finally {
+      setAssistantLoading(false);
+      setStreamingStatus(null);
+      setStreamingResponse(null);
     }
   };
 
@@ -305,7 +516,7 @@ export function AICommandPalette() {
           }),
         });
         await refreshMessages(sessionId);
-      } catch (error) {
+      } catch {
         setToast({ message: "Failed to send message", type: "error" });
       } finally {
         setIsLoading(false);
@@ -424,162 +635,67 @@ export function AICommandPalette() {
     }
 
     setInput("");
-    const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: messageText };
-    setAssistantMessages((prev) => [...prev, userMessage]);
-    setAssistantLoading(true);
-    setStreamingStatus(null);
-    setStreamingResponse(null);
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+    await runAssistantCommand({
+      command: messageText,
+      appendUserMessage: true,
+      confirmation: null,
+    });
+  };
 
-    try {
-      const response = await fetch("/api/ai/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          command: messageText,
-          projectId: pathMatch.projectId,
-          tabId: pathMatch.tabId,
-          contextBlockId: contextBlock?.blockId,
-          messages: assistantMessages.slice(-10).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      });
+  const handleApprovePendingWrite = async () => {
+    if (!pendingWriteConfirmation || assistantLoading) return;
+    const pending = pendingWriteConfirmation;
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        setToast({ message: errorText || "Failed to run AI command", type: "error" });
-        return;
-      }
+    const approval: WriteConfirmationApproval = {
+      decision: "approve",
+      request: {
+        tool: pending.tool,
+        arguments: pending.arguments,
+      },
+    };
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        setToast({ message: "Streaming not supported", type: "error" });
-        return;
-      }
+    await runAssistantCommand({
+      command: pending.originalCommand,
+      appendUserMessage: false,
+      confirmation: approval,
+    });
+  };
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let finalResponse = "";
-      const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string }; isWrite: boolean }> = [];
-      let responseUndoBatches: UndoBatch[] = [];
-      let didWrite = false;
-      const markWrite = () => {
-        if (!didWrite) {
-          didWrite = true;
-          void queryClient.invalidateQueries();
-          router.refresh();
-        }
-      };
+  const handleDenyPendingWrite = () => {
+    if (!pendingWriteConfirmation || assistantLoading) return;
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+    setAssistantMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "Okay, I cancelled that update.",
+      },
+    ]);
+  };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6);
-          if (!jsonStr) continue;
-
-          try {
-            const event = JSON.parse(jsonStr) as {
-              type:
-                | "thinking"
-                | "tool_call"
-                | "tool_result"
-                | "response_delta"
-                | "response"
-                | "error"
-                | "done";
-              content?: string;
-              data?: unknown;
-            };
-
-            switch (event.type) {
-              case "thinking":
-                setStreamingStatus(event.content || "Analyzing...");
-                setStreamingResponse(null);
-                break;
-              case "tool_call":
-                setStreamingStatus(event.content || "Working on it...");
-                setStreamingResponse(null);
-                if (event.data && typeof event.data === "object" && "tool" in event.data) {
-                  const toolName = (event.data as { tool: string }).tool;
-                  toolCalls.push({ tool: toolName, isWrite: !isSearchLikeToolName(toolName) });
-                }
-                break;
-              case "tool_result":
-                if (event.data && typeof event.data === "object" && "success" in event.data) {
-                  const result = event.data as { success: boolean; error?: string };
-                  if (toolCalls.length > 0) {
-                    const lastCall = toolCalls[toolCalls.length - 1];
-                    lastCall.result = result;
-                    if (result.success && lastCall.isWrite) {
-                      markWrite();
-                    }
-                  }
-                }
-                setStreamingStatus(null); // Don't show "Processing..." - next tool_call or response will update
-                break;
-              case "response_delta":
-                setStreamingStatus(null);
-                setStreamingResponse((prev) => `${prev ?? ""}${event.content ?? ""}`);
-                break;
-              case "response":
-                finalResponse = event.content || "";
-                setStreamingStatus(null);
-                setStreamingResponse(null);
-                if (event.data && typeof event.data === "object") {
-                  const payload = event.data as { toolCallsMade?: unknown; undoBatches?: unknown };
-                  if (Array.isArray(payload.undoBatches)) {
-                    responseUndoBatches = payload.undoBatches as UndoBatch[];
-                  }
-                  if ("toolCallsMade" in payload) {
-                    const toolCallsMade = payload.toolCallsMade;
-                    if (hasSuccessfulWriteToolCall(toolCallsMade)) {
-                      markWrite();
-                    }
-                  }
-                }
-                break;
-              case "error":
-                setToast({ message: event.content || "An error occurred", type: "error" });
-                setStreamingStatus(null);
-                setStreamingResponse(null);
-                return;
-              case "done":
-                break;
-            }
-          } catch {
-            // Skip malformed JSON
-          }
-        }
-      }
-
-      setAssistantMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: finalResponse,
-          toolCalls: toolCalls.length > 0
-            ? toolCalls.map(({ tool, result }) => ({ tool, result }))
-            : undefined,
-          undoBatches: responseUndoBatches,
-        },
-      ]);
-    } catch (error) {
-      setToast({ message: "Failed to send message", type: "error" });
-    } finally {
-      setAssistantLoading(false);
-      setStreamingStatus(null);
-      setStreamingResponse(null);
+  const handleClarifyPendingWrite = async () => {
+    if (!pendingWriteConfirmation || assistantLoading) return;
+    const clarification = writeClarificationInput.trim();
+    if (!clarification) {
+      setToast({ message: "Add a clarification first.", type: "error" });
+      return;
     }
+
+    const pending = pendingWriteConfirmation;
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+
+    await runAssistantCommand({
+      command: `For my previous request "${pending.originalCommand}", use this clarification before any changes: ${clarification}`,
+      appendUserMessage: true,
+      confirmation: null,
+    });
   };
 
   const handleConvertToWorkflowPage = async (messageId: string) => {
@@ -682,7 +798,7 @@ export function AICommandPalette() {
             item.id === fileId ? { ...item, progress: 100, status: "success" } : item
           )
         );
-      } catch (error) {
+      } catch {
         setUploadingFiles((prev) =>
           prev.map((item) =>
             item.id === fileId ? { ...item, status: "error", error: "Upload failed" } : item
@@ -1345,6 +1461,51 @@ export function AICommandPalette() {
                 </React.Fragment>
               );
             })
+          )}
+
+          {mode === "assistant" && pendingWriteConfirmation && !assistantLoading && (
+            <div className="flex justify-start">
+              <div className="max-w-[90%] rounded-lg px-3 py-3 text-sm space-y-3 bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)]">
+                <p className="whitespace-pre-wrap">{pendingWriteConfirmation.question}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleApprovePendingWrite}
+                    className="rounded-md border border-[var(--secondary)] bg-[var(--secondary)] px-3 py-1 text-xs text-white hover:bg-[var(--secondary)]/90"
+                  >
+                    Yes, continue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDenyPendingWrite}
+                    className="rounded-md border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                  >
+                    No, cancel
+                  </button>
+                </div>
+                <div className="space-y-2 border-t border-[var(--border)] pt-2">
+                  <label className="block text-[11px] text-[var(--muted-foreground)]">
+                    Clarify before I update
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={writeClarificationInput}
+                      onChange={(event) => setWriteClarificationInput(event.target.value)}
+                      placeholder="Type clarification..."
+                      className="h-8 flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-xs outline-none focus:border-[var(--secondary)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleClarifyPendingWrite}
+                      className="rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {mode === "file" && isLoading && (

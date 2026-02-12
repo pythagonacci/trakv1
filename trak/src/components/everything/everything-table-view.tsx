@@ -11,6 +11,7 @@ import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 import type { EverythingItem, SortConfig, SortField } from "@/types/everything";
 import type { Status, Priority } from "@/types/properties";
 import { format, parseISO } from "date-fns";
+import { formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
 
 interface EverythingTableViewProps {
   items: EverythingItem[];
@@ -342,13 +343,17 @@ function PriorityCell({ item, onUpdate }: Omit<TableRowComponentProps, "members"
 
 // Due Date Cell Component
 function DueDateCell({ item, onUpdate }: Omit<TableRowComponentProps, "members">) {
-  if (!item.properties.due_date) {
+  if (!hasDueDate(item.properties.due_date)) {
     return <span className="text-sm text-neutral-400">—</span>;
   }
 
   try {
-    const date = parseISO(item.properties.due_date);
-    const formatted = format(date, "MMM d, yyyy");
+    const endDateIso = getDueDateEnd(item.properties.due_date);
+    if (!endDateIso) return <span className="text-sm text-neutral-400">—</span>;
+    const date = parseISO(endDateIso);
+    const formatted = formatDueDateRange(item.properties.due_date, (iso) =>
+      format(parseISO(iso), "MMM d, yyyy")
+    );
     const today = new Date();
     const isOverdue = date < today && !isSameDay(date, today);
     const isToday = isSameDay(date, today);

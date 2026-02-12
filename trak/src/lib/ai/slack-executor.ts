@@ -103,7 +103,7 @@ IMPORTANT CONSTRAINTS:
 - If context is missing (project/tab), the system will ask the user to specify
 
 AVAILABLE TOOLS:
-- Search: searchTasks, searchProjects, searchDocs, searchTables, unstructuredSearchWorkspace
+- Search: searchTasks, searchSubtasks, getSubtaskDetails, searchProjects, searchDocs, searchTables, unstructuredSearchWorkspace
 - Create: createTaskItem, createProject, createDoc (ONLY if user explicitly requests creation)
 - Update: updateTaskItem, updateProject (ONLY if user explicitly requests updates)
 - Read: getTaskDetails, getProjectDetails, searchAll

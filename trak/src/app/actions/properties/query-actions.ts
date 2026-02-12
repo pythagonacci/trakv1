@@ -290,8 +290,12 @@ async function queryEntitiesByType(
     case "task": {
       let query = supabase
         .from("task_items")
-        .select("id, title, tab_id, project_id, tabs(name, project_id)")
+        .select("id, title, tab_id, project_id, source_task_id, tabs(name, project_id)")
         .eq("workspace_id", params.workspace_id);
+
+      if (!params.include_workflow_representations) {
+        query = query.is("source_task_id", null);
+      }
 
       // Apply scope filters
       if (params.scope === "project" && params.project_id) {
@@ -432,6 +436,7 @@ async function queryEntitiesByType(
         id,
         data,
         table_id,
+        source_entity_id,
         tables!inner(
           id,
           title,
@@ -450,7 +455,10 @@ async function queryEntitiesByType(
           .eq("tables.workspace_id", params.workspace_id)
           .eq("tables.project_id", params.project_id);
 
-        rows = rowsByProject ?? [];
+        rows = (rowsByProject ?? []) as any[];
+        if (!params.include_workflow_representations) {
+          rows = rows.filter((row) => !row?.source_entity_id);
+        }
 
         const tableIdsFromBlocks = await getTableIdsFromTableBlocks(supabase, params.workspace_id, {
           projectId: params.project_id,
@@ -461,7 +469,15 @@ async function queryEntitiesByType(
             .select(baseSelect)
             .eq("tables.workspace_id", params.workspace_id)
             .in("table_id", tableIdsFromBlocks);
-          rows = [...rows, ...((rowsByBlocks ?? []) as any[])];
+          const blockRows = (rowsByBlocks ?? []) as any[];
+          rows = [
+            ...rows,
+            ...(
+              params.include_workflow_representations
+                ? blockRows
+                : blockRows.filter((row) => !row?.source_entity_id)
+            ),
+          ];
         }
 
         const rowMap = new Map<string, any>();
@@ -482,14 +498,20 @@ async function queryEntitiesByType(
             .select(baseSelect)
             .eq("tables.workspace_id", params.workspace_id)
             .in("table_id", tableIdsFromBlocks);
-          rows = rowsByBlocks ?? [];
+          rows = (rowsByBlocks ?? []) as any[];
+          if (!params.include_workflow_representations) {
+            rows = rows.filter((row) => !row?.source_entity_id);
+          }
         }
       } else {
         const { data: rowsAll } = await supabase
           .from("table_rows")
           .select(baseSelect)
           .eq("tables.workspace_id", params.workspace_id);
-        rows = rowsAll ?? [];
+        rows = (rowsAll ?? []) as any[];
+        if (!params.include_workflow_representations) {
+          rows = rows.filter((row) => !row?.source_entity_id);
+        }
       }
 
       const typedRows = (rows ?? []) as Array<{

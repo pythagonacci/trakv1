@@ -1,43 +1,80 @@
--- Block references: attach linkable items (docs, tasks, blocks, etc.) to any block
-CREATE TABLE IF NOT EXISTS public.block_references (
-  id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-  workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  block_id uuid NOT NULL REFERENCES public.blocks(id) ON DELETE CASCADE,
-  reference_type text NOT NULL CHECK (reference_type IN ('doc', 'table_row', 'task', 'block')),
-  reference_id uuid NOT NULL,
-  -- When reference_type = 'table_row', reference_id is the row id; table_id identifies which table that row belongs to (for lookups/joins). Null for doc/task/block refs.
-  table_id uuid REFERENCES public.tables(id) ON DELETE SET NULL,
-  created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  created_at timestamptz DEFAULT now() NOT NULL,
-  updated_at timestamptz DEFAULT now() NOT NULL
+create table if not exists public.block_references (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid not null,
+  block_id uuid not null,
+  reference_type text not null,
+  reference_id uuid not null,
+  table_id uuid,
+  created_by uuid,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  constraint block_references_reference_type_check check (
+    reference_type = any (array['doc'::text, 'table_row'::text, 'task'::text, 'block'::text, 'tab'::text])
+  )
 );
 
-CREATE INDEX IF NOT EXISTS idx_block_references_block ON public.block_references(block_id);
-CREATE INDEX IF NOT EXISTS idx_block_references_workspace ON public.block_references(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_block_references_target ON public.block_references(reference_type, reference_id);
+alter table public.block_references enable row level security;
 
-CREATE TRIGGER block_references_set_updated_at
-  BEFORE UPDATE ON public.block_references
-  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+create index if not exists idx_block_references_block on public.block_references using btree (block_id);
+create index if not exists idx_block_references_target on public.block_references using btree (reference_type, reference_id);
+create index if not exists idx_block_references_workspace on public.block_references using btree (workspace_id);
+create index if not exists idx_block_references_table on public.block_references using btree (table_id) where (table_id is not null);
 
-ALTER TABLE public.block_references ENABLE ROW LEVEL SECURITY;
+create trigger block_references_set_updated_at
+before update on public.block_references
+for each row execute function public.set_updated_at();
 
-CREATE POLICY "Block references visible to workspace members"
-  ON public.block_references FOR SELECT
-  USING (workspace_id IN (SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()));
+alter table only public.block_references
+  add constraint block_references_pkey primary key (id);
 
-CREATE POLICY "Block references insertable by workspace members"
-  ON public.block_references FOR INSERT
-  WITH CHECK (workspace_id IN (SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()));
+alter table only public.block_references
+  add constraint block_references_workspace_id_fkey foreign key (workspace_id) references public.workspaces(id) on delete cascade;
 
-CREATE POLICY "Block references updatable by workspace members"
-  ON public.block_references FOR UPDATE
-  USING (workspace_id IN (SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()));
+alter table only public.block_references
+  add constraint block_references_block_id_fkey foreign key (block_id) references public.blocks(id) on delete cascade;
 
-CREATE POLICY "Block references deletable by workspace members"
-  ON public.block_references FOR DELETE
-  USING (workspace_id IN (SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()));
+alter table only public.block_references
+  add constraint block_references_table_id_fkey foreign key (table_id) references public.tables(id) on delete set null;
 
-GRANT ALL ON TABLE public.block_references TO anon;
-GRANT ALL ON TABLE public.block_references TO authenticated;
-GRANT ALL ON TABLE public.block_references TO service_role;
+alter table only public.block_references
+  add constraint block_references_created_by_fkey foreign key (created_by) references auth.users(id) on delete set null;
+
+create policy "Block references visible to workspace members" on public.block_references
+  for select
+  using (
+    workspace_id in (
+      select workspace_members.workspace_id
+      from workspace_members
+      where workspace_members.user_id = auth.uid()
+    )
+  );
+
+create policy "Block references insertable by workspace members" on public.block_references
+  for insert
+  with check (
+    workspace_id in (
+      select workspace_members.workspace_id
+      from workspace_members
+      where workspace_members.user_id = auth.uid()
+    )
+  );
+
+create policy "Block references updatable by workspace members" on public.block_references
+  for update
+  using (
+    workspace_id in (
+      select workspace_members.workspace_id
+      from workspace_members
+      where workspace_members.user_id = auth.uid()
+    )
+  );
+
+create policy "Block references deletable by workspace members" on public.block_references
+  for delete
+  using (
+    workspace_id in (
+      select workspace_members.workspace_id
+      from workspace_members
+      where workspace_members.user_id = auth.uid()
+    )
+  );

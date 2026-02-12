@@ -93,7 +93,7 @@ export const TableRow = memo(function TableRow({
 
   return (
     <div
-      className="grid border-b border-l border-[var(--border)] row-hover-teal transition-colors duration-150 bg-[var(--surface)] w-full"
+      className="grid border-b border-l border-[var(--border)] row-hover-teal transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0"
       style={{ gridTemplateColumns: template }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -111,7 +111,7 @@ export const TableRow = memo(function TableRow({
               e.stopPropagation();
               onSelectRow?.(rowId, e as unknown as React.MouseEvent<HTMLInputElement>);
             }}
-            className="h-4 w-4 accent-[var(--primary)]"
+            className="h-4 w-4 rounded-[4px] accent-[var(--primary)]"
           />
         </div>
       )}

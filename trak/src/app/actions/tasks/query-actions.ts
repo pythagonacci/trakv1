@@ -11,6 +11,8 @@ export interface TaskItemView {
   text: string;
   status: "todo" | "in-progress" | "done";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
+  sourceTaskId?: string | null;
+  sourceSyncMode?: "snapshot" | "live";
   assignees?: string[];
   dueDate?: string;
   dueTime?: string;
@@ -18,7 +20,7 @@ export interface TaskItemView {
   startDate?: string;
   tags?: string[];
   description?: string;
-  subtasks?: { id: string; text: string; completed: boolean }[];
+  subtasks?: { id: string; text: string; description?: string | null; completed: boolean }[];
   comments?: { id: string; author: string; text: string; timestamp: string }[];
   recurring?: {
     enabled: boolean;
@@ -47,7 +49,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
   const [subtasksResult, commentsResult, tagLinksResult, assigneesResult] = await Promise.all([
     supabase
       .from("task_subtasks")
-      .select("id, task_id, title, completed")
+      .select("id, task_id, title, description, completed")
       .in("task_id", taskIds)
       .order("display_order", { ascending: true }),
     supabase
@@ -104,10 +106,15 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     assigneeMap.set(profile.id, displayName);
   });
 
-  const subtasksByTask = new Map<string, Array<{ id: string; text: string; completed: boolean }>>();
+  const subtasksByTask = new Map<string, Array<{ id: string; text: string; description?: string | null; completed: boolean }>>();
   for (const subtask of subtasks) {
     const list = subtasksByTask.get(subtask.task_id) || [];
-    list.push({ id: subtask.id, text: subtask.title, completed: subtask.completed });
+    list.push({
+      id: subtask.id,
+      text: subtask.title,
+      description: subtask.description ?? undefined,
+      completed: subtask.completed,
+    });
     subtasksByTask.set(subtask.task_id, list);
   }
 
@@ -147,6 +154,8 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     text: item.title,
     status: item.status,
     priority: item.priority,
+    sourceTaskId: item.source_task_id ?? null,
+    sourceSyncMode: item.source_sync_mode ?? "snapshot",
     assignees: assigneesByTask.get(item.id) || [],
     dueDate: item.due_date || undefined,
     dueTime: item.due_time ? item.due_time.slice(0, 5) : undefined,
@@ -176,6 +185,7 @@ export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: 
     .from("task_items")
     .select("*")
     .eq("workspace_id", workspaceId)
+    .is("source_task_id", null)
     .not("due_date", "is", null)
     .order("updated_at", { ascending: false });
 

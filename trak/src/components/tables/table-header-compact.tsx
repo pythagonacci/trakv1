@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Search, Filter, ChevronDown, X, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { TableView, TableField, FilterCondition, GroupByConfig, ViewType } from "@/types/table";
 
 interface Props {
@@ -159,12 +160,12 @@ export function TableHeaderCompact({
   }, [openSearchTick, searchInputRef]);
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 border-b border-[#d8d8d8]/30 bg-[#d8d8d8]/20 relative z-50">
+    <div className="flex items-center justify-between gap-2 relative z-50">
       {/* Left: Title */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {editingTitle ? (
           <input
-            className="text-base font-semibold text-[var(--foreground)] bg-white/60 outline-none border border-black/20 rounded-[2px] px-2 py-1 flex-1 min-w-0 placeholder:text-[var(--muted-foreground)]"
+            className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold uppercase tracking-wide text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none"
             value={draftTitle}
             onChange={(e) => setDraftTitle(e.target.value)}
             onBlur={commitTitle}
@@ -180,7 +181,7 @@ export function TableHeaderCompact({
           />
         ) : (
           <h1
-            className="text-base font-semibold text-[var(--foreground)] truncate cursor-pointer hover:text-[var(--primary)] transition-colors duration-150"
+            className="text-sm font-semibold uppercase tracking-wide text-[var(--foreground)] truncate cursor-text"
             onDoubleClick={() => setEditingTitle(true)}
             onClick={() => setEditingTitle(true)}
             title="Double-click to edit"
@@ -189,7 +190,7 @@ export function TableHeaderCompact({
           </h1>
         )}
         {views.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[420px]">
+          <div className="flex items-center gap-0.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-0.5 overflow-x-auto max-w-[420px]">
             {views.map((view) => {
               const isActive = view.id === activeViewId;
               const groupFieldId = view.config?.groupBy?.fieldId;
@@ -206,18 +207,19 @@ export function TableHeaderCompact({
               return (
                 <div
                   key={view.id}
-                  className={`group inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-1 transition-colors duration-150 ${
+                  className={cn(
+                    "group inline-flex items-center gap-1.5 rounded-[4px] px-2 py-1 transition-colors duration-150",
                     isActive
-                      ? "bg-black/10 border-black/20 text-[var(--foreground)]"
-                      : "border-transparent text-[var(--muted-foreground)] hover:bg-black/5 hover:text-[var(--foreground)]"
-                  }`}
+                      ? "bg-[var(--foreground)] text-[var(--background)]"
+                      : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  )}
                   title={tabMeta}
                 >
                   <button
                     onClick={() => onSwitchView(view.id)}
                     className="flex items-center gap-1.5"
                   >
-                    <span className="text-xs">{view.name}</span>
+                    <span className="text-[10px] font-medium">{view.name}</span>
                     {view.type === "board" && groupField && (
                       <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
                         {groupLabel}
@@ -229,7 +231,12 @@ export function TableHeaderCompact({
                       e.stopPropagation();
                       onDeleteView(view.id);
                     }}
-                    className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--error)] opacity-0 group-hover:opacity-100 transition"
+                    className={cn(
+                      "text-[10px] opacity-0 group-hover:opacity-100 transition",
+                      isActive
+                        ? "text-[var(--background)]/70 hover:text-[var(--background)]"
+                        : "text-[var(--muted-foreground)] hover:text-[var(--error)]"
+                    )}
                     title="Delete view"
                   >
                     ×
@@ -247,7 +254,7 @@ export function TableHeaderCompact({
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--muted-foreground)]" />
             <input
-              className="w-full pl-9 pr-3 py-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--border-strong)]"
+              className="w-full pl-9 pr-3 py-1.5 rounded-[6px] bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--border-strong)]"
               placeholder="Search table..."
               value={search}
               ref={searchInputRef}
@@ -260,7 +267,7 @@ export function TableHeaderCompact({
           </div>
           <div className="relative">
             <input
-              className="w-40 pl-3 pr-3 py-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--border-strong)]"
+              className="w-40 pl-3 pr-3 py-1.5 rounded-[6px] bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--tertiary-foreground)] focus:border-[var(--border-strong)]"
               placeholder="Jump to column..."
               value={columnSearch}
               onChange={(e) => {
@@ -285,7 +292,7 @@ export function TableHeaderCompact({
               setColumnSearch("");
               onSearch?.("");
             }}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150"
+            className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             title="Close search"
           >
             <X className="h-4 w-4" />
@@ -300,7 +307,7 @@ export function TableHeaderCompact({
           <button
             ref={groupButtonRef}
             onClick={() => setShowGroupBy(!showGroupBy)}
-            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:border-black/25 transition-colors duration-150 text-xs"
+            className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             title="Group by"
           >
             Group {groupBy?.fieldId ? "•" : ""}
@@ -311,7 +318,7 @@ export function TableHeaderCompact({
               <div
                 ref={groupDropdownRef}
                 style={groupDropdownStyle}
-                className="rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-popover py-1 overflow-y-auto"
+                className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-popover py-1 overflow-y-auto"
               >
                 <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">Group by</div>
                 <button
@@ -356,7 +363,7 @@ export function TableHeaderCompact({
                     <div className="flex items-center gap-2 text-xs text-[var(--foreground)]">
                       <span className="text-[var(--muted-foreground)]">Group order</span>
                       <button
-                        className={`px-2 py-1 rounded-[2px] border text-[11px] ${
+                        className={`px-2 py-1 rounded-[4px] border text-[11px] ${
                           (groupBy.sortOrder ?? "asc") === "asc"
                             ? "border-[var(--border-strong)] text-[var(--foreground)]"
                             : "border-[var(--border)] text-[var(--muted-foreground)]"
@@ -366,7 +373,7 @@ export function TableHeaderCompact({
                         A→Z
                       </button>
                       <button
-                        className={`px-2 py-1 rounded-[2px] border text-[11px] ${
+                        className={`px-2 py-1 rounded-[4px] border text-[11px] ${
                           groupBy.sortOrder === "desc"
                             ? "border-[var(--border-strong)] text-[var(--foreground)]"
                             : "border-[var(--border)] text-[var(--muted-foreground)]"
@@ -386,8 +393,8 @@ export function TableHeaderCompact({
         {/* Search icon */}
         <button
           onClick={() => setShowSearch(!showSearch)}
-          className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150"
-            title="Search"
+          className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          title="Search"
         >
           <Search className="h-4 w-4" />
         </button>
@@ -397,7 +404,7 @@ export function TableHeaderCompact({
           <button
             ref={viewsButtonRef}
             onClick={() => setShowViews(!showViews)}
-            className="h-8 px-3 inline-flex items-center gap-1.5 rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:border-black/25 transition-colors duration-150 text-xs"
+            className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             title="Views"
           >
             <span>{viewLabel}</span>
@@ -406,7 +413,7 @@ export function TableHeaderCompact({
           {showViews && (
             <div 
               ref={viewsDropdownRef}
-              className="absolute right-0 top-full mt-1 w-48 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[200] py-1"
+              className="absolute right-0 top-full mt-1 w-48 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[200] py-1"
             >
                 {views.map((view) => (
                   <div
@@ -420,7 +427,7 @@ export function TableHeaderCompact({
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       {editingView === view.id ? (
                         <input
-                          className="flex-1 bg-[var(--surface)] border border-[var(--border-strong)] outline-none text-[var(--foreground)] text-xs rounded-[2px] px-1"
+                          className="flex-1 bg-[var(--surface)] border border-[var(--border-strong)] outline-none text-[var(--foreground)] text-xs rounded-[4px] px-1"
                           defaultValue={view.name}
                           onBlur={(e) => {
                             setEditingView(null);
@@ -510,7 +517,7 @@ export function TableHeaderCompact({
               e.stopPropagation();
               setShowFilters(!showFilters);
             }}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-[2px] bg-white/70 border border-black/15 text-[var(--foreground)] hover:bg-white/90 hover:text-[var(--foreground)] transition-colors duration-150 relative"
+            className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] relative"
             title="Filters"
           >
             <Filter className="h-4 w-4" />
@@ -523,7 +530,7 @@ export function TableHeaderCompact({
           {showFilters && (
             <div 
               ref={filtersDropdownRef}
-              className="absolute right-0 top-full mt-1 w-80 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[200] p-3"
+              className="absolute right-0 top-full mt-1 w-80 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[200] p-3"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-2">
@@ -540,7 +547,7 @@ export function TableHeaderCompact({
                   {filters.map((f, idx) => {
                     const field = fields.find((fld) => fld.id === f.fieldId);
                     return (
-                      <div key={`${f.fieldId}-${idx}`} className="rounded-[2px] bg-[var(--surface-muted)] border border-[var(--border)] p-2">
+                      <div key={`${f.fieldId}-${idx}`} className="rounded-[6px] bg-[var(--surface)] border border-[var(--border)] p-2">
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="text-xs font-medium text-[var(--foreground)]">{field?.name ?? "Field"}</div>
                           <button
@@ -555,7 +562,7 @@ export function TableHeaderCompact({
                         </div>
                         <div className="flex items-center gap-2">
                           <select
-                            className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[2px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
+                            className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
                             value={f.operator}
                             onChange={(e) => {
                               const next = [...filters];
@@ -571,7 +578,7 @@ export function TableHeaderCompact({
                           </select>
                           {f.operator !== "is_empty" && f.operator !== "is_not_empty" && (
                             <input
-                              className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[2px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)] placeholder:text-[var(--tertiary-foreground)]"
+                              className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)] placeholder:text-[var(--tertiary-foreground)]"
                               value={String(f.value ?? "")}
                               onChange={(e) => {
                                 const next = [...filters];
@@ -588,7 +595,7 @@ export function TableHeaderCompact({
                 </div>
               )}
               <select
-                className="w-full rounded-[2px] bg-[var(--surface)] border border-[var(--border)] px-2 py-1.5 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
+                className="w-full rounded-[6px] bg-[var(--surface)] border border-[var(--border)] px-2 py-1.5 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
                 onChange={(e) => {
                   if (!e.target.value) return;
                   addFilter(e.target.value);

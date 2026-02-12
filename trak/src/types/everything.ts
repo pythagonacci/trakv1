@@ -3,7 +3,7 @@
 // Unified view showing all items with properties across the workspace
 // ============================================================================
 
-import type { EntityType, Status, Priority } from './properties';
+import type { EntityType, Status, Priority, DueDateRange } from './properties';
 
 // ============================================================================
 // Source Types
@@ -51,7 +51,7 @@ export interface EverythingItem {
     status: Status | null;
     priority: Priority | null;
     assignee_ids: string[];
-    due_date: string | null; // ISO date string (YYYY-MM-DD)
+    due_date: DueDateRange | null;
     tags: string[];
   };
   /** Creation timestamp */
@@ -110,14 +110,6 @@ export type DueDatePreset =
   | 'this_month'
   | 'next_month'
   | 'no_date';
-
-/** Due date range filter */
-export interface DueDateRange {
-  /** Start date (inclusive) in ISO format */
-  start: string | null;
-  /** End date (inclusive) in ISO format */
-  end: string | null;
-}
 
 /** Filter configuration */
 export interface FilterConfig {
@@ -193,6 +185,8 @@ export interface EverythingOptions {
   offset?: number;
   /** Include items without properties (default: false) */
   includeWithoutProperties?: boolean;
+  /** Include workflow/page copied representations (default: false) */
+  includeWorkflowRepresentations?: boolean;
 }
 
 /** Result of fetching everything items */
@@ -218,7 +212,7 @@ export interface BulkUpdateInput {
     status?: Status | null;
     priority?: Priority | null;
     assignee_ids?: string[];
-    due_date?: string | null;
+    due_date?: DueDateRange | null;
     tags?: string[];
   };
 }

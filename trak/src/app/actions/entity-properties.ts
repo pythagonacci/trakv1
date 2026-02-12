@@ -5,6 +5,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
+import { getDueDateEnd, getDueDateStart, normalizeDueDateRange } from "@/lib/due-date";
 import type {
   EntityType,
   EntityProperties,
@@ -13,6 +14,7 @@ import type {
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
+  Status,
   WorkspaceMember,
 } from "@/types/properties";
 
@@ -185,7 +187,7 @@ function buildEntityPropertiesFromRows(
         }
         break;
       case "due_date":
-        props.due_date = typeof row.value === "string" ? row.value : null;
+        props.due_date = normalizeDueDateRange(row.value);
         break;
       case "tags":
         props.tags = Array.isArray(row.value)
@@ -235,6 +237,164 @@ async function upsertEntityPropertyValue(
   );
 }
 
+type AssigneePayload = Array<{ id: string; name: string }>;
+
+function extractAssigneeIdsFromValue(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item && typeof item === "object" && "id" in item) {
+          const id = (item as { id?: string }).id;
+          return typeof id === "string" ? id : null;
+        }
+        if (typeof item === "string") return item;
+        return null;
+      })
+      .filter((id): id is string => Boolean(id));
+  }
+  if (value && typeof value === "object" && "id" in (value as any)) {
+    const id = (value as { id?: string }).id;
+    return typeof id === "string" ? [id] : [];
+  }
+  if (typeof value === "string") {
+    return value ? [value] : [];
+  }
+  return [];
+}
+
+async function buildAssigneePayloadFromIds(
+  supabase: any,
+  assigneeIds: string[]
+): Promise<AssigneePayload> {
+  if (assigneeIds.length === 0) return [];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, name, email")
+    .in("id", assigneeIds);
+  const profileMap = new Map<string, { id: string; name: string }>(
+    (profiles ?? []).map((p: any) => [p.id, { id: p.id, name: p.name || p.email || "Unknown" }])
+  );
+  return assigneeIds.map((id) => profileMap.get(id) ?? { id, name: "Unknown" });
+}
+
+async function computeSubtaskAggregates(
+  supabase: any,
+  workspaceId: string,
+  taskId: string,
+  definitions: FixedPropertyMaps
+): Promise<{ status: Status; assigneeIds: string[]; assigneePayload: AssigneePayload } | null> {
+  const { data: subtasks, error } = await supabase
+    .from("task_subtasks")
+    .select("id, completed")
+    .eq("task_id", taskId);
+  if (error || !subtasks || subtasks.length === 0) return null;
+
+  const subtaskIds = subtasks.map((subtask: any) => subtask.id);
+  const statusDefinitionId = definitions.byKey.status;
+  const assigneeDefinitionId = definitions.byKey.assignee_id;
+  const { data: propertyRows } = await supabase
+    .from("entity_properties")
+    .select("entity_id, property_definition_id, value")
+    .eq("entity_type", "subtask")
+    .in("entity_id", subtaskIds)
+    .in("property_definition_id", [statusDefinitionId, assigneeDefinitionId]);
+
+  const statusBySubtask = new Map<string, Status>();
+  const assigneesBySubtask = new Map<string, string[]>();
+
+  for (const row of propertyRows || []) {
+    if (row.property_definition_id === statusDefinitionId && typeof row.value === "string") {
+      statusBySubtask.set(row.entity_id, row.value as Status);
+    }
+    if (row.property_definition_id === assigneeDefinitionId) {
+      assigneesBySubtask.set(row.entity_id, extractAssigneeIdsFromValue(row.value));
+    }
+  }
+
+  const statuses: Status[] = subtasks.map((subtask: any): Status => {
+    const fallback = subtask.completed ? "done" : "todo";
+    return statusBySubtask.get(subtask.id) ?? fallback;
+  });
+
+  const allDone = statuses.every((status) => status === "done");
+  const allTodo = statuses.every((status) => status === "todo");
+  const anyInProgress = statuses.some((status) => status === "in_progress");
+  const anyBlocked = statuses.some((status) => status === "blocked");
+
+  let status: Status = "todo";
+  if (allDone) status = "done";
+  else if (anyInProgress) status = "in_progress";
+  else if (anyBlocked) status = "blocked";
+  else if (allTodo) status = "todo";
+  else status = "in_progress";
+
+  const assigneeSet = new Set<string>();
+  for (const ids of assigneesBySubtask.values()) {
+    ids.forEach((id) => assigneeSet.add(id));
+  }
+  const assigneeIds = Array.from(assigneeSet);
+  const assigneePayload = await buildAssigneePayloadFromIds(supabase, assigneeIds);
+
+  return { status, assigneeIds, assigneePayload };
+}
+
+async function syncParentTaskPropertiesFromSubtasks(
+  supabase: any,
+  workspaceId: string,
+  taskId: string,
+  definitions: FixedPropertyMaps
+) {
+  const aggregates = await computeSubtaskAggregates(supabase, workspaceId, taskId, definitions);
+  if (!aggregates) return;
+
+  const { status, assigneeIds, assigneePayload } = aggregates;
+
+  await upsertEntityPropertyValue(
+    supabase,
+    workspaceId,
+    "task",
+    taskId,
+    definitions.byKey.status,
+    status
+  );
+
+  await upsertEntityPropertyValue(
+    supabase,
+    workspaceId,
+    "task",
+    taskId,
+    definitions.byKey.assignee_id,
+    assigneePayload.length > 0 ? assigneePayload : null
+  );
+
+  const legacyStatus =
+    status === "done"
+      ? "done"
+      : status === "in_progress"
+      ? "in-progress"
+      : status === "blocked"
+      ? "todo"
+      : "todo";
+
+  await supabase
+    .from("task_items")
+    .update({
+      status: legacyStatus,
+      assignee_id: assigneeIds[0] ?? null,
+    })
+    .eq("id", taskId);
+
+  await supabase.from("task_assignees").delete().eq("task_id", taskId);
+  if (assigneePayload.length > 0) {
+    const payload = assigneePayload.map((assignee) => ({
+      task_id: taskId,
+      assignee_id: assignee.id,
+      assignee_name: assignee.name || assignee.id || "Unknown",
+    }));
+    await supabase.from("task_assignees").insert(payload);
+  }
+}
+
 /**
  * Get workspace ID for an entity
  */
@@ -261,6 +421,15 @@ async function getWorkspaceIdForEntity(
         .eq("id", entityId)
         .maybeSingle();
       return data?.workspace_id ?? null;
+    }
+
+    case "subtask": {
+      const { data } = await supabase
+        .from("task_subtasks")
+        .select("task_id, task_items!inner(workspace_id)")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data?.task_items as any)?.workspace_id ?? null;
     }
 
     case "timeline_event": {
@@ -312,6 +481,15 @@ async function getEntityTitle(
         .eq("id", entityId)
         .maybeSingle();
       return data?.text || "Task";
+    }
+
+    case "subtask": {
+      const { data } = await supabase
+        .from("task_subtasks")
+        .select("title")
+        .eq("id", entityId)
+        .maybeSingle();
+      return data?.title || "Subtask";
     }
 
     case "timeline_event": {
@@ -609,6 +787,11 @@ export async function setEntityProperties(
         ? (updates.assignee_id ? [updates.assignee_id] : [])
         : null;
 
+  const normalizedDueDate =
+    updates.due_date !== undefined
+      ? normalizeDueDateRange(updates.due_date)
+      : undefined;
+
   let assigneePayloadForTask: Array<{ id: string; name: string }> | null = null;
   if (assigneeIdsToSet !== null) {
     const assigneePayload: Array<{ id: string; name: string }> = [];
@@ -647,7 +830,7 @@ export async function setEntityProperties(
         input.entity_type,
         input.entity_id,
         definitions.byKey.due_date,
-        updates.due_date
+        normalizedDueDate
       )
     );
   }
@@ -683,7 +866,9 @@ export async function setEntityProperties(
   if (input.entity_type === "task") {
     const status = (data as any).status as string | null;
     const priority = (data as any).priority as string | null;
-    const dueDate = (data as any).due_date as string | null;
+    const dueDateRange = (data as any).due_date as EntityProperties["due_date"];
+    const dueDate = getDueDateEnd(dueDateRange);
+    const startDate = getDueDateStart(dueDateRange);
     const assigneeIds = (data as any).assignee_ids as string[] | undefined;
     const assigneeId = (data as any).assignee_id as string | null;
 
@@ -704,9 +889,12 @@ export async function setEntityProperties(
     const taskItemUpdates: Record<string, any> = {
       status: legacyStatus,
       priority: legacyPriority,
-      due_date: dueDate ?? null,
       assignee_id: assigneeId ?? null,
     };
+    if (updates.due_date !== undefined) {
+      taskItemUpdates.due_date = dueDate ?? null;
+      taskItemUpdates.start_date = startDate ?? null;
+    }
 
     await supabase
       .from("task_items")
@@ -720,7 +908,55 @@ export async function setEntityProperties(
     }
   }
 
+  if (input.entity_type === "subtask") {
+    if (updates.status !== undefined) {
+      await supabase
+        .from("task_subtasks")
+        .update({ completed: updates.status === "done" })
+        .eq("id", input.entity_id);
+    }
+
+    const shouldSyncParent =
+      updates.status !== undefined ||
+      updates.assignee_ids !== undefined ||
+      updates.assignee_id !== undefined;
+
+    if (shouldSyncParent) {
+      const { data: subtask } = await supabase
+        .from("task_subtasks")
+        .select("task_id")
+        .eq("id", input.entity_id)
+        .maybeSingle();
+      if (subtask?.task_id) {
+        await syncParentTaskPropertiesFromSubtasks(
+          supabase,
+          workspaceId,
+          subtask.task_id,
+          definitions as FixedPropertyMaps
+        );
+      }
+    }
+  }
+
   return { data };
+}
+
+/**
+ * Recompute parent task status + assignees from its subtasks.
+ * Useful after subtask create/delete events.
+ */
+export async function recomputeTaskPropertiesFromSubtasks(
+  taskId: string
+): Promise<ActionResult<null>> {
+  const access = await requireEntityAccess("task", taskId);
+  if ("error" in access) return { error: access.error };
+  const { supabase, workspaceId } = access;
+
+  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
+  if ("error" in definitions) return { error: definitions.error };
+
+  await syncParentTaskPropertiesFromSubtasks(supabase, workspaceId, taskId, definitions);
+  return { data: null };
 }
 
 /**

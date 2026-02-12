@@ -11,6 +11,7 @@ import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 import type { EverythingItem, GroupByField } from "@/types/everything";
 import type { Status, Priority } from "@/types/properties";
 import { format, parseISO } from "date-fns";
+import { formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
 
 interface EverythingBoardViewProps {
   items: EverythingItem[];
@@ -159,7 +160,7 @@ function BoardCard({ item, members, onUpdate }: BoardCardProps) {
         </div>
 
         {/* Due Date */}
-        {item.properties.due_date && (
+        {hasDueDate(item.properties.due_date) && (
           <DueDateBadge dueDate={item.properties.due_date} />
         )}
 
@@ -245,10 +246,12 @@ function PriorityBadge({ priority }: { priority: Priority }) {
   );
 }
 
-function DueDateBadge({ dueDate }: { dueDate: string }) {
+function DueDateBadge({ dueDate }: { dueDate: EverythingItem["properties"]["due_date"] }) {
   try {
-    const date = parseISO(dueDate);
-    const formatted = format(date, "MMM d");
+    const endDateIso = getDueDateEnd(dueDate);
+    if (!endDateIso) return null;
+    const date = parseISO(endDateIso);
+    const formatted = formatDueDateRange(dueDate, (iso) => format(parseISO(iso), "MMM d"));
     const today = new Date();
     const isOverdue = date < today && !isSameDay(date, today);
     const isToday = isSameDay(date, today);

@@ -48,7 +48,7 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
     return (
       <textarea
         ref={textareaRef}
-        className="w-full bg-[var(--surface)] border border-[var(--border-strong)] text-sm text-[var(--foreground)] outline-none rounded-[2px] px-2 py-1 resize-none overflow-hidden min-h-[60px]"
+        className="w-full bg-[var(--surface)] border border-[var(--border-strong)] text-xs text-[var(--foreground)] outline-none rounded-[4px] px-2 py-1 resize-none overflow-hidden min-h-[60px]"
         value={draft}
         onChange={handleChange}
         onBlur={() => onCommit(draft)}
@@ -72,7 +72,7 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
 
   return (
     <button
-      className={`w-full text-left text-sm text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 ${
+      className={`w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 ${
         isMultiline ? 'whitespace-pre-wrap' : 'truncate'
       }`}
       onClick={onStartEdit}

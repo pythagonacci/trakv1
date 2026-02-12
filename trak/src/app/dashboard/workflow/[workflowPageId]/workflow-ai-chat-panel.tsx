@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { queryKeys } from "@/lib/react-query/query-client";
 import type { UndoBatch } from "@/lib/ai/undo";
+import type { WriteConfirmationApproval, WriteConfirmationRequest } from "@/lib/ai/write-confirmation";
 
 type WorkflowMessage = {
   id: string;
@@ -16,6 +17,10 @@ type WorkflowMessage = {
   content: Record<string, unknown>;
   created_at: string;
   created_block_ids?: string[];
+};
+
+type PendingWriteConfirmation = WriteConfirmationRequest & {
+  originalCommand: string;
 };
 
 const isSearchLikeToolName = (name: string) =>
@@ -54,6 +59,8 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
   const [streamingResponse, setStreamingResponse] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
+  const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
+  const [writeClarificationInput, setWriteClarificationInput] = useState("");
 
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -99,24 +106,36 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
   };
 
   useEffect(() => {
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.tabId]);
 
-  const sendCommand = async (command: string) => {
+  const sendCommand = async (
+    command: string,
+    options: {
+      appendUserMessage?: boolean;
+      confirmation?: WriteConfirmationApproval | null;
+      resumeFromConfirmation?: boolean;
+    } = {}
+  ) => {
     const trimmed = command.trim();
     if (!trimmed || loading) return;
+    const appendUserMessage = options.appendUserMessage ?? true;
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: { text: trimmed },
-        created_at: new Date().toISOString(),
-        created_block_ids: [],
-      },
-    ]);
+    if (appendUserMessage) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: { text: trimmed },
+          created_at: new Date().toISOString(),
+          created_block_ids: [],
+        },
+      ]);
+    }
 
     setLoading(true);
     setStreamingStatus(null);
@@ -125,7 +144,12 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
       const res = await fetch("/api/workflow/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tabId: props.tabId, command: trimmed }),
+        body: JSON.stringify({
+          tabId: props.tabId,
+          command: trimmed,
+          confirmation: options.confirmation ?? null,
+          resumeFromConfirmation: Boolean(options.resumeFromConfirmation),
+        }),
       });
       if (!res.ok) {
         const errorText = await res.text();
@@ -145,6 +169,7 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
       let responseToolCallsMade: unknown = null;
       let responseCreatedBlockIds: string[] = [];
       let responseSessionId: string | null = null;
+      let receivedConfirmation: PendingWriteConfirmation | null = null;
       let didWrite = false;
       const markWrite = () => {
         if (!didWrite) {
@@ -181,6 +206,7 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
                 | "tool_result"
                 | "response_delta"
                 | "response"
+                | "confirmation_required"
                 | "error"
                 | "done";
               content?: string;
@@ -247,6 +273,20 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
                   }
                 }
                 break;
+              case "confirmation_required":
+                if (event.data && typeof event.data === "object") {
+                  const payload = event.data as WriteConfirmationRequest;
+                  if (typeof payload.tool === "string" && typeof payload.question === "string") {
+                    receivedConfirmation = {
+                      ...payload,
+                      arguments: payload.arguments as Record<string, unknown>,
+                      originalCommand: trimmed,
+                    };
+                  }
+                }
+                setStreamingStatus(null);
+                setStreamingResponse(null);
+                break;
               case "error":
                 throw new Error(event.content || "An error occurred");
               case "done":
@@ -260,22 +300,33 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
         }
       }
 
+      if (receivedConfirmation) {
+        setPendingWriteConfirmation(receivedConfirmation);
+        return;
+      }
+
       setSessionId(responseSessionId || sessionId);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: {
-            text: finalResponse,
-            toolCallsMade: responseToolCallsMade,
-            undoBatches: responseUndoBatches,
-            undoSkippedTools: responseUndoSkippedTools,
+      if (
+        finalResponse.trim().length > 0 ||
+        responseCreatedBlockIds.length > 0 ||
+        responseToolCallsMade
+      ) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: {
+              text: finalResponse,
+              toolCallsMade: responseToolCallsMade,
+              undoBatches: responseUndoBatches,
+              undoSkippedTools: responseUndoSkippedTools,
+            },
+            created_at: new Date().toISOString(),
+            created_block_ids: responseCreatedBlockIds,
           },
-          created_at: new Date().toISOString(),
-          created_block_ids: responseCreatedBlockIds,
-        },
-      ]);
+        ]);
+      }
 
       if (responseCreatedBlockIds.length > 0) {
         // Invalidate tabBlocks cache specifically to ensure new blocks appear
@@ -293,6 +344,57 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
       setStreamingStatus(null);
       setStreamingResponse(null);
     }
+  };
+
+  const handleApprovePendingWrite = async () => {
+    if (!pendingWriteConfirmation || loading) return;
+    const pending = pendingWriteConfirmation;
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+    const approval: WriteConfirmationApproval = {
+      decision: "approve",
+      request: {
+        tool: pending.tool,
+        arguments: pending.arguments,
+      },
+    };
+    await sendCommand(pending.originalCommand, {
+      appendUserMessage: false,
+      confirmation: approval,
+      resumeFromConfirmation: true,
+    });
+  };
+
+  const handleDenyPendingWrite = () => {
+    if (!pendingWriteConfirmation || loading) return;
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: { text: "Okay, I cancelled that update." },
+        created_at: new Date().toISOString(),
+        created_block_ids: [],
+      },
+    ]);
+  };
+
+  const handleClarifyPendingWrite = async () => {
+    if (!pendingWriteConfirmation || loading) return;
+    const clarification = writeClarificationInput.trim();
+    if (!clarification) {
+      setToast({ message: "Add a clarification first.", type: "error" });
+      return;
+    }
+    const pending = pendingWriteConfirmation;
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+    await sendCommand(
+      `For my previous request "${pending.originalCommand}", use this clarification before any changes: ${clarification}`,
+      { appendUserMessage: true }
+    );
   };
 
   const handleUndo = async (messageId: string, batches: UndoBatch[]) => {
@@ -345,6 +447,8 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
     const command = input.trim();
     if (!command || loading) return;
     setInput("");
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
     await sendCommand(command);
   };
 
@@ -422,6 +526,56 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
             )}
           </div>
         ))}
+
+        {pendingWriteConfirmation && !loading && (
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)]/50 p-3 text-sm space-y-3">
+            <p className="text-[var(--foreground)]">{pendingWriteConfirmation.question}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleApprovePendingWrite();
+                }}
+                className="rounded-md border border-[var(--secondary)] bg-[var(--secondary)] px-3 py-1 text-xs text-white hover:bg-[var(--secondary)]/90"
+              >
+                Yes, continue
+              </button>
+              <button
+                type="button"
+                onClick={handleDenyPendingWrite}
+                className="rounded-md border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-muted)]"
+              >
+                No, cancel
+              </button>
+            </div>
+            <div className="space-y-2 border-t border-[var(--border)] pt-2">
+              <label className="block text-[11px] text-[var(--muted-foreground)]">
+                Clarify before I update
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={writeClarificationInput}
+                  onChange={(event) => setWriteClarificationInput(event.target.value)}
+                  placeholder="Type clarification..."
+                  className={cn(
+                    "h-8 flex-1 rounded-md border px-2 text-xs outline-none",
+                    "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] focus:border-[var(--secondary)]"
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleClarifyPendingWrite();
+                  }}
+                  className="rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-muted)]"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">

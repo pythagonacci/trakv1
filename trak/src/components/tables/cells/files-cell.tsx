@@ -79,7 +79,7 @@ export function FilesCell({
             {selectedFiles.map((file) => (
               <div
                 key={file.id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[2px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
               >
                 <File className="h-3 w-3" />
                 <span className="truncate max-w-[120px]">{file.file_name}</span>
@@ -93,7 +93,7 @@ export function FilesCell({
             ))}
           </div>
         )}
-        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[2px] bg-[var(--surface)] border border-[var(--border)] text-sm text-[var(--foreground)] hover:bg-[var(--surface-hover)] cursor-pointer transition-colors">
+        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] cursor-pointer transition-colors">
           <Upload className="h-3.5 w-3.5" />
           {uploading ? "Uploading..." : "Add files"}
           <input
@@ -111,7 +111,7 @@ export function FilesCell({
   if (selectedFiles.length === 0) {
     return (
       <button
-        className="w-full text-left text-sm text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
+        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
         onClick={onStartEdit}
         disabled={saving}
       >
@@ -134,7 +134,7 @@ export function FilesCell({
         {visibleFiles.map((file) => (
           <div
             key={file.id}
-            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[2px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)]"
           >
             <File className="h-3 w-3" />
             <a
@@ -168,7 +168,7 @@ export function FilesCell({
           </div>
         ))}
         {remainingCount > 0 && (
-          <span className="inline-flex items-center px-2 py-1 rounded-[2px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--muted-foreground)]">
+          <span className="inline-flex items-center px-2 py-1 rounded-[4px] text-xs bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--muted-foreground)]">
             +{remainingCount} more
           </span>
         )}

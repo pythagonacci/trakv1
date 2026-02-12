@@ -588,8 +588,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
-  const [attachPosition, setAttachPosition] = useState<{ top: number; left: number } | null>(null);
-  const [attachQuery, setAttachQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   
@@ -1214,20 +1212,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           onUpdate={(patch) => updateEvent(selectedEvent.id, patch)}
           references={selectedReferences}
           workspaceId={workspaceId}
-          onAddReference={(opts) => {
-            setAttachPosition(opts?.position ?? null);
-            setAttachQuery("");
-            setIsReferenceDialogOpen(true);
-          }}
+          onAddReference={() => setIsReferenceDialogOpen(true)}
           onNavigateToReference={navigateToReference}
           variant="modal"
-          isAttachOpenForNotes={isReferenceDialogOpen}
-          updateAttachQuery={setAttachQuery}
-          onAttachClose={() => {
-            setIsReferenceDialogOpen(false);
-            setAttachPosition(null);
-            setAttachQuery("");
-          }}
         />
       </div>
     </>
@@ -1620,15 +1607,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           isOpen={isReferenceDialogOpen}
           projectId={projectId}
           workspaceId={workspaceId}
-          initialSearchQuery=""
-          onClose={() => {
-            setIsReferenceDialogOpen(false);
-            setAttachPosition(null);
-            setAttachQuery("");
-          }}
-          variant={attachPosition ? "inline" : "dialog"}
-          position={attachPosition ?? undefined}
-          controlledSearchQuery={attachPosition ? attachQuery : undefined}
+          onClose={() => setIsReferenceDialogOpen(false)}
           onSelect={async (item) => {
             if (!selectedEventId) return false;
             const result = await createReference.mutateAsync({
@@ -1978,12 +1957,6 @@ function AddEventDialog({
   );
 }
 
-function getTextAfterAt(value: string, selectionStart: number): string {
-  const textBefore = value.slice(0, selectionStart);
-  const lastAt = textBefore.lastIndexOf("@");
-  return lastAt === -1 ? "" : textBefore.slice(lastAt + 1);
-}
-
 function EventDetailsPanel({
   event,
   isOpen,
@@ -1994,9 +1967,6 @@ function EventDetailsPanel({
   onAddReference,
   onNavigateToReference,
   variant = "sidebar",
-  isAttachOpenForNotes,
-  updateAttachQuery,
-  onAttachClose,
 }: {
   event: TimelineEvent;
   isOpen: boolean;
@@ -2004,12 +1974,9 @@ function EventDetailsPanel({
   onUpdate: (patch: TimelineEventPatch) => void;
   references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }>;
   workspaceId?: string;
-  onAddReference: (options?: { position: { top: number; left: number } }) => void;
+  onAddReference: () => void;
   onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
   variant?: "sidebar" | "modal";
-  isAttachOpenForNotes?: boolean;
-  updateAttachQuery?: (q: string) => void;
-  onAttachClose?: () => void;
 }) {
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
@@ -2029,7 +1996,6 @@ function EventDetailsPanel({
   });
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement>(null);
-  const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Scroll content to top when panel opens or event changes so the event details are visible
   React.useEffect(() => {
@@ -2284,34 +2250,11 @@ function EventDetailsPanel({
           <div className="space-y-2">
             <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Notes</div>
             <textarea
-              ref={notesTextareaRef}
               value={local.notes}
-              onChange={(e) => {
-                const val = e.target.value;
-                setLocal((s) => ({ ...s, notes: val }));
-                if (isAttachOpenForNotes && updateAttachQuery && notesTextareaRef.current) {
-                  const ta = notesTextareaRef.current;
-                  updateAttachQuery(getTextAfterAt(val, ta.selectionStart ?? 0));
-                }
-              }}
+              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
               onBlur={handleNotesBlur}
-              onKeyDown={(e) => {
-                if (e.key === "@") {
-                  const textarea = e.currentTarget;
-                  requestAnimationFrame(() => {
-                    const rect = textarea.getBoundingClientRect();
-                    onAddReference({ position: { top: rect.top - 400 - 8, left: rect.left } });
-                  });
-                  return;
-                }
-                if (isAttachOpenForNotes && e.key === "Escape") {
-                  e.preventDefault();
-                  onAttachClose?.();
-                  return;
-                }
-              }}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Add notes... (type @ to attach)"
+              placeholder="Add notes..."
               rows={2}
             />
           </div>
@@ -2335,7 +2278,7 @@ function EventDetailsPanel({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</div>
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onAddReference()}>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={onAddReference}>
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -2469,8 +2412,12 @@ function EditEventDialog({
     return member?.name ?? member?.email ?? undefined;
   };
   const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
-    const ids = (props as any).assignee_ids?.length ? (props as any).assignee_ids : props.assignee_id ? [props.assignee_id] : [];
-    return ids.map((id: string) => getMemberName(id)).filter((n: string | undefined): n is string => Boolean(n));
+    const ids: Array<string | null> = props.assignee_ids?.length
+      ? props.assignee_ids
+      : props.assignee_id
+        ? [props.assignee_id]
+        : [];
+    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
   };
 
   React.useEffect(() => {
