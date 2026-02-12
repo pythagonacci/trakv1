@@ -853,7 +853,8 @@ const blockActionTools: ToolDefinition[] = [
       "Create a new block in a tab. Block type determines what content to provide.\n\n" +
       "Important:\n" +
       "- Tasks live inside a TASK BLOCK, not directly in a tab.\n" +
-      "- If you need to create tasks in a tab and no task block exists, create one with type: \"task\" first, then use its id as taskBlockId for createTaskItem.",
+      "- If you need to create tasks in a tab and no task block exists, create one with type: \"task\" first, then use its id as taskBlockId for createTaskItem.\n" +
+      "- For text blocks: Provide appropriate detail based on the user's request. When generating extremely long content (>10,000 characters), prioritize the most important information first.",
     category: "block",
     parameters: {
       tabId: { type: "string", description: "The tab ID to create the block in. PREFER 'tabName' if target is different from current context." },
@@ -872,7 +873,7 @@ const blockActionTools: ToolDefinition[] = [
   },
   {
     name: "updateBlock",
-    description: "Update a block's content or position.",
+    description: "Update a block's content or position.\n\nFor text blocks: Provide appropriate detail based on the user's request. When generating extremely long content (>10,000 characters), prioritize the most important information first, as very long responses may be truncated.",
     category: "block",
     parameters: {
       blockId: { type: "string", description: "The block ID to update" },

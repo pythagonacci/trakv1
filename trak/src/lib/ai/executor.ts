@@ -149,6 +149,13 @@ const TOOL_CALL_LENGTH_RETRY_LIMIT = Math.max(
   0,
   Number.isFinite(parsedToolCallLengthRetryLimit) ? Math.floor(parsedToolCallLengthRetryLimit) : 2
 );
+const parsedRecoveredTextBlockMaxChars = Number(process.env.AI_RECOVERED_TEXT_BLOCK_MAX_CHARS ?? 12000);
+const RECOVERED_TEXT_BLOCK_MAX_CHARS = Math.max(
+  512,
+  Number.isFinite(parsedRecoveredTextBlockMaxChars)
+    ? Math.floor(parsedRecoveredTextBlockMaxChars)
+    : 12000
+);
 const FINAL_RESPONSE_MAX_TOKENS = Number(process.env.AI_FINAL_MAX_TOKENS ?? 1024);
 const TOOL_RESULT_MAX_ITEMS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS ?? 25);
 const TOOL_RESULT_MAX_STRING_CHARS = Number(process.env.AI_TOOL_RESULT_MAX_STRING_CHARS ?? 2000);
@@ -195,7 +202,7 @@ function repairJSONArguments(jsonStr: string): string {
   // Matches: : word, : word-with-hyphens, etc. but not : "quoted", : 123, : true, : false, : null
   const unquotedValuePattern = /:\s*([a-zA-Z][a-zA-Z0-9_-]*)\s*([,}])/g;
 
-  let repaired = jsonStr.replace(unquotedValuePattern, (match, value, delimiter) => {
+  const repaired = jsonStr.replace(unquotedValuePattern, (match, value, delimiter) => {
     // Don't quote boolean or null literals
     if (value === 'true' || value === 'false' || value === 'null') {
       return match;
@@ -315,6 +322,139 @@ function repairTruncatedJSONArguments(jsonStr: string): string | null {
   return null;
 }
 
+function collectTextFragments(
+  value: unknown,
+  fragments: string[],
+  depth = 0,
+  keyHint?: string
+): void {
+  if (depth > 12 || value === null || value === undefined) return;
+
+  if (typeof value === "string") {
+    if (keyHint === "text" || keyHint === "title" || keyHint === "heading") {
+      const normalized = value.replace(/\s+/g, " ").trim();
+      if (normalized) fragments.push(normalized);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectTextFragments(entry, fragments, depth + 1, keyHint);
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      collectTextFragments(nested, fragments, depth + 1, key);
+    }
+  }
+}
+
+function recoverCreateTextBlockArgsFromTruncation(
+  toolArgs: Record<string, unknown>
+): Record<string, unknown> | null {
+  if (toolArgs.type !== "text") return null;
+
+  const content = toolArgs.content;
+  let recoveredText = "";
+
+  if (typeof content === "string") {
+    recoveredText = content;
+  } else if (content && typeof content === "object") {
+    const contentRecord = content as Record<string, unknown>;
+    if (typeof contentRecord.text === "string" && contentRecord.text.trim().length > 0) {
+      recoveredText = contentRecord.text;
+    } else {
+      const fragments: string[] = [];
+      collectTextFragments(contentRecord, fragments);
+      if (fragments.length > 0) {
+        recoveredText = fragments.join("\n");
+      }
+    }
+  }
+
+  const normalized = recoveredText.replace(/\u0000/g, "").trim();
+  if (!normalized) return null;
+
+  const maxChars = Math.max(512, RECOVERED_TEXT_BLOCK_MAX_CHARS);
+  const boundedText = normalized.length > maxChars
+    ? normalized.slice(0, maxChars)
+    : normalized;
+
+  return {
+    ...toolArgs,
+    type: "text",
+    content: { text: boundedText },
+  };
+}
+
+function recoverUpdateTextBlockArgsFromTruncation(
+  toolArgs: Record<string, unknown>
+): Record<string, unknown> | null {
+  // For updateBlock, we need to have a blockId and content
+  if (!toolArgs.blockId || !toolArgs.content) return null;
+
+  const content = toolArgs.content;
+  let recoveredText = "";
+
+  if (typeof content === "string") {
+    recoveredText = content;
+  } else if (content && typeof content === "object") {
+    const contentRecord = content as Record<string, unknown>;
+    if (typeof contentRecord.text === "string" && contentRecord.text.trim().length > 0) {
+      recoveredText = contentRecord.text;
+    } else {
+      const fragments: string[] = [];
+      collectTextFragments(contentRecord, fragments);
+      if (fragments.length > 0) {
+        recoveredText = fragments.join("\n");
+      }
+    }
+  }
+
+  const normalized = recoveredText.replace(/\u0000/g, "").trim();
+  if (!normalized) return null;
+
+  const maxChars = Math.max(512, RECOVERED_TEXT_BLOCK_MAX_CHARS);
+  const boundedText = normalized.length > maxChars
+    ? normalized.slice(0, maxChars)
+    : normalized;
+
+  return {
+    ...toolArgs,
+    content: { text: boundedText },
+  };
+}
+
+function recoverWriteToolArgumentsAfterTruncation(
+  toolName: string,
+  toolArgs: Record<string, unknown>
+): { args: Record<string, unknown>; strategy: string } | null {
+  if (toolName === "createBlock") {
+    const recovered = recoverCreateTextBlockArgsFromTruncation(toolArgs);
+    if (recovered) {
+      return {
+        args: recovered,
+        strategy: "create_text_block_content_recovery",
+      };
+    }
+  }
+
+  if (toolName === "updateBlock") {
+    const recovered = recoverUpdateTextBlockArgsFromTruncation(toolArgs);
+    if (recovered) {
+      return {
+        args: recovered,
+        strategy: "update_text_block_content_recovery",
+      };
+    }
+  }
+
+  return null;
+}
+
 export function warmPromptToActionCache(
   toolGroupSets: ToolGroup[][] = DEFAULT_WARM_TOOL_GROUPS
 ) {
@@ -363,6 +503,31 @@ function isSearchLikeToolName(name: string) {
     name === "requestToolGroups" ||
     name === "unstructuredSearchWorkspace"
   );
+}
+
+/**
+ * Determines if a tool operation requires user confirmation.
+ * Only update and delete operations require confirmation.
+ * Create operations do not require confirmation (low risk, easily undoable).
+ */
+function requiresConfirmation(toolName: string): boolean {
+  // Update operations - modifying existing data (risky)
+  if (toolName.startsWith("update")) return true;
+  if (toolName.includes("Update") && toolName.startsWith("bulk")) return true;
+
+  // Delete operations - removing data (risky)
+  if (toolName.startsWith("delete")) return true;
+  if (toolName.includes("Delete") && toolName.startsWith("bulk")) return true;
+  if (toolName.startsWith("archive")) return true;
+
+  // Move/rename operations - changing structure (risky)
+  if (toolName.startsWith("move")) return true;
+  if (toolName.startsWith("rename")) return true;
+
+  // Create operations - adding new data (low risk, no confirmation needed)
+  // Insert operations - adding new rows (low risk, no confirmation needed)
+  // All other operations - no confirmation needed
+  return false;
 }
 
 function looksLikeSemanticQuery(command: string): boolean {
@@ -908,6 +1073,45 @@ export async function executeAICommand(
     timing.t_intent_ms = Date.now() - intentStart;
   }
 
+  // Handle approved write action - execute it directly without LLM
+  if (options.approvedWriteAction && options.requireWriteConfirmation) {
+    const approval = options.approvedWriteAction;
+    const toolName = approval.request.tool;
+    const toolArgs = approval.request.arguments ?? {};
+
+    const result = await executeTool(
+      {
+        name: toolName,
+        arguments: toolArgs,
+      },
+      {
+        workspaceId: context.workspaceId,
+        userId: context.userId,
+        contextTableId: context.contextTableId,
+        contextBlockId: context.contextBlockId,
+        currentTabId: context.currentTabId,
+        currentProjectId: context.currentProjectId,
+        undoTracker,
+        authContext: context.authContext,
+      }
+    );
+
+    const toolCallsMade: ExecutionResult["toolCallsMade"] = [
+      { tool: toolName, arguments: toolArgs, result },
+    ];
+
+    const response = result.success
+      ? "Action completed."
+      : `Failed to complete action: ${result.error ?? "Unknown error"}`;
+
+    return withTiming({
+      success: result.success,
+      response,
+      toolCallsMade,
+      error: result.error,
+    });
+  }
+
   // Fast path: simple pattern-matched commands skip the LLM entirely
   if (!options.disableDeterministic) {
     const simpleResult = await tryDeterministicCommand(commandForModel, context, { undoTracker });
@@ -1214,12 +1418,21 @@ export async function executeAICommand(
           // Never execute write tools with tail-truncated/repaired JSON.
           // This prevents partial inserts/updates when the model output was cut off.
           if (usedTruncateRepair && !isSearchLikeToolName(toolName) && !parseFailure) {
-            aiDebug("executeAI:jsonTruncateRejected", {
-              tool: toolName,
-              reason: "truncated_repair_on_write_tool",
-            });
-            parseFailure =
-              "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+            const recovered = recoverWriteToolArgumentsAfterTruncation(toolName, toolArgs);
+            if (recovered) {
+              toolArgs = recovered.args;
+              aiDebug("executeAI:jsonTruncateAccepted", {
+                tool: toolName,
+                strategy: recovered.strategy,
+              });
+            } else {
+              aiDebug("executeAI:jsonTruncateRejected", {
+                tool: toolName,
+                reason: "truncated_repair_on_write_tool",
+              });
+              parseFailure =
+                "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+            }
           }
 
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
@@ -2044,6 +2257,59 @@ export async function* executeAICommandStream(
   ]);
   const blockIdTools = new Set(["updateBlock", "deleteBlock"]);
 
+  // Handle approved write action - execute it directly without LLM
+  if (options.approvedWriteAction && options.requireWriteConfirmation) {
+    const approval = options.approvedWriteAction;
+    const toolName = approval.request.tool;
+    const toolArgs = approval.request.arguments ?? {};
+
+    yield {
+      type: "tool_call",
+      content: getHumanFriendlyToolMessage(toolName),
+      data: { tool: toolName, arguments: toolArgs },
+    };
+
+    const result = await executeTool(
+      {
+        name: toolName,
+        arguments: toolArgs,
+      },
+      {
+        workspaceId: context.workspaceId,
+        userId: context.userId,
+        contextTableId: context.contextTableId,
+        contextBlockId: context.contextBlockId,
+        currentTabId: context.currentTabId,
+        currentProjectId: context.currentProjectId,
+        undoTracker,
+        authContext: context.authContext,
+      }
+    );
+
+    toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
+
+    yield {
+      type: "tool_result",
+      content: result.success ? "Done" : `Error: ${result.error ?? "Unknown error"}`,
+      data: result,
+    };
+
+    const response = result.success
+      ? "Action completed."
+      : `Failed to complete action: ${result.error ?? "Unknown error"}`;
+
+    yield {
+      type: "response",
+      content: response,
+      data: {
+        toolCallsMade,
+        undoBatches: undoTracker.batches,
+        undoSkippedTools: undoTracker.skippedTools,
+      },
+    };
+    return;
+  }
+
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
   if (!options.disableDeterministic && !options.requireWriteConfirmation) {
     const simpleResult = await tryDeterministicCommand(commandForModel, context);
@@ -2250,12 +2516,21 @@ export async function* executeAICommandStream(
           // Never execute write tools with tail-truncated/repaired JSON.
           // This prevents partial inserts/updates when the model output was cut off.
           if (usedTruncateRepair && !isSearchLikeToolName(toolName) && !parseFailure) {
-            aiDebug("executeAI:jsonTruncateRejected", {
-              tool: toolName,
-              reason: "truncated_repair_on_write_tool",
-            });
-            parseFailure =
-              "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+            const recovered = recoverWriteToolArgumentsAfterTruncation(toolName, toolArgs);
+            if (recovered) {
+              toolArgs = recovered.args;
+              aiDebug("executeAI:jsonTruncateAccepted", {
+                tool: toolName,
+                strategy: recovered.strategy,
+              });
+            } else {
+              aiDebug("executeAI:jsonTruncateRejected", {
+                tool: toolName,
+                reason: "truncated_repair_on_write_tool",
+              });
+              parseFailure =
+                "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+            }
           }
 
           if (contextTableId && tableIdTools.has(toolName) && !("tableId" in toolArgs)) {
@@ -2266,7 +2541,8 @@ export async function* executeAICommandStream(
           }
 
           const isWriteTool = !isSearchLikeToolName(toolName);
-          if (options.requireWriteConfirmation && isWriteTool && !parseFailure) {
+          const needsConfirmation = requiresConfirmation(toolName);
+          if (options.requireWriteConfirmation && isWriteTool && needsConfirmation && !parseFailure) {
             const approved = !approvedWriteConsumed && matchesApprovedWriteAction(
               toolName,
               toolArgs,
