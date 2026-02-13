@@ -56,13 +56,13 @@ export function EverythingTableView({
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
-        <thead>
-          <tr className="border-b border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900/50">
+        <thead className="bg-[var(--secondary)]/10 text-[var(--tertiary-foreground)] border-b border-[var(--secondary)]">
+          <tr>
             {/* Name Column */}
-            <th className="sticky left-0 z-10 bg-neutral-50 dark:bg-neutral-900/50 px-4 py-3 text-left">
+            <th className="sticky left-0 z-10 h-10 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)] bg-[var(--secondary)]/10">
               <button
                 onClick={() => handleSort("name")}
-                className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider hover:text-neutral-900 dark:hover:text-neutral-100"
+                className="flex items-center gap-2 hover:text-[var(--foreground)]"
               >
                 Name
                 {getSortIcon("name")}
@@ -70,24 +70,20 @@ export function EverythingTableView({
             </th>
 
             {/* Source Column */}
-            <th className="px-4 py-3 text-left min-w-[250px]">
-              <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                Source
-              </div>
+            <th className="h-10 min-w-[250px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+              Source
             </th>
 
             {/* Assignee Column */}
-            <th className="px-4 py-3 text-left min-w-[180px]">
-              <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                Assignee
-              </div>
+            <th className="h-10 min-w-[180px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+              Assignee
             </th>
 
             {/* Status Column */}
-            <th className="px-4 py-3 text-left min-w-[140px]">
+            <th className="h-10 min-w-[140px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
               <button
                 onClick={() => handleSort("status")}
-                className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider hover:text-neutral-900 dark:hover:text-neutral-100"
+                className="flex items-center gap-2 hover:text-[var(--foreground)]"
               >
                 Status
                 {getSortIcon("status")}
@@ -95,10 +91,10 @@ export function EverythingTableView({
             </th>
 
             {/* Priority Column */}
-            <th className="px-4 py-3 text-left min-w-[130px]">
+            <th className="h-10 min-w-[130px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
               <button
                 onClick={() => handleSort("priority")}
-                className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider hover:text-neutral-900 dark:hover:text-neutral-100"
+                className="flex items-center gap-2 hover:text-[var(--foreground)]"
               >
                 Priority
                 {getSortIcon("priority")}
@@ -106,10 +102,10 @@ export function EverythingTableView({
             </th>
 
             {/* Due Date Column */}
-            <th className="px-4 py-3 text-left min-w-[140px]">
+            <th className="h-10 min-w-[140px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
               <button
                 onClick={() => handleSort("due_date")}
-                className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider hover:text-neutral-900 dark:hover:text-neutral-100"
+                className="flex items-center gap-2 hover:text-[var(--foreground)]"
               >
                 Due Date
                 {getSortIcon("due_date")}
@@ -117,10 +113,8 @@ export function EverythingTableView({
             </th>
 
             {/* Tags Column */}
-            <th className="px-4 py-3 text-left min-w-[200px]">
-              <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                Tags
-              </div>
+            <th className="h-10 min-w-[200px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+              Tags
             </th>
           </tr>
         </thead>
@@ -149,7 +143,13 @@ export function EverythingTableView({
 interface TableRowComponentProps {
   item: EverythingItem;
   workspaceId: string;
-  members: Array<{ id: string; name?: string | null; email?: string | null; avatar_url?: string | null }>;
+  members: Array<{
+    id: string;
+    user_id?: string | null;
+    name?: string | null;
+    email?: string | null;
+    avatar_url?: string | null;
+  }>;
   onUpdate: (params: { item: EverythingItem; updates: any }) => void;
 }
 
@@ -217,9 +217,10 @@ function TableRowComponent({ item, workspaceId, members, onUpdate }: TableRowCom
 
 // Assignee Cell Component
 function AssigneeCell({ item, members, onUpdate }: TableRowComponentProps) {
-  const assignedMembers = members.filter((m) =>
-    item.properties.assignee_ids.includes(m.id)
-  );
+  const assignedMembers = members.filter((m) => {
+    const memberIds = [m.id, m.user_id].filter(Boolean) as string[];
+    return memberIds.some((id) => item.properties.assignee_ids.includes(id));
+  });
 
   if (assignedMembers.length === 0) {
     return <span className="text-sm text-neutral-400">—</span>;

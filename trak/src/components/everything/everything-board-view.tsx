@@ -120,14 +120,21 @@ export function EverythingBoardView({
 
 interface BoardCardProps {
   item: EverythingItem;
-  members: Array<{ id: string; name?: string | null; email?: string | null; avatar_url?: string | null }>;
+  members: Array<{
+    id: string;
+    user_id?: string | null;
+    name?: string | null;
+    email?: string | null;
+    avatar_url?: string | null;
+  }>;
   onUpdate: (params: { item: EverythingItem; updates: any }) => void;
 }
 
 function BoardCard({ item, members, onUpdate }: BoardCardProps) {
-  const assignedMembers = members.filter((m) =>
-    item.properties.assignee_ids.includes(m.id)
-  );
+  const assignedMembers = members.filter((m) => {
+    const memberIds = [m.id, m.user_id].filter(Boolean) as string[];
+    return memberIds.some((id) => item.properties.assignee_ids.includes(id));
+  });
 
   return (
     <Link
