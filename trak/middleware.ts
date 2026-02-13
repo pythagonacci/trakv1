@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
+import { getSupabaseEnv } from "@/lib/supabase/env";
 
 const PUBLIC_PATHS = new Set([
   "/login",
@@ -14,12 +15,25 @@ const PUBLIC_PATHS = new Set([
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // Fix for incorrect /app/* routes (e.g., /app/profile should be /profile)
+  // This handles browser session restoration with old/incorrect URLs
+  if (pathname.startsWith("/app/") && !pathname.startsWith("/api/")) {
+    const correctedPath = pathname.replace("/app", "");
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = correctedPath;
+    return NextResponse.redirect(redirectUrl);
+  }
+
   // Allow Next internals & static
   if (
     pathname.startsWith("/_next/") ||
-    pathname.startsWith("/public/") ||
     pathname.startsWith("/api/public/")
   ) {
+    return NextResponse.next();
+  }
+
+  // API routes are handled in route handlers; skip middleware auth gating to avoid hot-path auth calls.
+  if (pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 
@@ -32,9 +46,20 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next({ request: { headers: req.headers } });
 
   // Supabase SSR client wired to middleware cookies API
+  const supabaseEnv = getSupabaseEnv();
+  if (!supabaseEnv.url || !supabaseEnv.anonKey) {
+    return new NextResponse(
+      `Missing Supabase configuration (middleware) path=${req.nextUrl.pathname}`,
+      {
+      status: 500,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      }
+    );
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseEnv.url,
+    supabaseEnv.anonKey,
     {
       cookies: {
         get(name: string) {
@@ -50,12 +75,19 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  const { data: { session } } = await supabase.auth.getSession();
+  // Middleware only performs a cheap session gate. Route handlers/components do authoritative auth via getUser().
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
 
-  if (!session) {
+  if (error || !session) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("redirectedFrom", pathname);
+    redirectUrl.searchParams.set(
+      "redirectedFrom",
+      req.nextUrl.pathname + req.nextUrl.search
+    );
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -63,5 +95,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|auth).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|auth|api).*)"],
 };

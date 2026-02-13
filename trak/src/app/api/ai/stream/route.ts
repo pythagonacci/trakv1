@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
 import { executeAICommandStream, type AIMessage } from "@/lib/ai/executor";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
-import { getAuthenticatedUser } from "@/lib/auth-utils";
-import { createClient } from "@/lib/supabase/server";
 import { getBlockWithContext } from "@/app/actions/ai-context";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
+import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
 
 /**
  * POST /api/ai/stream
@@ -28,21 +27,7 @@ import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 export async function POST(request: NextRequest) {
   try {
     // 1. Check authentication
-    const user = await getAuthenticatedUser();
-
-    if (!user) {
-      return new Response(
-        `data: ${JSON.stringify({ type: "error", content: "Unauthorized" })}\n\n`,
-        {
-          status: 401,
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        }
-      );
-    }
+    const { user, supabase: dataClient } = await requireUser();
 
     // 2. Get workspace context
     const workspaceId = await getCurrentWorkspaceId();
@@ -61,7 +46,6 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Get workspace and user details
-    const dataClient = await createClient();
     const [workspaceResult, profileResult] = await Promise.all([
       dataClient.from("workspaces").select("name").eq("id", workspaceId).single(),
       dataClient.from("profiles").select("name, email").eq("id", user.id).single(),
@@ -176,6 +160,20 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (isUnauthorizedApiError(error)) {
+      return new Response(
+        `data: ${JSON.stringify({ type: "error", content: "Unauthorized" })}\n\n`,
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        }
+      );
+    }
+
     console.error("[AI Stream Route] Error:", error);
     return new Response(
       `data: ${JSON.stringify({ type: "error", content: "An unexpected error occurred" })}\n\n`,

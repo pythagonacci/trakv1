@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { executeWorkflowAICommandStream } from "@/lib/ai/workflow-executor";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
+import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
 
 /**
  * POST /api/workflow/stream
@@ -11,20 +11,7 @@ import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
  */
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return new Response(
-        `data: ${JSON.stringify({ type: "error", content: "Unauthorized" })}\n\n`,
-        {
-          status: 401,
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        }
-      );
-    }
+    await requireUser();
 
     const body = (await request.json()) as {
       tabId?: string;
@@ -98,6 +85,20 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (isUnauthorizedApiError(error)) {
+      return new Response(
+        `data: ${JSON.stringify({ type: "error", content: "Unauthorized" })}\n\n`,
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        }
+      );
+    }
+
     console.error("[Workflow Stream] Error:", error);
     return new Response(
       `data: ${JSON.stringify({ type: "error", content: "An unexpected error occurred" })}\n\n`,

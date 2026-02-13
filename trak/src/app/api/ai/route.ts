@@ -2,10 +2,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeAICommand, type AIMessage } from "@/lib/ai";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
-import { getAuthenticatedUser } from "@/lib/auth-utils";
-import { createClient } from "@/lib/supabase/server";
 import { aiDebug, aiTiming, isAITimingEnabled } from "@/lib/ai/debug"; // Added imports
 import { getBlockWithContext } from "@/app/actions/ai-context";
+import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
 
 /**
  * POST /api/ai
@@ -44,14 +43,7 @@ export async function POST(request: NextRequest) {
 
     // 1. Check authentication
     const authStart = Date.now();
-    const user = await getAuthenticatedUser();
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized", response: "Please sign in to use AI commands." },
-        { status: 401 }
-      );
-    }
+    const { user, supabase } = await requireUser();
 
     // 2. Get workspace context
     const workspaceId = await getCurrentWorkspaceId();
@@ -63,8 +55,6 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Get workspace and user details for context
-    const supabase = await createClient();
-
     const [workspaceResult, profileResult] = await Promise.all([
       supabase.from("workspaces").select("name").eq("id", workspaceId).single(),
       supabase.from("profiles").select("name, email").eq("id", user.id).single(),
@@ -107,7 +97,11 @@ export async function POST(request: NextRequest) {
     if (contextBlockId) {
       const blockContext = await getBlockWithContext({ blockId: contextBlockId });
       if (blockContext.data) {
-        const ctx = blockContext.data as any;
+        const ctx = blockContext.data as {
+          block: { id: string; type: string; content?: Record<string, unknown> };
+          tab?: { name?: string | null } | null;
+          project?: { name?: string | null } | null;
+        };
         const block = ctx.block as { id: string; type: string; content?: Record<string, unknown> };
         const blockType = block.type;
         const tabName = ctx.tab?.name || "unknown tab";
@@ -186,13 +180,22 @@ export async function POST(request: NextRequest) {
 
     // 6. Return the result
     if (timings) {
-      (result as any)._timing = {
-        ...((result as any)._timing || {}),
+      const timedResult = result as typeof result & { _timing?: Record<string, number> };
+      timedResult._timing = {
+        ...(timedResult._timing || {}),
         ...timings
       };
+      return NextResponse.json(timedResult);
     }
     return NextResponse.json(result);
   } catch (error) {
+    if (isUnauthorizedApiError(error)) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized", response: "Please sign in to use AI commands." },
+        { status: 401 }
+      );
+    }
+
     aiDebug("api/ai:error", error);
     console.error("[AI Route] Error:", error);
     return NextResponse.json(

@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import type { CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { getSupabaseEnv } from "@/lib/supabase/env";
 
 // Test mode flag - set this to true when running outside of Next.js request context
 let isTestMode = false;
@@ -20,11 +22,13 @@ export function setTestUserId(userId: string) {
 }
 
 export async function createClient() {
+  const supabaseEnv = getSupabaseEnv();
+
   // In test mode, use service role client instead of SSR client (only in test/dev environments)
   const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
   if (isTestMode && isTestEnvironment) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = supabaseEnv.url;
+    const supabaseKey = supabaseEnv.serviceRoleKey;
 
     if (!supabaseUrl || !supabaseKey) {
       throw new Error("Missing Supabase environment variables for test mode");
@@ -55,17 +59,21 @@ export async function createClient() {
 
   // Normal Next.js request flow
   try {
+    if (!supabaseEnv.url || !supabaseEnv.anonKey) {
+      throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    }
+
     const cookieStore = await cookies();
 
     return createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      supabaseEnv.url,
+      supabaseEnv.anonKey,
       {
         cookies: {
           get(name: string) {
             return cookieStore.get(name)?.value;
           },
-          set(name: string, value: string, options: any) {
+          set(name: string, value: string, options: CookieOptions) {
             try {
               cookieStore.set({ name, value, ...options });
             } catch {
@@ -73,7 +81,7 @@ export async function createClient() {
               // This can be ignored if you have middleware refreshing sessions.
             }
           },
-          remove(name: string, options: any) {
+          remove(name: string, options: CookieOptions) {
             try {
               cookieStore.delete({ name, ...options });
             } catch {
@@ -84,11 +92,11 @@ export async function createClient() {
         },
       }
     );
-  } catch (error) {
+  } catch {
     // If cookies() fails, we're not in a request context
     // Fall back to service client (useful for scripts)
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = supabaseEnv.url;
+    const supabaseKey = supabaseEnv.serviceRoleKey;
 
     if (!supabaseUrl || !supabaseKey) {
       const missing = [

@@ -1,19 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { UnstructuredSearch } from "@/lib/search/query";
+import {
+  isUnauthorizedApiError,
+  requireUser,
+  unauthorizedJsonResponse,
+} from "@/lib/auth/require-user";
 
 export async function POST(req: NextRequest) {
-    try {
-        const supabase = await createClient();
+  try {
+    const { supabase } = await requireUser();
 
-        // Auth check
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
-
-        const body = await req.json();
-        const { query, mode = "search", workspaceId } = body;
+    const body = await req.json();
+    const { query, mode = "search", workspaceId } = body;
 
         // Permissions check: user must belong to workspace
         // (RLS handles data access, but we should verify the input workspaceId for logic)
@@ -28,21 +26,24 @@ export async function POST(req: NextRequest) {
         // YES. But inside the function `SELECT * FROM unstructured_parents` will trigger RLS.
         // So if the user can't see the workspace rows, they see nothing. Secure.
 
-        if (!query || !workspaceId) {
-            return NextResponse.json({ error: "Missing query or workspaceId" }, { status: 400 });
-        }
-
-        const searcher = new UnstructuredSearch(supabase);
-
-        if (mode === "answer") {
-            const result = await searcher.answerQuery(workspaceId, query);
-            return NextResponse.json(result);
-        } else {
-            const results = await searcher.searchWorkspace(workspaceId, query);
-            return NextResponse.json({ results });
-        }
-
-    } catch (err) {
-        return NextResponse.json({ error: "Search failed" }, { status: 500 });
+    if (!query || !workspaceId) {
+      return NextResponse.json({ error: "Missing query or workspaceId" }, { status: 400 });
     }
+
+    const searcher = new UnstructuredSearch(supabase);
+
+    if (mode === "answer") {
+      const result = await searcher.answerQuery(workspaceId, query);
+      return NextResponse.json(result);
+    }
+
+    const results = await searcher.searchWorkspace(workspaceId, query);
+    return NextResponse.json({ results });
+  } catch (error) {
+    if (isUnauthorizedApiError(error)) {
+      return unauthorizedJsonResponse();
+    }
+
+    return NextResponse.json({ error: "Search failed" }, { status: 500 });
+  }
 }

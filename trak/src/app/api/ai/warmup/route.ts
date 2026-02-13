@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { warmPromptToActionCache } from "@/lib/ai/executor";
+import {
+  isUnauthorizedApiError,
+  requireUser,
+  unauthorizedJsonResponse,
+} from "@/lib/auth/require-user";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,9 +18,25 @@ function handleWarmup() {
 }
 
 export async function POST() {
-  return handleWarmup();
+  try {
+    await requireUser();
+    return handleWarmup();
+  } catch (error) {
+    if (isUnauthorizedApiError(error)) {
+      return unauthorizedJsonResponse();
+    }
+    return NextResponse.json({ error: "Warmup failed" }, { status: 500 });
+  }
 }
 
 export async function GET() {
-  return handleWarmup();
+  try {
+    await requireUser();
+    return handleWarmup();
+  } catch (error) {
+    if (isUnauthorizedApiError(error)) {
+      return unauthorizedJsonResponse();
+    }
+    return NextResponse.json({ error: "Warmup failed" }, { status: 500 });
+  }
 }
