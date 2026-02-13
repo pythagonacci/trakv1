@@ -581,6 +581,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [propertyOverrides, setPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
+  const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
 
   const createTaskMutation = useCreateTaskItem(block.id);
   const updateTaskMutation = useUpdateTaskItem(block.id);
@@ -1243,6 +1244,19 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     });
   };
 
+  const updateSubtaskDueDate = async (
+    subtaskId: string,
+    dueDate: EntityProperties["due_date"]
+  ) => {
+    if (isTempBlock) return;
+    applySubtaskPropertyOverride(subtaskId, { due_date: dueDate });
+    await setSubtaskProperties.mutateAsync({
+      entityId: subtaskId,
+      updates: { due_date: dueDate },
+    });
+  };
+
+
   const updateTaskStatus = async (taskId: string, nextStatus: Status) => {
     const task = taskMapById.get(taskId);
     if (task?.subtasks && task.subtasks.length > 0) {
@@ -1300,6 +1314,123 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       entityId: taskId,
       updates: { tags },
     });
+  };
+
+  const toggleTaskSubtaskCollapse = (taskId: string | number) => {
+    const key = String(taskId);
+    setCollapsedTaskIds((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const promoteSubtaskToTask = async (parentTaskId: string | number, subtask: Subtask) => {
+    const subtaskId = String(subtask.id);
+    const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
+    const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
+    const legacyStatus =
+      subtaskStatus === "in_progress" ? "in-progress" : subtaskStatus === "blocked" ? "todo" : subtaskStatus;
+    const assigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+    const priority = normalizePriority(subtaskProps?.priority ?? null);
+    const dueDate = subtaskProps?.due_date ?? null;
+    const tags = subtaskProps?.tags ?? [];
+
+    if (isTempBlock) {
+      const newTask: Task = {
+        id: Date.now(),
+        text: subtask.text || "New task",
+        status: legacyStatus as Task["status"],
+        priority: (priority ?? "none") as Task["priority"],
+        dueDate: dueDate?.end ?? dueDate?.start ?? null,
+        tags,
+      };
+      const updatedTasks = [...tasks, newTask];
+      const updatedContent = { ...content, tasks: updatedTasks };
+      onUpdate?.({
+        ...block,
+        content: updatedContent,
+        updated_at: new Date().toISOString(),
+      });
+      await deleteSubtask(parentTaskId, subtask.id);
+      return;
+    }
+
+    const result = await createTaskMutation.mutateAsync({
+      taskBlockId: block.id,
+      title: subtask.text || "New task",
+      status: legacyStatus as Task["status"],
+      priority: (priority ?? "none") as Task["priority"],
+      dueDate: dueDate?.end ?? dueDate?.start ?? null,
+      description: subtask.description ?? null,
+    });
+    if ("error" in result || !result.data?.id) {
+      console.error("Failed to promote subtask:", "error" in result ? result.error : "Missing task id");
+      return;
+    }
+    await setTaskProperties.mutateAsync({
+      entityId: String(result.data.id),
+      updates: {
+        status: subtaskStatus,
+        priority,
+        assignee_ids: assigneeIds.length ? assigneeIds : null,
+        due_date: dueDate,
+        tags,
+      },
+    });
+    await deleteSubtask(parentTaskId, subtask.id);
+  };
+
+  const moveSubtaskToTask = async (
+    fromTaskId: string | number,
+    toTaskId: string | number,
+    subtask: Subtask
+  ) => {
+    if (String(fromTaskId) === String(toTaskId)) return;
+    const subtaskId = String(subtask.id);
+    const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
+    const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
+    const assigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+    const priority = normalizePriority(subtaskProps?.priority ?? null);
+    const dueDate = subtaskProps?.due_date ?? null;
+    const tags = subtaskProps?.tags ?? [];
+
+    if (isTempBlock) {
+      const fromTask = tasks.find((t) => String(t.id) === String(fromTaskId));
+      const toTask = tasks.find((t) => String(t.id) === String(toTaskId));
+      if (!fromTask || !toTask) return;
+      const nextSubtask: Subtask = {
+        ...subtask,
+        id: Date.now(),
+      };
+      await updateTask(toTaskId, { subtasks: [...(toTask.subtasks || []), nextSubtask] });
+      await updateTask(fromTaskId, {
+        subtasks: (fromTask.subtasks || []).filter((st) => String(st.id) !== subtaskId),
+      });
+      return;
+    }
+
+    const created = await subtaskMutations.create.mutateAsync({
+      taskId: String(toTaskId),
+      title: subtask.text || "New subtask",
+      description: subtask.description ?? null,
+      completed: subtaskStatus === "done",
+      displayOrder: 0,
+    });
+    if ("error" in created || !created.data?.id) {
+      console.error("Failed to move subtask:", "error" in created ? created.error : "Missing subtask id");
+      return;
+    }
+    await setSubtaskProperties.mutateAsync({
+      entityId: String(created.data.id),
+      updates: {
+        status: subtaskStatus,
+        priority,
+        assignee_ids: assigneeIds.length ? assigneeIds : null,
+        due_date: dueDate,
+        tags,
+      },
+    });
+    await deleteSubtask(fromTaskId, subtask.id);
   };
 
   const resolveDueDateFromBucket = (bucket: BoardColumn["dueBucket"]) => {
@@ -3063,194 +3194,160 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const hasDueDateValue = hasDueDate(effectiveDueDate);
               const visibleTags = effectiveTags.slice(0, 2);
               const extraTags = effectiveTags.length - visibleTags.length;
+              const hasSubtasks = Boolean(task.subtasks && task.subtasks.length > 0);
+              const isCollapsed = collapsedTaskIds[String(task.id)];
 
               return (
-                <div
-                  id={`task-${task.id}`}
-                  key={task.id}
-                  className="grid border-b border-l border-[var(--border)] row-hover-teal transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0"
-                  style={{ gridTemplateColumns: tableColumnTemplate }}
-                >
-                  <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
-                    {shouldShowIcons(task) ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          if (statusIsDerived) return;
-                          toggleTask(task.id);
-                        }}
-                        className={cn(
-                          "flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]",
-                          statusIsDerived && "cursor-not-allowed opacity-60 hover:border-[var(--border)]"
-                        )}
-                        aria-label="Toggle task"
-                        type="button"
-                      >
-                        {effectiveStatus === "done" ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        ) : effectiveStatus === "blocked" ? (
-                          <XCircle className="w-4 h-4 text-red-500" />
-                        ) : effectiveStatus === "in_progress" ? (
-                          <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
-                        ) : (
-                          <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          if (statusIsDerived) return;
-                          toggleTask(task.id);
-                        }}
-                        className={cn(
-                          "flex h-5 w-5 items-center justify-center",
-                          statusIsDerived && "cursor-not-allowed opacity-60"
-                        )}
-                        aria-label="Toggle task"
-                        type="button"
-                      >
-                        <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                    {editingTaskId === task.id ? (
-                      <input
-                        ref={editingTaskInputRef}
-                        type="text"
-                        value={editingTaskText}
-                        onChange={(e) => {
-                          // Sync search query when typing after "@"
-                          if (inlineReference && String(task.id) === inlineReference.taskId) {
-                            const cursor = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
-                            const start = inlineReference.cursor;
-                            if (cursor > start) {
-                              const query = e.currentTarget.value.slice(start + 1, cursor);
-                              setReferenceCurrentQuery(query);
-                            }
-                          }
-                          setEditingTaskText(e.target.value);
-                        }}
-                        onBlur={() => {
-                          updateTask(task.id, { text: editingTaskText });
-                          setEditingTaskId(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "@" && projectId && !isTempBlock) {
+                <div key={task.id} className="group/task-row">
+                  <div
+                    id={`task-${task.id}`}
+                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0 group-hover/task-row:bg-[var(--surface-hover)]/12"
+                    style={{ gridTemplateColumns: tableColumnTemplate }}
+                  >
+                    <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
+                      {shouldShowIcons(task) ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
                             e.preventDefault();
-                            const cursor = e.currentTarget.selectionStart ?? editingTaskText.length;
-                            const nextValue =
-                              editingTaskText.slice(0, cursor) + "@" + editingTaskText.slice(cursor);
-                            setEditingTaskText(nextValue);
-                            setInlineReference({ taskId: String(task.id), cursor });
-                            const rect = getInputCaretRect(e.currentTarget);
-                            openReferencePicker(task.id, { cursor, anchorRect: rect, initialQuery: "" });
-                            requestAnimationFrame(() => {
-                              if (editingTaskInputRef.current) {
-                                const pos = cursor + 1;
-                                editingTaskInputRef.current.setSelectionRange(pos, pos);
-                              }
-                            });
-                            return;
-                          }
-                          if (e.key === "Enter") {
-                            updateTask(task.id, { text: editingTaskText });
-                            setEditingTaskId(null);
-                          }
-                          if (e.key === "Escape") {
-                            setEditingTaskId(null);
-                            setInlineReference(null);
-                            setReferenceCurrentQuery("");
-                          }
-                        }}
-                        autoFocus
-                        className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
-                      />
-                    ) : (
-                      <div
-                        onClick={(e) => {
-                          const target = e.target as HTMLElement;
-                          if (target.closest('a[data-ref-link="true"]')) {
-                            return;
-                          }
-                          setEditingTaskId(task.id);
-                          setEditingTaskText(task.text);
-                        }}
-                        className={cn(
-                          "cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
-                          isDone && "line-through text-[var(--muted-foreground)]"
-                        )}
-                        dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
-                      />
-                    )}
-                    {task.description !== undefined && (
-                      <TaskDescription task={task} updateTask={updateTask} />
-                    )}
-                    {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
-                      <TaskPropertyBadges
-                        entityId={taskEntityId}
-                        workspaceId={workspaceId}
-                        onOpen={() => {
-                          setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                          setPropertiesOpen(true);
-                        }}
-                      />
-                    )}
-                  </div>
-                  <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                    {canUseProperties && taskEntityId ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                            if (statusIsDerived) return;
+                            toggleTask(task.id);
+                          }}
+                          className={cn(
+                            "flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]",
+                            statusIsDerived && "cursor-not-allowed opacity-60 hover:border-[var(--border)]"
+                          )}
+                          aria-label="Toggle task"
+                          type="button"
+                        >
+                          {effectiveStatus === "done" ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          ) : effectiveStatus === "blocked" ? (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          ) : effectiveStatus === "in_progress" ? (
+                            <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
+                          ) : (
+                            <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            if (statusIsDerived) return;
+                            toggleTask(task.id);
+                          }}
+                          className={cn(
+                            "flex h-5 w-5 items-center justify-center",
+                            statusIsDerived && "cursor-not-allowed opacity-60"
+                          )}
+                          aria-label="Toggle task"
+                          type="button"
+                        >
+                          <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                      <div className="flex items-start gap-2">
+                        {hasSubtasks && (
                           <button
                             type="button"
-                            onClick={(e) => e.stopPropagation()}
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
-                              effectivePriority
-                                ? PRIORITY_COLORS[effectivePriority]
-                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                            )}
+                            onClick={() => toggleTaskSubtaskCollapse(task.id)}
+                            className="mt-0.5 flex h-4 w-4 items-center justify-center rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                            title={isCollapsed ? "Expand subtasks" : "Collapse subtasks"}
                           >
-                            {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
-                            {priorityLabel ?? "None"}
+                            {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                           </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem onClick={() => updateTaskPriority(String(task.id), null)}>
-                            None
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {PRIORITY_OPTIONS.map((opt) => (
-                            <DropdownMenuItem
-                              key={opt.value}
-                              onClick={() => updateTaskPriority(String(task.id), opt.value)}
-                            >
-                              {opt.label}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : (
-                      <span className="text-xs text-[var(--muted-foreground)]">{priorityLabel ?? "—"}</span>
-                    )}
-                  </div>
-                  <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                    {canUseProperties && taskEntityId ? (
-                      statusIsDerived ? (
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]",
-                            "cursor-not-allowed opacity-60"
+                        )}
+                        <div className="min-w-0 flex-1">
+                          {editingTaskId === task.id ? (
+                            <input
+                              ref={editingTaskInputRef}
+                              type="text"
+                              value={editingTaskText}
+                              onChange={(e) => {
+                                if (inlineReference && String(task.id) === inlineReference.taskId) {
+                                  const cursor = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
+                                  const start = inlineReference.cursor;
+                                  if (cursor > start) {
+                                    const query = e.currentTarget.value.slice(start + 1, cursor);
+                                    setReferenceCurrentQuery(query);
+                                  }
+                                }
+                                setEditingTaskText(e.target.value);
+                              }}
+                              onBlur={() => {
+                                updateTask(task.id, { text: editingTaskText });
+                                setEditingTaskId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "@" && projectId && !isTempBlock) {
+                                  e.preventDefault();
+                                  const cursor = e.currentTarget.selectionStart ?? editingTaskText.length;
+                                  const nextValue =
+                                    editingTaskText.slice(0, cursor) + "@" + editingTaskText.slice(cursor);
+                                  setEditingTaskText(nextValue);
+                                  setInlineReference({ taskId: String(task.id), cursor });
+                                  const rect = getInputCaretRect(e.currentTarget);
+                                  openReferencePicker(task.id, { cursor, anchorRect: rect, initialQuery: "" });
+                                  requestAnimationFrame(() => {
+                                    if (editingTaskInputRef.current) {
+                                      const pos = cursor + 1;
+                                      editingTaskInputRef.current.setSelectionRange(pos, pos);
+                                    }
+                                  });
+                                  return;
+                                }
+                                if (e.key === "Enter") {
+                                  updateTask(task.id, { text: editingTaskText });
+                                  setEditingTaskId(null);
+                                }
+                                if (e.key === "Escape") {
+                                  setEditingTaskId(null);
+                                  setInlineReference(null);
+                                  setReferenceCurrentQuery("");
+                                }
+                              }}
+                              autoFocus
+                              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                            />
+                          ) : (
+                            <div
+                              onClick={(e) => {
+                                const target = e.target as HTMLElement;
+                                if (target.closest('a[data-ref-link="true"]')) {
+                                  return;
+                                }
+                                setEditingTaskId(task.id);
+                                setEditingTaskText(task.text);
+                              }}
+                              className={cn(
+                                "cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                isDone && "line-through text-[var(--muted-foreground)]"
+                              )}
+                              dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
+                            />
                           )}
-                          title="Assignees are derived from subtasks"
-                        >
-                          {shouldShowIcons(task) && <Users className="h-3 w-3" />}
-                          <span className="max-w-[160px] truncate">{assigneeLabel || "Unassigned"}</span>
-                        </span>
-                      ) : (
+                          {task.description !== undefined && (
+                            <TaskDescription task={task} updateTask={updateTask} />
+                          )}
+                          {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
+                            <TaskPropertyBadges
+                              entityId={taskEntityId}
+                              workspaceId={workspaceId}
+                              onOpen={() => {
+                                setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                                setPropertiesOpen(true);
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                      {canUseProperties && taskEntityId ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button
@@ -3258,193 +3355,600 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               onClick={(e) => e.stopPropagation()}
                               className={cn(
                                 "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
-                                effectiveAssigneeIds.length
-                                  ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                effectivePriority
+                                  ? PRIORITY_COLORS[effectivePriority]
                                   : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                               )}
-                              title={assigneeLabel ? `Assignees: ${assigneeLabel}` : "Assign"}
                             >
-                              {shouldShowIcons(task) && <Users className="h-3 w-3" />}
-                              <span className="max-w-[160px] truncate">{assigneeLabel || "Unassigned"}</span>
+                              {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
+                              {priorityLabel ?? "None"}
                             </button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem onClick={() => updateTaskAssignees(String(task.id), [])}>
-                              Unassigned (clear all)
+                          <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem onClick={() => updateTaskPriority(String(task.id), null)}>
+                              None
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            {workspaceMembers.map((m) => {
-                              const isAssigned = effectiveAssigneeIds.includes(m.user_id);
-                              return (
-                                <DropdownMenuItem
-                                  key={m.user_id}
-                                  onClick={() => {
-                                    const next = isAssigned
-                                      ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
-                                      : [...effectiveAssigneeIds, m.user_id];
-                                    updateTaskAssignees(String(task.id), next);
-                                  }}
-                                >
-                                  <span className="flex items-center gap-2">
-                                    {isAssigned ? "✓ " : ""}
-                                    {m.name || m.email}
-                                  </span>
-                                </DropdownMenuItem>
-                              );
-                            })}
+                            {PRIORITY_OPTIONS.map((opt) => (
+                              <DropdownMenuItem
+                                key={opt.value}
+                                onClick={() => updateTaskPriority(String(task.id), opt.value)}
+                              >
+                                {opt.label}
+                              </DropdownMenuItem>
+                            ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      )
-                    ) : (
-                      <span className="text-xs text-[var(--muted-foreground)]">{assigneeLabel ?? "—"}</span>
-                    )}
-                  </div>
-                  <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                    {canUseProperties && taskEntityId ? (
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">{priorityLabel ?? "—"}</span>
+                      )}
+                    </div>
+                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                      {canUseProperties && taskEntityId ? (
+                        statusIsDerived ? (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]",
+                              "cursor-not-allowed opacity-60"
+                            )}
+                            title="Assignees are derived from subtasks"
+                          >
+                            {shouldShowIcons(task) && <Users className="h-3 w-3" />}
+                            <span className="max-w-[160px] truncate">{assigneeLabel || "Unassigned"}</span>
+                          </span>
+                        ) : (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
+                                  effectiveAssigneeIds.length
+                                    ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                                )}
+                                title={assigneeLabel ? `Assignees: ${assigneeLabel}` : "Assign"}
+                              >
+                                {shouldShowIcons(task) && <Users className="h-3 w-3" />}
+                                <span className="max-w-[160px] truncate">{assigneeLabel || "Unassigned"}</span>
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
+                              <DropdownMenuItem onClick={() => updateTaskAssignees(String(task.id), [])}>
+                                Unassigned (clear all)
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              {workspaceMembers.map((m) => {
+                                const isAssigned = effectiveAssigneeIds.includes(m.user_id);
+                                return (
+                                  <DropdownMenuItem
+                                    key={m.user_id}
+                                    onClick={() => {
+                                      const next = isAssigned
+                                        ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
+                                        : [...effectiveAssigneeIds, m.user_id];
+                                      updateTaskAssignees(String(task.id), next);
+                                    }}
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      {isAssigned ? "✓ " : ""}
+                                      {m.name || m.email}
+                                    </span>
+                                  </DropdownMenuItem>
+                                );
+                              })}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">{assigneeLabel ?? "—"}</span>
+                      )}
+                    </div>
+                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                      {canUseProperties && taskEntityId ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
+                                hasDueDateValue
+                                  ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                              )}
+                              title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
+                            >
+                              {shouldShowIcons(task) && <Calendar className="h-3 w-3" />}
+                              <span className="whitespace-nowrap">{dueDateLabel || "No due date"}</span>
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="start"
+                            className="w-64"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="space-y-2">
+                              <DateRangeCalendar
+                                range={{
+                                  start: effectiveDueDate?.start ?? null,
+                                  end: effectiveDueDate?.end ?? null,
+                                }}
+                                onChange={(nextRange) =>
+                                  updateTaskDueDate(
+                                    String(task.id),
+                                    buildDueDateRange(nextRange.start, nextRange.end)
+                                  )
+                                }
+                              />
+                              {hasDueDateValue && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => updateTaskDueDate(String(task.id), null)}
+                                    className="text-red-600"
+                                  >
+                                    Clear dates
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </div>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">{dueDateLabel ?? "—"}</span>
+                      )}
+                    </div>
+                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (canUseProperties && taskEntityId) {
+                            setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                            setPropertiesOpen(true);
+                          }
+                        }}
+                        className="flex flex-wrap items-center gap-1.5 text-left"
+                      >
+                        {visibleTags.length > 0 ? (
+                          <>
+                            {visibleTags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {extraTags > 0 && (
+                              <span className="text-[10px] text-[var(--muted-foreground)]">+{extraTags}</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-[var(--muted-foreground)]">No tags</span>
+                        )}
+                      </button>
+                    </div>
+                    <div className="px-2 py-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={(e) => e.stopPropagation()}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
-                              hasDueDateValue
-                                ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-                            )}
-                            title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
-                          >
-                            {shouldShowIcons(task) && <Calendar className="h-3 w-3" />}
-                            <span className="whitespace-nowrap">{dueDateLabel || "No due date"}</span>
+                          <button className="flex h-7 w-7 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                            <MoreVertical className="h-3.5 w-3.5" />
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="start"
-                          className="w-64"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="space-y-2">
-                            <DateRangeCalendar
-                              range={{
-                                start: effectiveDueDate?.start ?? null,
-                                end: effectiveDueDate?.end ?? null,
-                              }}
-                              onChange={(nextRange) =>
-                                updateTaskDueDate(
-                                  String(task.id),
-                                  buildDueDateRange(nextRange.start, nextRange.end)
-                                )
-                              }
-                            />
-                            {hasDueDateValue && (
+                        <DropdownMenuContent align="end" className="w-56">
+                          {canUseProperties && taskEntityId && (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                                  setPropertiesOpen(true);
+                                }}
+                              >
+                                <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
+                                Properties
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
+                          <DropdownMenuItem onClick={() => toggleTaskIcons(task.id)}>
+                            {task.hideIcons ? (
                               <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => updateTaskDueDate(String(task.id), null)}
-                                  className="text-red-600"
-                                >
-                                  Clear dates
-                                </DropdownMenuItem>
+                                <Eye className="mr-2 h-4 w-4" />
+                                Show Icons
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="mr-2 h-4 w-4" />
+                                Hide Icons
                               </>
                             )}
-                          </div>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (!task.description) {
+                                updateTask(task.id, { description: "" });
+                              }
+                            }}
+                          >
+                            <AlignLeft className="mr-2 h-4 w-4" />
+                            Add Description
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => addSubtask(task.id)}>
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Add Subtask
+                          </DropdownMenuItem>
+                          {hasSubtasks && (
+                            <>
+                              <DropdownMenuItem onClick={() => toggleTaskSubtaskCollapse(task.id)}>
+                                {isCollapsed ? "Expand subtasks" : "Collapse subtasks"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled>Select all subtasks</DropdownMenuItem>
+                            </>
+                          )}
+                          <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
+                            <Paperclip className="mr-2 h-4 w-4" />
+                            Attachments
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
+                            <X className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    ) : (
-                      <span className="text-xs text-[var(--muted-foreground)]">{dueDateLabel ?? "—"}</span>
-                    )}
+                    </div>
                   </div>
-                  <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (canUseProperties && taskEntityId) {
-                          setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                          setPropertiesOpen(true);
-                        }
-                      }}
-                      className="flex flex-wrap items-center gap-1.5 text-left"
-                    >
-                      {visibleTags.length > 0 ? (
-                        <>
-                          {visibleTags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                          {extraTags > 0 && (
-                            <span className="text-[10px] text-[var(--muted-foreground)]">+{extraTags}</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-xs text-[var(--muted-foreground)]">No tags</span>
-                      )}
-                    </button>
-                  </div>
-                  <div className="px-2 py-2">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="flex h-7 w-7 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        {canUseProperties && taskEntityId && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                                setPropertiesOpen(true);
+                  {hasSubtasks && !isCollapsed &&
+                    (task.subtasks || []).map((subtask) => {
+                      const subtaskId = String(subtask.id);
+                      const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
+                      const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
+                      const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
+                      const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
+                      const subtaskPriority = normalizePriority(subtaskProps?.priority ?? null);
+                      const subtaskAssigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+                      const subtaskAssigneeNames = subtaskAssigneeIds
+                        .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
+                        .filter(Boolean) as string[];
+                      const subtaskAssigneeLabel = subtaskAssigneeNames.length ? subtaskAssigneeNames.join(", ") : null;
+                      const subtaskPriorityLabel = subtaskPriority
+                        ? PRIORITY_OPTIONS.find((o) => o.value === subtaskPriority)?.label ?? subtaskPriority
+                        : null;
+                      const subtaskDueDate = subtaskProps?.due_date ?? null;
+                      const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate) || null;
+                      const hasSubtaskDueDate = hasDueDate(subtaskDueDate);
+                      const subtaskTags = subtaskProps?.tags ?? [];
+                      const visibleSubtaskTags = subtaskTags.slice(0, 2);
+                      const extraSubtaskTags = subtaskTags.length - visibleSubtaskTags.length;
+                      return (
+                        <div
+                          key={`subtask-${subtask.id}`}
+                          className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--secondary)]/[0.06] w-full last:border-b-0 group-hover/task-row:bg-[var(--secondary)]/[0.1] subtask-table-row"
+                          style={{ gridTemplateColumns: tableColumnTemplate }}
+                        >
+                          <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-1.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                toggleSubtask(task.id, subtask.id);
                               }}
+                              className="flex h-4 w-4 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]"
+                              aria-label="Toggle subtask"
+                              type="button"
                             >
-                              <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
-                              Properties
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
-                        <DropdownMenuItem onClick={() => toggleTaskIcons(task.id)}>
-                          {task.hideIcons ? (
-                            <>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Show Icons
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="mr-2 h-4 w-4" />
-                              Hide Icons
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          if (!task.description) {
-                            updateTask(task.id, { description: "" });
-                          }
-                        }}>
-                          <AlignLeft className="mr-2 h-4 w-4" />
-                          Add Description
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => addSubtask(task.id)}>
-                          <CheckSquare className="mr-2 h-4 w-4" />
-                          Add Subtask
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
-                          <Paperclip className="mr-2 h-4 w-4" />
-                          Attachments
-                        </DropdownMenuItem>
-
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
-                          <X className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                              {subtaskStatus === "done" ? (
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              ) : subtaskStatus === "blocked" ? (
+                                <XCircle className="w-3 h-3 text-red-500" />
+                              ) : subtaskStatus === "in_progress" ? (
+                                <Clock className="w-3 h-3 text-[var(--tram-yellow)]" />
+                              ) : (
+                                <Circle className="w-3 h-3 text-neutral-300 dark:text-neutral-600" />
+                              )}
+                            </button>
+                          </div>
+                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                            <div className="relative min-h-[1.5rem]">
+                              {/* Subtle hierarchy guide: vertical + elbow, depth > 0 only, 1px, ~10% opacity, task cell only */}
+                              <span
+                                className="pointer-events-none absolute left-3 top-0 h-1/2 w-px bg-[var(--foreground)] opacity-[0.1]"
+                                aria-hidden
+                              />
+                              <span
+                                className="pointer-events-none absolute left-3 top-1/2 h-px w-3 bg-[var(--foreground)] opacity-[0.1]"
+                                aria-hidden
+                              />
+                              <div className="flex items-center gap-1.5" style={{ paddingLeft: "24px" }}>
+                                <span className="shrink-0 text-[10px] text-[var(--muted-foreground)] opacity-70" aria-hidden>└─</span>
+                                <input
+                                  type="text"
+                                  value={subtaskDrafts[subtaskId] ?? subtask.text}
+                                  onChange={(e) =>
+                                    setSubtaskDrafts((prev) => ({ ...prev, [subtaskId]: e.target.value }))
+                                  }
+                                  onBlur={() =>
+                                    commitSubtaskDraft(
+                                      task.id,
+                                      subtask.id,
+                                      subtaskDrafts[subtaskId],
+                                      subtask.text
+                                    )
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      (e.currentTarget as HTMLInputElement).blur();
+                                    }
+                                    if (e.key === "Escape") {
+                                      setSubtaskDrafts((prev) => {
+                                        const next = { ...prev };
+                                        delete next[subtaskId];
+                                        return next;
+                                      });
+                                      (e.currentTarget as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                  className={cn(
+                                    "w-full bg-transparent text-[0.95em] leading-snug text-[var(--foreground)] outline-none",
+                                    subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
+                                  )}
+                                />
+                              </div>
+                            </div>
+                            {subtask.description !== undefined && (
+                              <SubtaskDescription
+                                subtask={subtask}
+                                updateSubtask={(id, updates) => updateSubtask(task.id, id, updates)}
+                              />
+                            )}
+                          </div>
+                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                            {canUseSubtaskProperties && subtaskEntityId ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs transition-colors",
+                                      subtaskPriority
+                                        ? PRIORITY_COLORS[subtaskPriority]
+                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                                    )}
+                                    title={subtaskPriorityLabel ? `Priority: ${subtaskPriorityLabel}` : "Set priority"}
+                                  >
+                                    <Flag className="h-3 w-3" />
+                                    {subtaskPriorityLabel ?? "None"}
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
+                                  <DropdownMenuItem onClick={() => updateSubtaskPriority(subtaskId, null)}>
+                                    None
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  {PRIORITY_OPTIONS.map((opt) => (
+                                    <DropdownMenuItem
+                                      key={opt.value}
+                                      onClick={() => updateSubtaskPriority(subtaskId, opt.value)}
+                                    >
+                                      {opt.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : (
+                              <span className="text-xs text-[var(--muted-foreground)]">{subtaskPriorityLabel ?? "—"}</span>
+                            )}
+                          </div>
+                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                            {canUseSubtaskProperties && subtaskEntityId ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs transition-colors",
+                                      subtaskAssigneeIds.length
+                                        ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                                    )}
+                                    title={subtaskAssigneeLabel ? `Assignees: ${subtaskAssigneeLabel}` : "Assign"}
+                                  >
+                                    <Users className="h-3 w-3" />
+                                    <span className="max-w-[160px] truncate">{subtaskAssigneeLabel || "Unassigned"}</span>
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
+                                  <DropdownMenuItem onClick={() => updateSubtaskAssignees(subtaskId, [])}>
+                                    Unassigned (clear all)
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  {workspaceMembers.map((m) => {
+                                    const isAssigned = subtaskAssigneeIds.includes(m.user_id);
+                                    return (
+                                      <DropdownMenuItem
+                                        key={m.user_id}
+                                        onClick={() => {
+                                          const next = isAssigned
+                                            ? subtaskAssigneeIds.filter((id) => id !== m.user_id)
+                                            : [...subtaskAssigneeIds, m.user_id];
+                                          updateSubtaskAssignees(subtaskId, next);
+                                        }}
+                                      >
+                                        <span className="flex items-center gap-2">
+                                          {isAssigned ? "✓ " : ""}
+                                          {m.name || m.email}
+                                        </span>
+                                      </DropdownMenuItem>
+                                    );
+                                  })}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : (
+                              <span className="text-xs text-[var(--muted-foreground)]">{subtaskAssigneeLabel ?? "—"}</span>
+                            )}
+                          </div>
+                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                            {canUseSubtaskProperties && subtaskEntityId ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs transition-colors",
+                                      hasSubtaskDueDate
+                                        ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                    )}
+                                    title={hasSubtaskDueDate ? `Due: ${subtaskDueDateLabel}` : "Set due date"}
+                                  >
+                                    <Calendar className="h-3 w-3" />
+                                    <span className="whitespace-nowrap">{subtaskDueDateLabel || "No due date"}</span>
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="start"
+                                  className="w-64"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="space-y-2">
+                                    <DateRangeCalendar
+                                      range={{
+                                        start: subtaskDueDate?.start ?? null,
+                                        end: subtaskDueDate?.end ?? null,
+                                      }}
+                                      onChange={(nextRange) =>
+                                        updateSubtaskDueDate(
+                                          subtaskId,
+                                          buildDueDateRange(nextRange.start, nextRange.end)
+                                        )
+                                      }
+                                    />
+                                    {hasSubtaskDueDate && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onClick={() => updateSubtaskDueDate(subtaskId, null)}
+                                          className="text-red-600"
+                                        >
+                                          Clear dates
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </div>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : (
+                              <span className="text-xs text-[var(--muted-foreground)]">{subtaskDueDateLabel ?? "—"}</span>
+                            )}
+                          </div>
+                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (canUseSubtaskProperties && subtaskEntityId) {
+                                  setPropertiesTarget({
+                                    type: "subtask",
+                                    id: subtaskEntityId,
+                                    title: subtask.text || "Subtask",
+                                  });
+                                  setPropertiesOpen(true);
+                                }
+                              }}
+                              className="flex flex-wrap items-center gap-1.5 text-left"
+                            >
+                              {visibleSubtaskTags.length > 0 ? (
+                                <>
+                                  {visibleSubtaskTags.map((tag) => (
+                                    <span
+                                      key={`${subtaskId}-${tag}`}
+                                      className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                  {extraSubtaskTags > 0 && (
+                                    <span className="text-[10px] text-[var(--muted-foreground)]">+{extraSubtaskTags}</span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-xs text-[var(--muted-foreground)]">No tags</span>
+                              )}
+                            </button>
+                          </div>
+                          <div className="px-2 py-1.5">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                                  <MoreVertical className="h-3 w-3" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-56">
+                                {canUseSubtaskProperties && subtaskEntityId && (
+                                  <>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setPropertiesTarget({
+                                          type: "subtask",
+                                          id: subtaskEntityId,
+                                          title: subtask.text || "Subtask",
+                                        });
+                                        setPropertiesOpen(true);
+                                      }}
+                                    >
+                                      <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
+                                      Properties
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                  </>
+                                )}
+                                <DropdownMenuItem onClick={() => openSubtaskReferencesPanel(subtask.id)}>
+                                  <Paperclip className="mr-2 h-4 w-4" />
+                                  Attachments
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => promoteSubtaskToTask(task.id, subtask)}
+                                >
+                                  <CheckSquare className="mr-2 h-4 w-4" />
+                                  Promote to task
+                                </DropdownMenuItem>
+                                {orderedTasks.length > 1 && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem disabled>Move to another parent</DropdownMenuItem>
+                                    {orderedTasks
+                                      .filter((t) => String(t.id) !== String(task.id))
+                                      .map((target) => (
+                                        <DropdownMenuItem
+                                          key={`move-${subtaskId}-${target.id}`}
+                                          onClick={() => moveSubtaskToTask(task.id, target.id, subtask)}
+                                        >
+                                          {target.text || "Untitled task"}
+                                        </DropdownMenuItem>
+                                      ))}
+                                  </>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => deleteSubtask(task.id, subtask.id)}
+                                  className="text-red-600"
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               );
             })}
