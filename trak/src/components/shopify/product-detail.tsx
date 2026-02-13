@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { getProductDetails, refreshProduct } from "@/app/actions/shopify-products";
+import { createProjectFromProduct } from "@/app/actions/project";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { UnitsSoldWidget } from "./units-sold-widget";
 
 interface ProductDetailProps {
@@ -13,9 +16,11 @@ interface ProductDetailProps {
 }
 
 export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDetailProps) {
+  const router = useRouter();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const [isCreatingProject, startCreateTransition] = useTransition();
 
   useEffect(() => {
     if (isOpen && productId) {
@@ -48,6 +53,27 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
     });
   };
 
+  const handleCreateProject = () => {
+    startCreateTransition(async () => {
+      const workspaceId = await getCurrentWorkspaceId();
+      if (!workspaceId) {
+        alert("No workspace selected");
+        return;
+      }
+      const result = await createProjectFromProduct(workspaceId, productId);
+      if ("error" in result) {
+        alert(result.error);
+        return;
+      }
+      onClose();
+      if (result.data.tabId) {
+        router.push(`/dashboard/projects/${result.data.projectId}/tabs/${result.data.tabId}`);
+      } else {
+        router.push(`/dashboard/projects/${result.data.projectId}`);
+      }
+    });
+  };
+
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
@@ -66,16 +92,26 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
               <DialogTitle className="text-2xl">{product.title}</DialogTitle>
               <p className="text-sm text-gray-500 mt-1">
                 Last synced: {new Date(product.last_synced_at).toLocaleString()}
               </p>
             </div>
-            <Button onClick={handleRefresh} disabled={isPending} variant="outline" size="sm">
-              {isPending ? "Refreshing..." : "Refresh from Shopify"}
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                onClick={handleCreateProject}
+                disabled={isCreatingProject}
+                variant="default"
+                size="sm"
+              >
+                {isCreatingProject ? "Creating..." : "Create project from product"}
+              </Button>
+              <Button onClick={handleRefresh} disabled={isPending} variant="outline" size="sm">
+                {isPending ? "Refreshing..." : "Refresh from Shopify"}
+              </Button>
+            </div>
           </div>
         </DialogHeader>
 

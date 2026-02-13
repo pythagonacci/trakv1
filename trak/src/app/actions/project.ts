@@ -5,6 +5,7 @@ import { getServerUser } from '@/lib/auth/get-server-user'
 import { safeRevalidatePath } from './workspace'
 import type { AuthContext } from '@/lib/auth-context'
 import { createTab } from './tab'
+import { createBlock } from './block'
 import type { BlockType } from './block';
 
 // Type for project status
@@ -22,6 +23,7 @@ type ProjectData = {
   status?: ProjectStatus
   due_date_date?: string | null  // ISO date string
   due_date_text?: string | null
+  member_ids?: string[] | 'all'  // Project permissions: 'all' or array of user IDs
 }
 
 // Type for project filters
@@ -370,8 +372,129 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
     console.error("Failed to create default tab:", tabResult.error);
   }
 
+  // Handle project permissions
+  if (projectData.member_ids && projectData.member_ids !== 'all') {
+    // Auto-include the project creator if not already included
+    const memberIdsToAssign = new Set(projectData.member_ids);
+    memberIdsToAssign.add(userId);
+    const memberIdsArray = Array.from(memberIdsToAssign);
+
+    // Validate that all member_ids are workspace members
+    const { data: validMembers } = await supabase
+      .from('workspace_members')
+      .select('user_id')
+      .eq('workspace_id', workspaceId)
+      .in('user_id', memberIdsArray);
+
+    const validUserIds = validMembers?.map(m => m.user_id) || [];
+
+    if (validUserIds.length > 0) {
+      // Insert project members
+      const projectMembersToInsert = validUserIds.map(uid => ({
+        project_id: project.id,
+        user_id: uid,
+        added_by: userId
+      }));
+
+      const { error: membersError } = await supabase
+        .from('project_members')
+        .insert(projectMembersToInsert);
+
+      if (membersError) {
+        console.error('Failed to add project members:', membersError);
+        // Don't fail project creation, just log the error
+      }
+    }
+  }
+  // If member_ids === 'all' or undefined, don't insert any rows (= accessible to all)
+
   await safeRevalidatePath('/dashboard')
   return { data: project }
+}
+
+/**
+ * Create a project from a Shopify product. The project name is the product title,
+ * and the first tab (non-overview) gets a shopify_product block rendering that product.
+ */
+export async function createProjectFromProduct(
+  workspaceId: string,
+  productId: string,
+  opts?: { authContext?: AuthContext }
+) {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
+  }
+
+  const { data: membership, error: memberError } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (memberError || !membership) {
+    return { error: 'You must be a workspace member to create projects' }
+  }
+
+  const { data: product, error: productError } = await supabase
+    .from('trak_products')
+    .select('id, title')
+    .eq('id', productId)
+    .single()
+
+  if (productError || !product) {
+    return { error: 'Product not found' }
+  }
+
+  const projectName = (product.title && String(product.title).trim()) || 'Untitled Project'
+  const createResult = await createProject(
+    workspaceId,
+    {
+      name: projectName,
+      status: 'not_started',
+    },
+    { authContext: { supabase, userId } }
+  )
+
+  if (createResult.error) {
+    return { error: createResult.error }
+  }
+
+  const project = createResult.data as { id: string }
+
+  const { data: firstTab, error: tabError } = await supabase
+    .from('tabs')
+    .select('id')
+    .eq('project_id', project.id)
+    .is('parent_tab_id', null)
+    .order('position', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (tabError || !firstTab) {
+    return { data: { projectId: project.id, tabId: null } }
+  }
+
+  const blockResult = await createBlock({
+    tabId: firstTab.id,
+    type: 'shopify_product',
+    content: { product_id: productId },
+    authContext: { supabase, userId },
+  })
+
+  if (blockResult.error) {
+    console.error('Failed to add product block to tab:', blockResult.error)
+  }
+
+  return { data: { projectId: project.id, tabId: firstTab.id } }
 }
 
 /**

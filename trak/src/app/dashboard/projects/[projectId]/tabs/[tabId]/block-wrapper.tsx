@@ -151,6 +151,7 @@ export default function BlockWrapper({
     if (block.type === "link") return "Link block";
     if (block.type === "pdf") return "PDF block";
     if (block.type === "chart") return "Chart block";
+    if (block.type === "shopify_product") return "Shopify product";
     return `${block.type} block`;
   })();
 
@@ -901,6 +902,9 @@ function getBlockTitle(block: Block): string {
 
     case "doc_reference":
       return (content.title as string) ?? "Document reference";
+
+    case "shopify_product":
+      return (content.title as string) ?? "Shopify product";
 
     case "pdf":
       return (content.filename as string) ?? "File";

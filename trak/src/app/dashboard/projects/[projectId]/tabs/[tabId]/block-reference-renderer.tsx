@@ -17,6 +17,7 @@ import EmbedBlock from "./embed-block";
 import PdfBlock from "./pdf-block";
 import SectionBlock from "./section-block";
 import ChartBlock from "@/components/blocks/ChartBlock";
+import ShopifyProductBlock from "./shopify-product-block";
 import { useRouter } from "next/navigation";
 
 interface BlockReferenceRendererProps {
@@ -127,6 +128,8 @@ export default function BlockReferenceRenderer({
         ) : (
           <div className="p-5 text-sm text-neutral-500">Section requires tabId</div>
         );
+      case "shopify_product":
+        return <ShopifyProductBlock block={originalBlock} onUpdate={onUpdate} />;
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">

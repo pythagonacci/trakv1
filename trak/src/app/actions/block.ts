@@ -11,7 +11,7 @@ import { IndexingQueue } from "@/lib/search/job-queue";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "chart" | "doc_reference";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "chart" | "doc_reference" | "shopify_product";
 
 export interface Block {
   id: string;

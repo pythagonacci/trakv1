@@ -84,6 +84,11 @@ const DocReferenceBlock = dynamic(() => import("./blocks/doc-reference-block"), 
   ssr: true,
 });
 
+const ShopifyProductBlock = dynamic(() => import("./shopify-product-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
 const BlockReferenceRenderer = dynamic(() => import("./block-reference-renderer"), {
   loading: () => <BlockLoadingState />,
   ssr: true,
@@ -180,6 +185,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
         );
       case "doc_reference":
         return <DocReferenceBlock block={block} onDelete={() => onDelete?.(block.id)} onOpenDoc={onOpenDoc} />;
+      case "shopify_product":
+        return <ShopifyProductBlock block={block} onUpdate={onUpdate} />;
       default:
         return (
           <div className="p-5 text-sm text-neutral-500">
