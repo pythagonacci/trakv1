@@ -28,7 +28,7 @@ export default async function DashboardPage() {
   }
 
   // Fetch dashboard data with graceful degradation
-  const [projectsResult, docsResult, tasksResult, commentBlocksResult, aiInsightsResult] = await Promise.allSettled([
+  const [projectsResult, docsResult, tasksResult, completedTasksResult, commentBlocksResult, aiInsightsResult] = await Promise.allSettled([
     // Get projects
     supabase
       .from("projects")
@@ -46,7 +46,7 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(5),
 
-    // Get tasks from task items - optimized with better filtering
+    // Get open tasks from task items
     supabase
       .from("task_items")
       .select(`
@@ -71,6 +71,31 @@ export default async function DashboardPage() {
       .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
       .limit(20),
+
+    // Get recently completed tasks (status = done, ordered by updated_at)
+    supabase
+      .from("task_items")
+      .select(`
+        id,
+        title,
+        status,
+        task_block_id,
+        tab_id,
+        updated_at,
+        tab:tabs(
+          id,
+          name,
+          project_id,
+          project:projects(
+            id,
+            name
+          )
+        )
+      `)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["done", "complete", "completed"])
+      .order("updated_at", { ascending: false })
+      .limit(6),
 
     // Blocks with potential client comments - optimized with inner joins
     supabase
@@ -115,6 +140,10 @@ export default async function DashboardPage() {
     ? tasksResult.value.data || []
     : [];
 
+  const completedTaskItems = completedTasksResult.status === 'fulfilled' && !completedTasksResult.value.error
+    ? completedTasksResult.value.data || []
+    : [];
+
   const commentBlocks = commentBlocksResult.status === 'fulfilled' && !commentBlocksResult.value.error
     ? commentBlocksResult.value.data || []
     : [];
@@ -122,6 +151,33 @@ export default async function DashboardPage() {
   const aiInsights = aiInsightsResult.status === 'fulfilled' && !aiInsightsResult.value.error
     ? aiInsightsResult.value.data
     : null;
+
+  // Team updates: internal comments left by other teammates (exclude current user)
+  const teamUpdates = commentBlocks
+    .flatMap((block: any) => {
+      const comments: BlockComment[] = Array.isArray(block.content?._blockComments)
+        ? block.content._blockComments
+        : [];
+      return comments
+        .filter((c) => c && c.source !== "external" && c.author_id && c.author_id !== user.id)
+        .map((c) => ({
+          id: c.id ?? `${block.id}-${c.timestamp}`,
+          text: c.text,
+          author: c.author_name || c.author_email?.split("@")[0] || "Teammate",
+          projectName: block.tabs?.projects?.name || "Unknown project",
+          tabName: block.tabs?.name || "Untitled tab",
+          projectId: block.tabs?.projects?.id || null,
+          tabId: block.tabs?.id || null,
+          blockId: block.id,
+          timestamp: c.timestamp,
+        }));
+    })
+    .sort((a, b) => {
+      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return bTime - aTime;
+    })
+    .slice(0, 6);
 
   // Extract uncompleted tasks from project blocks
   const tasks = taskItems
@@ -170,6 +226,17 @@ export default async function DashboardPage() {
     })
     .slice(0, 10);
 
+  // Recently completed: tasks marked done, ordered by updated_at
+  const recentlyCompleted = completedTaskItems.map((task: any) => ({
+    id: `${task.task_block_id}-${task.id}`,
+    text: task.title,
+    projectName: task.tab?.project?.name || "Unknown",
+    tabName: task.tab?.name || "Unknown",
+    projectId: task.tab?.project?.id,
+    tabId: task.tab?.id,
+    updatedAt: task.updated_at,
+  }));
+
   return (
     <DashboardOverview
       projects={projects}
@@ -177,6 +244,8 @@ export default async function DashboardPage() {
       tasks={tasks}
       workspaceId={workspaceId}
       clientFeedback={clientFeedback}
+      teamUpdates={teamUpdates}
+      recentlyCompleted={recentlyCompleted}
       aiInsights={aiInsights}
       userId={user.id}
       userName={user.email}

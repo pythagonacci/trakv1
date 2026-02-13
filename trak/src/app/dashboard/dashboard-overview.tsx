@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   ArrowRight,
-  FileText,
-  Plus,
   CheckCircle2,
   Flag,
   Calendar,
@@ -50,12 +48,24 @@ interface Task {
   dueTime?: string;
 }
 
+interface RecentlyCompletedItem {
+  id: string;
+  text: string;
+  projectName: string;
+  tabName: string;
+  projectId?: string | null;
+  tabId?: string | null;
+  updatedAt?: string;
+}
+
 interface DashboardOverviewProps {
   projects: Project[];
   docs: Doc[];
   tasks: Task[];
   workspaceId: string;
   clientFeedback: ClientFeedback[];
+  teamUpdates: ClientFeedback[];
+  recentlyCompleted: RecentlyCompletedItem[];
   aiInsights?: DashboardInsight | null;
   userId: string;
   userName?: string;
@@ -78,6 +88,8 @@ export default function DashboardOverview({
   docs,
   tasks,
   clientFeedback,
+  teamUpdates,
+  recentlyCompleted,
   aiInsights,
   workspaceId,
   userId,
@@ -93,10 +105,29 @@ export default function DashboardOverview({
   );
 
   const clientFeedbackItems = clientFeedback.slice(0, 4);
-  const teamUpdates = tasks.slice(0, 3);
-  const materialUpdates = tasks.slice(3, 6);
-  const todayTasks = tasks.slice(0, 6);
+  const teamUpdatesItems = teamUpdates.slice(0, 6);
+  const recentlyCompletedItems = recentlyCompleted.slice(0, 6);
   const feedbackCount = clientFeedback.length;
+
+  const { pastDueTasks, dueTodayTasks, upcomingTasks } = useMemo(() => {
+    const today = new Date();
+    const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+    const todayStr = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const pastDue: Task[] = [];
+    const dueToday: Task[] = [];
+    const upcoming: Task[] = [];
+    for (const task of tasks) {
+      if (!task.dueDate) {
+        upcoming.push(task);
+        continue;
+      }
+      const due = task.dueDate.slice(0, 10);
+      if (due < todayStr) pastDue.push(task);
+      else if (due === todayStr) dueToday.push(task);
+      else upcoming.push(task);
+    }
+    return { pastDueTasks: pastDue, dueTodayTasks: dueToday, upcomingTasks: upcoming };
+  }, [tasks]);
   const formatRelativeTime = (value?: string) => {
     if (!value) return "";
     const date = new Date(value);
@@ -111,9 +142,6 @@ export default function DashboardOverview({
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-
-  const formatDate = (value: string) =>
-    new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   const formatDueDate = (dueDate?: string, dueTime?: string) => {
     if (!dueDate) return null;
@@ -247,24 +275,21 @@ export default function DashboardOverview({
         />
 
         <UpdatesCard
-          title="Team updates"
-          description="Team activity and check-ins from task lists."
-          items={teamUpdates}
-          emptyMessage="No recent team activity yet."
-          renderItem={(task) => (
+          title="Notifications"
+          description="Comments and mentions left by teammates."
+          items={teamUpdatesItems}
+          emptyMessage="No comments from teammates yet."
+          renderItem={(feedback) => (
             <UpdateRow
-              key={task.id}
-              title={task.text}
-              subtitle={`${task.projectName} · ${task.tabName}`}
-              priority={task.priority}
-              dueDate={task.dueDate}
-              dueTime={task.dueTime}
-              getPriorityColor={getPriorityColor}
-              getPriorityLabel={getPriorityLabel}
-              formatDueDate={formatDueDate}
+              key={feedback.id}
+              title={`"${feedback.text}"`}
+              subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
+                feedback.timestamp
+              )}`}
+              icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
               onClick={
-                task.projectId && task.tabId
-                  ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+                feedback.projectId && feedback.tabId
+                  ? () => router.push(`/dashboard/projects/${feedback.projectId}/tabs/${feedback.tabId}`)
                   : undefined
               }
             />
@@ -272,25 +297,19 @@ export default function DashboardOverview({
         />
 
         <UpdatesCard
-          title="Material updates"
-          description="Concrete progress captured in task lists."
-          items={materialUpdates}
-          emptyMessage="No concrete updates yet."
-          renderItem={(task) => (
+          title="Recently completed"
+          description="Items that were recently marked as done."
+          items={recentlyCompletedItems}
+          emptyMessage="No recently completed items yet."
+          renderItem={(item) => (
             <UpdateRow
-              key={task.id}
-              title={task.text}
-              subtitle={`${task.projectName} · ${task.tabName}`}
+              key={item.id}
+              title={item.text}
+              subtitle={`${item.projectName} · ${item.tabName} · ${formatRelativeTime(item.updatedAt)}`}
               icon={<CheckCircle2 className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-              priority={task.priority}
-              dueDate={task.dueDate}
-              dueTime={task.dueTime}
-              getPriorityColor={getPriorityColor}
-              getPriorityLabel={getPriorityLabel}
-              formatDueDate={formatDueDate}
               onClick={
-                task.projectId && task.tabId
-                  ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
+                item.projectId && item.tabId
+                  ? () => router.push(`/dashboard/projects/${item.projectId}/tabs/${item.tabId}?taskId=${item.id}`)
                   : undefined
               }
             />
@@ -298,14 +317,13 @@ export default function DashboardOverview({
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)]">
-        <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-            <div>
-              <CardTitle className="text-sm font-medium">Today</CardTitle>
-              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                What matters in the next 24 hours.
-              </p>
+      <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
+          <div>
+            <CardTitle className="text-sm font-medium">Today</CardTitle>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              What matters now and coming up.
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <span className="rounded-full border border-border/70 px-2 py-1 text-[10px] text-[var(--muted-foreground)]">
                 Active: {activeProjects.length}
@@ -314,128 +332,150 @@ export default function DashboardOverview({
                 {tasks.length} open tasks
               </span>
             </div>
+          </div>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => router.push("/dashboard/projects")}>
+            View all
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-6 md:grid-cols-3 px-4 pb-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                Due today
+              </p>
+              <span className="text-xs text-[var(--tertiary-foreground)]">{dueTodayTasks.length} items</span>
             </div>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => router.push("/dashboard/projects")}>
-              View all
-            </Button>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2 px-4 pb-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Due today
-                </p>
-                <span className="text-xs text-[var(--tertiary-foreground)]">{todayTasks.length} items</span>
+            {dueTodayTasks.length > 0 ? (
+              <div className="space-y-2">
+                {dueTodayTasks.map((task) => (
+                  <TaskRowButton
+                    key={task.id}
+                    task={task}
+                    theme={theme}
+                    getPriorityColor={getPriorityColor}
+                    getPriorityLabel={getPriorityLabel}
+                    formatDueDate={formatDueDate}
+                    onNavigate={() => task.projectId && task.tabId && router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
+                  />
+                ))}
               </div>
-              {todayTasks.length > 0 ? (
-                <div className="space-y-2">
-                  {todayTasks.map((task) => (
-                    <button
-                      key={task.id}
-                      onClick={
-                        task.projectId && task.tabId
-                          ? () => router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)
-                          : undefined
-                      }
-                      className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium text-[13px] line-clamp-1">{task.text}</p>
-                        <span className="whitespace-nowrap text-[11px] text-[var(--muted-foreground)]">
-                          {task.tabName}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 flex-wrap">
-                        <p className="line-clamp-1 text-[11px] text-[var(--muted-foreground)]">
-                          {task.projectName}
-                        </p>
-                        {/* Priority Badge */}
-                        {task.priority && task.priority !== "none" && (
-                          <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${theme === "brutalist" ? "" : "border"} ${getPriorityColor(task.priority)}`}>
-                            <Flag className="h-2.5 w-2.5" />
-                            {getPriorityLabel(task.priority)}
-                          </span>
-                        )}
-                        {/* Due Date Badge */}
-                        {task.dueDate && (
-                          <span className={cn(
-                            "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                            theme === "brutalist"
-                              ? "text-white bg-[var(--tram-yellow)]/70"
-                              : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
-                          )}>
-                            <Calendar className="h-2.5 w-2.5" />
-                            {formatDueDate(task.dueDate, task.dueTime)}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-[var(--muted-foreground)]">
-                  Nothing due today. Use the time to structure your pipeline.
-                </p>
-              )}
-            </div>
+            ) : (
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Nothing due today.
+              </p>
+            )}
+          </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Upcoming meetings
-                </p>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => router.push("/dashboard")}>
-                  Open calendar
-                </Button>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                Upcoming
+              </p>
+              <span className="text-xs text-[var(--tertiary-foreground)]">{upcomingTasks.length} items</span>
+            </div>
+            {upcomingTasks.length > 0 ? (
+              <div className="space-y-2">
+                {upcomingTasks.map((task) => (
+                  <TaskRowButton
+                    key={task.id}
+                    task={task}
+                    theme={theme}
+                    getPriorityColor={getPriorityColor}
+                    getPriorityLabel={getPriorityLabel}
+                    formatDueDate={formatDueDate}
+                    onNavigate={() => task.projectId && task.tabId && router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
+                  />
+                ))}
               </div>
-                <p className="text-[11px] text-[var(--muted-foreground)]">
-                  Meetings are tracked alongside each project tab. Jump into the relevant space to see
-                  scheduled calls.
-                </p>
-            </div>
-          </CardContent>
-        </Card>
+            ) : (
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Nothing upcoming.
+              </p>
+            )}
+          </div>
 
-        <div className="flex flex-col gap-4">
-          <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl flex-1">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-              <CardTitle className="text-sm font-medium">Recent docs</CardTitle>
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => router.push("/dashboard/docs")}>
-                View all
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-3 px-4 pb-4 pt-0">
-              {docs.length === 0 ? (
-                <p className="text-[11px] text-[var(--muted-foreground)]">
-                  No documents yet. Start by drafting a proposal or project brief.
-                </p>
-              ) : (
-                docs.slice(0, 4).map((doc) => (
-                  <button
-                    key={doc.id}
-                    onClick={() => router.push(`/dashboard/docs/${doc.id}`)}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border/60 px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <FileText className="h-3.5 w-3.5 flex-none text-[var(--muted-foreground)]" />
-                      <div className="min-w-0">
-                        <p className="line-clamp-1 text-[13px] font-medium">{doc.title}</p>
-                        <p className="line-clamp-1 text-[11px] text-[var(--muted-foreground)]">
-                          Updated {formatDate(doc.updated_at)}
-                        </p>
-                      </div>
-                    </div>
-                    <span className="whitespace-nowrap text-[11px] text-[var(--muted-foreground)]">
-                      {formatDate(doc.updated_at)}
-                    </span>
-                  </button>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                Past due
+              </p>
+              <span className="text-xs text-[var(--tertiary-foreground)]">{pastDueTasks.length} items</span>
+            </div>
+            {pastDueTasks.length > 0 ? (
+              <div className="space-y-2">
+                {pastDueTasks.map((task) => (
+                  <TaskRowButton
+                    key={task.id}
+                    task={task}
+                    theme={theme}
+                    getPriorityColor={getPriorityColor}
+                    getPriorityLabel={getPriorityLabel}
+                    formatDueDate={formatDueDate}
+                    onNavigate={() => task.projectId && task.tabId && router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                No past due tasks.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+function TaskRowButton({
+  task,
+  theme,
+  getPriorityColor,
+  getPriorityLabel,
+  formatDueDate,
+  onNavigate,
+}: {
+  task: Task;
+  theme: string;
+  getPriorityColor: (priority?: Task["priority"]) => string;
+  getPriorityLabel: (priority?: Task["priority"]) => string;
+  formatDueDate: (dueDate?: string, dueTime?: string) => string | null;
+  onNavigate: () => void;
+}) {
+  return (
+    <button
+      onClick={onNavigate}
+      className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium text-[13px] line-clamp-1">{task.text}</p>
+        <span className="whitespace-nowrap text-[11px] text-[var(--muted-foreground)]">
+          {task.tabName}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center gap-2 flex-wrap">
+        <p className="line-clamp-1 text-[11px] text-[var(--muted-foreground)]">
+          {task.projectName}
+        </p>
+        {task.priority && task.priority !== "none" && (
+          <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${theme === "brutalist" ? "" : "border"} ${getPriorityColor(task.priority)}`}>
+            <Flag className="h-2.5 w-2.5" />
+            {getPriorityLabel(task.priority)}
+          </span>
+        )}
+        {task.dueDate && (
+          <span className={cn(
+            "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
+            theme === "brutalist"
+              ? "text-white bg-[var(--tram-yellow)]/70"
+              : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
+          )}>
+            <Calendar className="h-2.5 w-2.5" />
+            {formatDueDate(task.dueDate, task.dueTime)}
+          </span>
+        )}
+      </div>
+    </button>
   );
 }
 

@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   RefreshCw,
   Info,
+  ChevronDown,
 } from "lucide-react";
 import { refreshDashboardInsights } from "@/app/actions/dashboard-insights";
 import type { DashboardInsight } from "@/app/actions/dashboard-insights";
@@ -69,6 +70,7 @@ export default function AIOverviewBlock({
   const [insights, setInsights] = useState(initialInsights);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isExpanded, setIsExpanded] = useState(true);
   const refreshInFlight = useRef(false);
   const autoRefreshMs = 3 * 60 * 60 * 1000;
 
@@ -111,19 +113,24 @@ export default function AIOverviewBlock({
   if (isPending) {
     return (
       <Card className="border border-[var(--border)] bg-[var(--surface)] animate-pulse">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-            <Sparkles className="h-5 w-5" />
-            AI Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="h-16 bg-[var(--muted)]/10 rounded" />
-            <div className="h-24 bg-[var(--muted)]/10 rounded" />
-            <div className="h-24 bg-[var(--muted)]/10 rounded" />
+        <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((e) => !e)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <Sparkles className="h-5 w-5" />
+              AI Overview
+            </CardTitle>
+            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
-        </CardContent>
+        </CardHeader>
+        {isExpanded && (
+          <CardContent>
+            <div className="space-y-4">
+              <div className="h-16 bg-[var(--muted)]/10 rounded" />
+              <div className="h-24 bg-[var(--muted)]/10 rounded" />
+              <div className="h-24 bg-[var(--muted)]/10 rounded" />
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -132,29 +139,37 @@ export default function AIOverviewBlock({
   if (error || !insights) {
     return (
       <Card className="border border-[var(--border)] bg-[var(--surface)]">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-            <Sparkles className="h-5 w-5" />
-            AI Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <AlertTriangle className="h-8 w-8 text-[var(--muted-foreground)] mb-4" />
-            <p className="text-sm text-[var(--muted-foreground)] mb-4">
-              {error || "Unable to generate insights. Try again."}
-            </p>
-            <Button
-              variant="outline"
-              onClick={handleRegenerate}
-              disabled={isPending}
-              size="sm"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Regenerate
-            </Button>
+        <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((e) => !e)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <Sparkles className="h-5 w-5" />
+              AI Overview
+            </CardTitle>
+            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
-        </CardContent>
+        </CardHeader>
+        {isExpanded && (
+          <CardContent>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <AlertTriangle className="h-8 w-8 text-[var(--muted-foreground)] mb-4" />
+              <p className="text-sm text-[var(--muted-foreground)] mb-4">
+                {error || "Unable to generate insights. Try again."}
+              </p>
+              <Button
+                variant="outline"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  handleRegenerate();
+                }}
+                disabled={isPending}
+                size="sm"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Regenerate
+              </Button>
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -163,7 +178,10 @@ export default function AIOverviewBlock({
 
   return (
     <Card className="border border-[var(--border)] bg-[var(--surface)]">
-      <CardHeader>
+      <CardHeader
+        className="cursor-pointer"
+        onClick={() => setIsExpanded((e) => !e)}
+      >
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base md:text-lg">
             <Sparkles className="h-5 w-5 text-[var(--tile-orange)]" />
@@ -173,17 +191,22 @@ export default function AIOverviewBlock({
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleRegenerate}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRegenerate();
+              }}
               disabled={isPending}
               className="text-xs"
             >
               <RefreshCw className="h-3 w-3 mr-1" />
               Regenerate
             </Button>
+            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform shrink-0 ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
         </div>
       </CardHeader>
 
+      {isExpanded && (
       <CardContent className="space-y-6">
         {/* Summary Section */}
         <div>
@@ -281,6 +304,7 @@ export default function AIOverviewBlock({
           </div>
         </div>
       </CardContent>
+      )}
     </Card>
   );
 }
