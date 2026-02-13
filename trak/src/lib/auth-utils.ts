@@ -82,6 +82,72 @@ export const getTabMetadata = cache(async (tabId: string) => {
 });
 
 /**
+ * Get project permissions for a specific user
+ * Returns permission details including whether user has access and if project is restricted
+ */
+export const getProjectPermissions = cache(async (projectId: string, userId: string) => {
+  const supabase = await createClient();
+
+  // Get project with workspace info
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, workspace_id, workspaces!inner(owner_id)')
+    .eq('id', projectId)
+    .single();
+
+  if (!project) return null;
+
+  // Normalize workspace relation (can be array or object)
+  const workspace = Array.isArray(project.workspaces)
+    ? project.workspaces[0]
+    : project.workspaces;
+
+  const workspaceOwnerId = workspace?.owner_id;
+
+  // Check if user is workspace owner (always has access)
+  if (workspaceOwnerId === userId) {
+    return { hasAccess: true, isOwner: true, isRestricted: false };
+  }
+
+  // Check workspace membership
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', project.workspace_id)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!membership) return { hasAccess: false, isOwner: false, isRestricted: false };
+
+  // Check if project has restricted access
+  const { count } = await supabase
+    .from('project_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('project_id', projectId);
+
+  const isRestricted = (count ?? 0) > 0;
+
+  if (!isRestricted) {
+    // No restrictions = all workspace members have access
+    return { hasAccess: true, isOwner: false, isRestricted: false };
+  }
+
+  // Project is restricted - check if user is explicitly granted access
+  const { data: projectMember } = await supabase
+    .from('project_members')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  return {
+    hasAccess: !!projectMember,
+    isOwner: false,
+    isRestricted: true
+  };
+});
+
+/**
  * Verify user has access to a workspace
  * Returns membership or throws/redirects
  */
@@ -100,24 +166,30 @@ export async function requireWorkspaceAccess(workspaceId: string) {
 }
 
 /**
- * Verify user has access to a project (via workspace membership)
+ * Verify user has access to a project (via workspace membership and project permissions)
  */
 export async function requireProjectAccess(projectId: string) {
   const user = await getAuthenticatedUser();
   if (!user) {
     return { error: 'Unauthorized' };
   }
-  
+
   const project = await getProjectMetadata(projectId);
   if (!project) {
     return { error: 'Project not found' };
   }
-  
+
   const membership = await checkWorkspaceMembership(project.workspace_id, user.id);
   if (!membership) {
     return { error: 'Not a member of this workspace' };
   }
-  
-  return { user, membership, project };
+
+  // Check project-level permissions
+  const permissions = await getProjectPermissions(projectId, user.id);
+  if (!permissions || !permissions.hasAccess) {
+    return { error: 'You do not have access to this project' };
+  }
+
+  return { user, membership, project, permissions };
 }
 

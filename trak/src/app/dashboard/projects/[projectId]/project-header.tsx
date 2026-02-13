@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowLeft, Edit, Palette, LayoutDashboard } from "lucide-react";
+import { ArrowLeft, Edit, Palette, LayoutDashboard, Users } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
 import ClientPageToggle from "./client-page-toggle";
+import ProjectPermissionsDialog from "../project-permissions-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,15 +18,26 @@ import {
 import { TAB_THEMES } from "./tabs/[tabId]/tab-themes";
 import { cn } from "@/lib/utils";
 
+interface Tab {
+  id: string;
+  name: string;
+  position: number;
+  is_client_visible?: boolean;
+  client_title?: string | null;
+  children?: Tab[];
+}
+
 interface ProjectHeaderProps {
   project: {
     id: string;
     name: string;
+    workspace_id?: string;
     status: "not_started" | "in_progress" | "complete";
     due_date_date?: string | null;
     due_date_text?: string | null;
     client_page_enabled?: boolean;
     client_comments_enabled?: boolean;
+    client_editing_enabled?: boolean;
     public_token?: string | null;
     client?: {
       id: string;
@@ -34,11 +46,14 @@ interface ProjectHeaderProps {
     } | null;
   };
   tabId?: string;
+  tabs?: Tab[];
+  workspaceId?: string;
 }
 
-export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
+export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }: ProjectHeaderProps) {
   const router = useRouter();
   const [tabTheme, setTabTheme] = useState<string>("default");
+  const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
 
   // Load theme from localStorage
   useEffect(() => {
@@ -174,14 +189,42 @@ export default function ProjectHeader({ project, tabId }: ProjectHeaderProps) {
             clientPageEnabled={project.client_page_enabled || false}
             publicToken={project.public_token || null}
             clientCommentsEnabled={project.client_comments_enabled || false}
+            clientEditingEnabled={project.client_editing_enabled || false}
+            tabs={tabs}
           />
-          
+
+          {/* Manage Access Button */}
+          {(workspaceId || project.workspace_id) && (
+            <button
+              onClick={() => setIsPermissionsDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+            >
+              <Users className="h-3.5 w-3.5" />
+              Manage Access
+            </button>
+          )}
+
           <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm">
             <Edit className="h-3.5 w-3.5" />
             Edit details
           </button>
         </div>
       </div>
+
+      {/* Project Permissions Dialog */}
+      {(workspaceId || project.workspace_id) && (
+        <ProjectPermissionsDialog
+          isOpen={isPermissionsDialogOpen}
+          onClose={() => setIsPermissionsDialogOpen(false)}
+          projectId={project.id}
+          projectName={project.name}
+          workspaceId={workspaceId || project.workspace_id || ""}
+          onSuccess={() => {
+            // Optionally refresh the project data
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

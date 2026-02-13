@@ -3,11 +3,19 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { getAllClients } from "@/app/actions/client";
+import { getWorkspaceMembers } from "@/app/actions/workspace";
 
 interface Client {
   id: string;
   name: string;
   company?: string;
+}
+
+interface WorkspaceMember {
+  id: string;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "teammate";
 }
 
 interface Project {
@@ -26,6 +34,7 @@ interface FormData {
   client_name?: string; // For creating new clients
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
+  member_ids?: string[] | "all"; // Project permissions
 }
 
 interface ProjectDialogProps {
@@ -62,6 +71,11 @@ export default function ProjectDialog({
   const [clientInput, setClientInput] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
 
+  // Project permissions state
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [permissionMode, setPermissionMode] = useState<"all" | "specific">("all");
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
   // Load clients if not already loaded
   useEffect(() => {
     if (isOpen && !clientsLoaded) {
@@ -76,6 +90,17 @@ export default function ProjectDialog({
       });
     }
   }, [isOpen, clientsLoaded, workspaceId, onClientsLoad]);
+
+  // Load workspace members for permissions
+  useEffect(() => {
+    if (isOpen && workspaceId) {
+      getWorkspaceMembers(workspaceId).then((result) => {
+        if (result.data) {
+          setWorkspaceMembers(result.data);
+        }
+      });
+    }
+  }, [isOpen, workspaceId]);
 
   // Pre-fill form in edit mode
   useEffect(() => {
@@ -102,6 +127,8 @@ export default function ProjectDialog({
           due_date: "",
         });
         setClientInput("");
+        setPermissionMode("all");
+        setSelectedMemberIds([]);
       }
       setFormError("");
       setIsSubmitting(false);
@@ -146,8 +173,9 @@ export default function ProjectDialog({
       const submitData = {
         ...formData,
         client_name: clientInput && !formData.client_id ? clientInput.trim() : undefined,
+        member_ids: permissionMode === "all" ? "all" : selectedMemberIds,
       };
-      
+
       await onSubmit(submitData);
       // Parent handles success, close, and toast
     } catch (error: any) {
@@ -295,6 +323,86 @@ export default function ProjectDialog({
               disabled={isSubmitting}
             />
           </div>
+
+          {/* Project Access Permissions */}
+          {mode === "create" && (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+                Project Access
+              </label>
+
+              <div className="space-y-3">
+                {/* Radio: All workspace members */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="permission"
+                    checked={permissionMode === "all"}
+                    onChange={() => setPermissionMode("all")}
+                    className="h-4 w-4"
+                    disabled={isSubmitting}
+                  />
+                  <span className="text-sm text-[var(--foreground)]">
+                    All workspace members{" "}
+                    <span className="text-[var(--muted-foreground)]">
+                      ({workspaceMembers.length} {workspaceMembers.length === 1 ? "member" : "members"})
+                    </span>
+                  </span>
+                </label>
+
+                {/* Radio: Specific members */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="permission"
+                    checked={permissionMode === "specific"}
+                    onChange={() => setPermissionMode("specific")}
+                    className="h-4 w-4"
+                    disabled={isSubmitting}
+                  />
+                  <span className="text-sm text-[var(--foreground)]">Specific members only</span>
+                </label>
+
+                {/* Member selector (shown when "specific" is selected) */}
+                {permissionMode === "specific" && (
+                  <div className="ml-6 space-y-2 max-h-48 overflow-y-auto border border-[var(--border)] rounded-[2px] p-3">
+                    {workspaceMembers.length === 0 ? (
+                      <p className="text-xs text-[var(--muted-foreground)]">Loading members...</p>
+                    ) : (
+                      workspaceMembers.map((member) => (
+                        <label key={member.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedMemberIds.includes(member.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedMemberIds([...selectedMemberIds, member.id]);
+                              } else {
+                                setSelectedMemberIds(selectedMemberIds.filter((id) => id !== member.id));
+                              }
+                            }}
+                            className="h-4 w-4"
+                            disabled={isSubmitting}
+                          />
+                          <div className="flex-1">
+                            <div className="text-sm font-medium text-[var(--foreground)]">{member.name}</div>
+                            <div className="text-xs text-[var(--muted-foreground)]">{member.email}</div>
+                          </div>
+                          <span className="text-xs text-[var(--tertiary-foreground)] capitalize">{member.role}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {permissionMode === "specific" && selectedMemberIds.length === 0 && (
+                  <p className="ml-6 text-xs text-[var(--muted-foreground)]">
+                    Select at least one member (you'll be automatically included)
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-6 border-t border-[var(--border)]">
             <button
