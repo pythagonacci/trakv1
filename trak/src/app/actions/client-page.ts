@@ -15,6 +15,7 @@ export interface ClientPageProject {
   due_date_text: string | null;
   client_page_enabled: boolean;
   client_comments_enabled: boolean;
+  client_editing_enabled: boolean;
   public_token: string | null;
   updated_at: string;
   client: {
@@ -193,7 +194,7 @@ export async function disableClientPage(projectId: string) {
 
 export async function updateClientPageSettings(
   projectId: string,
-  settings: { clientCommentsEnabled?: boolean }
+  settings: { clientCommentsEnabled?: boolean; clientEditingEnabled?: boolean }
 ) {
   try {
     const supabase = await createClient();
@@ -230,6 +231,9 @@ export async function updateClientPageSettings(
     const updatePayload: Record<string, boolean> = {};
     if (typeof settings.clientCommentsEnabled === "boolean") {
       updatePayload.client_comments_enabled = settings.clientCommentsEnabled;
+    }
+    if (typeof settings.clientEditingEnabled === "boolean") {
+      updatePayload.client_editing_enabled = settings.clientEditingEnabled;
     }
 
     if (Object.keys(updatePayload).length === 0) {
@@ -278,6 +282,7 @@ export async function getProjectByPublicToken(publicToken: string) {
         due_date_text,
         client_page_enabled,
         client_comments_enabled,
+        client_editing_enabled,
         public_token,
         updated_at,
         client:clients(id, name, company)

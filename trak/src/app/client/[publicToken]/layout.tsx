@@ -11,7 +11,7 @@ export default function ClientPublicLayout({
   return (
     <ThemeProvider>
       <ReactQueryProvider>
-        <div className="h-full overflow-y-auto bg-[var(--background)]">
+        <div className="h-full overflow-y-auto bg-[var(--surface)]">
           <ClientAccountHeader />
           {children}
         </div>
