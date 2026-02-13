@@ -303,24 +303,26 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
   const { openCommandPalette } = useAI();
 
   return (
-    <div className={cn("px-2 pb-2", collapsed ? "pt-2" : "")}>
+    <div className={cn("px-2 pt-2 pb-2", collapsed && "flex justify-center")}>
       <button
         onClick={openCommandPalette}
         className={cn(
-          "flex items-center gap-2 rounded-md border transition-all duration-150",
+          "flex items-center rounded-md border transition-all duration-150",
           "border-[#3080a6]/30 bg-[#3080a6]/10",
           "hover:bg-[#3890b6]/90 hover:border-[#3890b6]/50",
           "text-white",
           collapsed
-            ? "h-9 w-9 justify-center"
-            : "w-full px-3 py-2"
+            ? "h-7 w-7 justify-center shrink-0"
+            : "w-full gap-3 px-3 py-1.5"
         )}
-        title="File Analysis (⌘K)"
+        title="Ask AI (⌘K)"
       >
-        <Sparkles className="h-4 w-4" />
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md">
+          <Sparkles className="h-4 w-4" />
+        </span>
         {!collapsed && (
           <>
-            <span className="flex-1 text-left text-sm font-medium text-white">File Analysis</span>
+            <span className="flex-1 text-left text-sm font-medium text-white">Ask AI</span>
             <kbd className="text-[10px] font-mono bg-[#3080a6]/10 text-white px-1.5 py-0.5 rounded">
               ⌘K
             </kbd>
@@ -342,9 +344,7 @@ function Sidebar({
   const { data: currentUser } = useUser();
   const { currentWorkspace, workspaces, switchWorkspace, isSwitching } = useWorkspace();
   const { theme, setTheme } = useTheme();
-  const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
 
   const getInitials = (name?: string | null) => {
@@ -369,9 +369,6 @@ function Sidebar({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (workspaceDropdownRef.current && !workspaceDropdownRef.current.contains(event.target as Node)) {
-        setWorkspaceDropdownOpen(false);
-      }
       if (userDropdownRef.current && !userDropdownRef.current.contains(event.target as Node)) {
         setUserDropdownOpen(false);
       }
@@ -382,7 +379,7 @@ function Sidebar({
 
   const handleWorkspaceSwitch = async (workspace: Workspace) => {
     await switchWorkspace(workspace);
-    setWorkspaceDropdownOpen(false);
+    setUserDropdownOpen(false);
   };
 
   const handleLogout = async () => {
@@ -423,60 +420,6 @@ function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {!collapsed && (
-          <div className="px-3 pb-3" ref={workspaceDropdownRef}>
-            <button
-              onClick={() => setWorkspaceDropdownOpen(!workspaceDropdownOpen)}
-              disabled={isSwitching}
-              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[var(--surface-hover)] disabled:opacity-50"
-            >
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[10px] font-semibold text-[var(--river-indigo)]">
-                {isSwitching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : getInitials(currentWorkspace?.name)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--foreground)]">
-                  {currentWorkspace?.name || "No Workspace"}
-                </p>
-                <p className="truncate text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-                  {currentWorkspace?.role || "Unknown"}
-                </p>
-              </div>
-              {workspaces.length > 1 && (
-                <ChevronDown
-                  className={cn(
-                    "h-3.5 w-3.5 text-[var(--muted-foreground)] transition-transform duration-200",
-                    workspaceDropdownOpen && "rotate-180"
-                  )}
-                />
-              )}
-            </button>
-
-            {workspaceDropdownOpen && workspaces.length > 1 && (
-              <div className="mt-2 space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
-                {workspaces.map((workspace) => (
-                  <button
-                    key={workspace.id}
-                    onClick={() => handleWorkspaceSwitch(workspace)}
-                    disabled={isSwitching}
-                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
-                  >
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
-                      {getInitials(workspace.name)}
-                    </div>
-                    <div className="min-w-0 flex-1 text-left">
-                      <p className="truncate font-semibold text-[var(--foreground)]">{workspace.name}</p>
-                      <p className="truncate text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-                        {workspace.role}
-                      </p>
-                    </div>
-                    {currentWorkspace?.id === workspace.id && <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {!collapsed && (
           <div className="px-3 pb-3">
             <GlobalSearch />
@@ -625,7 +568,39 @@ function Sidebar({
 
         {userDropdownOpen && (
           <div className="mt-2 space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
-            {/* View Profile Link */}
+            {/* Workspace switcher */}
+            {workspaces.length > 0 && (
+              <div className="space-y-1">
+                {workspaces.map((workspace) => (
+                  <button
+                    key={workspace.id}
+                    onClick={() => handleWorkspaceSwitch(workspace)}
+                    disabled={isSwitching}
+                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
+                  >
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
+                      {isSwitching && currentWorkspace?.id === workspace.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        getInitials(workspace.name)
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate font-semibold text-[var(--foreground)]">{workspace.name}</p>
+                      <p className="truncate text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                        {workspace.role}
+                      </p>
+                    </div>
+                    {currentWorkspace?.id === workspace.id && <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-[var(--border)]" />
+
+            {/* View All Workspaces */}
             <Link
               href="/profile"
               className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
@@ -760,14 +735,20 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
   const { headerHidden } = useDashboardHeader();
   const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
   const isWorkflowCanvas = pathname?.match(/^\/dashboard\/workflow\/[^/]+$/);
+  const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
+  const isFullBleedPage =
+    pathname?.startsWith("/dashboard/settings") ||
+    pathname?.startsWith("/dashboard/workspace/everything") ||
+    pathname?.startsWith("/dashboard/shopify/products");
 
   return (
     <main
       id="dashboard-content"
       className={cn(
-        "flex-1 min-h-0 px-3 md:px-4 lg:px-5",
-        isWorkflowCanvas ? "overflow-hidden py-0" : "overflow-y-auto",
-        headerHidden || isWorkflowPage ? "py-0" : "py-4 lg:py-5"
+        "flex-1 min-h-0",
+        isFullBleedPage ? "px-0" : "px-3 md:px-4 lg:px-5",
+        isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
+        headerHidden || isWorkflowPage || isCalendarPage ? "py-0" : "py-4 lg:py-5"
       )}
     >
       {children}
