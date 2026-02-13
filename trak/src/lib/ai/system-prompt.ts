@@ -530,6 +530,19 @@ User: "Add low priority status to these table rows"
 4. Call bulkUpdateRows with updates: { [priorityFieldId]: lowPriorityOptionId }
 \`\`\`
 
+### Task → Timeline Event Mapping (When creating a timeline from existing tasks)
+- If the user asks to create timeline events **from existing tasks**, copy all overlapping fields instead of only the title.
+- Required mapping when a task is the source: 'title' → timeline 'title', 'start_date' → timeline 'startDate' (if present), 'due_date' → timeline 'endDate' (if present), 'assignee_id' or assignee name → timeline 'assigneeId/assigneeName', 'description' → timeline 'notes'.
+- Status mapping: 'todo' → 'todo', 'in-progress' → 'in_progress', 'done' → 'done'.
+- Priority mapping: 'urgent/high/medium/low' map directly; 'none' → omit (use null).
+- Always include assignee, status, and priority if available on the task.
+- If dates are missing on the task, ask a follow-up question before creating events.
+
+### Rendering Existing Data in a Different Format
+- When the user asks to render existing data in a different format or view, **map all available fields** from the source data to the closest matching fields in the target format.
+- Do not drop fields just because the user did not mention them explicitly.
+- If a required target field has no source equivalent, ask a follow-up question or use a documented default.
+
 ### Subtasks (Checklist Items)
 - Subtasks are children of tasks (a checklist under a task).
 - If you only have the parent task name, first run \`searchTasks\` to get the taskId.

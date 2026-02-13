@@ -66,6 +66,11 @@ interface PendingWriteConfirmation extends WriteConfirmationRequest {
   originalCommand: string;
 }
 
+interface PendingWorkflowPageSuggestion {
+  command: string;
+  title: string;
+}
+
 const isSearchLikeToolName = (name: string) =>
   name.startsWith("search") ||
   name.startsWith("get") ||
@@ -138,6 +143,7 @@ export function AICommandPalette() {
   const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
   const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
   const [writeClarificationInput, setWriteClarificationInput] = useState("");
+  const [pendingWorkflowPageSuggestion, setPendingWorkflowPageSuggestion] = useState<PendingWorkflowPageSuggestion | null>(null);
   const [contextFiles, setContextFiles] = useState<Array<{ id: string; file_name: string }>>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -245,6 +251,7 @@ export function AICommandPalette() {
       initializedModeRef.current = false;
       setPendingWriteConfirmation(null);
       setWriteClarificationInput("");
+      setPendingWorkflowPageSuggestion(null);
       return;
     }
     if (initializedModeRef.current) return;
@@ -272,6 +279,7 @@ export function AICommandPalette() {
     if (mode !== "assistant") {
       setPendingWriteConfirmation(null);
       setWriteClarificationInput("");
+      setPendingWorkflowPageSuggestion(null);
     }
   }, [mode]);
 
@@ -603,40 +611,22 @@ export function AICommandPalette() {
     const messageText = input.trim();
 
     if (mode === "assistant" && shouldSuggestWorkflowPage(messageText) && workspaceId) {
-      const ok = window.confirm("This looks like a workspace-wide request. Create a workflow page to keep the analysis as a permanent document?");
-      if (ok) {
-        setAssistantLoading(true);
-        try {
-          const created = await createWorkflowPage({
-            isWorkspaceLevel: true,
-            title: defaultWorkflowTitleFromCommand(messageText),
-          });
-          if ("error" in created) {
-            setToast({ message: created.error, type: "error" });
-            return;
-          }
-
-          const tabId = created.data.tabId;
-          sessionStorage.setItem(
-            `trak-workflow-autorun:${tabId}`,
-            JSON.stringify({ command: messageText })
-          );
-          closeCommandPalette();
-          router.push(`/dashboard/workflow/${tabId}`);
-          return;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Failed to create workflow page";
-          setToast({ message, type: "error" });
-          return;
-        } finally {
-          setAssistantLoading(false);
-        }
-      }
+      setInput("");
+      setAssistantMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "user" as const, content: messageText },
+      ]);
+      setPendingWorkflowPageSuggestion({
+        command: messageText,
+        title: defaultWorkflowTitleFromCommand(messageText),
+      });
+      return;
     }
 
     setInput("");
     setPendingWriteConfirmation(null);
     setWriteClarificationInput("");
+    setPendingWorkflowPageSuggestion(null);
     await runAssistantCommand({
       command: messageText,
       appendUserMessage: true,
@@ -693,6 +683,49 @@ export function AICommandPalette() {
 
     await runAssistantCommand({
       command: `For my previous request "${pending.originalCommand}", use this clarification before any changes: ${clarification}`,
+      appendUserMessage: true,
+      confirmation: null,
+    });
+  };
+
+  const handleCreateWorkflowPage = async () => {
+    if (!pendingWorkflowPageSuggestion || !workspaceId || assistantLoading) return;
+    const suggestion = pendingWorkflowPageSuggestion;
+    setPendingWorkflowPageSuggestion(null);
+    setAssistantLoading(true);
+
+    try {
+      const created = await createWorkflowPage({
+        isWorkspaceLevel: true,
+        title: suggestion.title,
+      });
+      if ("error" in created) {
+        setToast({ message: created.error, type: "error" });
+        return;
+      }
+
+      const tabId = created.data.tabId;
+      sessionStorage.setItem(
+        `trak-workflow-autorun:${tabId}`,
+        JSON.stringify({ command: suggestion.command })
+      );
+      closeCommandPalette();
+      router.push(`/dashboard/workflow/${tabId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create workflow page";
+      setToast({ message, type: "error" });
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+  const handleContinueInChat = async () => {
+    if (!pendingWorkflowPageSuggestion || assistantLoading) return;
+    const suggestion = pendingWorkflowPageSuggestion;
+    setPendingWorkflowPageSuggestion(null);
+
+    await runAssistantCommand({
+      command: suggestion.command,
       appendUserMessage: true,
       confirmation: null,
     });
@@ -1503,6 +1536,32 @@ export function AICommandPalette() {
                       Send
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {mode === "assistant" && pendingWorkflowPageSuggestion && !assistantLoading && (
+            <div className="flex justify-start">
+              <div className="max-w-[90%] rounded-lg px-3 py-3 text-sm space-y-3 bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)]">
+                <p className="whitespace-pre-wrap">
+                  This looks like a workspace-wide request. Would you like to create a workflow page to keep the analysis as a permanent document?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCreateWorkflowPage}
+                    className="rounded-md border border-[var(--secondary)] bg-[var(--secondary)] px-3 py-1 text-xs text-white hover:bg-[var(--secondary)]/90"
+                  >
+                    Create workflow page
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleContinueInChat}
+                    className="rounded-md border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                  >
+                    Continue in chat
+                  </button>
                 </div>
               </div>
             </div>

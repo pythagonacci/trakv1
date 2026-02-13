@@ -647,6 +647,30 @@ export async function executeWorkflowAICommand(params: {
   const workspaceName = workspaceResult.data?.name || undefined;
   const userName = profileResult.data?.name || profileResult.data?.email || undefined;
   const currentProjectId = tabResult.data?.project_id || undefined;
+
+  // Auto-generate title from first query
+  if (history.length === 0 && tabResult.data) {
+    const currentName = tabResult.data.name;
+    if (currentName === "Workflow Page" || !currentName || currentName.trim() === "") {
+      // Generate a title from the command
+      const titleFromCommand = params.command
+        .replace(/^(please|can you|could you|would you|i need|i want|help me|show me)\s+/i, "")
+        .replace(/[?!.]+$/, "")
+        .trim();
+      const maxLength = 60;
+      const newTitle = titleFromCommand.length > maxLength
+        ? titleFromCommand.substring(0, maxLength).trim() + "..."
+        : titleFromCommand;
+
+      if (newTitle) {
+        await supabase
+          .from("tabs")
+          .update({ name: newTitle })
+          .eq("id", params.tabId);
+      }
+    }
+  }
+
   const [tableContext, blockContext] = await Promise.all([
     resolveLatestTableContext({ supabase, tabId: params.tabId, history }),
     resolveLatestBlockContext({ supabase, tabId: params.tabId, history }),
@@ -1041,6 +1065,30 @@ export async function* executeWorkflowAICommandStream(params: {
   const workspaceName = workspaceResult.data?.name || undefined;
   const userName = profileResult.data?.name || profileResult.data?.email || undefined;
   const currentProjectId = tabResult.data?.project_id || undefined;
+
+  // Auto-generate title from first query (streaming version)
+  if (!params.resumeFromConfirmation && history.length === 0 && tabResult.data) {
+    const currentName = tabResult.data.name;
+    if (currentName === "Workflow Page" || !currentName || currentName.trim() === "") {
+      // Generate a title from the command
+      const titleFromCommand = params.command
+        .replace(/^(please|can you|could you|would you|i need|i want|help me|show me)\s+/i, "")
+        .replace(/[?!.]+$/, "")
+        .trim();
+      const maxLength = 60;
+      const newTitle = titleFromCommand.length > maxLength
+        ? titleFromCommand.substring(0, maxLength).trim() + "..."
+        : titleFromCommand;
+
+      if (newTitle) {
+        await supabase
+          .from("tabs")
+          .update({ name: newTitle })
+          .eq("id", params.tabId);
+      }
+    }
+  }
+
   const [tableContext, blockContext] = await Promise.all([
     resolveLatestTableContext({ supabase, tabId: params.tabId, history }),
     resolveLatestBlockContext({ supabase, tabId: params.tabId, history }),
