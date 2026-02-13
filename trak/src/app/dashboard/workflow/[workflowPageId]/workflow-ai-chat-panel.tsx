@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Send, RotateCcw } from "lucide-react";
+import { Loader2, Send, RotateCcw, PanelRightClose } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
 import Toast from "@/app/dashboard/projects/toast";
@@ -48,7 +48,12 @@ function getText(content: Record<string, unknown> | null | undefined) {
   return "";
 }
 
-export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId: string }) {
+export default function WorkflowAIChatPanel(props: {
+  tabId: string;
+  workspaceId: string;
+  showCollapseButton?: boolean;
+  onCollapse?: () => void;
+}) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -471,11 +476,23 @@ export default function WorkflowAIChatPanel(props: { tabId: string; workspaceId:
 
   return (
     <div className="flex h-full flex-col bg-[var(--surface)] text-[var(--foreground)] border-l border-[var(--border)]">
-      <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-        <div className="text-sm font-semibold">AI</div>
-        {sessionId ? (
-          <div className="text-[11px] text-[var(--muted-foreground)]">Session {sessionId.slice(0, 8)}</div>
-        ) : null}
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-semibold">AI</span>
+          {sessionId ? (
+            <span className="text-[11px] text-[var(--muted-foreground)] truncate">Session {sessionId.slice(0, 8)}</span>
+          ) : null}
+        </div>
+        {props.showCollapseButton && props.onCollapse && (
+          <button
+            type="button"
+            onClick={props.onCollapse}
+            className="rounded-[2px] p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors shrink-0"
+            title="Collapse AI panel"
+          >
+            <PanelRightClose className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3 space-y-3">

@@ -9,6 +9,8 @@ import ProjectHeader from "../../project-header";
 import TabBar from "../../tab-bar";
 import TabCanvasWrapper from "./tab-canvas-wrapper";
 import SubtabSidebarWrapper from "./subtab-sidebar-wrapper";
+import WorkflowPageLayout from "@/app/dashboard/workflow/[workflowPageId]/workflow-page-layout";
+import type { Block } from "@/app/actions/block";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
 export const dynamic = "force-dynamic";
@@ -54,7 +56,7 @@ export default async function TabPage({
       .single(),
     supabase
       .from("tabs")
-      .select("id, name, project_id")
+      .select("id, name, project_id, is_workflow_page")
       .eq("id", tabId)
       .eq("project_id", projectId)
       .single(),
@@ -97,9 +99,10 @@ export default async function TabPage({
     client: Array.isArray(rawProject.client) ? rawProject.client[0] : rawProject.client,
   };
 
-  const tab = tabData;
+  const tab = tabData as { id: string; name: string; project_id: string; is_workflow_page?: boolean };
   const hierarchicalTabs = tabsData;
-  const blocks = blocksData;
+  const blocks = blocksData as Block[];
+  const isWorkflowTab = Boolean(tab?.is_workflow_page);
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
@@ -204,21 +207,33 @@ export default async function TabPage({
           />
         </div>
 
-        {/* Canvas Content with Subtab Navigation */}
+        {/* Canvas Content with Subtab Navigation or Workflow Layout */}
         <div className="py-3 md:py-4 lg:py-5">
-          <SubtabSidebarWrapper
-            sidebarConfig={sidebarConfig}
-            projectId={projectId}
-          >
-            <TabCanvasWrapper 
+          {isWorkflowTab ? (
+            <WorkflowPageLayout
               tabId={tabId}
               projectId={projectId}
               workspaceId={workspaceId}
+              title={tab.name}
               blocks={blocks}
-              scrollToTaskId={taskId}
               initialFileUrls={initialFileUrls}
+              inProjectContext
             />
-          </SubtabSidebarWrapper>
+          ) : (
+            <SubtabSidebarWrapper
+              sidebarConfig={sidebarConfig}
+              projectId={projectId}
+            >
+              <TabCanvasWrapper 
+                tabId={tabId}
+                projectId={projectId}
+                workspaceId={workspaceId}
+                blocks={blocks}
+                scrollToTaskId={taskId}
+                initialFileUrls={initialFileUrls}
+              />
+            </SubtabSidebarWrapper>
+          )}
         </div>
       </div>
     </div>

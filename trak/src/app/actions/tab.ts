@@ -20,6 +20,7 @@ export interface Tab {
   name: string;
   position: number;
   created_at: string;
+  is_workflow_page?: boolean;
 }
 
 export interface TabWithChildren extends Tab {
@@ -164,7 +165,7 @@ export async function getProjectTabs(projectId: string) {
     // 🚀 Add limit for safety (most projects won't have 1000+ tabs)
     const { data: tabs, error: tabsError } = await supabase
       .from("tabs")
-      .select("id, project_id, parent_tab_id, name, position, is_client_visible, client_title, created_at")
+      .select("id, project_id, parent_tab_id, name, position, is_client_visible, client_title, created_at, is_workflow_page")
       .eq("project_id", projectId)
       .order("position", { ascending: true })
       .limit(TABS_PER_PROJECT_LIMIT);

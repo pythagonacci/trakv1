@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff, LayoutDashboard } from "lucide-react";
+import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff, LayoutDashboard, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTabDialog from "./create-tab-dialog";
 import DeleteTabDialog from "./delete-tab-dialog";
@@ -23,6 +23,7 @@ interface Tab {
   position: number;
   is_client_visible?: boolean;
   client_title?: string | null;
+  is_workflow_page?: boolean;
   children?: Tab[];
 }
 
@@ -231,7 +232,8 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                 )}
               >
                 {/* Parent tab name or child tab name */}
-                <span className="truncate max-w-xs text-left">
+                <span className="truncate max-w-xs text-left inline-flex items-center gap-1">
+                  {tab.is_workflow_page && <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/90" aria-hidden />}
                   {depth === 0 && isParentOfActive ? tab.name : tab.name}
                 </span>
                 
@@ -425,13 +427,16 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
               <button
                 onClick={() => handleTabClick(tab.id)}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-[6px] px-3 py-2 text-sm",
+                  "flex w-full items-center justify-between gap-2 rounded-[6px] px-3 py-2 text-sm",
                   activeTabId === tab.id
                     ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
                     : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                 )}
               >
-                {tab.name}
+                <span className="flex items-center gap-1.5 truncate">
+                  {tab.is_workflow_page && <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/90" aria-hidden />}
+                  {tab.name}
+                </span>
               </button>
               {tab.children && tab.children.length > 0 && (
                 <div className="ml-4 mt-1 space-y-1">
@@ -440,12 +445,13 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                       key={child.id}
                       onClick={() => handleTabClick(child.id)}
                       className={cn(
-                        "flex w-full items-center rounded-[6px] px-3 py-1.5 text-xs",
+                        "flex w-full items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-xs",
                         activeTabId === child.id
                           ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
                           : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                       )}
                     >
+                      {child.is_workflow_page && <Sparkles className="h-3 w-3 flex-shrink-0 text-amber-500/90" aria-hidden />}
                       {child.name}
                     </button>
                   ))}
