@@ -1,9 +1,9 @@
-import { getSingleProject } from "@/app/actions/project";
 import { getProjectTabs } from "@/app/actions/tab";
 import { getTabBlocks } from "@/app/actions/block";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import SpaceHeader from "../../space-header";
 import TabBar from "../../../../projects/[projectId]/tab-bar";
 import TabCanvas from "../../../../projects/[projectId]/tabs/[tabId]/tab-canvas";
@@ -25,17 +25,26 @@ export default async function InternalTabPage({ params }: PageProps) {
     redirect("/dashboard");
   }
 
+  const authResult = await requireWorkspaceAccess(workspaceId);
+  if ("error" in authResult) {
+    redirect("/login");
+  }
+
   // Get the space
-  const spaceResult = await getSingleProject(spaceId);
-  if (spaceResult.error || !spaceResult.data) {
+  const { data: space, error: spaceError } = await supabase
+    .from("projects")
+    .select("id, name, status, project_type")
+    .eq("id", spaceId)
+    .eq("workspace_id", workspaceId)
+    .single();
+
+  if (spaceError || !space) {
     notFound();
   }
 
-  const space = spaceResult.data;
-
   // Verify this is an internal space
-  if ((space as any).project_type !== 'internal') {
-    redirect('/dashboard/projects/' + spaceId);
+  if (space.project_type !== "internal") {
+    redirect("/dashboard/projects/" + spaceId);
   }
 
   // Verify the tab exists and belongs to this space
@@ -73,4 +82,3 @@ export default async function InternalTabPage({ params }: PageProps) {
     </div>
   );
 }
-

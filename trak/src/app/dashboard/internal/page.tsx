@@ -2,6 +2,7 @@ import { getAllProjects } from "@/app/actions/project";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getWorkspaceStandaloneFiles } from "@/app/actions/file";
 import InternalTable from "./internal-table";
+import InternalGrid from "./internal-grid";
 import InternalFilterBar from "./internal-filter-bar";
 
 // Ensure this page is always dynamic and revalidates on every request
@@ -28,6 +29,7 @@ export default async function InternalPage({ searchParams }: PageProps) {
 
   // Await search params and build filters
   const params = await searchParams;
+  const view = (params.view as 'list' | 'grid') || 'grid';
   const filters = {
     project_type: 'internal' as const,
     status: params.status as 'not_started' | 'in_progress' | 'complete' | undefined,
@@ -72,16 +74,24 @@ export default async function InternalPage({ searchParams }: PageProps) {
 
   return (
     <div>
-      <InternalFilterBar />
-      <InternalTable 
-        spaces={mappedSpaces}
-        files={files}
-        workspaceId={workspaceId}
-        currentSort={{
-          sort_by: filters.sort_by,
-          sort_order: filters.sort_order,
-        }}
-      />
+      <InternalFilterBar currentView={view} />
+      {view === 'grid' ? (
+        <InternalGrid
+          spaces={mappedSpaces}
+          files={files}
+          workspaceId={workspaceId}
+        />
+      ) : (
+        <InternalTable
+          spaces={mappedSpaces}
+          files={files}
+          workspaceId={workspaceId}
+          currentSort={{
+            sort_by: filters.sort_by,
+            sort_order: filters.sort_order,
+          }}
+        />
+      )}
     </div>
   );
 }

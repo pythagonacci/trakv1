@@ -14,7 +14,14 @@ export default function InternalViewToggle({ currentView }: InternalViewTogglePr
   const handleViewChange = () => {
     const params = new URLSearchParams(searchParams.toString());
     const newView = currentView === "list" ? "grid" : "list";
-    params.set("view", newView);
+
+    if (newView === "grid") {
+      // Grid is the default, so remove the param to keep URL clean
+      params.delete("view");
+    } else {
+      params.set("view", newView);
+    }
+
     router.push(`/dashboard/internal?${params.toString()}`);
   };
 

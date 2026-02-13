@@ -3,8 +3,13 @@
 import React, { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
+import InternalViewToggle from "./internal-view-toggle";
 
-export default function InternalFilterBar() {
+interface InternalFilterBarProps {
+  currentView: "list" | "grid";
+}
+
+export default function InternalFilterBar({ currentView }: InternalFilterBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = React.useTransition();
@@ -27,11 +32,13 @@ export default function InternalFilterBar() {
       }
     });
 
-    // Preserve sort parameters if they exist
+    // Preserve sort and view parameters if they exist
     const sortBy = searchParams.get("sort_by");
     const sortOrder = searchParams.get("sort_order");
+    const view = searchParams.get("view");
     if (sortBy) params.set("sort_by", sortBy);
     if (sortOrder) params.set("sort_order", sortOrder);
+    if (view) params.set("view", view);
 
     // Use startTransition to trigger server re-fetch
     startTransition(() => {
@@ -114,6 +121,9 @@ export default function InternalFilterBar() {
           Clear
         </button>
       )}
+
+      {/* View Toggle */}
+      <InternalViewToggle currentView={currentView} />
     </div>
   );
 }
