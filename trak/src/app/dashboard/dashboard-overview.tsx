@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/app/dashboard/theme-context";
+import { useWorkspace } from "@/app/dashboard/workspace-context";
 import AIOverviewBlock from "./ai-overview-block";
 import type { DashboardInsight } from "@/app/actions/dashboard-insights";
 
@@ -84,6 +85,7 @@ export default function DashboardOverview({
 }: DashboardOverviewProps) {
   const router = useRouter();
   const { theme } = useTheme();
+  const { currentWorkspace } = useWorkspace();
 
   const activeProjects = useMemo(
     () => projects.filter((p) => p.status !== "complete" && p.project_type === "project"),
@@ -172,10 +174,10 @@ export default function DashboardOverview({
             className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl font-playfair"
             style={{ fontFamily: 'var(--font-playfair)' }}
           >
-            Run your service business from one place.
+            {currentWorkspace?.name ?? "Workspace"}
           </h1>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Open to today’s work first—then see client health and delivery signals.
+            Get Up to Speed and Start Working
           </p>
         </div>
 
