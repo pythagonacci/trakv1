@@ -130,8 +130,8 @@ export function ShopifyProductsClient({
                 : "No products imported yet"}
             </p>
             {!search && (
-              <Button onClick={() => router.push("/dashboard/settings/integrations")}>
-                Go to Integrations
+              <Button onClick={() => router.push("/dashboard/shopify/stores")}>
+                Connect a store
               </Button>
             )}
           </CardContent>

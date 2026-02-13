@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Folder,
   Users,
-  CreditCard,
   BookOpen,
   FileText,
   ChevronDown,
@@ -17,9 +16,12 @@ import {
   Home,
   Calendar as CalendarIcon,
   Palette,
+  Package,
   Square,
   Sparkles,
   Database,
+  User,
+  Settings,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -551,13 +553,20 @@ function Sidebar({
             Calendar
           </NavLink>
           <NavLink
-            href="/dashboard/payments"
-            icon={<CreditCard className="h-4 w-4" />}
-            active={pathname?.startsWith("/dashboard/payments")}
+            href="/dashboard/shopify/products"
+            icon={<Package className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/shopify/products")}
             collapsed={collapsed}
-            prefetch={false}
           >
-            Payments
+            Products
+          </NavLink>
+          <NavLink
+            href="/dashboard/settings"
+            icon={<Settings className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/settings")}
+            collapsed={collapsed}
+          >
+            Settings
           </NavLink>
         </nav>
       </div>
@@ -615,7 +624,21 @@ function Sidebar({
         )}
 
         {userDropdownOpen && (
-          <div className="mt-2 space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
+          <div className="mt-2 space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
+            {/* View Profile Link */}
+            <Link
+              href="/profile"
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              onClick={() => setUserDropdownOpen(false)}
+            >
+              <User className="h-3.5 w-3.5" />
+              View All Workspaces
+            </Link>
+
+            {/* Divider */}
+            <div className="border-t border-[var(--border)]" />
+
+            {/* Logout Button */}
             <button
               onClick={handleLogout}
               className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"

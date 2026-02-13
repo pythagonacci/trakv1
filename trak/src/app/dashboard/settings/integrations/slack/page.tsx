@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
@@ -31,6 +32,12 @@ export default async function SlackIntegrationPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
+      <Link
+        href="/dashboard/settings"
+        className="inline-flex items-center gap-2 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-6"
+      >
+        ← Back to Settings
+      </Link>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Slack Integration</h1>
         <p className="text-gray-600">
