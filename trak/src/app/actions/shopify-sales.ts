@@ -64,7 +64,10 @@ export async function getProductUnitsSold(
       return { error: "Product not found" };
     }
 
-    const connection = product.shopify_connections?.[0];
+    // Supabase returns a single object for many-to-one (trak_products.connection_id -> shopify_connections)
+    const connection = Array.isArray(product.shopify_connections)
+      ? product.shopify_connections[0]
+      : product.shopify_connections;
 
     if (!connection || connection.sync_status !== "active") {
       return { error: "Connection is not active" };
