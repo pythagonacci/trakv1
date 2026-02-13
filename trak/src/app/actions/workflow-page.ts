@@ -266,3 +266,88 @@ export async function enableWorkflowPageSharing(params: {
 
   return { data: { publicToken, urlPath } };
 }
+
+export async function updateWorkflowPageName(params: {
+  tabId: string;
+  name: string;
+}): Promise<ActionResult<{ success: true }>> {
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) return { error: "No workspace selected" };
+
+  const trimmedName = params.name.trim();
+  if (!trimmedName) return { error: "Name cannot be empty" };
+
+  // Verify the tab exists, is a workflow page, and belongs to this workspace
+  const { data: tab, error: tabError } = await supabase
+    .from("tabs")
+    .select("id, project_id, is_workflow_page, projects!inner(workspace_id)")
+    .eq("id", params.tabId)
+    .eq("is_workflow_page", true)
+    .eq("projects.workspace_id", workspaceId)
+    .single();
+
+  if (tabError || !tab) {
+    console.error("updateWorkflowPageName tab validation error:", tabError);
+    return { error: "Workflow page not found" };
+  }
+
+  const { error: updateError } = await supabase
+    .from("tabs")
+    .update({ name: trimmedName })
+    .eq("id", params.tabId);
+
+  if (updateError) {
+    console.error("updateWorkflowPageName update error:", updateError);
+    return { error: "Failed to update workflow page name" };
+  }
+
+  await safeRevalidatePath(`/dashboard/workflow/${params.tabId}`);
+  await safeRevalidatePath("/dashboard/workflow");
+
+  return { data: { success: true } };
+}
+
+export async function deleteWorkflowPage(params: {
+  tabId: string;
+}): Promise<ActionResult<{ success: true }>> {
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) return { error: "No workspace selected" };
+
+  // Verify the tab exists, is a workflow page, and belongs to this workspace
+  const { data: tab, error: tabError } = await supabase
+    .from("tabs")
+    .select("id, project_id, is_workflow_page, projects!inner(workspace_id)")
+    .eq("id", params.tabId)
+    .eq("is_workflow_page", true)
+    .eq("projects.workspace_id", workspaceId)
+    .single();
+
+  if (tabError || !tab) {
+    console.error("deleteWorkflowPage tab validation error:", tabError);
+    return { error: "Workflow page not found" };
+  }
+
+  // Delete the tab (cascade will handle workflow_sessions, workflow_messages, and blocks)
+  const { error: deleteError } = await supabase
+    .from("tabs")
+    .delete()
+    .eq("id", params.tabId);
+
+  if (deleteError) {
+    console.error("deleteWorkflowPage delete error:", deleteError);
+    return { error: "Failed to delete workflow page" };
+  }
+
+  await safeRevalidatePath(`/dashboard/projects/${tab.project_id}`);
+  await safeRevalidatePath("/dashboard/workflow");
+
+  return { data: { success: true } };
+}
