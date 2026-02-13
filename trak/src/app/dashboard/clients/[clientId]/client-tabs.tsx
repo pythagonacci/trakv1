@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateClientTabDialog from "./create-client-tab-dialog";
@@ -30,7 +30,6 @@ interface ClientTabsProps {
 
 export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const { currentWorkspace } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -54,8 +53,8 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
     if (editingTabId) return;
     if (e?.detail === 2) return;
 
-    // Handle fixed tabs (projects, payments) with query params
-    if (tabId === "projects" || tabId === "payments") {
+    // Handle fixed tabs (projects, details) with query params
+    if (tabId === "projects" || tabId === "details") {
       router.push(`/dashboard/clients/${clientId}?tab=${tabId}`);
     } else {
       // Handle dynamic tabs with separate routes
@@ -206,18 +205,18 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
               </button>
             </div>
 
-            {/* Payments tab - always second */}
+            {/* Client Details tab - always second */}
             <div className="group relative flex items-center">
               <button
-                onClick={(e) => handleTabClick("payments", e)}
+                onClick={(e) => handleTabClick("details", e)}
                 className={cn(
                   "relative whitespace-nowrap px-3 py-3 text-sm transition-colors",
-                  activeTabId === "payments"
+                  activeTabId === "details"
                     ? "text-[var(--foreground)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--foreground)]"
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 )}
               >
-                <span className="truncate max-w-xs">Payments</span>
+                <span className="truncate max-w-xs">Client Details</span>
               </button>
             </div>
 
@@ -254,15 +253,15 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
               Projects
             </button>
             <button
-              onClick={() => handleTabClick("payments")}
+              onClick={() => handleTabClick("details")}
               className={cn(
                 "flex w-full items-center justify-between rounded-[6px] px-3 py-2 text-sm",
-                activeTabId === "payments"
+                activeTabId === "details"
                   ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
                   : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               )}
             >
-              Payments
+              Client Details
             </button>
             {/* Dynamic client tabs */}
             {tabs.map((tab) => (

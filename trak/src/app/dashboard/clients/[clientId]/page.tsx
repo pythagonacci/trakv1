@@ -58,6 +58,56 @@ export default async function ClientPage({
     switch (tab) {
       case "projects":
         return <ClientProjects projects={projects} clientId={clientId} />;
+      case "details":
+        return (
+          <div className="space-y-6">
+            <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-6">
+              <h2 className="text-lg font-semibold text-[var(--foreground)] mb-4">Client Information</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Name</label>
+                  <p className="mt-1 text-sm text-[var(--foreground)]">{client.name}</p>
+                </div>
+                {client.company && (
+                  <div>
+                    <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Company</label>
+                    <p className="mt-1 text-sm text-[var(--foreground)]">{client.company}</p>
+                  </div>
+                )}
+                {client.email && (
+                  <div>
+                    <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Email</label>
+                    <p className="mt-1 text-sm text-[var(--foreground)]">{client.email}</p>
+                  </div>
+                )}
+                {client.phone && (
+                  <div>
+                    <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Phone</label>
+                    <p className="mt-1 text-sm text-[var(--foreground)]">{client.phone}</p>
+                  </div>
+                )}
+                {client.address && (
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Address</label>
+                    <p className="mt-1 text-sm text-[var(--foreground)]">{client.address}</p>
+                  </div>
+                )}
+                {client.website && (
+                  <div>
+                    <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Website</label>
+                    <p className="mt-1 text-sm text-[var(--foreground)]">{client.website}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            {client.notes && (
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-6">
+                <h2 className="text-lg font-semibold text-[var(--foreground)] mb-4">Notes</h2>
+                <p className="text-sm text-[var(--foreground)] whitespace-pre-wrap">{client.notes}</p>
+              </div>
+            )}
+          </div>
+        );
       case "payments":
         return <ClientPayments clientId={clientId} clientName={client.name} />;
       default:

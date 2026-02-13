@@ -51,19 +51,8 @@ export default async function ClientsPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>Clients</h1>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1">
-            Manage your clients and their projects
-          </p>
-        </div>
-
-        {/* Clients Table */}
-        <ClientsTable clients={clients} workspaceId={workspaceId} />
-      </div>
+    <div>
+      <ClientsTable clients={clients} workspaceId={workspaceId} />
     </div>
   );
 }
