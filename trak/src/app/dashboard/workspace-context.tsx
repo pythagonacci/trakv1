@@ -38,6 +38,13 @@ export function WorkspaceProvider({
       getCurrentWorkspaceId().then((workspaceId) => {
         const workspace = workspaces.find((w) => w.id === workspaceId) || workspaces[0];
         setCurrentWorkspace(workspace);
+
+        // Keep server-rendered pages in sync when cookie is missing/stale.
+        if (workspace && workspace.id !== workspaceId) {
+          updateCurrentWorkspace(workspace.id).catch((error) => {
+            logger.error("Failed to persist initial workspace:", error);
+          });
+        }
       });
     }
   }, [workspaces, currentWorkspace]);

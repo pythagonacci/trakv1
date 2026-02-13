@@ -48,7 +48,7 @@ export default async function TabPage({
   ] = await Promise.allSettled([
     supabase
       .from("projects")
-      .select(`id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, public_token, client:clients(id, name, company)`)
+      .select(`id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, client:clients(id, name, company)`)
       .eq("id", projectId)
       .eq("workspace_id", workspaceId)
       .single(),
@@ -191,7 +191,7 @@ export default async function TabPage({
       <div className="w-full px-2 md:px-3 lg:px-4">
         {/* Project Header - Minimal, elegant */}
         <div className="pt-4 pb-2">
-          <ProjectHeader project={project} tabId={tabId} />
+          <ProjectHeader project={project} tabId={tabId} tabs={hierarchicalTabs} />
         </div>
 
         {/* Tab Navigation - Sticky */}

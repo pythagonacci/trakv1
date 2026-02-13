@@ -29,7 +29,7 @@ export default async function ProjectOverviewPage({
   const { data: projectRow, error: projectError } = await supabase
     .from("projects")
     .select(
-      `id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, public_token, client:clients(id, name, company)`
+      `id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, client:clients(id, name, company)`
     )
     .eq("id", projectId)
     .eq("workspace_id", workspaceId)
@@ -56,7 +56,7 @@ export default async function ProjectOverviewPage({
       <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
         <div className="w-full px-2 md:px-3 lg:px-4">
           <div className="pt-4 pb-2">
-            <ProjectHeader project={project} />
+            <ProjectHeader project={project} tabs={hierarchicalTabs} />
           </div>
           {hierarchicalTabs.length > 0 && (
             <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
@@ -199,7 +199,7 @@ export default async function ProjectOverviewPage({
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       <div className="w-full px-2 md:px-3 lg:px-4">
         <div className="pt-4 pb-2">
-          <ProjectHeader project={project} />
+          <ProjectHeader project={project} tabs={hierarchicalTabs} />
         </div>
         <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
           <TabBar
