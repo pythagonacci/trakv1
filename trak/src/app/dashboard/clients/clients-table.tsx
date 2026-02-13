@@ -95,7 +95,7 @@ export default function ClientsTable({ clients, workspaceId }: ClientsTableProps
         </Button>
       </div>
 
-      <Table>
+      <Table className="[&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
         <TableHeader>
           <TableRow>
             <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
