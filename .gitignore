@@ -1,4 +1,30 @@
+# macOS
+.DS_Store
+**/.DS_Store
 
+# Environment files (never commit secrets)
+.env
 .env.local
 .env.*.local
-.env
+
+# Dependencies
+node_modules
+
+# Next.js build output / cache
+.next
+
+# Turborepo / Turbopack cache
+.turbo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Coverage / build artifacts (optional)
+coverage
+dist
+build
+out
