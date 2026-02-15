@@ -399,7 +399,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       <>
         <div className="flex items-start justify-between gap-3 mb-6">
           <div className="space-y-1">
-            <h2 className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>Projects</h2>
+            <h2 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">Projects</h2>
             <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
           </div>
           <Button onClick={handleOpenCreate} size="sm">New project</Button>
@@ -453,7 +453,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     <>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div className="space-y-1">
-          <h2 className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>Projects</h2>
+          <h2 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">Projects</h2>
           <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
         </div>
         <div className="flex items-center gap-2">

@@ -137,7 +137,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
               {project.client.company && <span className="text-[var(--velvet-purple)]/70">· {project.client.company}</span>}
             </span>
           )}
-          <h1 className="text-lg font-bold tracking-normal text-[var(--foreground)] font-playfair md:text-xl" style={{ fontFamily: 'var(--font-playfair)' }}>
+          <h1 className="text-lg font-bold tracking-normal text-[var(--foreground)] md:text-xl">
             {project.name}
           </h1>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">

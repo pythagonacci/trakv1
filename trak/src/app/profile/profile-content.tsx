@@ -78,10 +78,7 @@ export default function ProfileContent({ user, initialWorkspaces }: ProfileConte
           </Link>
           <div className="flex items-center justify-between">
             <div>
-              <h1
-                className="text-3xl md:text-4xl font-semibold text-[var(--foreground)] mb-2 font-playfair"
-                style={{ fontFamily: 'var(--font-playfair)' }}
-              >
+              <h1 className="text-3xl md:text-4xl font-semibold text-[var(--foreground)] mb-2">
                 Your Workspaces
               </h1>
               <p className="text-[var(--muted-foreground)]">

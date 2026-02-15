@@ -136,7 +136,7 @@ export default async function PaymentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>
+          <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)]">
             Payments
           </h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-1">

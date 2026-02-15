@@ -198,10 +198,7 @@ export default function DashboardOverview({
           <p className="text-xs font-medium uppercase tracking-[0.32em] text-[var(--muted-foreground)]">
             Overview
           </p>
-          <h1 
-            className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl font-playfair"
-            style={{ fontFamily: 'var(--font-playfair)' }}
-          >
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl">
             {currentWorkspace?.name ?? "Workspace"}
           </h1>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">

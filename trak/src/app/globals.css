@@ -9,8 +9,8 @@
     /* Blends "monumental structure" (Brutalist/Deco) with "airy resilience" */
     /* Features the Sarajevo Arts Palette: Tile Orange, Dome Teal, River Indigo, Tram Yellow, Velvet Purple */
     
-    /* Typography */
-    --font-sans: 'Inter', 'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* Typography - Inter loaded via next/font in layout.tsx sets --font-sans */
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
     --font-serif: 'Newsreader', 'Georgia', 'Cambria', 'Times New Roman', serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
@@ -24,10 +24,10 @@
     --border: #D1D4D6; /* River Mist - structural dividers */
     --border-strong: #3080a6; /* Secondary color for emphasis (matches sidebar) */
     
-    /* Typography Colors */
-    --foreground: #2D3236; /* Miljacka Slate - deep iron grey, not black */
-    --muted-foreground: #6B7280; /* Standard cool gray for metadata */
-    --tertiary-foreground: #9CA3AF; /* Lighter gray for placeholders */
+    /* Typography Colors - Dark enough for comfortable reading */
+    --foreground: #1a1d21; /* Near-black for primary text */
+    --muted-foreground: #374151; /* Dark gray for body/paragraph text */
+    --tertiary-foreground: #6b7280; /* Medium gray for placeholders, metadata */
 
     /* Primary Action - Coffee Patina (bronze/brown) */
     --primary: #9C7C58; /* Coffee Patina - bronze/brown for buttons, active tabs */
@@ -344,11 +344,6 @@
     border-radius: var(--radius-sm) !important;
   }
 
-  /* Playfair Display font utility */
-  .font-playfair {
-    font-family: var(--font-playfair) !important;
-    letter-spacing: 0.03em;
-  }
 }
 
 /* Rich Text Editor Styles */

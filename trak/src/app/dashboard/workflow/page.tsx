@@ -52,7 +52,7 @@ export default function WorkflowPagesIndex() {
     <div className="py-4 lg:py-5">
       <div className="flex items-center justify-between gap-4 mb-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>Workflow Pages</h1>
+          <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">Workflow Pages</h1>
           <p className="text-sm text-[var(--muted-foreground)]">
             Permanent, AI-powered analysis documents.
           </p>

@@ -49,7 +49,7 @@ export default function ClientHeader({ client }: ClientHeaderProps) {
               {client.name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>
+              <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)]">
                 {client.name}
               </h1>
               {client.company && (

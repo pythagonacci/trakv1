@@ -31,7 +31,7 @@ export default function SpaceHeader({ space }: SpaceHeaderProps) {
           <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--velvet-purple)]">
             Internal
           </span>
-          <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>
+          <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)]">
             {space.name}
           </h1>
           <div className="flex flex-wrap items-center gap-2 text-xs">

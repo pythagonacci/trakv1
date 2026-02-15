@@ -218,10 +218,7 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       )}
     >
       <div className="flex flex-col items-center gap-4 px-6 text-center">
-        <div
-          className="text-3xl md:text-4xl font-semibold tracking-tight font-playfair"
-          style={{ fontFamily: "var(--font-playfair)" }}
-        >
+        <div className="text-3xl md:text-4xl font-semibold tracking-tight">
           {typedText}
           {!typingDone && <span className="inline-block w-[0.6ch] animate-pulse">|</span>}
         </div>
@@ -710,10 +707,7 @@ function Header() {
           <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--tertiary-foreground)]">
             Overview
           </span>
-          <h1 
-            className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair"
-            style={{ fontFamily: 'var(--font-playfair)' }}
-          >
+          <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">
             {getPageTitle()}
           </h1>
         </div>

@@ -26,10 +26,7 @@ export function EverythingHeader({
     <div className="mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1
-            className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair"
-            style={{ fontFamily: "var(--font-playfair)" }}
-          >
+          <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">
             Everything
           </h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-1">
