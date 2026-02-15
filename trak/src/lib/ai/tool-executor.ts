@@ -2813,6 +2813,7 @@ export async function executeTool(
                 title,
                 description,
                 projectId,
+                tabId: tabId ?? null,
                 fields,
                 rows,
                 authContext: authContext ?? undefined,
@@ -2852,6 +2853,7 @@ export async function executeTool(
                 title,
                 description,
                 projectId,
+                tabId: tabId ?? null,
                 authContext: authContext ?? undefined,
               })
             );
