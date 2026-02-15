@@ -1170,7 +1170,7 @@ const tableActionTools: ToolDefinition[] = [
       "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
       "- Include ALL source fields (title, status, priority, due date, assignee) - do not omit any\n" +
       "- PRESERVE field types - DO NOT convert to text!\n\n" +
-      "🚨 SOURCE TRACKING: When rows come from existing entities, MUST include source_entity_type/source_entity_id/source_sync_mode on EVERY row. This enables snapshot sync.\n\n" +
+      "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
       "For large datasets, keep arguments compact:\n" +
       "- Put schema + initial rows in createTableFull\n" +
       "- Then use bulkInsertRows for remaining rows in batches (~20-25 rows per call)\n\n" +

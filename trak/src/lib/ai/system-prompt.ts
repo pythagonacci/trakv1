@@ -545,11 +545,41 @@ User: "Add low priority status to these table rows"
 
 #### Source Tracking (NON-NEGOTIABLE):
 When creating table rows from existing workspace entities (tasks, timeline events, subtasks):
-- You MUST include \`source_entity_type\`, \`source_entity_id\`, and \`source_sync_mode\` on EVERY row.
+- You MUST include \`source_entity_type\`, \`source_entity_id\`, and \`source_sync_mode\` on EVERY row that comes from an existing entity.
 - These go on the row object itself, NOT as visible table columns.
-- Format: \`{ data: {...}, source_entity_type: "task", source_entity_id: "<uuid>", source_sync_mode: "snapshot" }\`
+- ONLY add source metadata to rows that actually correspond to a search result you are using. If you create a table with new/original data (not from search results), do NOT add source metadata.
+
+**HOW TO DO THIS — Match each row to the search result it came from:**
+1. When you call searchTasks, searchTimelineEvents, etc., each result has an \`id\` field — this is the source entity ID.
+2. Before calling createTableFull, look at the search results you received. For each row you're creating, decide: does this row come from one of my search results?
+3. If YES: find the matching search result (by title), use its \`id\` as \`source_entity_id\`, set \`source_entity_type\` to the entity type (e.g. "task", "timeline_event"), and \`source_sync_mode\` to "snapshot".
+4. If NO (the row contains new/original data): do NOT add source metadata to that row.
+
+**Example — creating a table from task search results:**
+\`\`\`
+// searchTasks returned: [{ id: "abc-123", title: "Fix bug" }, { id: "def-456", title: "Update docs" }]
+// createTableFull rows:
+{
+  rows: [
+    {
+      data: { "Title": "Fix bug", "Status": "todo" },
+      source_entity_type: "task",
+      source_entity_id: "abc-123",
+      source_sync_mode: "snapshot"
+    },
+    {
+      data: { "Title": "Update docs", "Status": "in_progress" },
+      source_entity_type: "task",
+      source_entity_id: "def-456",
+      source_sync_mode: "snapshot"
+    }
+  ]
+}
+\`\`\`
 - This enables sync tracking. Without these fields, the table cannot sync with source data.
 - ALWAYS do this when data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- The \`id\` field in search results is the source entity ID. Match each row to its corresponding search result by title and use that result's \`id\`.
+- Do NOT add source metadata to rows that don't come from search results.
 
 #### Field Type Preservation for Source Data:
 - Status → type: "status" (NOT text). Normalize values: "todo", "in_progress", "done", "blocked"

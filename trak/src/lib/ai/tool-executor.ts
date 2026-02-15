@@ -234,6 +234,7 @@ export interface ToolExecutionContext {
   currentProjectId?: string;
   undoTracker?: UndoTracker;
   authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
 }
 
 const shouldUseTestContext =
@@ -2353,6 +2354,7 @@ export async function executeTool(
               tableId: resolvedTableId,
               rows: normalizedRows as Array<Record<string, unknown>>,
               authContext: authContext ?? undefined,
+              searchedEntities: context?.searchedEntities,
             });
 
             await maybeEnsureFieldsForRows(
@@ -2796,6 +2798,7 @@ export async function executeTool(
               rows,
               workspaceId,
               supabase: authContext?.supabase ?? await createSupabaseClient(),
+              searchedEntities: context?.searchedEntities,
             });
 
             const hasSourceMetadata = rows.some((row) =>
@@ -4894,6 +4897,7 @@ async function annotateRowsWithSourceMetadataForTable(params: {
   tableId: string;
   rows: Array<Record<string, unknown>>;
   authContext?: AuthContext;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
 }): Promise<Array<Record<string, unknown>>> {
   if (!params.rows.length) return params.rows;
   const tableResult = await getTable(params.tableId, { authContext: params.authContext });
@@ -4902,6 +4906,7 @@ async function annotateRowsWithSourceMetadataForTable(params: {
     rows: params.rows,
     workspaceId: tableResult.data.table.workspace_id,
     supabase: params.authContext?.supabase ?? await createSupabaseClient(),
+    searchedEntities: params.searchedEntities,
   });
 }
 
@@ -4909,9 +4914,15 @@ async function annotateRowsWithSourceMetadata(params: {
   rows: Array<Record<string, unknown>>;
   workspaceId: string;
   supabase: SupabaseClient;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
 }): Promise<Array<Record<string, unknown>>> {
   const normalizedRows = params.rows.map((row) => normalizeSourceMetadataOnRow(row as SourceLinkedInsertRow));
   const candidateIds = new Set<string>();
+
+  // Count how many rows the LLM already provided source metadata on
+  const llmProvidedCount = normalizedRows.filter((row) =>
+    hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)
+  ).length;
 
   normalizedRows.forEach((row) => {
     if (typeof row.source_entity_id === "string") {
@@ -4922,7 +4933,30 @@ async function annotateRowsWithSourceMetadata(params: {
     if (candidate) candidateIds.add(candidate.id);
   });
 
-  if (candidateIds.size === 0) return normalizedRows;
+  // Also add all searched entity IDs as candidates for validation
+  if (params.searchedEntities) {
+    for (const entity of params.searchedEntities) {
+      candidateIds.add(entity.id);
+    }
+  }
+
+  aiDebug("sourceTracking:annotateStart", {
+    totalRows: normalizedRows.length,
+    llmProvidedSourceMetadata: llmProvidedCount,
+    candidateIdsFound: candidateIds.size,
+    searchedEntitiesAvailable: params.searchedEntities?.length ?? 0,
+  });
+
+  if (candidateIds.size === 0) {
+    aiDebug("sourceTracking:annotateResult", {
+      totalRows: normalizedRows.length,
+      llmProvided: llmProvidedCount,
+      deterministicKeyMatch: 0,
+      deterministicTitleMatch: 0,
+      unmatched: normalizedRows.length - llmProvidedCount,
+    });
+    return normalizedRows;
+  }
 
   const ids = Array.from(candidateIds);
   const [taskResult, timelineResult] = await Promise.all([
@@ -4945,24 +4979,101 @@ async function annotateRowsWithSourceMetadata(params: {
     ((timelineResult.data || []) as Array<{ id: string }>).map((item) => item.id)
   );
 
-  return normalizedRows.map((row) => {
+  // Build a title-to-entity map for title matching (case-insensitive)
+  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" }>();
+  if (params.searchedEntities) {
+    for (const entity of params.searchedEntities) {
+      // Only include entities that are validated (exist in DB)
+      if (taskIds.has(entity.id) || timelineIds.has(entity.id)) {
+        titleToEntity.set(entity.title.toLowerCase(), { id: entity.id, entityType: entity.entityType });
+      }
+    }
+  }
+
+  // Check how many of the LLM-provided source metadata entries are actually valid
+  const llmValidated = normalizedRows.filter((row) => {
+    if (!hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) return false;
+    const id = row.source_entity_id as string;
+    return taskIds.has(id) || timelineIds.has(id);
+  });
+  const llmInvalid = llmProvidedCount - llmValidated.length;
+
+  aiDebug("sourceTracking:dbValidation", {
+    validTaskIds: taskIds.size,
+    validTimelineIds: timelineIds.size,
+    titleMapEntries: titleToEntity.size,
+  });
+  aiDebug("sourceTracking:llmAnnotation", {
+    llmProvided: llmProvidedCount,
+    llmValid: llmValidated.length,
+    llmInvalid,
+  });
+
+  let keyMatchCount = 0;
+  let titleMatchCount = 0;
+
+  const result = normalizedRows.map((row) => {
     if (hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) {
       return row;
     }
 
+    // Pass 1: Key-name and UUID candidate extraction
     const candidate = extractSourceCandidateIdFromRow(row);
-    if (!candidate) return row;
+    if (candidate) {
+      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds);
+      if (inferredType) {
+        keyMatchCount++;
+        aiDebug("sourceTracking:deterministicMatch", {
+          method: "key/uuid",
+          entityId: candidate.id,
+          entityType: inferredType,
+        });
+        return {
+          ...row,
+          source_entity_type: inferredType,
+          source_entity_id: candidate.id,
+          source_sync_mode: "snapshot",
+        };
+      }
+    }
 
-    const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds);
-    if (!inferredType) return row;
+    // Pass 2: Title matching against searched entities
+    if (titleToEntity.size > 0) {
+      const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
+      for (const value of Object.values(data)) {
+        if (typeof value === "string" && value.length > 0) {
+          const matched = titleToEntity.get(value.toLowerCase());
+          if (matched) {
+            titleMatchCount++;
+            aiDebug("sourceTracking:deterministicMatch", {
+              method: "title",
+              matchedTitle: value,
+              entityId: matched.id,
+              entityType: matched.entityType,
+            });
+            return {
+              ...row,
+              source_entity_type: matched.entityType,
+              source_entity_id: matched.id,
+              source_sync_mode: "snapshot",
+            };
+          }
+        }
+      }
+    }
 
-    return {
-      ...row,
-      source_entity_type: inferredType,
-      source_entity_id: candidate.id,
-      source_sync_mode: "snapshot",
-    };
+    return row;
   });
+
+  aiDebug("sourceTracking:annotateResult", {
+    totalRows: normalizedRows.length,
+    llmProvided: llmProvidedCount,
+    deterministicKeyMatch: keyMatchCount,
+    deterministicTitleMatch: titleMatchCount,
+    unmatched: normalizedRows.length - llmProvidedCount - keyMatchCount - titleMatchCount,
+  });
+
+  return result;
 }
 
 async function syncPriorityStatusToEntityProperties(
@@ -5076,6 +5187,12 @@ function extractSourceCandidateIdFromRow(
       const id = normalizeSourceEntityId(value);
       if (id) return { id, hintedType: entry.hintedType };
     }
+  }
+
+  // Fallback: scan all values for UUIDs (will be validated against task_items/timeline_events in batch query)
+  for (const value of Object.values(data)) {
+    const id = normalizeSourceEntityId(value);
+    if (id) return { id };
   }
 
   return null;

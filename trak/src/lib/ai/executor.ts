@@ -160,7 +160,7 @@ const FINAL_RESPONSE_MAX_TOKENS = Number(process.env.AI_FINAL_MAX_TOKENS ?? 1024
 const TOOL_RESULT_MAX_ITEMS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS ?? 25);
 const TOOL_RESULT_MAX_STRING_CHARS = Number(process.env.AI_TOOL_RESULT_MAX_STRING_CHARS ?? 2000);
 const TOOL_RESULT_MAX_OBJECT_KEYS = Number(process.env.AI_TOOL_RESULT_MAX_OBJECT_KEYS ?? 50);
-const TOOL_RESULT_MAX_DEPTH = Number(process.env.AI_TOOL_RESULT_MAX_DEPTH ?? 3);
+const TOOL_RESULT_MAX_DEPTH = Number(process.env.AI_TOOL_RESULT_MAX_DEPTH ?? 4);
 const SKIP_SECOND_LLM = process.env.AI_SKIP_SECOND_LLM !== "0";
 const COMPACT_TOOL_RESULTS = process.env.AI_COMPACT_TOOL_RESULTS !== "0";
 const PROMPT_MODE = (process.env.AI_PROMPT_MODE || "auto").toLowerCase();
@@ -1236,6 +1236,8 @@ export async function executeAICommand(
 
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
+  // Track searched entities (id + title) for deterministic source metadata annotation
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }> = [];
   const updatedItemIds = new Set<string>();
   let sawTaskMutationTool = false;
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
@@ -1496,6 +1498,7 @@ export async function executeAICommand(
               currentProjectId: context.currentProjectId,
               undoTracker,
               authContext: context.authContext,
+              searchedEntities: searchedEntities.length > 0 ? searchedEntities : undefined,
             });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
 
@@ -1609,6 +1612,48 @@ export async function executeAICommand(
             if (lastSearchTaskIds.length > 1) {
               searchResults.set("tasks", { count: lastSearchTaskIds.length, itemIds: lastSearchTaskIds });
             }
+            // Track searched entities for deterministic source metadata annotation
+            const beforeCount = searchedEntities.length;
+            for (const task of result.data) {
+              if (task.id && task.title) {
+                searchedEntities.push({ id: task.id, title: task.title, entityType: "task" });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
+          if (toolName === "searchTimelineEvents" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const event of result.data) {
+              if (event.id && event.title) {
+                searchedEntities.push({ id: event.id, title: event.title, entityType: "timeline_event" });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
+          if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const subtask of result.data) {
+              if (subtask.id && subtask.title && subtask.task_id) {
+                // Subtasks link back to their parent task for source tracking
+                searchedEntities.push({ id: subtask.task_id, title: subtask.title, entityType: "task" });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
           }
 
           if (taskMutationTools.has(toolName)) {
@@ -1664,7 +1709,19 @@ export async function executeAICommand(
           // Add tool result to messages
           const compactedForMetrics = compactToolResult(result);
           const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : result;
-          const toolMessageContent = JSON.stringify(toolResultForModel);
+          let toolMessageContent = JSON.stringify(toolResultForModel);
+
+          // Inject source tracking reminder for search tools so the LLM is reminded to include source metadata
+          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks"]);
+          if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            toolMessageContent += "\n\nSOURCE TRACKING REMINDER: Each result above has an `id` field. If you create a table using any of these results, you MUST include source_entity_id (the `id` from the matching result), source_entity_type, and source_sync_mode (\"snapshot\") on each row that corresponds to a result. Match rows to results by title. Do NOT add source metadata to rows with new/unrelated data.";
+            aiDebug("sourceTracking:llmReminderInjected", {
+              tool: toolName,
+              resultCount: result.data.length,
+              trackedEntities: searchedEntities.length,
+            });
+          }
+
           if (timing) {
             timing.tool_result_chars_total += JSON.stringify(compactedForMetrics).length;
           }
@@ -2213,6 +2270,8 @@ export async function* executeAICommandStream(
   let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
+  // Track searched entities for deterministic source metadata annotation (streaming path)
+  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }> = [];
 
   if (!openAIKey && !deepseekKey) {
     yield {
@@ -2597,7 +2656,52 @@ export async function* executeAICommandStream(
               currentProjectId: context.currentProjectId,
               undoTracker,
               authContext: context.authContext,
+              searchedEntities: searchedEntitiesStream.length > 0 ? searchedEntitiesStream : undefined,
             });
+
+          // Track searched entities for source metadata annotation (streaming path)
+          if (toolName === "searchTasks" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const task of result.data) {
+              if (task.id && task.title) {
+                searchedEntitiesStream.push({ id: task.id, title: task.title, entityType: "task" });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
+          if (toolName === "searchTimelineEvents" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const event of result.data) {
+              if (event.id && event.title) {
+                searchedEntitiesStream.push({ id: event.id, title: event.title, entityType: "timeline_event" });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
+          if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const subtask of result.data) {
+              if (subtask.id && subtask.title && subtask.task_id) {
+                searchedEntitiesStream.push({ id: subtask.task_id, title: subtask.title, entityType: "task" });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           toolCallsThisRound.push({ tool: toolName, result });
           toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
@@ -2688,9 +2792,22 @@ export async function* executeAICommandStream(
           };
 
           const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(result) : result;
+          let streamToolMessageContent = JSON.stringify(compactedResult);
+
+          // Inject source tracking reminder for search tools (streaming path)
+          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks"]);
+          if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            streamToolMessageContent += "\n\nSOURCE TRACKING REMINDER: Each result above has an `id` field. If you create a table using any of these results, you MUST include source_entity_id (the `id` from the matching result), source_entity_type, and source_sync_mode (\"snapshot\") on each row that corresponds to a result. Match rows to results by title. Do NOT add source metadata to rows with new/unrelated data.";
+            aiDebug("sourceTracking:llmReminderInjected:stream", {
+              tool: toolName,
+              resultCount: result.data.length,
+              trackedEntities: searchedEntitiesStream.length,
+            });
+          }
+
           messages.push({
             role: "tool",
-            content: JSON.stringify(compactedResult),
+            content: streamToolMessageContent,
             tool_call_id: toolCall.id,
             name: toolName,
           });
