@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Send, RotateCcw, PanelRightClose } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
 import Toast from "@/app/dashboard/projects/toast";
@@ -53,6 +55,7 @@ export default function WorkflowAIChatPanel(props: {
   workspaceId: string;
   showCollapseButton?: boolean;
   onCollapse?: () => void;
+  autoScrollDashboardToTop?: boolean;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -87,6 +90,43 @@ export default function WorkflowAIChatPanel(props: {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [renderedMessages, loading]);
+
+  const lastAssistantMessageId = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i -= 1) {
+      if (renderedMessages[i].role === "assistant") {
+        return renderedMessages[i].id;
+      }
+    }
+    return null;
+  }, [renderedMessages]);
+
+  const lastAssistantMessageIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      lastAssistantMessageIdRef.current = lastAssistantMessageId;
+      return;
+    }
+
+    if (!props.autoScrollDashboardToTop) {
+      lastAssistantMessageIdRef.current = lastAssistantMessageId;
+      return;
+    }
+
+    if (
+      lastAssistantMessageId &&
+      lastAssistantMessageIdRef.current !== lastAssistantMessageId
+    ) {
+      const dashboardContent = document.getElementById("dashboard-content");
+      if (dashboardContent) {
+        dashboardContent.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }
+
+    lastAssistantMessageIdRef.current = lastAssistantMessageId;
+  }, [lastAssistantMessageId, props.autoScrollDashboardToTop]);
 
   const load = async () => {
     setLoading(true);
@@ -515,10 +555,18 @@ export default function WorkflowAIChatPanel(props: {
             <div className="text-[11px] mb-2 text-[var(--muted-foreground)]">
               {m.role === "user" ? "You" : "Assistant"}
             </div>
-            <div
-              className="text-[var(--foreground)]"
-              dangerouslySetInnerHTML={{ __html: m.html }}
-            />
+            {m.role === "user" ? (
+              <div
+                className="text-[var(--foreground)]"
+                dangerouslySetInnerHTML={{ __html: m.html }}
+              />
+            ) : (
+              <div className="prose prose-sm max-w-none text-[var(--foreground)]">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {getText(m.content)}
+                </ReactMarkdown>
+              </div>
+            )}
             {Array.isArray(m.created_block_ids) && m.created_block_ids.length > 0 && (
               <div className="mt-2 text-[11px] text-[var(--muted-foreground)]">
                 Created {m.created_block_ids.length} block(s)

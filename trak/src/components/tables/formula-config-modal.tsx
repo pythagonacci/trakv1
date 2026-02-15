@@ -118,6 +118,7 @@ export function FormulaConfigModal({ open, field, tableFields, onClose, onSave }
           sample = new Date().toISOString().slice(0, 10);
           break;
         case "checkbox":
+        case "subtask":
           sample = true;
           break;
         case "select":

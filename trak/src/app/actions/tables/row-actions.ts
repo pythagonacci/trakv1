@@ -208,12 +208,19 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
 
       // Update row data with relation IDs immediately
       const updatedData = { ...mergedData, [fieldId]: nextRowIds };
+      const updatePayload: Record<string, unknown> = {
+        data: updatedData,
+        updated_by: userId,
+      };
+
+      // Mark as edited if this is a snapshot
+      if (row.source_entity_id) {
+        updatePayload.edited = true;
+      }
+
       await supabase
         .from("table_rows")
-        .update({
-          data: updatedData,
-          updated_by: userId,
-        })
+        .update(updatePayload)
         .eq("id", rowId);
 
       // Recompute formulas and rollups (non-blocking)
@@ -252,12 +259,19 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     }
   }
 
+  const updatePayload: Record<string, unknown> = {
+    data: mergedData,
+    updated_by: userId,
+  };
+
+  // Mark as edited if this is a snapshot
+  if (row.source_entity_id) {
+    updatePayload.edited = true;
+  }
+
   const { data, error } = await supabase
     .from("table_rows")
-    .update({
-      data: mergedData,
-      updated_by: userId,
-    })
+    .update(updatePayload)
     .eq("id", rowId)
     .select("*")
     .single();

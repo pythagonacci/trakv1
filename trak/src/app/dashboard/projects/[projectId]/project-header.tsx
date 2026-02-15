@@ -109,38 +109,38 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   const projectOverviewPath = `/dashboard/projects/${project.id}/overview`;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
         <button
           onClick={() => router.push("/dashboard/projects")}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <ArrowLeft className="h-3 w-3" />
           Back to projects
         </button>
         {!isOverview && (
           <button
             onClick={() => router.push(projectOverviewPath)}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
           >
-            <LayoutDashboard className="h-3.5 w-3.5" />
+            <LayoutDashboard className="h-3 w-3" />
             Overview
           </button>
         )}
       </div>
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-2">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
           {project.client && (
-            <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--velvet-purple)]">
+            <span className="inline-flex items-center gap-1 rounded-[2px] border border-[var(--velvet-purple)]/20 bg-[var(--velvet-purple)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--velvet-purple)]">
               {project.client.name}
               {project.client.company && <span className="text-[var(--velvet-purple)]/70">· {project.client.company}</span>}
             </span>
           )}
-          <h1 className="text-2xl font-bold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>
+          <h1 className="text-lg font-bold tracking-normal text-[var(--foreground)] font-playfair md:text-xl" style={{ fontFamily: 'var(--font-playfair)' }}>
             {project.name}
           </h1>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <StatusBadge status={project.status} />
             {hasDueDate && dueDateText && (
               <span className="flex items-center gap-1 text-[var(--foreground)]/70 font-medium">
@@ -150,13 +150,13 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Theme selector - only show when on a tab */}
           {tabId && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 text-xs">
-                  <Palette className="h-3.5 w-3.5" />
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2 text-[11px]">
+                  <Palette className="h-3 w-3" />
                   Theme
                 </Button>
               </DropdownMenuTrigger>
@@ -197,15 +197,15 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           {(workspaceId || project.workspace_id) && (
             <button
               onClick={() => setIsPermissionsDialogOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
             >
-              <Users className="h-3.5 w-3.5" />
+              <Users className="h-3 w-3" />
               Manage Access
             </button>
           )}
 
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm">
-            <Edit className="h-3.5 w-3.5" />
+          <button className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm">
+            <Edit className="h-3 w-3" />
             Edit details
           </button>
         </div>

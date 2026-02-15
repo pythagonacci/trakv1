@@ -110,11 +110,47 @@ interface BoardColumn {
   id: string;
   label: string;
   taskIds: string[];
+  itemIds: string[]; // BoardItemId[] - includes both tasks and subtasks
   groupBy: BoardGroupBy;
   value: string | null;
   assigneeId?: string | null;
   assigneeName?: string | null;
   dueBucket?: "overdue" | "today" | "this_week" | "later" | "no_date";
+}
+
+// Board view item types and identifiers
+type BoardItemType = "task" | "subtask";
+type BoardItemId = `task-${string}` | `subtask-${string}`;
+
+type BoardItem =
+  | { type: "task"; id: BoardItemId; taskId: string; task: Task }
+  | { type: "subtask"; id: BoardItemId; subtaskId: string; subtask: Subtask; parentTaskId: string; parentTask: Task };
+
+// Helper functions for board item IDs
+function toTaskItemId(taskId: string): BoardItemId {
+  return `task-${taskId}`;
+}
+
+function toSubtaskItemId(subtaskId: string): BoardItemId {
+  return `subtask-${subtaskId}`;
+}
+
+function isTaskItemId(id: string): id is `task-${string}` {
+  return id.startsWith("task-");
+}
+
+function isSubtaskItemId(id: string): id is `subtask-${string}` {
+  return id.startsWith("subtask-");
+}
+
+function extractRawId(itemId: BoardItemId): string {
+  if (isTaskItemId(itemId)) {
+    return itemId.replace("task-", "");
+  }
+  if (isSubtaskItemId(itemId)) {
+    return itemId.replace("subtask-", "");
+  }
+  return itemId;
 }
 
   // Separate component for task description to prevent state loss on re-renders
@@ -433,48 +469,68 @@ function BoardColumnContainer({
   );
 }
 
-function BoardTaskCard({
-  taskId,
-  columnId,
-  statusIcon,
-  title,
-  onToggleStatus,
-  showStatusIcon,
-  showPriority,
-  showAssignee,
-  showDueDate,
-  showTags,
-  priorityBadge,
-  assigneeBadge,
-  dueDateBadge,
-  tagsBadges,
-  menu,
-}: {
-  taskId: string;
-  columnId: string;
-  statusIcon: React.ReactNode;
-  title: React.ReactNode;
-  onToggleStatus: () => void;
-  showStatusIcon: boolean;
-  showPriority: boolean;
-  showAssignee: boolean;
-  showDueDate: boolean;
-  showTags: boolean;
-  priorityBadge: React.ReactNode;
-  assigneeBadge: React.ReactNode;
-  dueDateBadge: React.ReactNode;
-  tagsBadges: React.ReactNode;
-  menu: React.ReactNode;
-}) {
+type BoardTaskCardProps =
+  | {
+      itemType: "task";
+      itemId: BoardItemId;
+      taskId: string;
+      task: Task;
+      columnId: string;
+      statusIcon: React.ReactNode;
+      title: React.ReactNode;
+      onToggleStatus: () => void;
+      showStatusIcon: boolean;
+      showPriority: boolean;
+      showAssignee: boolean;
+      showDueDate: boolean;
+      showTags: boolean;
+      priorityBadge: React.ReactNode;
+      assigneeBadge: React.ReactNode;
+      dueDateBadge: React.ReactNode;
+      tagsBadges: React.ReactNode;
+      menu: React.ReactNode;
+      subtaskCount: number;
+    }
+  | {
+      itemType: "subtask";
+      itemId: BoardItemId;
+      subtaskId: string;
+      subtask: Subtask;
+      parentTaskId: string;
+      parentTaskTitle: string;
+      columnId: string;
+      statusIcon: React.ReactNode;
+      title: React.ReactNode;
+      onToggleStatus: () => void;
+      showStatusIcon: boolean;
+      showPriority: boolean;
+      showAssignee: boolean;
+      showDueDate: boolean;
+      showTags: boolean;
+      priorityBadge: React.ReactNode;
+      assigneeBadge: React.ReactNode;
+      dueDateBadge: React.ReactNode;
+      tagsBadges: React.ReactNode;
+      menu: React.ReactNode;
+    };
+
+function BoardTaskCard(props: BoardTaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `task-${taskId}`,
-    data: { columnId },
+    id: props.itemId,
+    data: { 
+      columnId: props.columnId, 
+      itemType: props.itemType,
+      rawId: props.itemType === "task" ? props.taskId : props.subtaskId,
+      parentTaskId: props.itemType === "subtask" ? props.parentTaskId : undefined,
+    },
   });
 
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
     transition,
   };
+
+  const isSubtask = props.itemType === "subtask";
 
   return (
     <div
@@ -483,38 +539,58 @@ function BoardTaskCard({
       className={cn(
         "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow",
         "hover:border-[var(--secondary)]/30 hover:shadow-sm",
-        isDragging && "opacity-60"
+        isDragging && "opacity-60",
+        isSubtask && "border-l-2 border-l-[var(--primary)]/40 bg-[var(--surface)]/80"
       )}
       {...attributes}
       {...listeners}
     >
       <div className="flex items-start gap-2">
-        {showStatusIcon && (
+        {props.showStatusIcon && (
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              onToggleStatus();
+              props.onToggleStatus();
             }}
             className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--secondary)]"
-            aria-label="Toggle task"
+            aria-label={isSubtask ? "Toggle subtask" : "Toggle task"}
           >
-            {statusIcon}
+            {props.statusIcon}
           </button>
         )}
         <div className="min-w-0 flex-1 space-y-1">
-          {title}
-          {(showPriority || showAssignee || showDueDate || showTags) && (
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              {props.title}
+              {isSubtask && (
+                <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                  ↳ {props.parentTaskTitle}
+                </div>
+              )}
+            </div>
+            {props.itemType === "task" && props.subtaskCount > 0 && (
+              <span className="inline-flex items-center rounded-[4px] border border-[var(--border)] bg-[var(--surface-hover)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)] flex-shrink-0">
+                {props.subtaskCount} {props.subtaskCount === 1 ? "subtask" : "subtasks"}
+              </span>
+            )}
+          </div>
+          {(props.showPriority || props.showAssignee || props.showDueDate || props.showTags || isSubtask) && (
             <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
-              {showPriority && priorityBadge}
-              {showAssignee && assigneeBadge}
-              {showDueDate && dueDateBadge}
-              {showTags && tagsBadges}
+              {isSubtask && (
+                <span className="inline-flex items-center rounded-[4px] border border-[var(--border)] bg-[var(--surface-hover)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
+                  Subtask
+                </span>
+              )}
+              {props.showPriority && props.priorityBadge}
+              {props.showAssignee && props.assigneeBadge}
+              {props.showDueDate && props.dueDateBadge}
+              {props.showTags && props.tagsBadges}
             </div>
           )}
         </div>
-        {menu}
+        {props.menu}
       </div>
     </div>
   );
@@ -563,6 +639,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>(initialBoardGroupBy);
   const [editingTaskId, setEditingTaskId] = useState<string | number | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | number | null>(null);
+  const [editingSubtaskText, setEditingSubtaskText] = useState("");
   const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean; references?: boolean }>>({});
   const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, { description?: boolean; references?: boolean }>>({});
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
@@ -575,10 +653,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [inlineReference, setInlineReference] = useState<{ taskId: string; cursor: number } | null>(null);
   const [referenceAnchorRect, setReferenceAnchorRect] = useState<DOMRect | null>(null);
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
+  const editingSubtaskInputRef = useRef<HTMLInputElement | null>(null);
   const [propertiesTarget, setPropertiesTarget] = useState<{ type: EntityType; id: string; title: string } | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [taskOrder, setTaskOrder] = useState<string[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeItemId, setActiveItemId] = useState<BoardItemId | null>(null);
   const [propertyOverrides, setPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
@@ -618,6 +698,40 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
     return taskOrder.map((id) => taskMap.get(id)).filter(Boolean) as Task[];
   }, [tasks, taskOrder]);
+
+  // Board view: flattened array of tasks and subtasks as independent items
+  const boardItems: BoardItem[] = useMemo(() => {
+    const out: BoardItem[] = [];
+    orderedTasks.forEach((task) => {
+      const taskId = String(task.id);
+      out.push({ type: "task", id: toTaskItemId(taskId), taskId, task });
+      (task.subtasks ?? []).forEach((subtask) => {
+        const subtaskId = String(subtask.id);
+        out.push({
+          type: "subtask",
+          id: toSubtaskItemId(subtaskId),
+          subtaskId,
+          subtask,
+          parentTaskId: taskId,
+          parentTask: task,
+        });
+      });
+    });
+    return out;
+  }, [orderedTasks]);
+
+  // Fast lookup maps for board items
+  const boardItemById = useMemo(() => {
+    return new Map<BoardItemId, BoardItem>(boardItems.map((item) => [item.id, item]));
+  }, [boardItems]);
+
+  const parentTaskIdBySubtaskId = useMemo(() => {
+    return new Map<string, string>(
+      boardItems
+        .filter((item): item is Extract<BoardItem, { type: "subtask" }> => item.type === "subtask")
+        .map((item) => [item.subtaskId, item.parentTaskId])
+    );
+  }, [boardItems]);
 
   const copiedTasks = useMemo(
     () => orderedTasks.filter((task) => Boolean(task.sourceTaskId)),
@@ -737,6 +851,26 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     const props = getEffectiveProperties(taskId, task);
     if (props?.tags) return props.tags;
     return task.tags ?? [];
+  };
+
+  // Board-only: task properties WITHOUT deriving from subtasks
+  const getTaskOnlyStatus = (taskId: string, task: Task) => {
+    const props = getEffectiveProperties(taskId, task);
+    return props?.status || statusFromLegacy(task.status);
+  };
+
+  const getTaskOnlyAssigneeId = (taskId: string, task: Task) => {
+    const props = getEffectiveProperties(taskId, task);
+    if (props?.assignee_ids?.length) return props.assignee_ids[0];
+    if (props?.assignee_id) return props.assignee_id;
+    return null;
+  };
+
+  const getTaskOnlyAssigneeIds = (taskId: string, task: Task): string[] => {
+    const props = getEffectiveProperties(taskId, task);
+    if (props?.assignee_ids?.length) return props.assignee_ids;
+    if (props?.assignee_id) return [props.assignee_id];
+    return [];
   };
 
   const normalizePriority = (value?: string | null) => {
@@ -1495,6 +1629,52 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     }
   };
 
+  const applySubtaskBoardGroupUpdate = async (subtaskId: string, column: BoardColumn) => {
+    const parentTaskId = parentTaskIdBySubtaskId.get(subtaskId);
+    if (!parentTaskId) return;
+
+    const subtaskItem = boardItems.find((item): item is Extract<BoardItem, { type: "subtask" }> => item.type === "subtask" && item.subtaskId === subtaskId);
+    if (!subtaskItem) return;
+
+    if (isTempBlock) {
+      // Temp block: update in-memory only
+      // Note: Temp block subtask property updates may not be fully supported
+      // For now, we skip temp block updates for subtasks
+      return;
+    }
+
+    try {
+      if (column.groupBy === "status" && column.value) {
+        await updateSubtaskStatus(subtaskId, column.value as Status);
+      } else if (column.groupBy === "priority") {
+        await updateSubtaskPriority(subtaskId, column.value);
+      } else if (column.groupBy === "assignee") {
+        const currentIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+        const newId = column.assigneeId ?? null;
+        const nextIds = newId
+          ? (currentIds.includes(newId) ? currentIds : [...currentIds, newId])
+          : [];
+        await updateSubtaskAssignees(subtaskId, nextIds);
+      } else if (column.groupBy === "dueDate") {
+        const nextEnd = resolveDueDateFromBucket(column.dueBucket);
+        const currentRange = getSubtaskEffectiveProperties(subtaskId)?.due_date ?? null;
+        await updateSubtaskDueDate(subtaskId, buildDueDateRange(currentRange?.start ?? null, nextEnd));
+      } else if (column.groupBy === "tags") {
+        const props = getSubtaskEffectiveProperties(subtaskId);
+        const currentTags = props?.tags ?? [];
+        const newTag = column.value;
+        const nextTags = newTag && !currentTags.includes(newTag) ? [...currentTags, newTag] : currentTags;
+        // Note: We need a setSubtaskTags function - for now use entity properties
+        await setSubtaskProperties.mutateAsync({
+          entityId: subtaskId,
+          updates: { tags: nextTags },
+        });
+      }
+    } catch (error) {
+      console.error("Failed to update subtask from board drag:", error);
+    }
+  };
+
   const getDueBucket = (
     dueDate?: EntityProperties["due_date"] | null
   ): BoardColumn["dueBucket"] => {
@@ -1511,6 +1691,74 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     return "later";
   };
 
+  // Board grouping: get column ID for a task (using task-only properties)
+  function getBoardGroupValueForTask(taskId: string, task: Task, groupBy: BoardGroupBy): { columnId: string } {
+    if (groupBy === "status") {
+      const status = getTaskOnlyStatus(taskId, task);
+      return { columnId: `status:${status}` };
+    } else if (groupBy === "priority") {
+      const priority = getEffectivePriority(taskId, task);
+      return { columnId: `priority:${priority || "none"}` };
+    } else if (groupBy === "assignee") {
+      const assigneeId = getTaskOnlyAssigneeId(taskId, task);
+      const normalized = normalizeAssigneeId(assigneeId);
+      if (normalized) {
+        return { columnId: `assignee:${normalized}` };
+      } else if (task.assignees && task.assignees.length > 0) {
+        return { columnId: `assignee-name:${task.assignees[0]}` };
+      } else {
+        return { columnId: "assignee:unassigned" };
+      }
+    } else if (groupBy === "tags") {
+      const tags = getEffectiveTags(taskId, task);
+      const firstTag = tags[0];
+      if (firstTag) {
+        return { columnId: `tag:${firstTag}` };
+      } else {
+        return { columnId: "tag:none" };
+      }
+    } else if (groupBy === "dueDate") {
+      const dueDate = getEffectiveDueDate(taskId, task);
+      const bucket = getDueBucket(dueDate);
+      return { columnId: `due:${bucket}` };
+    }
+    return { columnId: "" };
+  }
+
+  // Board grouping: get column ID for a subtask (using subtask properties)
+  function getBoardGroupValueForSubtask(subtaskId: string, subtask: Subtask, groupBy: BoardGroupBy): { columnId: string } {
+    const props = getSubtaskEffectiveProperties(subtaskId);
+    if (groupBy === "status") {
+      const status = getSubtaskEffectiveStatus(subtaskId, subtask);
+      return { columnId: `status:${status}` };
+    } else if (groupBy === "priority") {
+      const priority = props?.priority ?? null;
+      return { columnId: `priority:${priority || "none"}` };
+    } else if (groupBy === "assignee") {
+      const assigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+      if (assigneeIds.length > 0) {
+        const normalized = normalizeAssigneeId(assigneeIds[0]);
+        if (normalized) {
+          return { columnId: `assignee:${normalized}` };
+        }
+      }
+      return { columnId: "assignee:unassigned" };
+    } else if (groupBy === "tags") {
+      const tags = props?.tags ?? [];
+      const firstTag = tags[0];
+      if (firstTag) {
+        return { columnId: `tag:${firstTag}` };
+      } else {
+        return { columnId: "tag:none" };
+      }
+    } else if (groupBy === "dueDate") {
+      const dueDate = props?.due_date ?? null;
+      const bucket = getDueBucket(dueDate);
+      return { columnId: `due:${bucket}` };
+    }
+    return { columnId: "" };
+  }
+
   const boardColumns = useMemo(() => {
     const columns: BoardColumn[] = [];
     const columnMap = new Map<string, BoardColumn>();
@@ -1524,16 +1772,26 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       }
     };
 
+    // Collect assignee info from both tasks and subtasks for assignee grouping
     if (boardGroupBy === "assignee") {
-      orderedTasks.forEach((task) => {
-        const taskId = String(task.id);
-        const effectiveIds = getEffectiveAssigneeIds(taskId, task);
-        effectiveIds.forEach((id) => {
-          const normalized = normalizeAssigneeId(id);
-          if (normalized) assigneeIds.add(normalized);
-        });
-        if (effectiveIds.length === 0 && task.assignees?.length) {
-          task.assignees.forEach((name) => assigneeNames.add(name));
+      boardItems.forEach((item) => {
+        if (item.type === "task") {
+          const taskId = item.taskId;
+          const effectiveIds = getTaskOnlyAssigneeIds(taskId, item.task);
+          effectiveIds.forEach((id) => {
+            const normalized = normalizeAssigneeId(id);
+            if (normalized) assigneeIds.add(normalized);
+          });
+          if (effectiveIds.length === 0 && item.task.assignees?.length) {
+            item.task.assignees.forEach((name) => assigneeNames.add(name));
+          }
+        } else {
+          // subtask
+          const assigneeIdsForSubtask = getSubtaskEffectiveAssigneeIds(item.subtaskId);
+          assigneeIdsForSubtask.forEach((id) => {
+            const normalized = normalizeAssigneeId(id);
+            if (normalized) assigneeIds.add(normalized);
+          });
         }
       });
     }
@@ -1544,6 +1802,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           id: `status:${opt.value}`,
           label: opt.label === "To-Do" ? "To Do" : opt.label,
           taskIds: [],
+          itemIds: [],
           groupBy: "status",
           value: opt.value,
         });
@@ -1555,6 +1814,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           id: `priority:${value}`,
           label: value === "none" ? "None" : (value || "").charAt(0).toUpperCase() + (value || "").slice(1),
           taskIds: [],
+          itemIds: [],
           groupBy: "priority",
           value,
         });
@@ -1564,6 +1824,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
         id: "assignee:unassigned",
         label: "Unassigned",
         taskIds: [],
+        itemIds: [],
         groupBy: "assignee",
         value: null,
         assigneeId: null,
@@ -1575,6 +1836,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           id: `assignee:${member.user_id}`,
           label: member.name || member.email,
           taskIds: [],
+          itemIds: [],
           groupBy: "assignee",
           value: member.user_id,
           assigneeId: member.user_id,
@@ -1586,6 +1848,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           id: `assignee-name:${name}`,
           label: name,
           taskIds: [],
+          itemIds: [],
           groupBy: "assignee",
           value: name,
           assigneeName: name,
@@ -1596,6 +1859,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
         id: "tag:none",
         label: "No Tag",
         taskIds: [],
+        itemIds: [],
         groupBy: "tags",
         value: null,
       });
@@ -1611,6 +1875,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           id: bucket.id,
           label: bucket.label,
           taskIds: [],
+          itemIds: [],
           groupBy: "dueDate",
           value: bucket.id,
           dueBucket: bucket.dueBucket as BoardColumn["dueBucket"],
@@ -1618,84 +1883,80 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       });
     }
 
-    orderedTasks.forEach((task) => {
-      const taskId = String(task.id);
-      const effectiveStatus = getEffectiveStatus(taskId, task);
-      const effectivePriority = getEffectivePriority(taskId, task);
-      const effectiveAssigneeId = getEffectiveAssigneeId(taskId, task);
-      const normalizedAssigneeId = normalizeAssigneeId(effectiveAssigneeId);
-      const effectiveTags = getEffectiveTags(taskId, task);
-      const effectiveDueDate = getEffectiveDueDate(taskId, task);
-
+    // Group board items (tasks and subtasks) into columns
+    boardItems.forEach((item) => {
       let columnId = "";
-      if (boardGroupBy === "status") {
-        columnId = `status:${effectiveStatus}`;
-      } else if (boardGroupBy === "priority") {
-        columnId = `priority:${effectivePriority || "none"}`;
-      } else if (boardGroupBy === "assignee") {
-        if (normalizedAssigneeId) {
-          columnId = `assignee:${normalizedAssigneeId}`;
-          if (!columnMap.has(columnId)) {
-            const member = getWorkspaceMember(normalizedAssigneeId);
-            addColumn({
-              id: columnId,
-              label: member?.name || member?.email || "Assignee",
-              taskIds: [],
-              groupBy: "assignee",
-              value: normalizedAssigneeId,
-              assigneeId: normalizedAssigneeId,
-            });
-          }
-        } else if (task.assignees && task.assignees.length > 0) {
-          const name = task.assignees[0];
+      if (item.type === "task") {
+        const groupValue = getBoardGroupValueForTask(item.taskId, item.task, boardGroupBy);
+        columnId = groupValue.columnId;
+        
+        // For assignee grouping, create dynamic columns for tasks with name-based assignees
+        if (boardGroupBy === "assignee" && !columnMap.has(columnId) && item.task.assignees && item.task.assignees.length > 0) {
+          const name = item.task.assignees[0];
           const nameId = `assignee-name:${name}`;
           addColumn({
             id: nameId,
             label: name,
             taskIds: [],
+            itemIds: [],
             groupBy: "assignee",
             value: name,
             assigneeName: name,
           });
           columnId = nameId;
-        } else {
-          columnId = "assignee:unassigned";
         }
-      } else if (boardGroupBy === "tags") {
-        const firstTag = effectiveTags[0];
-        if (firstTag) {
-          const tagId = `tag:${firstTag}`;
-          addColumn({
-            id: tagId,
-            label: firstTag,
-            taskIds: [],
-            groupBy: "tags",
-            value: firstTag,
-          });
-          columnId = tagId;
-        } else {
-          columnId = "tag:none";
+        
+        // For tags grouping, create dynamic columns
+        if (boardGroupBy === "tags" && !columnMap.has(columnId)) {
+          const tags = getEffectiveTags(item.taskId, item.task);
+          const firstTag = tags[0];
+          if (firstTag) {
+            addColumn({
+              id: columnId,
+              label: firstTag,
+              taskIds: [],
+              itemIds: [],
+              groupBy: "tags",
+              value: firstTag,
+            });
+          }
         }
-      } else if (boardGroupBy === "dueDate") {
-        const bucket = getDueBucket(effectiveDueDate);
-        columnId = `due:${bucket}`;
+      } else {
+        // subtask
+        const groupValue = getBoardGroupValueForSubtask(item.subtaskId, item.subtask, boardGroupBy);
+        columnId = groupValue.columnId;
       }
 
       const column = columnMap.get(columnId);
       if (column) {
-        column.taskIds.push(taskId);
+        column.itemIds.push(item.id);
+        // Keep taskIds for backward compatibility during transition
+        if (item.type === "task") {
+          column.taskIds.push(item.taskId);
+        }
       }
     });
 
     return columns;
   }, [
     boardGroupBy,
-    orderedTasks,
+    boardItems,
     taskPropertiesById,
+    subtaskPropertiesById,
     propertyOverrides,
+    subtaskPropertyOverrides,
     workspaceMembers,
   ]);
 
+  const itemColumnLookup = useMemo(() => {
+    const map = new Map<BoardItemId, string>();
+    boardColumns.forEach((col) => {
+      col.itemIds.forEach((itemId) => map.set(itemId as BoardItemId, col.id));
+    });
+    return map;
+  }, [boardColumns]);
+
+  // Keep taskColumnLookup for backward compatibility during transition
   const taskColumnLookup = useMemo(() => {
     const map = new Map<string, string>();
     boardColumns.forEach((col) => {
@@ -1725,27 +1986,35 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
 
   const handleBoardDragStart = (event: DragStartEvent) => {
     const activeId = event.active.id as string;
-    if (activeId.startsWith("task-")) {
-      setActiveTaskId(activeId.replace("task-", ""));
+    if (isTaskItemId(activeId) || isSubtaskItemId(activeId)) {
+      setActiveItemId(activeId as BoardItemId);
+      if (isTaskItemId(activeId)) {
+        setActiveTaskId(extractRawId(activeId));
+      } else {
+        setActiveTaskId(null);
+      }
     }
   };
 
   const handleBoardDragEnd = async (event: DragEndEvent) => {
     const activeId = event.active.id as string;
     const overId = event.over?.id as string | undefined;
+    setActiveItemId(null);
     setActiveTaskId(null);
 
-    if (!activeId.startsWith("task-") || !overId) return;
+    if (!isTaskItemId(activeId) && !isSubtaskItemId(activeId)) return;
+    if (!overId) return;
 
-    const taskId = activeId.replace("task-", "");
-    const overTaskId = overId.startsWith("task-") ? overId.replace("task-", "") : null;
-    const sourceColumnId = (event.active.data.current?.columnId as string) || taskColumnLookup.get(taskId);
+    const activeItem = boardItemById.get(activeId as BoardItemId);
+    if (!activeItem) return;
+
+    const sourceColumnId = (event.active.data.current?.columnId as string) || itemColumnLookup.get(activeId as BoardItemId);
     let targetColumnId = sourceColumnId;
 
     if (overId.startsWith("column-")) {
       targetColumnId = overId.replace("column-", "");
-    } else if (overTaskId) {
-      targetColumnId = taskColumnLookup.get(overTaskId) || sourceColumnId;
+    } else if (isTaskItemId(overId) || isSubtaskItemId(overId)) {
+      targetColumnId = itemColumnLookup.get(overId as BoardItemId) || sourceColumnId;
     }
 
     if (!sourceColumnId || !targetColumnId) return;
@@ -1754,49 +2023,142 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     const targetColumn = boardColumns.find((col) => col.id === targetColumnId);
     if (!sourceColumn || !targetColumn) return;
 
+    // Handle reordering within same column or cross-column move
+    const oldIndex = sourceColumn.itemIds.indexOf(activeId as BoardItemId);
+    let newIndex = sourceColumn.itemIds.length - 1;
+    
+    if (overId.startsWith("column-")) {
+      // Dropped on column, append to end
+      newIndex = targetColumn.itemIds.length;
+    } else if (isTaskItemId(overId) || isSubtaskItemId(overId)) {
+      // Dropped on another item
+      const overIndex = targetColumn.itemIds.indexOf(overId as BoardItemId);
+      if (overIndex >= 0) {
+        newIndex = overIndex;
+      }
+    }
+
+    if (oldIndex === -1) return;
+
+    // Reorder within column
     if (sourceColumnId === targetColumnId) {
-      const oldIndex = sourceColumn.taskIds.indexOf(taskId);
-      const newIndex = overTaskId ? sourceColumn.taskIds.indexOf(overTaskId) : sourceColumn.taskIds.length - 1;
-      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
-      const nextColumnIds = arrayMove(sourceColumn.taskIds, oldIndex, newIndex);
-      const nextOrder = applyColumnOrder(taskOrder, sourceColumn.taskIds, nextColumnIds);
-      setTaskOrder(nextOrder);
-      if (isTempBlock) {
-        updateTempTaskOrder(nextOrder);
+      if (oldIndex === newIndex) return;
+      const nextItemIds = arrayMove(sourceColumn.itemIds, oldIndex, newIndex);
+      
+      if (activeItem.type === "task") {
+        // Update task order
+        const taskIdsInColumn = nextItemIds
+          .map((id) => {
+            const item = boardItemById.get(id as BoardItemId);
+            return item?.type === "task" ? item.taskId : null;
+          })
+          .filter(Boolean) as string[];
+        const nextOrder = applyColumnOrder(taskOrder, sourceColumn.taskIds, taskIdsInColumn);
+        setTaskOrder(nextOrder);
+        if (isTempBlock) {
+          updateTempTaskOrder(nextOrder);
+        } else {
+          await reorderTaskMutation.mutateAsync(nextOrder);
+        }
       } else {
-        await reorderTaskMutation.mutateAsync(nextOrder);
+        // Subtask reordering - persist within parent
+        // NOTE: Subtask ordering persistence is ambiguous when subtasks are spread across columns.
+        // We persist order for subtasks within the same column and same parent task.
+        // When grouping by status/priority/assignee/etc, subtasks from the same parent may be in different columns,
+        // making display_order ambiguous. In such cases, we only persist order within each column.
+        const parentTaskId = activeItem.parentTaskId;
+        const subtasksInColumn = nextItemIds
+          .map((id) => {
+            const item = boardItemById.get(id as BoardItemId);
+            return item?.type === "subtask" && item.parentTaskId === parentTaskId ? item.subtaskId : null;
+          })
+          .filter(Boolean) as string[];
+        
+        if (subtasksInColumn.length > 0 && !isTempBlock) {
+          // Persist subtask order for this parent within this column
+          await subtaskMutations.reorder.mutateAsync({
+            taskId: parentTaskId,
+            orderedSubtaskIds: subtasksInColumn,
+          });
+        }
       }
       return;
     }
 
-    const targetIds = targetColumn.taskIds.filter((id) => id !== taskId);
-    const nextOrder = taskOrder.filter((id) => id !== taskId);
-    if (targetIds.length === 0) {
-      nextOrder.push(taskId);
-    } else if (overTaskId) {
-      const insertIndex = nextOrder.indexOf(overTaskId);
-      if (insertIndex >= 0) {
-        nextOrder.splice(insertIndex, 0, taskId);
-      } else {
+    // Cross-column move
+    const nextSourceItemIds = sourceColumn.itemIds.filter((id) => id !== activeId);
+    const nextTargetItemIds = [...targetColumn.itemIds];
+    nextTargetItemIds.splice(newIndex, 0, activeId as BoardItemId);
+
+    if (activeItem.type === "task") {
+      // Update task properties and order
+      const taskId = activeItem.taskId;
+      const targetTaskIds = nextTargetItemIds
+        .map((id) => {
+          const item = boardItemById.get(id as BoardItemId);
+          return item?.type === "task" ? item.taskId : null;
+        })
+        .filter(Boolean) as string[];
+      
+      const nextOrder = taskOrder.filter((id) => id !== taskId);
+      if (targetTaskIds.length === 0) {
         nextOrder.push(taskId);
+      } else {
+        const insertAfterId = targetTaskIds.find((tid, idx) => {
+          if (idx === 0 && newIndex === 0) return null;
+          const itemAtNewIndex = boardItemById.get(nextTargetItemIds[newIndex] as BoardItemId);
+          if (itemAtNewIndex?.type === "task" && itemAtNewIndex.taskId === tid) {
+            return tid;
+          }
+          return null;
+        });
+        if (insertAfterId) {
+          const insertIndex = nextOrder.indexOf(insertAfterId);
+          if (insertIndex >= 0) {
+            nextOrder.splice(insertIndex + 1, 0, taskId);
+          } else {
+            nextOrder.push(taskId);
+          }
+        } else {
+          const firstTaskId = targetTaskIds[0];
+          const firstIndex = nextOrder.indexOf(firstTaskId);
+          if (firstIndex >= 0) {
+            nextOrder.splice(firstIndex, 0, taskId);
+          } else {
+            nextOrder.push(taskId);
+          }
+        }
+      }
+
+      setTaskOrder(nextOrder);
+      if (isTempBlock) {
+        updateTempTaskOrder(nextOrder);
+      }
+      await applyBoardGroupUpdate(taskId, targetColumn);
+      if (!isTempBlock) {
+        await reorderTaskMutation.mutateAsync(nextOrder);
       }
     } else {
-      const lastTarget = targetIds[targetIds.length - 1];
-      const lastIndex = nextOrder.indexOf(lastTarget);
-      if (lastIndex >= 0) {
-        nextOrder.splice(lastIndex + 1, 0, taskId);
-      } else {
-        nextOrder.push(taskId);
+      // Subtask cross-column move - update subtask property
+      await applySubtaskBoardGroupUpdate(activeItem.subtaskId, targetColumn);
+      
+      // Persist subtask order within the target column for the same parent
+      // NOTE: This only updates order for subtasks of the same parent within the target column.
+      // When subtasks are spread across columns, display_order is ambiguous.
+      const parentTaskId = activeItem.parentTaskId;
+      const subtasksInTargetColumn = nextTargetItemIds
+        .map((id) => {
+          const item = boardItemById.get(id as BoardItemId);
+          return item?.type === "subtask" && item.parentTaskId === parentTaskId ? item.subtaskId : null;
+        })
+        .filter(Boolean) as string[];
+      
+      if (subtasksInTargetColumn.length > 0 && !isTempBlock) {
+        await subtaskMutations.reorder.mutateAsync({
+          taskId: parentTaskId,
+          orderedSubtaskIds: subtasksInTargetColumn,
+        });
       }
-    }
-
-    setTaskOrder(nextOrder);
-    if (isTempBlock) {
-      updateTempTaskOrder(nextOrder);
-    }
-    await applyBoardGroupUpdate(taskId, targetColumn);
-    if (!isTempBlock) {
-      await reorderTaskMutation.mutateAsync(nextOrder);
     }
   };
 
@@ -2867,7 +3229,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                       {column.label}
                     </div>
                     <div className="text-[10px] text-[var(--tertiary-foreground)]">
-                      {column.taskIds.length}
+                      {column.itemIds.length}
                     </div>
                   </div>
                   <button
@@ -2879,10 +3241,15 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                   </button>
                   <BoardColumnContainer columnId={column.id}>
                     <SortableContext
-                      items={column.taskIds.map((id) => `task-${id}`)}
+                      items={column.itemIds}
                       strategy={verticalListSortingStrategy}
                     >
-                      {column.taskIds.map((taskId) => {
+                      {column.itemIds.map((itemId) => {
+                        const item = boardItemById.get(itemId as BoardItemId);
+                        if (!item) return null;
+
+                        if (item.type === "task") {
+                          const { taskId } = item;
                         const task = taskMapById.get(taskId);
                         if (!task) return null;
 
@@ -3104,29 +3471,220 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           </DropdownMenu>
                         );
 
-                        return (
-                          <BoardTaskCard
-                            key={taskId}
-                            taskId={taskId}
-                            columnId={column.id}
-                            statusIcon={statusIcon}
-                            title={title}
-                            onToggleStatus={() => {
-                              if (statusIsDerived) return;
-                              toggleTask(task.id);
-                            }}
-                            showStatusIcon={showStatusIcon}
-                            showPriority={showPriority}
-                            showAssignee={showAssignee}
-                            showDueDate={showDueDate}
-                            showTags={showTags}
-                            priorityBadge={priorityBadge}
-                            assigneeBadge={assigneeBadge}
-                            dueDateBadge={dueDateBadge}
-                            tagsBadges={tagsBadges}
-                            menu={menu}
-                          />
-                        );
+                          const subtaskCount = task.subtasks?.length ?? 0;
+
+                          return (
+                            <BoardTaskCard
+                              key={itemId}
+                              itemType="task"
+                              itemId={itemId as BoardItemId}
+                              taskId={taskId}
+                              task={task}
+                              columnId={column.id}
+                              statusIcon={statusIcon}
+                              title={title}
+                              onToggleStatus={() => {
+                                if (statusIsDerived) return;
+                                toggleTask(task.id);
+                              }}
+                              showStatusIcon={showStatusIcon}
+                              showPriority={showPriority}
+                              showAssignee={showAssignee}
+                              showDueDate={showDueDate}
+                              showTags={showTags}
+                              priorityBadge={priorityBadge}
+                              assigneeBadge={assigneeBadge}
+                              dueDateBadge={dueDateBadge}
+                              tagsBadges={tagsBadges}
+                              menu={menu}
+                              subtaskCount={subtaskCount}
+                            />
+                          );
+                        } else {
+                          // subtask rendering
+                          const { subtaskId, subtask, parentTaskId, parentTask } = item;
+                          const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
+                          const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
+                          const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
+                          const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
+                          const subtaskPriority = subtaskProps?.priority ?? null;
+                          const subtaskAssigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+                          const subtaskDueDate = subtaskProps?.due_date ?? null;
+                          const subtaskTags = subtaskProps?.tags ?? [];
+                          
+                          const subtaskAssigneeNames = subtaskAssigneeIds
+                            .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
+                            .filter(Boolean) as string[];
+                          const subtaskAssigneeLabel = subtaskAssigneeNames.length
+                            ? subtaskAssigneeNames.join(", ")
+                            : null;
+                          const subtaskAssigneeInitial = subtaskAssigneeLabel ? subtaskAssigneeLabel.trim()[0]?.toUpperCase() : "?";
+
+                          const subtaskStatusIcon =
+                            subtaskStatus === "done" ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            ) : subtaskStatus === "blocked" ? (
+                              <XCircle className="h-4 w-4 text-red-500" />
+                            ) : subtaskStatus === "in_progress" ? (
+                              <Clock className="h-4 w-4 text-[var(--tram-yellow)]" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-neutral-300 dark:text-neutral-600" />
+                            );
+
+                          const showSubtaskStatusIcon = shouldShowIcons(parentTask) && boardGroupBy !== "status";
+                          const showSubtaskPriority = Boolean(subtaskPriority) && boardGroupBy !== "priority";
+                          const showSubtaskAssignee = Boolean(subtaskAssigneeLabel) && boardGroupBy !== "assignee";
+                          const hasSubtaskDueDateValue = hasDueDate(subtaskDueDate);
+                          const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate) || null;
+                          const showSubtaskDueDate = hasSubtaskDueDateValue && boardGroupBy !== "dueDate";
+                          const showSubtaskTags = subtaskTags.length > 0 && boardGroupBy !== "tags";
+
+                          const subtaskTitle =
+                            editingSubtaskId === subtask.id ? (
+                              <input
+                                ref={editingSubtaskInputRef}
+                                type="text"
+                                value={editingSubtaskText}
+                                onChange={(e) => setEditingSubtaskText(e.target.value)}
+                                onBlur={() => {
+                                  updateSubtask(parentTaskId, subtask.id, { text: editingSubtaskText });
+                                  setEditingSubtaskId(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    updateSubtask(parentTaskId, subtask.id, { text: editingSubtaskText });
+                                    setEditingSubtaskId(null);
+                                  }
+                                  if (e.key === "Escape") {
+                                    setEditingSubtaskId(null);
+                                  }
+                                }}
+                                autoFocus
+                                className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                              />
+                            ) : (
+                              <div
+                                onClick={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  if (target.closest('a[data-ref-link="true"]')) {
+                                    return;
+                                  }
+                                  setEditingSubtaskId(subtask.id);
+                                  setEditingSubtaskText(subtask.text);
+                                }}
+                                className={cn(
+                                  "cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                  subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
+                                )}
+                                dangerouslySetInnerHTML={{ __html: formatTaskText(subtask.text) }}
+                              />
+                            );
+
+                          const subtaskPriorityBadge = subtaskPriority ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium",
+                                PRIORITY_COLORS[subtaskPriority]
+                              )}
+                            >
+                              <Flag className="h-3 w-3" />
+                              {PRIORITY_OPTIONS.find((opt) => opt.value === subtaskPriority)?.label ?? "Priority"}
+                            </span>
+                          ) : null;
+
+                          const subtaskAssigneeBadge = subtaskAssigneeLabel ? (
+                            <span className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)] max-w-full min-w-0">
+                              <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[9px] font-semibold">
+                                {subtaskAssigneeInitial}
+                              </span>
+                              <span className="truncate">{subtaskAssigneeLabel}</span>
+                            </span>
+                          ) : null;
+
+                          const subtaskDueDateBadge = hasSubtaskDueDateValue && subtaskDueDateLabel ? (
+                            <span className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]">
+                              <Calendar className="h-3 w-3" />
+                              {subtaskDueDateLabel}
+                            </span>
+                          ) : null;
+
+                          const subtaskTagsBadges =
+                            subtaskTags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {subtaskTags.slice(0, 3).map((tag) => (
+                                  <span
+                                    key={`${subtaskId}-tag-${tag}`}
+                                    className="inline-flex items-center rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                                {subtaskTags.length > 3 && (
+                                  <span className="text-[10px] text-[var(--tertiary-foreground)]">
+                                    +{subtaskTags.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            ) : null;
+
+                          const subtaskMenu = (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
+                                  <MoreVertical className="h-3.5 w-3.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                {canUseSubtaskProperties && subtaskEntityId && (
+                                  <>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setPropertiesTarget({ type: "subtask", id: subtaskEntityId, title: subtask.text || "Subtask" });
+                                        setPropertiesOpen(true);
+                                      }}
+                                    >
+                                      <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
+                                      Properties
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                  </>
+                                )}
+                                <DropdownMenuItem onClick={() => deleteSubtask(parentTaskId, subtask.id)} className="text-red-600">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          );
+
+                          return (
+                            <BoardTaskCard
+                              key={itemId}
+                              itemType="subtask"
+                              itemId={itemId as BoardItemId}
+                              subtaskId={subtaskId}
+                              subtask={subtask}
+                              parentTaskId={parentTaskId}
+                              parentTaskTitle={parentTask.text}
+                              columnId={column.id}
+                              statusIcon={subtaskStatusIcon}
+                              title={subtaskTitle}
+                              onToggleStatus={() => {
+                                updateSubtaskStatus(subtaskId, subtaskStatus === "done" ? "todo" : "done");
+                              }}
+                              showStatusIcon={showSubtaskStatusIcon}
+                              showPriority={showSubtaskPriority}
+                              showAssignee={showSubtaskAssignee}
+                              showDueDate={showSubtaskDueDate}
+                              showTags={showSubtaskTags}
+                              priorityBadge={subtaskPriorityBadge}
+                              assigneeBadge={subtaskAssigneeBadge}
+                              dueDateBadge={subtaskDueDateBadge}
+                              tagsBadges={subtaskTagsBadges}
+                              menu={subtaskMenu}
+                            />
+                          );
+                        }
                       })}
                     </SortableContext>
                   </BoardColumnContainer>
@@ -3135,11 +3693,24 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
             </div>
           </div>
           <DragOverlay>
-            {activeTaskId ? (
-              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs shadow-lg">
-                {taskMapById.get(activeTaskId)?.text || "Task"}
-              </div>
-            ) : null}
+            {activeItemId ? (() => {
+              const item = boardItemById.get(activeItemId);
+              if (!item) return null;
+              if (item.type === "task") {
+                return (
+                  <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs shadow-lg">
+                    {item.task.text || "Task"}
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="rounded-[8px] border border-l-2 border-l-[var(--primary)]/40 border-[var(--border)] bg-[var(--surface)]/80 px-2.5 py-2 text-xs shadow-lg">
+                    <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">Subtask</div>
+                    {item.subtask.text || "Subtask"}
+                  </div>
+                );
+              }
+            })() : null}
           </DragOverlay>
         </DndContext>
       ) : (

@@ -32,9 +32,11 @@ const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string; columns: number; r
   "2x3": { label: "2x3", columns: 2, rows: 3 },
 };
 
-const CELL_WIDTH = 220;
-const CELL_HEIGHT = 165;
+const CELL_WIDTH = 150;
+const CELL_HEIGHT = 112;
 const CELL_GAP = 12;
+const CELL_PX = 140;
+const MAX_GALLERY_HEIGHT_PX = 520;
 
 const buildItems = (rawItems: unknown, layout: GalleryLayout | null): GalleryItem[] => {
   if (!layout) return [];
@@ -305,6 +307,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const lightboxItem = lightboxIndex !== null ? items[lightboxIndex] : null;
   const lightboxUrl = lightboxItem?.fileId ? fileUrls[lightboxItem.fileId] : null;
 
+  // Compute gallery height with cap
+  const naturalHeight = rows * CELL_PX + (rows - 1) * CELL_GAP;
+  const galleryHeight = Math.min(MAX_GALLERY_HEIGHT_PX, naturalHeight);
+
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between gap-2 relative">
@@ -503,8 +509,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 gap: `${CELL_GAP}px`,
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                 gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-                aspectRatio: `${columns} / ${rows}`,
-                minHeight: '400px',
+                height: `${galleryHeight}px`,
               }}
             >
             {items.map((item, index) => {

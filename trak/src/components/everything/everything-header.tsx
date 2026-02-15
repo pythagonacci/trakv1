@@ -26,10 +26,13 @@ export function EverythingHeader({
     <div className="mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+          <h1
+            className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair"
+            style={{ fontFamily: "var(--font-playfair)" }}
+          >
             Everything
           </h1>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+          <p className="text-sm text-[var(--muted-foreground)] mt-1">
             {filteredCount === totalCount
               ? `${totalCount} items across your workspace`
               : `${filteredCount} of ${totalCount} items`}

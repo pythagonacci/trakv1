@@ -93,7 +93,7 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchTasks",
-    description: "SEARCH for parent task items (read-only). Use this when you need to FIND or VIEW tasks, not modify them. For subtasks/checklist items, use searchSubtasks instead. Filters: title, status, priority, assignee, tags, due date, project. Returns: Array of task objects with IDs, titles, and all properties. Use task IDs from results for subsequent update/delete operations.",
+    description: "SEARCH for parent task items (read-only). Use this when you need to FIND or VIEW tasks, not modify them. For subtasks/checklist items, use searchSubtasks instead. Filters: title, status, priority, assignee, tags, due date, project. Returns: Array of task objects with IDs, titles, and all properties. When available, includes subtasks in `subtasks` plus a compact `subtask_list` of checklist lines like \"[ ] Title\" / \"[x] Title\". Use task IDs from results for subsequent update/delete operations.",
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search tasks by text (matches title)" },
@@ -116,6 +116,7 @@ const searchTools: ToolDefinition[] = [
         },
       },
       limit: { type: "number", description: "Maximum number of results (default 50)" },
+      includeSubtasks: { type: "boolean", description: "Include subtasks and `subtask_list` in results (default true for AI tool calls)" },
     },
     requiredParams: [],
   },
@@ -372,6 +373,10 @@ const searchTools: ToolDefinition[] = [
         description: "Operator for priority filter",
         enum: ["equals", "not_equals", "contains", "is_empty", "is_not_empty"],
       },
+      tagName: { type: "string", description: "Filter by tag name" },
+      tagId: { type: "string", description: "Filter by tag ID" },
+      assigneeName: { type: "string", description: "Filter by assignee name" },
+      assigneeId: { type: "string", description: "Filter by assignee ID" },
       includeInherited: { type: "boolean", description: "Include inherited properties via entity links" },
       limit: { type: "number", description: "Maximum number of results" },
     },
@@ -383,7 +388,8 @@ const searchTools: ToolDefinition[] = [
       "SEARCH across ALL entity types by text (read-only). " +
       "Use when you don't know which entity type to search or need to search multiple types. " +
       "NOTE: This is text/keyword search only and does NOT apply universal property filters. " +
-      "Returns: Object with results grouped by entity type. Good for exploratory searches.",
+      "Returns: Object with results grouped by entity type. Good for exploratory searches. " +
+      "Task results can include `subtask_list` when subtasks are included.",
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search text" },
@@ -394,6 +400,7 @@ const searchTools: ToolDefinition[] = [
         items: { type: "string" },
       },
       includeContent: { type: "boolean", description: "Include content in search (default false)" },
+      includeSubtasks: { type: "boolean", description: "Include subtasks for task results (default true for AI tool calls)" },
       limit: { type: "number", description: "Maximum results per entity type (default 10)" },
       offset: { type: "number", description: "Offset for pagination (default 0)" },
     },
@@ -938,7 +945,7 @@ const tableActionTools: ToolDefinition[] = [
       type: {
         type: "string",
         description: "Field type. Use 'priority' for priority fields, 'status' for status fields. Do NOT use 'select' and name it 'Priority' - use the actual 'priority' type.",
-        enum: ["text", "long_text", "number", "select", "multi_select", "status", "priority", "date", "checkbox", "url", "email", "phone", "currency", "percent", "rating", "formula", "relation", "rollup", "files", "person", "created_time", "last_edited_time", "created_by", "last_edited_by"],
+        enum: ["text", "long_text", "number", "select", "multi_select", "status", "priority", "date", "checkbox", "subtask", "url", "email", "phone", "currency", "percent", "rating", "formula", "relation", "rollup", "files", "person", "created_time", "last_edited_time", "created_by", "last_edited_by"],
       },
       config: { type: "object", description: "Optional field configuration. For priority fields, config.levels should contain priority level definitions with id, label, color, and order. For status fields, config.options should contain status option definitions. If not provided, default values will be auto-generated." },
       isPrimary: { type: "boolean", description: "Whether this is the primary field" },
@@ -1158,6 +1165,12 @@ const tableActionTools: ToolDefinition[] = [
       "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n" +
       "Example: 'Create a table called Q1 Targets'\n\n" +
       "⚠️ SUPER TOOL: This is 3-5x faster than createTable + bulkCreateFields + bulkInsertRows sequence.\n\n" +
+      "🚨 CRITICAL: When creating tables FROM EXISTING DATA (tasks, timeline events, etc.):\n" +
+      "- Status → type: 'status' (NOT text). Priority → type: 'priority' (NOT text)\n" +
+      "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
+      "- Include ALL source fields (title, status, priority, due date, assignee) - do not omit any\n" +
+      "- PRESERVE field types - DO NOT convert to text!\n\n" +
+      "🚨 SOURCE TRACKING: When rows come from existing entities, MUST include source_entity_type/source_entity_id/source_sync_mode on EVERY row. This enables snapshot sync.\n\n" +
       "For large datasets, keep arguments compact:\n" +
       "- Put schema + initial rows in createTableFull\n" +
       "- Then use bulkInsertRows for remaining rows in batches (~20-25 rows per call)\n\n" +
@@ -1341,7 +1354,7 @@ const propertyActionTools: ToolDefinition[] = [
       type: {
         type: "string",
         description: "Property type",
-        enum: ["text", "number", "date", "select", "multi_select", "person", "checkbox", "url", "email"],
+        enum: ["text", "number", "date", "select", "multi_select", "person", "checkbox", "subtask", "url", "email"],
       },
       options: {
         type: "array",

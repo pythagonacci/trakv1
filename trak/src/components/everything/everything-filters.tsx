@@ -11,7 +11,7 @@ interface EverythingFiltersProps {
   filters: FilterConfig;
   onFiltersChange: (filters: FilterConfig) => void;
   projects: Array<{ id: string; name: string }>;
-  members: Array<{ id: string; name?: string | null; email?: string | null }>;
+  members: Array<{ id: string; user_id?: string | null; name?: string | null; email?: string | null }>;
 }
 
 export function EverythingFilters({
@@ -138,7 +138,7 @@ export function EverythingFilters({
           <FilterSection title="Assignee">
             <CheckboxGroup
               options={members.map((m) => ({
-                value: m.id,
+                value: m.user_id ?? m.id,
                 label: m.name || m.email || "Unknown",
               }))}
               selected={filters.assigneeIds || []}

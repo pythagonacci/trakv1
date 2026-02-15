@@ -63,6 +63,7 @@ export function BulkActionsToolbar({
     if (!selectedField) return false;
     switch (selectedField.type) {
       case "checkbox":
+      case "subtask":
         return true;
       case "number":
         return textValue.trim() !== "" && !Number.isNaN(Number(textValue));
@@ -89,7 +90,7 @@ export function BulkActionsToolbar({
   const handleApply = async () => {
     if (!selectedField) return;
     let value: unknown = textValue;
-    if (selectedField.type === "checkbox") {
+    if (selectedField.type === "checkbox" || selectedField.type === "subtask") {
       value = booleanValue;
     }
     if (options.length > 0) {
@@ -193,7 +194,7 @@ export function BulkActionsToolbar({
             ))}
           </select>
         )}
-        {selectedField && options.length === 0 && selectedField.type === "checkbox" && (
+        {selectedField && options.length === 0 && (selectedField.type === "checkbox" || selectedField.type === "subtask") && (
           <button
             type="button"
             className={`h-8 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs ${
@@ -207,6 +208,7 @@ export function BulkActionsToolbar({
         {selectedField &&
           options.length === 0 &&
           selectedField.type !== "checkbox" &&
+          selectedField.type !== "subtask" &&
           selectedField.type !== "long_text" && (
             <input
               className="h-8 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs text-[var(--foreground)]"

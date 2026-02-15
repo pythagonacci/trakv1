@@ -469,7 +469,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
   };
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-[var(--border)]/50 bg-[var(--surface)]/80 backdrop-blur-xl px-6 py-4">
         <div className="flex items-center justify-between">
@@ -640,7 +640,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
             {/* Calendar days */}
             {monthDays.map((date, index) => {
               if (!date) {
-                return <div key={`empty-${index}`} className="min-h-[120px] rounded-md" />;
+                return <div key={`empty-${index}`} className="min-h-[calc((100vh-8rem)/4)] rounded-md" />;
               }
 
               const dayEvents = getEventsForDate(date);
@@ -652,7 +652,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
                   key={date.toISOString()}
                   onClick={() => handleDayClick(date)}
                   className={cn(
-                    "min-h-[120px] rounded-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-sm p-2.5 shadow-sm transition-all hover:border-[var(--border)]/60 hover:bg-[var(--surface)]/80 hover:shadow-xl hover:shadow-black/5 cursor-pointer",
+                    "min-h-[calc((100vh-8rem)/4)] rounded-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-sm p-2.5 shadow-sm transition-all hover:border-[var(--border)]/60 hover:bg-[var(--surface)]/80 hover:shadow-xl hover:shadow-black/5 cursor-pointer",
                     !isCurrentMonthDate && "opacity-30",
                     isTodayDate && "border-2 border-blue-400/50 bg-gradient-to-br from-blue-50/80 to-blue-100/40 dark:from-blue-950/30 dark:to-blue-900/20 shadow-lg shadow-blue-500/10 backdrop-blur-md"
                   )}

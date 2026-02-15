@@ -23,6 +23,7 @@ export async function createTableFullRpc(input: {
   title: string;
   description?: string | null;
   projectId?: string | null;
+  tabId?: string | null;
   fields?: Array<Record<string, unknown>>;
   rows?: Array<Record<string, unknown>>;
   authContext?: AuthContext;
@@ -43,6 +44,7 @@ export async function createTableFullRpc(input: {
     p_title: input.title,
     p_created_by: userId,
     p_project_id: input.projectId ?? null,
+    p_tab_id: input.tabId ?? null,
     p_description: input.description ?? null,
     p_fields: input.fields ?? [],
     p_rows: input.rows ?? [],

@@ -103,7 +103,7 @@ export default function BlockReferenceRenderer({
       case "task":
         return <TaskBlock block={originalBlock} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "link":
-        return <LinkBlock block={originalBlock} />;
+        return <LinkBlock block={originalBlock} onUpdate={() => { loadOriginalBlock(); onUpdate?.(); }} />;
       case "table":
         return <TableBlock block={originalBlock} onUpdate={onUpdate} />;
       case "timeline":

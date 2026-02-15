@@ -214,9 +214,29 @@ export class ResourceIndexer {
             if (!block) return null;
 
             let text = "";
-            if (typeof block.content === 'string') text = block.content;
-            else if (block.content && typeof block.content === 'object') {
-                text = extractTextFromProseMirror(block.content) || JSON.stringify(block.content);
+            const blockType = typeof block.type === "string" ? block.type : "";
+            const content = block.content && typeof block.content === "object" ? block.content as Record<string, unknown> : {};
+
+            // For file / PDF / image blocks, include file type and name so workflow AI knows what kind of file it is
+            if (blockType === "file" || blockType === "pdf" || blockType === "image") {
+                const fileMeta = await this.fetchBlockFileMetadata(block.id, blockType, content);
+                if (fileMeta.length > 0) {
+                    const parts = fileMeta.map((f) => `${f.file_name} (${formatFileTypeLabel(f.file_type)})`);
+                    if (blockType === "file") {
+                        text = `File block. Attached: ${parts.join(", ")}.`;
+                    } else if (blockType === "pdf") {
+                        text = `PDF block: ${parts[0]}.`;
+                    } else {
+                        text = `Image block: ${parts[0]}.`;
+                    }
+                }
+            }
+
+            if (!text) {
+                if (typeof block.content === "string") text = block.content;
+                else if (block.content && typeof block.content === "object") {
+                    text = extractTextFromProseMirror(block.content) || JSON.stringify(block.content);
+                }
             }
 
             return {
@@ -243,6 +263,42 @@ export class ResourceIndexer {
         }
 
         return null;
+    }
+
+    /** Resolve file(s) attached to a file / PDF / image block for indexing metadata (name, type). */
+    private async fetchBlockFileMetadata(
+        blockId: string,
+        blockType: string,
+        content: Record<string, unknown>
+    ): Promise<{ file_name: string; file_type: string }[]> {
+        if (blockType === "file") {
+            const { data: attachments } = await this.supabase
+                .from("file_attachments")
+                .select("file_id")
+                .eq("block_id", blockId);
+            const fileIds = (attachments ?? []).map((a) => a.file_id).filter(Boolean);
+            if (fileIds.length === 0) return [];
+            const { data: files } = await this.supabase
+                .from("files")
+                .select("file_name, file_type")
+                .in("id", fileIds);
+            return (files ?? []).map((f) => ({
+                file_name: f.file_name ?? "file",
+                file_type: f.file_type ?? "",
+            }));
+        }
+        if (blockType === "pdf" || blockType === "image") {
+            const fileId = content?.fileId;
+            if (typeof fileId !== "string" || !fileId) return [];
+            const { data: file } = await this.supabase
+                .from("files")
+                .select("file_name, file_type")
+                .eq("id", fileId)
+                .maybeSingle();
+            if (!file) return [];
+            return [{ file_name: file.file_name ?? "file", file_type: file.file_type ?? "" }];
+        }
+        return [];
     }
 
     private async fetchTableContent(tableId: string): Promise<ResourceContent | null> {
@@ -328,6 +384,21 @@ export class ResourceIndexer {
             projectId: table.project_id
         };
     }
+}
+
+/** Human-readable label for file type so workflow AI knows what kind of file it is */
+function formatFileTypeLabel(fileType: string | null | undefined): string {
+    if (!fileType) return "file";
+    const mime = fileType.toLowerCase();
+    if (mime === "application/pdf") return "PDF";
+    if (mime.includes("spreadsheet") || mime.includes("excel")) return "spreadsheet";
+    if (mime === "text/csv") return "CSV";
+    if (mime.includes("word") || mime.includes("document")) return "document";
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("video/")) return "video";
+    if (mime.startsWith("audio/")) return "audio";
+    if (mime.startsWith("text/")) return "text";
+    return mime;
 }
 
 function extractTextFromProseMirror(node: any): string {

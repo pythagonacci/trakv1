@@ -7,7 +7,7 @@ import { updateBlock } from "@/app/actions/block";
 
 interface LinkBlockProps {
   block: Block;
-  onUpdate?: () => void;
+  onUpdate?: (updatedBlock?: Block) => void;
 }
 
 export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
@@ -70,18 +70,29 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
       finalUrl = `https://${trimmedUrl}`;
     }
 
-    await updateBlock({
+    const newContent = {
+      ...content,
+      title: trimmedTitle || null,
+      url: finalUrl || null,
+      description: null,
+    };
+
+    // Optimistic update: close modal and update parent immediately so saved UI shows right away
+    setIsEditing(false);
+    onUpdate?.({ ...block, content: newContent, updated_at: new Date().toISOString() });
+
+    const result = await updateBlock({
       blockId: block.id,
-      content: {
-        ...content,
-        title: trimmedTitle || null,
-        url: finalUrl || null,
-        description: null,
-      },
+      content: newContent,
     });
 
-    setIsEditing(false);
-    onUpdate?.();
+    // Sync with server response (in case of any server-side transforms)
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else if (result.error) {
+      // Revert on error by refetching
+      onUpdate?.();
+    }
   };
 
   const handleCancelEdit = () => {

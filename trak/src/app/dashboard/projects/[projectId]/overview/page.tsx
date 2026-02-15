@@ -55,7 +55,7 @@ export default async function ProjectOverviewPage({
     return (
       <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
         <div className="w-full px-2 md:px-3 lg:px-4">
-          <div className="pt-4 pb-2">
+          <div className="pt-2 pb-1">
             <ProjectHeader project={project} tabs={hierarchicalTabs} />
           </div>
           {hierarchicalTabs.length > 0 && (
@@ -68,7 +68,7 @@ export default async function ProjectOverviewPage({
               />
             </div>
           )}
-          <div className="max-w-7xl mx-auto pt-4 pb-2">
+          <div className="max-w-7xl mx-auto pt-2 pb-1">
             <ProjectOverview
             projectId={projectId}
             projectName={project.name}
@@ -198,7 +198,7 @@ export default async function ProjectOverviewPage({
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       <div className="w-full px-2 md:px-3 lg:px-4">
-        <div className="pt-4 pb-2">
+        <div className="pt-2 pb-1">
           <ProjectHeader project={project} tabs={hierarchicalTabs} />
         </div>
         <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">

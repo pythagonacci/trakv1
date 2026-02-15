@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useWorkspaceEverything } from "@/lib/hooks/use-everything-queries";
+import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import { useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import { applyFilters } from "@/lib/everything-filtering";
 import { getDueDateEnd } from "@/lib/due-date";
@@ -23,6 +24,8 @@ const DEFAULT_SORT: SortConfig = {
 const DEFAULT_FILTERS: FilterConfig = {};
 
 export function EverythingView({ workspaceId }: EverythingViewProps) {
+  const { setHeaderHidden } = useDashboardHeader();
+
   // Load view config from localStorage
   const [viewType, setViewType] = useState<EverythingViewType>("table");
   const [filters, setFilters] = useState<FilterConfig>(DEFAULT_FILTERS);
@@ -30,6 +33,12 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
   const [groupBy, setGroupBy] = useState<GroupByField>("status");
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+
+  // Hide dashboard header on this page
+  useEffect(() => {
+    setHeaderHidden(true);
+    return () => setHeaderHidden(false);
+  }, [setHeaderHidden]);
 
   // Fetch data
   const { data, isLoading, error } = useWorkspaceEverything(workspaceId);

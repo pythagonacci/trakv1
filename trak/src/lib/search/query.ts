@@ -275,6 +275,60 @@ export class UnstructuredSearch {
         };
     }
 
+    /** Get file metadata (name, type) for file/pdf/image blocks so titles show type to workflow AI */
+    private async getBlockFileMetadata(
+        blocks: { id: string; type?: string; content?: Record<string, unknown> | null }[]
+    ): Promise<Map<string, { file_name: string; file_type: string }[]>> {
+        const fileBlockIds: string[] = [];
+        const pdfImageFileIds: string[] = [];
+        blocks.forEach((b) => {
+            if (b.type === "file") fileBlockIds.push(b.id);
+            else if ((b.type === "pdf" || b.type === "image") && b.content?.fileId)
+                pdfImageFileIds.push(b.content.fileId as string);
+        });
+        const out = new Map<string, { file_name: string; file_type: string }[]>();
+
+        if (fileBlockIds.length > 0) {
+            const { data: attachments } = await this.supabase
+                .from("file_attachments")
+                .select("block_id, file_id")
+                .in("block_id", fileBlockIds);
+            const fileIds = [...new Set((attachments ?? []).map((a) => a.file_id).filter(Boolean))];
+            if (fileIds.length > 0) {
+                const { data: files } = await this.supabase
+                    .from("files")
+                    .select("id, file_name, file_type")
+                    .in("id", fileIds);
+                const fileMap = new Map((files ?? []).map((f) => [f.id, { file_name: f.file_name ?? "file", file_type: f.file_type ?? "" }]));
+                const blockToFiles = new Map<string, { file_name: string; file_type: string }[]>();
+                (attachments ?? []).forEach((a) => {
+                    const meta = fileMap.get(a.file_id);
+                    if (meta) {
+                        const list = blockToFiles.get(a.block_id) ?? [];
+                        list.push(meta);
+                        blockToFiles.set(a.block_id, list);
+                    }
+                });
+                blockToFiles.forEach((list, blockId) => out.set(blockId, list));
+            }
+        }
+
+        if (pdfImageFileIds.length > 0) {
+            const { data: files } = await this.supabase
+                .from("files")
+                .select("id, file_name, file_type")
+                .in("id", pdfImageFileIds);
+            const fileMap = new Map((files ?? []).map((f) => [f.id, [{ file_name: f.file_name ?? "file", file_type: f.file_type ?? "" }]]));
+            blocks.forEach((b) => {
+                if ((b.type === "pdf" || b.type === "image") && b.content?.fileId) {
+                    const list = fileMap.get(b.content.fileId as string);
+                    if (list) out.set(b.id, list);
+                }
+            });
+        }
+        return out;
+    }
+
     private async formatSourcesForFrontend(results: SearchResult[]) {
         // Collect IDs to fetch titles
         const fileIds: string[] = [];
@@ -306,10 +360,13 @@ export class UnstructuredSearch {
             const { data } = await this.supabase.from("tables").select("id, title").in("id", tableIds);
             data?.forEach(t => titles.set(t.id, t.title));
         }
-        // Fetch Blocks (derive a display title or fall back to block type)
+        // Fetch Blocks (derive a display title or fall back to block type); enrich file/pdf/image with file type for workflow AI
         if (blockIds.length > 0) {
-            const { data } = await this.supabase.from("blocks").select("id, type, content").in("id", blockIds);
-            data?.forEach((b: any) => titles.set(b.id, getBlockDisplayTitle(b)));
+            const { data: blocks } = await this.supabase.from("blocks").select("id, type, content").in("id", blockIds);
+            const fileMetaByBlockId = await this.getBlockFileMetadata(blocks ?? []);
+            blocks?.forEach((b: { id: string; type?: string; content?: Record<string, unknown> | null }) =>
+                titles.set(b.id, getBlockDisplayTitle(b, fileMetaByBlockId.get(b.id)))
+            );
         }
 
         return results.map(r => {
@@ -393,7 +450,24 @@ function formatBlockChunkPreview(raw: string): string {
     return normalized;
 }
 
-function getBlockDisplayTitle(block: { type?: string; content?: Record<string, unknown> | null }): string {
+function formatFileTypeLabel(fileType: string): string {
+    if (!fileType) return "file";
+    const mime = fileType.toLowerCase();
+    if (mime === "application/pdf") return "PDF";
+    if (mime.includes("spreadsheet") || mime.includes("excel")) return "spreadsheet";
+    if (mime === "text/csv") return "CSV";
+    if (mime.includes("word") || mime.includes("document")) return "document";
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("video/")) return "video";
+    if (mime.startsWith("audio/")) return "audio";
+    if (mime.startsWith("text/")) return "text";
+    return mime;
+}
+
+function getBlockDisplayTitle(
+    block: { type?: string; content?: Record<string, unknown> | null },
+    fileMeta?: { file_name: string; file_type: string }[]
+): string {
     const type = typeof block.type === "string" ? block.type : "block";
     const content = block.content ?? {};
 
@@ -414,10 +488,18 @@ function getBlockDisplayTitle(block: { type?: string; content?: Record<string, u
         case "timeline":
             return "Timeline block";
         case "image": {
+            if (fileMeta?.length) {
+                const f = fileMeta[0];
+                return `${f.file_name} (${formatFileTypeLabel(f.file_type)})`;
+            }
             const alt = asString((content as any).alt) || asString((content as any).filename);
             return alt || "Image block";
         }
         case "file": {
+            if (fileMeta?.length) {
+                const parts = fileMeta.map((f) => `${f.file_name} (${formatFileTypeLabel(f.file_type)})`);
+                return parts.join(", ") || "File block";
+            }
             const filename = asString((content as any).filename);
             return filename || "File block";
         }
@@ -444,6 +526,10 @@ function getBlockDisplayTitle(block: { type?: string; content?: Record<string, u
             return title || "Doc reference block";
         }
         case "pdf": {
+            if (fileMeta?.length) {
+                const f = fileMeta[0];
+                return `${f.file_name} (${formatFileTypeLabel(f.file_type)})`;
+            }
             const filename = asString((content as any).filename);
             return filename || "PDF block";
         }

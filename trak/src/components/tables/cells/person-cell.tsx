@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { User, X } from "lucide-react";
+import { X } from "lucide-react";
 import { type TableField } from "@/types/table";
 import { formatUserDisplay } from "@/lib/field-utils";
 
@@ -16,6 +16,25 @@ interface Props {
   workspaceMembers?: Array<{ id: string; name?: string; email?: string }>;
 }
 
+function parsePersonValue(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof value === "string" && value.length > 0) {
+    return [value];
+  }
+  return [];
+}
+
+function getInitials(displayName: string): string {
+  return displayName
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 export function PersonCell({
   value,
   editing,
@@ -25,15 +44,13 @@ export function PersonCell({
   saving,
   workspaceMembers = [],
 }: Props) {
-  const [selectedUserId, setSelectedUserId] = useState<string | undefined>(
-    typeof value === "string" ? value : undefined
-  );
+  const [selectedIds, setSelectedIds] = useState<string[]>(parsePersonValue(value));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setSelectedUserId(typeof value === "string" ? value : undefined);
+    setSelectedIds(parsePersonValue(value));
   }, [value]);
 
   useEffect(() => {
@@ -45,22 +62,39 @@ export function PersonCell({
     }
   }, [editing]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     if (!dropdownOpen) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
-        onCancel();
+        onCommit(selectedIds.length > 0 ? selectedIds : null);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [dropdownOpen, onCancel]);
+  }, [dropdownOpen, selectedIds, onCommit]);
 
-  const selectedUser = workspaceMembers.find((m) => m.id === selectedUserId);
+  const toggleMember = (memberId: string) => {
+    setSelectedIds((prev) => {
+      if (prev.includes(memberId)) {
+        return prev.filter((id) => id !== memberId);
+      }
+      return [...prev, memberId];
+    });
+  };
+
+  const removeMember = (memberId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newIds = selectedIds.filter((id) => id !== memberId);
+    setSelectedIds(newIds);
+    onCommit(newIds.length > 0 ? newIds : null);
+  };
+
+  const selectedMembers = selectedIds
+    .map((id) => workspaceMembers.find((m) => m.id === id))
+    .filter(Boolean) as Array<{ id: string; name?: string; email?: string }>;
 
   const filteredMembers = workspaceMembers.filter((member) => {
     if (!searchQuery) return true;
@@ -81,16 +115,16 @@ export function PersonCell({
           onChange={(e) => setSearchQuery(e.target.value)}
           autoFocus
         />
-        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] shadow-lg z-10 max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 min-w-[240px] mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] shadow-lg z-10 max-h-60 overflow-y-auto">
           <div
             className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs text-[var(--muted-foreground)]"
             onClick={() => {
-              setSelectedUserId(undefined);
+              setSelectedIds([]);
               onCommit(null);
               setDropdownOpen(false);
             }}
           >
-            Clear
+            Clear all
           </div>
           {filteredMembers.length === 0 ? (
             <div className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
@@ -99,23 +133,21 @@ export function PersonCell({
           ) : (
             filteredMembers.map((member) => {
               const displayName = formatUserDisplay(member);
-              const initials = displayName
-                .split(' ')
-                .map((n) => n[0])
-                .join('')
-                .toUpperCase()
-                .slice(0, 2);
+              const initials = getInitials(displayName);
+              const isSelected = selectedIds.includes(member.id);
 
               return (
                 <div
                   key={member.id}
                   className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs flex items-center gap-2"
-                  onClick={() => {
-                    setSelectedUserId(member.id);
-                    onCommit(member.id);
-                    setDropdownOpen(false);
-                  }}
+                  onClick={() => toggleMember(member.id)}
                 >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {}}
+                    className="h-4 w-4 rounded-[4px] border-[var(--border)] bg-[var(--surface)] flex-shrink-0"
+                  />
                   <div className="h-6 w-6 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center text-xs font-medium flex-shrink-0">
                     {initials}
                   </div>
@@ -136,7 +168,7 @@ export function PersonCell({
     );
   }
 
-  if (!selectedUser) {
+  if (selectedMembers.length === 0) {
     return (
       <button
         className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
@@ -148,38 +180,46 @@ export function PersonCell({
     );
   }
 
-  const displayName = formatUserDisplay(selectedUser);
-  const initials = displayName
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  const displayLimit = 2;
+  const visibleMembers = selectedMembers.slice(0, displayLimit);
+  const remainingCount = selectedMembers.length - displayLimit;
 
   return (
-    <button
-      className="w-full text-left min-h-[18px] hover:opacity-80 transition-opacity group"
+    <div
+      className="w-full text-left min-h-[18px] hover:opacity-80 transition-opacity cursor-pointer group"
       onClick={onStartEdit}
-      disabled={saving}
     >
-      <div className="flex items-center gap-2">
-        <div
-          className="h-6 w-6 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center text-xs font-medium flex-shrink-0"
-          title={selectedUser.email}
-        >
-          {initials}
-        </div>
-        <span className="text-xs text-[var(--foreground)] truncate flex-1">{displayName}</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onCommit(null);
-          }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-[var(--error)]"
-        >
-          <X className="h-3 w-3" />
-        </button>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {visibleMembers.map((member) => {
+          const displayName = formatUserDisplay(member);
+          const initials = getInitials(displayName);
+
+          return (
+            <div key={member.id} className="flex items-center gap-1 group/member">
+              <div
+                className="h-6 w-6 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center text-xs font-medium flex-shrink-0"
+                title={`${displayName}${member.email ? ` (${member.email})` : ""}`}
+              >
+                {initials}
+              </div>
+              {selectedMembers.length === 1 && (
+                <span className="text-xs text-[var(--foreground)] truncate">{displayName}</span>
+              )}
+              <button
+                onClick={(e) => removeMember(member.id, e)}
+                className="opacity-0 group-hover/member:opacity-100 transition-opacity hover:text-[var(--error)]"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        })}
+        {remainingCount > 0 && (
+          <span className="text-xs text-[var(--muted-foreground)]">
+            +{remainingCount}
+          </span>
+        )}
       </div>
-    </button>
+    </div>
   );
 }

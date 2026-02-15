@@ -176,8 +176,18 @@ interface TaskResult {
   task_block_id: string;
   assignees: Array<{ id: string; name: string }>;
   tags: Array<{ id: string; name: string; color: string | null }>;
+  subtasks?: TaskSubtaskSummary[];
+  subtask_list?: string[];
   created_at: string;
   updated_at: string;
+}
+
+interface TaskSubtaskSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  completed: boolean;
+  display_order: number;
 }
 
 interface SubtaskResult {
@@ -269,6 +279,8 @@ interface BlockResult {
   status?: string | null;
   priority?: string | null;
   due_date?: string | null;
+  // File attachments (for file-type blocks)
+  files?: Array<{ id: string; file_name: string; file_size: number; file_type: string | null }>;
 }
 
 interface DocResult {
@@ -675,7 +687,7 @@ async function getPropertyDefinitionIds(
 async function getEntitiesWithPropertyFilter(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
-  entityType: "task" | "block" | "timeline_event",
+  entityType: "task" | "subtask" | "block" | "timeline_event",
   propertyDefId: string,
   filterType: "id" | "name",
   filterValue: string | string[]
@@ -924,6 +936,7 @@ function extractPropertyValue(
     case "text":
     case "number":
     case "checkbox":
+    case "subtask":
       // Return as-is (string, number, or boolean)
       return value as string;
 
@@ -940,6 +953,12 @@ function intersectIds(a: string[] | null, b: string[]): string[] {
   if (a === null) return b;
   const setB = new Set(b);
   return a.filter((id) => setB.has(id));
+}
+
+function mergeUniqueIds(a: string[], b: string[]): string[] {
+  if (a.length === 0) return b;
+  if (b.length === 0) return a;
+  return Array.from(new Set([...a, ...b]));
 }
 
 // ============================================================================
@@ -980,6 +999,7 @@ export async function searchTasks(params: {
   createdAt?: DateFilter;
   updatedAt?: DateFilter;
   limit?: number;
+  includeSubtasks?: boolean;
   includeWorkflowRepresentations?: boolean;
   authContext?: AuthContext; // For Slack and API calls without cookies
 }): Promise<SearchResponse<TaskResult>> {
@@ -990,6 +1010,7 @@ export async function searchTasks(params: {
   const supabase = ctx.supabase!;
   const workspaceId = ctx.workspaceId!;
   const limit = params.limit ?? 50;
+  const includeSubtasks = params.includeSubtasks ?? false;
 
   try {
     // Determine if we need property-based filtering
@@ -1017,6 +1038,33 @@ export async function searchTasks(params: {
       if (params.assigneeName || params.assigneeId) {
         const assigneePropDef = findPropDef("Assignee");
         if (assigneePropDef) {
+          const getTaskIdsFromAssignedSubtasks = async (
+            filterType: "id" | "name",
+            filterValues: string | string[]
+          ) => {
+            if (!includeSubtasks) return [];
+            const subtaskIds = await getEntitiesWithPropertyFilter(
+              supabase,
+              workspaceId,
+              "subtask",
+              assigneePropDef.id,
+              filterType,
+              filterValues
+            );
+            if (subtaskIds.length === 0) return [];
+            const { data: subtaskRows, error: subtaskError } = await supabase
+              .from("task_subtasks")
+              .select("task_id")
+              .in("id", subtaskIds);
+            if (subtaskError) {
+              console.error("searchTasks subtask assignee error:", subtaskError);
+              return [];
+            }
+            return Array.from(
+              new Set((subtaskRows ?? []).map((row: any) => row.task_id).filter(Boolean))
+            ) as string[];
+          };
+
           const assigneeFilter = normalizeArrayFilter(params.assigneeId);
           if (assigneeFilter) {
             const taskIds = await getEntitiesWithPropertyFilter(
@@ -1027,7 +1075,9 @@ export async function searchTasks(params: {
               "id",
               assigneeFilter
             );
-            matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
+            const subtaskTaskIds = await getTaskIdsFromAssignedSubtasks("id", assigneeFilter);
+            const combinedTaskIds = mergeUniqueIds(taskIds, subtaskTaskIds);
+            matchingTaskIds = intersectIds(matchingTaskIds, combinedTaskIds);
           }
           if (params.assigneeName) {
             const taskIds = await getEntitiesWithPropertyFilter(
@@ -1038,7 +1088,9 @@ export async function searchTasks(params: {
               "name",
               params.assigneeName
             );
-            matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
+            const subtaskTaskIds = await getTaskIdsFromAssignedSubtasks("name", params.assigneeName);
+            const combinedTaskIds = mergeUniqueIds(taskIds, subtaskTaskIds);
+            matchingTaskIds = intersectIds(matchingTaskIds, combinedTaskIds);
           }
         }
       }
@@ -1266,6 +1318,41 @@ export async function searchTasks(params: {
     const taskIds = tasks.map((t: Record<string, unknown>) => t.id as string);
     const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "task", taskIds);
 
+    const subtasksByTask = new Map<string, TaskSubtaskSummary[]>();
+    const subtaskListByTask = new Map<string, string[]>();
+
+    if (includeSubtasks && taskIds.length > 0) {
+      const { data: subtaskRows, error: subtaskError } = await supabase
+        .from("task_subtasks")
+        .select("id, task_id, title, description, completed, display_order")
+        .in("task_id", taskIds)
+        .order("display_order", { ascending: true });
+
+      if (subtaskError) {
+        console.error("searchTasks subtasks error:", subtaskError);
+      } else {
+        for (const subtask of subtaskRows ?? []) {
+          const taskId = String(subtask.task_id);
+          const summaryList = subtaskListByTask.get(taskId) ?? [];
+          const title = typeof subtask.title === "string" ? subtask.title.trim() : "";
+          if (title.length > 0) {
+            summaryList.push(`${subtask.completed ? "[x]" : "[ ]"} ${title}`);
+          }
+          subtaskListByTask.set(taskId, summaryList);
+
+          const subtaskList = subtasksByTask.get(taskId) ?? [];
+          subtaskList.push({
+            id: subtask.id,
+            title: subtask.title,
+            description: subtask.description ?? null,
+            completed: Boolean(subtask.completed),
+            display_order: subtask.display_order ?? 0,
+          });
+          subtasksByTask.set(taskId, subtaskList);
+        }
+      }
+    }
+
     // Map to clean results with properties from entity_properties
     const mapped: TaskResult[] = tasks.map((task: Record<string, unknown>) => {
       const project = coerceRelation<{ name: string }>(task.projects);
@@ -1296,6 +1383,8 @@ export async function searchTasks(params: {
 
       // Parse due date (date type: string/object)
       const dueDate = normalizeDateValue(dueDateProp?.value) ?? (task.due_date as string | null);
+      const subtasks = includeSubtasks ? (subtasksByTask.get(task.id as string) ?? []) : undefined;
+      const subtaskList = includeSubtasks ? (subtaskListByTask.get(task.id as string) ?? []) : undefined;
 
       return {
         id: task.id as string,
@@ -1313,12 +1402,27 @@ export async function searchTasks(params: {
         task_block_id: task.task_block_id as string,
         assignees,
         tags,
+        subtasks,
+        subtask_list: subtaskList,
         created_at: task.created_at as string,
         updated_at: task.updated_at as string,
       };
     });
 
-    return { data: mapped, error: null };
+    // Include edited snapshots in results
+    // Build a map of source tasks for snapshot comparison
+    const sourceTasksById = new Map(mapped.map(task => [task.id, task]));
+
+    // Get edited snapshots from both task_items and table_rows
+    const [taskItemSnapshots, tableRowSnapshots] = await Promise.all([
+      getEditedTaskSnapshotsFromTaskItems(supabase!, workspaceId!, sourceTasksById),
+      getEditedTaskSnapshots(supabase!, workspaceId!, sourceTasksById)
+    ]);
+
+    // Combine original tasks with all edited snapshots
+    const combinedResults = [...mapped, ...taskItemSnapshots, ...tableRowSnapshots];
+
+    return { data: combinedResults, error: null };
   } catch (err) {
     console.error("searchTasks exception:", err);
     return { data: null, error: "Failed to search tasks" };
@@ -2157,6 +2261,33 @@ export async function searchBlocks(
     // Enrich blocks with properties from entity_properties
     const blockIds = results.map((b: Record<string, unknown>) => b.id as string);
     const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "block", blockIds);
+
+    // Enrich file-type blocks with their file attachments
+    const fileBlockIds = results
+      .filter((b: Record<string, unknown>) => b.type === "file")
+      .map((b: Record<string, unknown>) => b.id as string);
+
+    const fileAttachmentsMap = new Map<string, Array<{ id: string; file_name: string; file_size: number; file_type: string | null }>>();
+    if (fileBlockIds.length > 0) {
+      const { data: attachments } = await supabase
+        .from("file_attachments")
+        .select(`
+          block_id,
+          file:files (id, file_name, file_size, file_type)
+        `)
+        .in("block_id", fileBlockIds);
+
+      if (attachments) {
+        for (const att of attachments) {
+          const file = coerceRelation<{ id: string; file_name: string; file_size: number; file_type: string | null }>(att.file);
+          if (file) {
+            const existing = fileAttachmentsMap.get(att.block_id as string) ?? [];
+            existing.push(file);
+            fileAttachmentsMap.set(att.block_id as string, existing);
+          }
+        }
+      }
+    }
 
     const mapped: BlockResult[] = results.map((b: Record<string, unknown>) => {
       const tabs = coerceRelation<{ name: string; project_id: string; projects: { name: string } | null }>(b.tabs);
@@ -3185,7 +3316,20 @@ export async function searchTimelineEvents(params: {
       };
     });
 
-    return { data: mapped, error: null };
+    // Include edited snapshots in results
+    // Build a map of source timeline events for snapshot comparison
+    const sourceEventsById = new Map(mapped.map(event => [event.id, event]));
+
+    // Get edited snapshots from both timeline_events and table_rows
+    const [timelineEventSnapshots, tableRowSnapshots] = await Promise.all([
+      getEditedTimelineEventSnapshotsFromTimelineEvents(supabase, workspaceId, sourceEventsById),
+      getEditedTimelineEventSnapshots(supabase, workspaceId, sourceEventsById)
+    ]);
+
+    // Combine original timeline events with all edited snapshots
+    const combinedResults = [...mapped, ...timelineEventSnapshots, ...tableRowSnapshots];
+
+    return { data: combinedResults, error: null };
   } catch (err) {
     console.error("searchTimelineEvents exception:", err);
     return { data: null, error: "Failed to search timeline events" };
@@ -6091,6 +6235,10 @@ export async function searchEntitiesByProperties(params: {
   statusOperator?: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
   priority?: string | string[];
   priorityOperator?: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
+  tagName?: string | string[];
+  tagId?: string | string[];
+  assigneeName?: string | string[];
+  assigneeId?: string | string[];
   includeInherited?: boolean;
   includeWorkflowRepresentations?: boolean;
   limit?: number;
@@ -6131,6 +6279,35 @@ export async function searchEntitiesByProperties(params: {
           property_definition_id: priorityPropDef.id,
           operator: params.priorityOperator ?? "equals",
           value: priorityValues[0],
+        });
+      }
+    }
+
+    // Tag filtering
+    const tagValues = normalizeArrayFilter(params.tagName ?? params.tagId) ?? null;
+    if (tagValues && tagValues.length > 0) {
+      const tagsPropDef = findPropDef("Tags");
+      if (tagsPropDef) {
+        // Use 'contains' operator for multi-select tags to match any of the provided tags
+        // Note: The underlying property matching logic handles array containment for multi-select types
+        properties.push({
+          property_definition_id: tagsPropDef.id,
+          operator: "contains",
+          value: tagValues[0], // Pass the first tag for now, or consider how to handle multiple OR tags
+        });
+      }
+    }
+
+    // Assignee filtering
+    const assigneeValues = normalizeArrayFilter(params.assigneeName ?? params.assigneeId) ?? null;
+    if (assigneeValues && assigneeValues.length > 0) {
+      const assigneePropDef = findPropDef("Assignee");
+      if (assigneePropDef) {
+        // Use 'contains' operator for person type (which can be an array)
+        properties.push({
+          property_definition_id: assigneePropDef.id,
+          operator: "contains",
+          value: assigneeValues[0],
         });
       }
     }
@@ -6207,6 +6384,7 @@ export async function searchAll(params: {
   projectId?: string;
   entityTypes?: Array<EntityType | "block" | "comment">;
   includeContent?: boolean;
+  includeSubtasks?: boolean;
   limit?: number;
   offset?: number;
   authContext?: AuthContext;
@@ -6217,6 +6395,7 @@ export async function searchAll(params: {
   const limitPerType = params.limit ?? 5;
   const offset = params.offset ?? 0;
   const includeContent = params.includeContent ?? false;
+  const includeSubtasks = params.includeSubtasks ?? false;
   const results: SearchAllResult[] = [];
 
   // Determine which entity types to search
@@ -6245,7 +6424,12 @@ export async function searchAll(params: {
     const typeOrder: string[] = [];
 
     if (typesToSearch.includes("task")) {
-      searchPromises.push(searchTasks({ searchText: params.searchText, projectId: params.projectId, limit: limitPerType }));
+      searchPromises.push(searchTasks({
+        searchText: params.searchText,
+        projectId: params.projectId,
+        limit: limitPerType,
+        includeSubtasks,
+      }));
       typeOrder.push("task");
     }
     if (typesToSearch.includes("subtask")) {
@@ -6708,3 +6892,284 @@ const fields = await resolveTableFieldsByNames({
   fieldNames: ['Status', 'Priority', 'Due Date']
 });
 */
+
+// ============================================================================
+// SNAPSHOT HELPERS - Include edited snapshots in search results
+// ============================================================================
+
+/**
+ * Query task_items for edited task snapshots.
+ * Uses the 'edited' flag to efficiently identify modified snapshots.
+ */
+async function getEditedTaskSnapshotsFromTaskItems(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  sourceTasksById: Map<string, TaskResult>
+): Promise<TaskResult[]> {
+  const taskIds = Array.from(sourceTasksById.keys());
+  if (taskIds.length === 0) return [];
+
+  try {
+    // Query task_items for edited snapshots only
+    const { data: snapshotTasks, error } = await supabase
+      .from("task_items")
+      .select(`
+        id, title, description, status, priority, due_date, start_date,
+        workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
+        source_entity_type, source_entity_id, source_sync_mode,
+        projects(name),
+        tabs(name)
+      `)
+      .eq("workspace_id", workspaceId)
+      .eq("source_entity_type", "task")
+      .eq("source_sync_mode", "snapshot")
+      .eq("edited", true)
+      .in("source_entity_id", taskIds);
+
+    if (error || !snapshotTasks) {
+      console.error("getEditedTaskSnapshotsFromTaskItems error:", error);
+      return [];
+    }
+
+    const editedSnapshots: TaskResult[] = [];
+
+    for (const snapshot of snapshotTasks) {
+      const project = coerceRelation<{ name: string }>(snapshot.projects);
+      const tab = coerceRelation<{ name: string }>(snapshot.tabs);
+
+      editedSnapshots.push({
+        id: `task-snapshot:${snapshot.id}`,
+        title: snapshot.title as string,
+        status: snapshot.status as string,
+        priority: snapshot.priority as string | null,
+        description: snapshot.description as string | null,
+        due_date: snapshot.due_date as string | null,
+        start_date: snapshot.start_date as string | null,
+        workspace_id: workspaceId,
+        project_id: snapshot.project_id as string | null,
+        project_name: project?.name ?? null,
+        tab_id: snapshot.tab_id as string | null,
+        tab_name: `${tab?.name || "Task Board"} (edited snapshot)`,
+        task_block_id: snapshot.task_block_id as string,
+        assignees: [],
+        tags: [],
+        subtasks: undefined,
+        subtask_list: undefined,
+        created_at: snapshot.created_at as string,
+        updated_at: snapshot.updated_at as string,
+      });
+    }
+
+    return editedSnapshots;
+  } catch (err) {
+    console.error("getEditedTaskSnapshotsFromTaskItems exception:", err);
+    return [];
+  }
+}
+
+/**
+ * Query table_rows for edited task snapshots.
+ * Uses the 'edited' flag to efficiently identify modified snapshots.
+ */
+async function getEditedTaskSnapshots(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  sourceTasksById: Map<string, TaskResult>
+): Promise<TaskResult[]> {
+  const taskIds = Array.from(sourceTasksById.keys());
+  if (taskIds.length === 0) return [];
+
+  try {
+    // Query table_rows for edited snapshots only
+    const { data: snapshotRows, error } = await supabase
+      .from("table_rows")
+      .select(`
+        id,
+        data,
+        source_entity_id,
+        source_sync_mode,
+        table_id,
+        tables!inner(workspace_id, title)
+      `)
+      .eq("source_entity_type", "task")
+      .eq("source_sync_mode", "snapshot")
+      .eq("edited", true)
+      .in("source_entity_id", taskIds);
+
+    if (error || !snapshotRows) {
+      console.error("getEditedTaskSnapshots error:", error);
+      return [];
+    }
+
+    const editedSnapshots: TaskResult[] = [];
+
+    for (const row of snapshotRows) {
+      const sourceTaskId = row.source_entity_id as string;
+      const sourceTask = sourceTasksById.get(sourceTaskId);
+      if (!sourceTask) continue;
+
+      const snapshotData = (row.data || {}) as Record<string, unknown>;
+      const table = (row.tables as unknown as { workspace_id: string; title: string } | null);
+
+      editedSnapshots.push({
+        id: `snapshot:${row.id}`,
+        title: String(snapshotData["Task Title"] || snapshotData["Task"] || snapshotData["Title"] || sourceTask.title),
+        status: snapshotData["Status"] ? String(snapshotData["Status"]) as any : sourceTask.status,
+        priority: snapshotData["Priority"] ? String(snapshotData["Priority"]) as any : sourceTask.priority,
+        description: snapshotData["Description"] ? String(snapshotData["Description"]) : sourceTask.description,
+        due_date: snapshotData["Due Date"] ? String(snapshotData["Due Date"]) : sourceTask.due_date,
+        start_date: sourceTask.start_date,
+        workspace_id: workspaceId,
+        project_id: sourceTask.project_id,
+        project_name: sourceTask.project_name,
+        tab_id: sourceTask.tab_id,
+        tab_name: `${table?.title || "Unknown Table"} (edited snapshot)`,
+        task_block_id: sourceTask.task_block_id,
+        assignees: sourceTask.assignees,
+        tags: sourceTask.tags,
+        subtasks: undefined,
+        subtask_list: undefined,
+        created_at: sourceTask.created_at,
+        updated_at: sourceTask.updated_at,
+      });
+    }
+
+    return editedSnapshots;
+  } catch (err) {
+    console.error("getEditedTaskSnapshots exception:", err);
+    return [];
+  }
+}
+
+/**
+ * Query timeline_events for edited timeline event snapshots.
+ * Uses the 'edited' flag to efficiently identify modified snapshots.
+ */
+async function getEditedTimelineEventSnapshotsFromTimelineEvents(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  sourceEventsById: Map<string, TimelineEventResult>
+): Promise<TimelineEventResult[]> {
+  const eventIds = Array.from(sourceEventsById.keys());
+  if (eventIds.length === 0) return [];
+
+  try {
+    const { data: snapshotEvents, error } = await supabase
+      .from("timeline_events")
+      .select(`
+        id, title, start_date, end_date, status, priority, progress, notes, color,
+        is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
+        source_entity_type, source_entity_id, source_sync_mode
+      `)
+      .eq("workspace_id", workspaceId)
+      .eq("source_entity_type", "timeline_event")
+      .eq("source_sync_mode", "snapshot")
+      .eq("edited", true)
+      .in("source_entity_id", eventIds);
+
+    if (error || !snapshotEvents) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents error:", error);
+      return [];
+    }
+
+    const editedSnapshots: TimelineEventResult[] = [];
+
+    for (const snapshot of snapshotEvents) {
+      editedSnapshots.push({
+        id: `timeline-snapshot:${snapshot.id}`,
+        title: snapshot.title as string,
+        start_date: snapshot.start_date as string,
+        end_date: snapshot.end_date as string,
+        status: snapshot.status as string | null,
+        progress: snapshot.progress as number,
+        notes: snapshot.notes as string | null,
+        color: snapshot.color as string | null,
+        is_milestone: snapshot.is_milestone as boolean,
+        workspace_id: workspaceId,
+        timeline_block_id: snapshot.timeline_block_id as string,
+        assignee_id: null,
+        assignee_name: null,
+        project_id: null,
+        project_name: "(edited snapshot)",
+        created_at: snapshot.created_at as string,
+        updated_at: snapshot.updated_at as string,
+      });
+    }
+
+    return editedSnapshots;
+  } catch (err) {
+    console.error("getEditedTimelineEventSnapshotsFromTimelineEvents exception:", err);
+    return [];
+  }
+}
+
+/**
+ * Query table_rows for edited timeline event snapshots.
+ * Uses the 'edited' flag to efficiently identify modified snapshots.
+ */
+async function getEditedTimelineEventSnapshots(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  sourceEventsById: Map<string, TimelineEventResult>
+): Promise<TimelineEventResult[]> {
+  const eventIds = Array.from(sourceEventsById.keys());
+  if (eventIds.length === 0) return [];
+
+  try {
+    const { data: snapshotRows, error } = await supabase
+      .from("table_rows")
+      .select(`
+        id,
+        data,
+        source_entity_id,
+        source_sync_mode,
+        table_id,
+        tables!inner(workspace_id, title)
+      `)
+      .eq("source_entity_type", "timeline_event")
+      .eq("source_sync_mode", "snapshot")
+      .eq("edited", true)
+      .in("source_entity_id", eventIds);
+
+    if (error || !snapshotRows) {
+      console.error("getEditedTimelineEventSnapshots error:", error);
+      return [];
+    }
+
+    const editedSnapshots: TimelineEventResult[] = [];
+
+    for (const row of snapshotRows) {
+      const sourceEventId = row.source_entity_id as string;
+      const sourceEvent = sourceEventsById.get(sourceEventId);
+      if (!sourceEvent) continue;
+
+      const snapshotData = (row.data || {}) as Record<string, unknown>;
+      const table = (row.tables as unknown as { workspace_id: string; title: string } | null);
+
+      editedSnapshots.push({
+        id: `table-timeline-snapshot:${row.id}`,
+        title: String(snapshotData["Event Title"] || snapshotData["Title"] || snapshotData["Event"] || sourceEvent.title),
+        start_date: snapshotData["Start Date"] ? String(snapshotData["Start Date"]) : sourceEvent.start_date,
+        end_date: snapshotData["End Date"] ? String(snapshotData["End Date"]) : sourceEvent.end_date,
+        status: snapshotData["Status"] ? String(snapshotData["Status"]) as any : sourceEvent.status,
+        progress: sourceEvent.progress,
+        notes: snapshotData["Notes"] ? String(snapshotData["Notes"]) : sourceEvent.notes,
+        color: sourceEvent.color,
+        is_milestone: sourceEvent.is_milestone,
+        workspace_id: workspaceId,
+        timeline_block_id: sourceEvent.timeline_block_id,
+        assignee_id: sourceEvent.assignee_id,
+        assignee_name: sourceEvent.assignee_name,
+        project_id: sourceEvent.project_id,
+        project_name: `${table?.title || "Unknown Table"} (edited snapshot)`,
+        created_at: sourceEvent.created_at,
+        updated_at: sourceEvent.updated_at,
+      });
+    }
+
+    return editedSnapshots;
+  } catch (err) {
+    console.error("getEditedTimelineEventSnapshots exception:", err);
+    return [];
+  }
+}

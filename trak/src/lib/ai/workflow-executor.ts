@@ -243,18 +243,31 @@ async function resolveLatestBlockContext(params: {
   return { blockId: undefined, blockType: undefined };
 }
 
+function extractAssigneeIds(task: Record<string, unknown>): string[] | null {
+  const assignees = task.assignees;
+  if (!Array.isArray(assignees) || assignees.length === 0) return null;
+  const ids: string[] = [];
+  for (const entry of assignees) {
+    if (entry && typeof entry === "object" && "id" in entry && typeof entry.id === "string") {
+      ids.push(entry.id);
+    }
+  }
+  return ids.length > 0 ? ids : null;
+}
+
 function coerceTaskRows(tasks: Array<Record<string, unknown>>) {
   return tasks.map((task) => ({
     source_entity_type: "task",
     source_entity_id: typeof task.id === "string" ? task.id : undefined,
     source_sync_mode: "snapshot",
     data: {
-      Task: String(task.title || ""),
+      "Task Title": String(task.title || ""),
+      Status: normalizeTaskStatusForTable(task.status),
+      Priority: normalizeTaskPriorityForTable(task.priority),
+      "Due Date": toDateOnly(task.due_date),
+      Assignee: extractAssigneeIds(task),
       Project: String(task.project_name || ""),
       Tab: String(task.tab_name || ""),
-      "Due Date": task.due_date ? String(task.due_date) : null,
-      Status: task.status ? String(task.status) : "",
-      Priority: task.priority ? String(task.priority) : "",
     },
   }));
 }
@@ -298,11 +311,12 @@ function coerceTaskRowsForWorkflowFallback(tasks: Array<Record<string, unknown>>
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
       Priority: normalizeTaskPriorityForTable(task.priority),
+      "Due Date": toDateOnly(task.due_date),
+      Assignee: extractAssigneeIds(task),
       Project: String(task.project_name || ""),
       Tab: String(task.tab_name || ""),
       "Created At": toDateOnly(task.created_at),
       "Updated At": toDateOnly(task.updated_at),
-      "Task ID": typeof task.id === "string" ? task.id : "",
     },
   }));
 }
@@ -521,11 +535,12 @@ async function createTaskSearchFallbackTable(params: {
           { name: "Task Title", type: "text" },
           { name: "Status", type: "status" },
           { name: "Priority", type: "priority" },
+          { name: "Due Date", type: "date", config: { includeTime: false } },
+          { name: "Assignee", type: "person" },
           { name: "Project", type: "text" },
           { name: "Tab", type: "text" },
           { name: "Created At", type: "date" },
           { name: "Updated At", type: "date" },
-          { name: "Task ID", type: "text" },
         ],
         rows: coerceTaskRowsForWorkflowFallback(params.tasks),
       },
@@ -558,12 +573,13 @@ async function createOverdueTasksTable(params: {
         tabId: params.tabId,
         title,
         fields: [
-          { name: "Task", type: "text" },
+          { name: "Task Title", type: "text" },
+          { name: "Status", type: "status" },
+          { name: "Priority", type: "priority" },
+          { name: "Due Date", type: "date", config: { includeTime: false } },
+          { name: "Assignee", type: "person" },
           { name: "Project", type: "text" },
           { name: "Tab", type: "text" },
-          { name: "Due Date", type: "date", config: { includeTime: false, format: "MMM d, yyyy" } },
-          { name: "Status", type: "text" },
-          { name: "Priority", type: "text" },
         ],
         rows: coerceTaskRows(params.tasks),
       },
@@ -689,10 +705,25 @@ BLOCK CREATION:
 - Use createChartBlock() for visualizations
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
-- When rendering editable rows from tasks or timeline events, preserve source metadata on each row: source_entity_type/source_entity_id/source_sync_mode ("snapshot"). Never add these as visible columns.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
+
+🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, subtasks, etc.):
+- You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
+- Format: { data: {...}, source_entity_type: "task", source_entity_id: "<task-uuid>", source_sync_mode: "snapshot" }
+- This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
+- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
+- Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
+
+🚨 FIELD TYPE PRESERVATION (NON-NEGOTIABLE) - When creating tables from existing data:
+- Status fields → type: "status" (NOT text). Value must be normalized: "todo", "in_progress", "done", "blocked"
+- Priority fields → type: "priority" (NOT text). Value must be normalized: "low", "medium", "high", "urgent"
+- Assignee fields → type: "person". Value must be an array of user ID strings (from assignees.map(a => a.id) in search results), e.g. ["user-id-1", "user-id-2"]
+- Date fields → type: "date". Value must be YYYY-MM-DD format
+- INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
+- Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
 CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
 - When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information
@@ -1107,10 +1138,25 @@ BLOCK CREATION:
 - Use createChartBlock() for visualizations
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
-- When rendering editable rows from tasks or timeline events, preserve source metadata on each row: source_entity_type/source_entity_id/source_sync_mode ("snapshot"). Never add these as visible columns.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
+
+🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, subtasks, etc.):
+- You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
+- Format: { data: {...}, source_entity_type: "task", source_entity_id: "<task-uuid>", source_sync_mode: "snapshot" }
+- This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
+- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
+- Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
+
+🚨 FIELD TYPE PRESERVATION (NON-NEGOTIABLE) - When creating tables from existing data:
+- Status fields → type: "status" (NOT text). Value must be normalized: "todo", "in_progress", "done", "blocked"
+- Priority fields → type: "priority" (NOT text). Value must be normalized: "low", "medium", "high", "urgent"
+- Assignee fields → type: "person". Value must be an array of user ID strings (from assignees.map(a => a.id) in search results), e.g. ["user-id-1", "user-id-2"]
+- Date fields → type: "date". Value must be YYYY-MM-DD format
+- INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
+- Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
 CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
 - When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information

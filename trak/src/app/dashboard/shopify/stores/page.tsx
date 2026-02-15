@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { listShopifyConnections } from "@/app/actions/shopify-connection";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
-import { IntegrationsClient } from "@/app/dashboard/settings/integrations/integrations-client";
+import { ShopifyStoresClient } from "./stores-client";
 
 export const metadata = {
   title: "Stores - TWOD",
@@ -28,7 +28,7 @@ export default async function ShopifyStoresPage({
   const error = resolvedSearchParams.error as string | undefined;
 
   return (
-    <IntegrationsClient
+    <ShopifyStoresClient
       workspaceId={workspaceId}
       initialConnections={connections}
       success={success}

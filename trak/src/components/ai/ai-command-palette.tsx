@@ -1108,7 +1108,7 @@ export function AICommandPalette() {
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 )}
               >
-                Ask AI
+                AI Assistant
               </button>
               <button
                 type="button"
@@ -1357,7 +1357,15 @@ export function AICommandPalette() {
                         : "bg-[var(--muted)] text-[var(--foreground)]"
                     )}
                   >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    {isUser ? (
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                    ) : (
+                      <div className="prose prose-sm max-w-none text-[var(--foreground)]">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
                     {message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0 && (
                       <div className="text-[11px] text-[var(--muted-foreground)] pt-2 border-t border-[var(--border)] space-y-1">
                         {message.toolCalls.map((call, index) => (

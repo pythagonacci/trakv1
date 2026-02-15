@@ -1387,6 +1387,7 @@ function parseColumnList(raw: string): string[] {
 
 function inferFieldType(name: string) {
   const lower = name.toLowerCase();
+  if (/(subtask|is_subtask|is subtask)/.test(lower)) return "subtask";
   if (/(status|state|stage)/.test(lower)) return "status";
   if (/(priority|importance)/.test(lower)) return "priority";
   if (/(category|categories|type|types|tag|tags)/.test(lower)) return "select";

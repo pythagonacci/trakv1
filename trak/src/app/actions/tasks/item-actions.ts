@@ -86,7 +86,7 @@ export async function updateTaskItem(
 ): Promise<ActionResult<TaskItem>> {
   const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase, userId } = access;
+  const { supabase, userId, task } = access;
 
   const payload: Record<string, any> = {
     updated_by: userId,
@@ -105,6 +105,11 @@ export async function updateTaskItem(
   if (updates.recurringFrequency !== undefined) payload.recurring_frequency = updates.recurringFrequency;
   if (updates.recurringInterval !== undefined) payload.recurring_interval = updates.recurringInterval;
 
+  // Mark as edited if this is a snapshot
+  if ((task as any).source_entity_id) {
+    payload.edited = true;
+  }
+
   const { data, error } = await supabase
     .from("task_items")
     .update(payload)
@@ -113,6 +118,52 @@ export async function updateTaskItem(
     .single();
 
   if (error || !data) return { error: "Failed to update task" };
+
+  // Update entity_properties to keep status, priority, and due date in sync
+  const { setEntityProperties } = await import("@/app/actions/entity-properties");
+  const entityPropertyUpdates: any = {};
+
+  // Map task status to entity property status
+  if (updates.status !== undefined) {
+    const statusMap: Record<TaskStatus, string> = {
+      "todo": "todo",
+      "in-progress": "in_progress",
+      "done": "done",
+    };
+    entityPropertyUpdates.status = statusMap[updates.status] || "todo";
+  }
+
+  // Map task priority to entity property priority
+  if (updates.priority !== undefined) {
+    entityPropertyUpdates.priority = updates.priority === "none" ? null : updates.priority;
+  }
+
+  // Update due date if provided
+  if (updates.dueDate !== undefined || updates.startDate !== undefined) {
+    const startDate = updates.startDate !== undefined ? updates.startDate : task.start_date;
+    const dueDate = updates.dueDate !== undefined ? updates.dueDate : task.due_date;
+
+    if (startDate && dueDate) {
+      entityPropertyUpdates.due_date = { start: startDate, end: dueDate };
+    } else if (dueDate) {
+      entityPropertyUpdates.due_date = { start: dueDate, end: dueDate };
+    } else if (startDate) {
+      entityPropertyUpdates.due_date = { start: startDate, end: startDate };
+    } else {
+      entityPropertyUpdates.due_date = null;
+    }
+  }
+
+  // Only call setEntityProperties if we have property updates
+  if (Object.keys(entityPropertyUpdates).length > 0) {
+    await setEntityProperties({
+      entity_type: "task",
+      entity_id: taskId,
+      workspace_id: task.workspace_id,
+      updates: entityPropertyUpdates,
+    });
+  }
+
   return { data: data as TaskItem };
 }
 
@@ -146,7 +197,7 @@ export async function bulkUpdateTaskItems(input: {
   // Verify all tasks exist and belong to the same workspace
   const { data: tasks, error: tasksError } = await supabase
     .from("task_items")
-    .select("id, workspace_id")
+    .select("id, workspace_id, start_date, due_date")
     .in("id", taskIds)
     .eq("workspace_id", workspaceId);
 
@@ -181,6 +232,65 @@ export async function bulkUpdateTaskItems(input: {
     .in("id", toUpdate);
 
   if (updateError) return { error: "Failed to update tasks" };
+
+  // Update entity_properties for each task to keep status, priority, and due date in sync
+  const { setEntityProperties } = await import("@/app/actions/entity-properties");
+
+  // Build entity property updates
+  const entityPropertyUpdates: any = {};
+
+  // Map task status to entity property status
+  if (input.updates.status !== undefined) {
+    const statusMap: Record<TaskStatus, string> = {
+      "todo": "todo",
+      "in-progress": "in_progress",
+      "done": "done",
+    };
+    entityPropertyUpdates.status = statusMap[input.updates.status] || "todo";
+  }
+
+  // Map task priority to entity property priority
+  if (input.updates.priority !== undefined) {
+    entityPropertyUpdates.priority = input.updates.priority === "none" ? null : input.updates.priority;
+  }
+
+  // Update entity_properties for each task
+  if (Object.keys(entityPropertyUpdates).length > 0 || input.updates.dueDate !== undefined || input.updates.startDate !== undefined) {
+    const taskMap = new Map((tasks || []).map((t: any) => [t.id, t]));
+
+    for (const taskId of toUpdate) {
+      const task = taskMap.get(taskId);
+      if (!task) continue;
+
+      const updates = { ...entityPropertyUpdates };
+
+      // Update due date if provided
+      if (input.updates.dueDate !== undefined || input.updates.startDate !== undefined) {
+        const startDate = input.updates.startDate !== undefined ? input.updates.startDate : task.start_date;
+        const dueDate = input.updates.dueDate !== undefined ? input.updates.dueDate : task.due_date;
+
+        if (startDate && dueDate) {
+          updates.due_date = { start: startDate, end: dueDate };
+        } else if (dueDate) {
+          updates.due_date = { start: dueDate, end: dueDate };
+        } else if (startDate) {
+          updates.due_date = { start: startDate, end: startDate };
+        } else {
+          updates.due_date = null;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await setEntityProperties({
+          entity_type: "task",
+          entity_id: taskId,
+          workspace_id: workspaceId,
+          updates,
+        });
+      }
+    }
+  }
+
   return { data: { updatedCount: toUpdate.length, skipped } };
 }
 
@@ -473,6 +583,14 @@ export async function deleteTaskItem(taskId: string, opts?: { authContext?: Auth
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  // Delete entity_properties for this task
+  await supabase
+    .from("entity_properties")
+    .delete()
+    .eq("entity_type", "task")
+    .eq("entity_id", taskId);
+
+  // Delete the task itself (this will cascade to task_assignees, task_tag_links, etc.)
   const { error } = await supabase.from("task_items").delete().eq("id", taskId);
   if (error) return { error: "Failed to delete task" };
   return { data: null };

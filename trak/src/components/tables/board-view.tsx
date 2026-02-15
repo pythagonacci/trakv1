@@ -104,7 +104,7 @@ export function BoardView({
     if (groupId !== "__ungrouped__") {
       if (groupByField.type === "multi_select") {
         data[groupByField.id] = [groupId];
-      } else if (groupByField.type === "checkbox") {
+      } else if (groupByField.type === "checkbox" || groupByField.type === "subtask") {
         data[groupByField.id] = groupId === "true";
       } else {
         data[groupByField.id] = groupId;
@@ -130,7 +130,7 @@ export function BoardView({
       onUpdateCell(rowId, groupByField.id, next.length ? next : []);
       return;
     }
-    if (groupByField.type === "checkbox") {
+    if (groupByField.type === "checkbox" || groupByField.type === "subtask") {
       if (targetGroupId === "__ungrouped__") {
         onUpdateCell(rowId, groupByField.id, null);
       } else {

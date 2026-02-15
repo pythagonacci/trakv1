@@ -126,7 +126,7 @@ export async function requireTaskItemAccess(
   const tTaskItems0 = performance.now();
   const { data: task, error: taskError } = await supabase
     .from("task_items")
-    .select("id, workspace_id")
+    .select("id, workspace_id, source_entity_id")
     .eq("id", taskId)
     .single();
   if (opts?.dbCalls) opts.dbCalls.push({ table: "task_items", op: "select", ms: Math.round(performance.now() - tTaskItems0) });

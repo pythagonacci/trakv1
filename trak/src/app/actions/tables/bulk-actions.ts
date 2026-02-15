@@ -92,7 +92,7 @@ export async function bulkUpdateRows(input: {
   const fetchRowsStart = timingEnabled ? Date.now() : 0;
   const { data: rows } = await supabase
     .from("table_rows")
-    .select("id, data")
+    .select("id, data, source_entity_id")
     .eq("table_id", input.tableId)
     .in("id", input.rowIds);
   if (timingEnabled) t_fetch_rows_ms = Date.now() - fetchRowsStart;
@@ -100,7 +100,7 @@ export async function bulkUpdateRows(input: {
 
   const payload = (rows || []).map((row) => {
     const cleanedData = sanitizeRowData((row.data as Record<string, unknown>) || {}, validIds);
-    return {
+    const updateItem: Record<string, unknown> = {
       id: row.id,
       table_id: input.tableId,
       data: {
@@ -109,6 +109,13 @@ export async function bulkUpdateRows(input: {
       },
       updated_by: user.id,
     };
+
+    // Mark as edited if this is a snapshot
+    if ((row as any).source_entity_id) {
+      updateItem.edited = true;
+    }
+
+    return updateItem;
   });
 
   const changedFieldIds = Object.keys(input.updates || {}).filter((key) => key.length > 0);
@@ -438,7 +445,7 @@ export async function bulkInsertRows(input: {
       order: row.order ?? null,
       source_entity_type: sourceEntityId ? normalizeSourceEntityType(row.source_entity_type) : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: normalizeSourceSyncMode(row.source_sync_mode),
+      source_sync_mode: sourceEntityId ? normalizeSourceSyncMode(row.source_sync_mode) : null,
       created_by: userId,
       updated_by: userId,
     };
@@ -476,8 +483,11 @@ function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | 
   return null;
 }
 
-function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
-  return value === "live" ? "live" : "snapshot";
+function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" | null {
+  if (value === "live") return "live";
+  if (value === "snapshot") return "snapshot";
+  // Default to snapshot when a value is provided but not explicitly "live"
+  return "snapshot";
 }
 
 function normalizeSourceEntityId(value: unknown): string | null {

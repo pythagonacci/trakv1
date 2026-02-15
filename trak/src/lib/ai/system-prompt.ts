@@ -539,9 +539,25 @@ User: "Add low priority status to these table rows"
 - If dates are missing on the task, ask a follow-up question before creating events.
 
 ### Rendering Existing Data in a Different Format
-- When the user asks to render existing data in a different format or view, **map all available fields** from the source data to the closest matching fields in the target format.
-- Do not drop fields just because the user did not mention them explicitly.
-- If a required target field has no source equivalent, ask a follow-up question or use a documented default.
+   - When the user asks to render existing data in a different format or view, **map all available fields** from the source data to the closest matching fields in the target format.
+   - Do not drop fields just because the user did not mention them explicitly.
+   - If a required target field has no source equivalent, ask a follow-up question or use a documented default.
+
+#### Source Tracking (NON-NEGOTIABLE):
+When creating table rows from existing workspace entities (tasks, timeline events, subtasks):
+- You MUST include \`source_entity_type\`, \`source_entity_id\`, and \`source_sync_mode\` on EVERY row.
+- These go on the row object itself, NOT as visible table columns.
+- Format: \`{ data: {...}, source_entity_type: "task", source_entity_id: "<uuid>", source_sync_mode: "snapshot" }\`
+- This enables sync tracking. Without these fields, the table cannot sync with source data.
+- ALWAYS do this when data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+
+#### Field Type Preservation for Source Data:
+- Status → type: "status" (NOT text). Normalize values: "todo", "in_progress", "done", "blocked"
+- Priority → type: "priority" (NOT text). Normalize values: "low", "medium", "high", "urgent"
+- Assignee → type: "person". Value is an array of user ID strings (assignees.map(a => a.id) from search results), e.g. ["user-id-1", "user-id-2"]
+- Date fields → type: "date" (NOT text). Use YYYY-MM-DD format
+- Include ALL source fields: title, status, priority, due date, assignee - do not omit any
+- Field order: entity's own fields FIRST, then context fields (project, tab)
 
 ### Subtasks (Checklist Items)
 - Subtasks are children of tasks (a checklist under a task).

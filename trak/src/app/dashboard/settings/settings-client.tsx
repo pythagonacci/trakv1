@@ -53,19 +53,16 @@ export function SettingsClient({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page Header */}
-      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--background)]">
-        <div className="flex w-full items-center justify-between px-4 py-3 md:px-5 lg:px-6">
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--tertiary-foreground)]">
-              {workspace.name}
-            </span>
-            <h1
-              className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair"
-              style={{ fontFamily: "var(--font-playfair)" }}
-            >
+      {/* Page Header - same coloring as table header, larger */}
+      <header className="sticky top-0 z-40 border-b border-[var(--secondary)] bg-[var(--secondary)]/10">
+        <div className="flex w-full items-center justify-between py-4 px-4 md:px-5 lg:px-6">
+          <div className="flex flex-col justify-center gap-0.5">
+            <h2 className="text-base font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
               Workspace Settings
-            </h1>
+            </h2>
+            <p className="text-sm text-[var(--tertiary-foreground)]/80">
+              {workspace.name}
+            </p>
           </div>
         </div>
       </header>

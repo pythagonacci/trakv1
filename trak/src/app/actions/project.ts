@@ -454,12 +454,31 @@ export async function createProjectFromProduct(
     return { error: 'Product not found' }
   }
 
+  // Get or create default client "Product" for projects created from Shopify products
+  const { data: existingProductClient } = await supabase
+    .from('clients')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('name', 'Product')
+    .maybeSingle()
+
+  let productClientId = existingProductClient?.id
+  if (!productClientId) {
+    const { data: newClient, error: clientError } = await supabase
+      .from('clients')
+      .insert({ workspace_id: workspaceId, name: 'Product' })
+      .select('id')
+      .single()
+    if (!clientError && newClient) productClientId = newClient.id
+  }
+
   const projectName = (product.title && String(product.title).trim()) || 'Untitled Project'
   const createResult = await createProject(
     workspaceId,
     {
       name: projectName,
       status: 'not_started',
+      client_id: productClientId ?? undefined,
     },
     { authContext: { supabase, userId } }
   )

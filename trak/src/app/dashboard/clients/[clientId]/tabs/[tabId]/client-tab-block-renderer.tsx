@@ -119,7 +119,7 @@ export default function ClientTabBlockRenderer({
       case "task":
         return <TaskBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} onUpdate={(b) => onUpdate?.(b as any)} scrollToTaskId={scrollToTaskId} />;
       case "link":
-        return <LinkBlock block={blockForComponents} />;
+        return <LinkBlock block={blockForComponents} onUpdate={(b) => onUpdate?.(b as any)} />;
       case "divider":
         return <DividerBlock block={blockForComponents} />;
       case "table":

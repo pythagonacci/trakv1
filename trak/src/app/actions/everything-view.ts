@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getEntitiesProperties } from "@/app/actions/entity-properties";
 import { buildDueDateRange, normalizeDueDateRange } from "@/lib/due-date";
 import type { EverythingItem, EverythingOptions, EverythingResult } from "@/types/everything";
-import type { EntityType, Status, Priority } from "@/types/properties";
+import type { EntityType, EntityProperties, Status, Priority } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -43,12 +43,13 @@ export async function getWorkspaceEverything(
     items,
     options?.includeWorkflowRepresentations
   );
+  const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
 
   return {
     data: {
-      items: normalizedItems,
-      total: normalizedItems.length,
-      hasMore: normalizedItems.length === limit,
+      items: enrichedItems,
+      total: enrichedItems.length,
+      hasMore: enrichedItems.length === limit,
     },
   };
 }
@@ -425,18 +426,19 @@ async function getWorkspaceEverythingFallback(
     items,
     options?.includeWorkflowRepresentations
   );
+  const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
 
   // Sort by updated_at descending
-  normalizedItems.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  enrichedItems.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
   // Apply limit and offset
-  const paginatedItems = normalizedItems.slice(offset, offset + limit);
+  const paginatedItems = enrichedItems.slice(offset, offset + limit);
 
   return {
     data: {
       items: paginatedItems,
-      total: normalizedItems.length,
-      hasMore: offset + limit < normalizedItems.length,
+      total: enrichedItems.length,
+      hasMore: offset + limit < enrichedItems.length,
     },
   };
 }
@@ -517,4 +519,53 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
     created_at: raw.created_at,
     updated_at: raw.updated_at,
   };
+}
+
+async function hydrateEverythingProperties(
+  items: EverythingItem[],
+  workspaceId: string
+): Promise<EverythingItem[]> {
+  if (items.length === 0) return items;
+
+  const idsByType = new Map<EntityType, string[]>();
+  for (const item of items) {
+    const list = idsByType.get(item.type) ?? [];
+    list.push(item.id);
+    idsByType.set(item.type, list);
+  }
+
+  const entries = await Promise.all(
+    Array.from(idsByType.entries()).map(async ([type, ids]) => {
+      const result = await getEntitiesProperties(type, ids, workspaceId);
+      if ("error" in result) {
+        console.error(`hydrateEverythingProperties error (${type}):`, result.error);
+        return [type, {} as Record<string, EntityProperties>] as const;
+      }
+      return [type, result.data] as const;
+    })
+  );
+
+  const propsByType = new Map<EntityType, Record<string, EntityProperties>>(entries);
+
+  return items.map((item) => {
+    const props = propsByType.get(item.type)?.[item.id];
+    if (!props) return item;
+
+    return {
+      ...item,
+      properties: {
+        status: props.status ?? item.properties.status ?? null,
+        priority: props.priority ?? item.properties.priority ?? null,
+        assignee_ids:
+          Array.isArray(props.assignee_ids) && props.assignee_ids.length > 0
+            ? props.assignee_ids
+            : item.properties.assignee_ids ?? [],
+        due_date: props.due_date ?? item.properties.due_date ?? null,
+        tags:
+          Array.isArray(props.tags) && props.tags.length > 0
+            ? props.tags
+            : item.properties.tags ?? [],
+      },
+    };
+  });
 }

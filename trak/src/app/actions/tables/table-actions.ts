@@ -15,6 +15,7 @@ type ActionResult<T> = { data: T } | { error: string };
 interface CreateTableInput {
   workspaceId: string;
   projectId?: string | null;
+  tabId?: string | null;
   title?: string;
   description?: string | null;
   icon?: string | null;
@@ -22,7 +23,7 @@ interface CreateTableInput {
 }
 
 export async function createTable(input: CreateTableInput): Promise<ActionResult<{ table: Table; primaryField: TableField }>> {
-  const { workspaceId, projectId = null, title = "Untitled Table", description = null, icon = null, authContext } = input;
+  const { workspaceId, projectId = null, tabId = null, title = "Untitled Table", description = null, icon = null, authContext } = input;
   const access = await requireWorkspaceAccessForTables(workspaceId, { authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
@@ -32,6 +33,7 @@ export async function createTable(input: CreateTableInput): Promise<ActionResult
     .insert({
       workspace_id: workspaceId,
       project_id: projectId,
+      tab_id: tabId,
       title,
       description,
       icon,

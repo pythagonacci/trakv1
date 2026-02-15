@@ -11,12 +11,12 @@ export function ProductsTabBar() {
   const isStores = pathname === "/dashboard/shopify/stores" || pathname?.startsWith("/dashboard/shopify/stores");
 
   return (
-    <div className="border-b border-[var(--border)] bg-[var(--surface)]">
-      <nav className="flex gap-6 px-6" aria-label="Products tabs">
+    <div className="border-b border-[var(--secondary)] bg-[var(--secondary)]/10 py-3">
+      <nav className="flex gap-6 pl-12 pr-6" aria-label="Products tabs">
         <Link
           href="/dashboard/shopify/products"
           className={cn(
-            "flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors relative",
+            "flex items-center gap-2 px-1 py-2 text-sm font-medium transition-colors relative",
             isProducts
               ? "text-[var(--foreground)]"
               : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
@@ -31,7 +31,7 @@ export function ProductsTabBar() {
         <Link
           href="/dashboard/shopify/stores"
           className={cn(
-            "flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors relative",
+            "flex items-center gap-2 px-1 py-2 text-sm font-medium transition-colors relative",
             isStores
               ? "text-[var(--foreground)]"
               : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"

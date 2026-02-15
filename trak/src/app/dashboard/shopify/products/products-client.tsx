@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,8 +50,15 @@ export function ShopifyProductsClient({
   selectedConnectionId,
 }: ShopifyProductsClientProps) {
   const router = useRouter();
+  const { setHeaderHidden } = useDashboardHeader();
   const [search, setSearch] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+
+  // Hide dashboard header on this page
+  useEffect(() => {
+    setHeaderHidden(true);
+    return () => setHeaderHidden(false);
+  }, [setHeaderHidden]);
 
   // Filter products by search
   const filteredProducts = initialProducts.filter((product) =>
@@ -66,7 +74,7 @@ export function ShopifyProductsClient({
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="pl-8 pr-4 pt-12 pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Shopify Products</h1>
@@ -137,7 +145,7 @@ export function ShopifyProductsClient({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {filteredProducts.map((product) => (
             <Card
               key={product.id}

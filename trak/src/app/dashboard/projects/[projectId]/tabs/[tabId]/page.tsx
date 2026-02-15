@@ -190,15 +190,15 @@ export default async function TabPage({
   }
 
   return (
-    <div className="min-h-screen bg-transparent">
-      <div className="w-full px-2 md:px-3 lg:px-4">
-        {/* Project Header - Minimal, elegant */}
-        <div className="pt-4 pb-2">
+    <div className={isWorkflowTab ? "h-full flex flex-col min-h-0 bg-transparent" : "min-h-screen bg-transparent"}>
+      <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1 w-full px-2 md:px-3 lg:px-4" : "w-full px-2 md:px-3 lg:px-4"}>
+        {/* Project Header - Compact */}
+        <div className="pt-2 pb-1 shrink-0">
           <ProjectHeader project={project} tabId={tabId} tabs={hierarchicalTabs} />
         </div>
 
         {/* Tab Navigation - Sticky */}
-        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm">
+        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm shrink-0">
           <TabBar 
             tabs={hierarchicalTabs} 
             projectId={projectId}
@@ -208,7 +208,7 @@ export default async function TabPage({
         </div>
 
         {/* Canvas Content with Subtab Navigation or Workflow Layout */}
-        <div className="py-3 md:py-4 lg:py-5">
+        <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1" : "py-3 md:py-4 lg:py-5"}>
           {isWorkflowTab ? (
             <WorkflowPageLayout
               tabId={tabId}

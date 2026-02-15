@@ -15,6 +15,7 @@ export function validateFieldType(type: string): type is FieldType {
     "multi_select",
     "date",
     "checkbox",
+    "subtask",
     "url",
     "email",
     "phone",
@@ -48,6 +49,7 @@ export function validateRowDataAgainstFields(data: Record<string, unknown>, fiel
         }
         break;
       case "checkbox":
+      case "subtask":
         if (value !== null && value !== undefined && typeof value !== "boolean") {
           return { valid: false, message: `Field ${field.name} expects a boolean` };
         }

@@ -49,8 +49,8 @@ export default function WorkflowPagesIndex() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="py-4 lg:py-5">
+      <div className="flex items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)] font-playfair" style={{ fontFamily: 'var(--font-playfair)' }}>Workflow Pages</h1>
           <p className="text-sm text-[var(--muted-foreground)]">
