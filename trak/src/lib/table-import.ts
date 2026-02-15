@@ -290,6 +290,7 @@ export const transformValue = (raw: string, field: TableField) => {
       return Number.isNaN(parsed) ? null : parsed;
     }
     case "checkbox":
+    case "subtask":
       return parseBooleanValue(value);
     case "url":
     case "email":

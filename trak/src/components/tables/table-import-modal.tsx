@@ -17,6 +17,7 @@ const FIELD_TYPE_OPTIONS: Array<{ value: FieldType; label: string }> = [
   { value: "number", label: "Number" },
   { value: "date", label: "Date" },
   { value: "checkbox", label: "Checkbox" },
+  { value: "subtask", label: "Subtask" },
   { value: "select", label: "Select" },
   { value: "multi_select", label: "Multi-select" },
   { value: "url", label: "URL" },

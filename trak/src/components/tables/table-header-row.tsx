@@ -24,6 +24,7 @@ function availableCalculations(type: string): CalculationType[] {
     case "number":
       return ["sum", "average", "median", "min", "max", "range"];
     case "checkbox":
+    case "subtask":
       return ["checked", "unchecked", "percent_checked"];
     case "text":
     case "long_text":
@@ -107,6 +108,7 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }
   { value: "number", label: "Number", category: "Basic" },
   { value: "date", label: "Date", category: "Basic" },
   { value: "checkbox", label: "Checkbox", category: "Basic" },
+  { value: "subtask", label: "Subtask", category: "Basic" },
 
   // Selection Types
   { value: "select", label: "Select", category: "Select" },

@@ -25,6 +25,7 @@ function availableCalculations(type: string): CalculationType[] {
     case "number":
       return ["sum", "average", "median", "min", "max", "range"];
     case "checkbox":
+    case "subtask":
       return ["checked", "unchecked", "percent_checked"];
     case "text":
     case "long_text":

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, memo } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { type TableField } from "@/types/table";
 import { TableCell } from "./table-cell";
 
@@ -36,6 +37,12 @@ interface Props {
   onUpdateFieldConfig?: (fieldId: string, config: any) => void;
   editRequest?: { rowId: string; fieldId: string; initialValue?: string };
   onEditRequestHandled?: () => void;
+  subtaskMeta?: {
+    isSubtask?: boolean;
+    hasSubtasks?: boolean;
+    isCollapsed?: boolean;
+  };
+  onToggleSubtasks?: (rowId: string) => void;
 }
 
 export const TableRow = memo(function TableRow({
@@ -65,8 +72,13 @@ export const TableRow = memo(function TableRow({
   onUpdateFieldConfig,
   editRequest,
   onEditRequestHandled,
+  subtaskMeta,
+  onToggleSubtasks,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
+  const isSubtask = Boolean(subtaskMeta?.isSubtask);
+  const hasSubtasks = Boolean(subtaskMeta?.hasSubtasks);
+  const isCollapsed = Boolean(subtaskMeta?.isCollapsed);
   const fieldMap = useMemo(() => {
     const map: Record<string, TableField> = {};
     fields.forEach((field) => {
@@ -74,6 +86,7 @@ export const TableRow = memo(function TableRow({
     });
     return map;
   }, [fields]);
+  const primaryFieldId = useMemo(() => fields.find((field) => field.is_primary)?.id ?? fields[0]?.id, [fields]);
   const template = useMemo(() => {
     if (columnTemplate) return columnTemplate;
     // Default template: selection column + fields + add column
@@ -117,10 +130,13 @@ export const TableRow = memo(function TableRow({
       )}
       {fields.map((field, idx) => {
         const isPinned = pinnedFields?.includes(field.id);
+        const isPrimary = field.id === primaryFieldId;
+        const showSubtaskToggle = isPrimary && hasSubtasks;
+        const showSubtaskIndent = isPrimary && isSubtask;
         return (
           <div
             key={field.id}
-            className={`px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 ${isPinned ? "sticky z-10 bg-[var(--surface)]" : ""}`}
+            className={`px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0 ${isPinned ? "sticky z-10 bg-[var(--surface)]" : ""}`}
             style={isPinned ? {
               left: `${pinnedOffsets[field.id]}px`,
               boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -134,22 +150,41 @@ export const TableRow = memo(function TableRow({
             }}
             onKeyDown={(e) => onCellKeyDown?.(e, rowId, field.id)}
           >
-            <TableCell
-              field={field}
-              value={data?.[field.id]}
-              onChange={(value) => onChange(rowId, field.id, value)}
-              tableId={tableId}
-              rowId={rowId}
-              saving={saving}
-              rowData={rowMetadata}
-              workspaceMembers={workspaceMembers}
-              files={files}
-              fieldMap={fieldMap}
-              onUploadFiles={onUploadFiles}
-              onUpdateFieldConfig={(config) => onUpdateFieldConfig?.(field.id, config)}
-              editRequest={editRequest}
-              onEditRequestHandled={onEditRequestHandled}
-            />
+            <div className={`flex items-start gap-1 ${showSubtaskIndent ? "pl-6" : ""}`}>
+              {showSubtaskToggle && (
+                <button
+                  type="button"
+                  className="h-4 w-4 shrink-0 flex items-center justify-center rounded-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mt-0.5"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onToggleSubtasks?.(rowId);
+                  }}
+                  aria-label={isCollapsed ? "Expand subtasks" : "Collapse subtasks"}
+                  title={isCollapsed ? "Expand subtasks" : "Collapse subtasks"}
+                >
+                  {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </button>
+              )}
+              <div className="min-w-0 flex-1 w-full overflow-hidden">
+                <TableCell
+                  field={field}
+                  value={data?.[field.id]}
+                  onChange={(value) => onChange(rowId, field.id, value)}
+                  tableId={tableId}
+                  rowId={rowId}
+                  saving={saving}
+                  rowData={rowMetadata}
+                  workspaceMembers={workspaceMembers}
+                  files={files}
+                  fieldMap={fieldMap}
+                  onUploadFiles={onUploadFiles}
+                  onUpdateFieldConfig={(config) => onUpdateFieldConfig?.(field.id, config)}
+                  editRequest={editRequest}
+                  onEditRequestHandled={onEditRequestHandled}
+                />
+              </div>
+            </div>
           </div>
         );
       })}

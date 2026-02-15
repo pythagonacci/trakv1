@@ -387,13 +387,13 @@ function DraggableEvent({
             )}
             <div
               className={cn(
-                "event-bar flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
+                "event-bar relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
                 event.color || "bg-[var(--foreground)]"
               )}
             >
               {progress > 0 && (
                 <div
-                  className="absolute left-0 top-0 h-full bg-white/30 rounded-[6px]"
+                  className="absolute left-0 top-0 h-full bg-white/20 rounded-[6px]"
                   style={{ width: `${progress}%` }}
                 />
               )}
@@ -497,7 +497,7 @@ function DraggableEvent({
           {/* Event bar */}
           <div
             className={cn(
-              "event-bar flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm transition-transform cursor-move",
+              "event-bar relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm transition-transform cursor-move",
               isCritical && "ring-2 ring-red-500 ring-offset-1",
               event.color || "bg-[var(--foreground)]"
             )}
@@ -508,7 +508,7 @@ function DraggableEvent({
             {/* Progress bar overlay */}
             {progress > 0 && (
               <div
-                className="absolute left-0 top-0 h-full bg-white/30 rounded-[6px]"
+                className="absolute left-0 top-0 h-full bg-white/20 rounded-[6px]"
                 style={{ width: `${progress}%` }}
               />
             )}
@@ -584,7 +584,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [modalPosition, setModalPosition] = useState<{ top: number; left: number } | null>(null);
+  const [modalPosition, setModalPosition] = useState<{ top: number; left: number; maxHeight?: number } | null>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
@@ -694,19 +694,23 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       const gap = 12;
       const modalWidth = 384;
       const padding = 16;
+      const minModalHeight = 280;
       let left = rect.right + gap;
       if (left + modalWidth + padding > window.innerWidth) {
         left = rect.left - modalWidth - gap;
       }
       left = Math.max(padding, Math.min(left, window.innerWidth - modalWidth - padding));
-      const top = Math.max(padding, Math.min(rect.top, window.innerHeight - 400 - padding));
+      // Keep modal fully on screen: prefer aligning to timeline top, but never let bottom go below viewport
+      const maxTop = window.innerHeight - minModalHeight - padding;
+      const top = Math.max(padding, Math.min(rect.top, maxTop));
+      // Cap modal height so it never extends below the viewport
+      const maxHeight = window.innerHeight - top - padding;
 
-      // Only update if position has changed to prevent infinite loop
       setModalPosition(prev => {
-        if (prev && Math.abs(prev.top - top) < 2 && Math.abs(prev.left - left) < 2) {
-          return prev; // Don't update if position hasn't changed significantly
+        if (prev && Math.abs(prev.top - top) < 2 && Math.abs(prev.left - left) < 2 && prev.maxHeight === maxHeight) {
+          return prev;
         }
-        return { top, left };
+        return { top, left, maxHeight };
       });
     };
 
@@ -827,6 +831,21 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return { "": filteredEvents };
   }, [filteredEvents, groupBy]);
 
+  // Flat row model: same ordering as grid (for left rail 1:1 alignment)
+  const flatRows = React.useMemo(() => {
+    const entries = Object.entries(groupedEvents);
+    const rows: Array<{ event: TimelineEvent; rowIndex: number; groupKey: string }> = [];
+    let rowIndex = 0;
+    for (const [groupKey, events] of entries) {
+      for (const ev of events) {
+        rows.push({ event: ev, rowIndex, groupKey });
+        rowIndex += 1;
+      }
+    }
+    return rows;
+  }, [groupedEvents]);
+
+  const totalRowCount = Math.max(1, flatRows.length);
 
   // Sort events by start date
   const sortedEvents = useMemo(() => {
@@ -1199,8 +1218,12 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         onClick={closePanel}
       />
       <div
-        className="fixed z-[99999] w-96 max-h-[calc(100vh-32px)] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl overflow-hidden flex flex-col"
-        style={{ top: modalPosition.top, left: modalPosition.left }}
+        className="fixed z-[99999] w-96 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl overflow-hidden flex flex-col"
+        style={{
+          top: modalPosition.top,
+          left: modalPosition.left,
+          maxHeight: modalPosition.maxHeight != null ? modalPosition.maxHeight : "calc(100vh - 32px)",
+        }}
         role="dialog"
         aria-modal
         aria-label={`Event details: ${selectedEvent.title}`}
@@ -1405,164 +1428,205 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           </div>
         </div>
 
-      <div ref={scrollRef} className="overflow-x-auto rounded-[6px] border border-[var(--border)] bg-[var(--surface)] w-full">
-        <div className="inline-block min-w-0 w-full" style={{ minWidth: `${totalColumns * columnWidth}px` }}>
-          {/* Sticky date header */}
-          <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
+      <div className="grid grid-cols-[320px_1fr] border border-[var(--border)] bg-[var(--surface)] w-full">
+        {/* Left rail: event list aligned 1:1 with timeline rows */}
+        <div className="border-r border-[var(--border)] bg-[var(--surface)] flex flex-col min-w-[320px] w-[320px] shrink-0">
+          <div className="sticky top-0 z-10 min-h-[44px] border-b border-[var(--border)] bg-[var(--surface)] shrink-0" />
+          <div className="flex flex-col min-h-0">
+            {flatRows.length === 0 ? (
+              <div className="min-h-[44px] border-b border-[var(--border)] flex items-center px-3 text-sm text-[var(--muted-foreground)]">
+                No events
+              </div>
+            ) : (
+              flatRows.map(({ event, rowIndex }) => (
+                <div
+                  key={event.id}
+                  className={cn(
+                    "min-h-[44px] border-b border-[var(--border)] flex items-center gap-2 px-3 py-2",
+                    rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-sm text-[var(--foreground)] font-medium">
+                      {event.title || "Untitled"}
+                    </div>
+                    {event.assignee && (
+                      <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                        {event.assignee}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
+                    {format(new Date(event.start), "MMM d")}
+                    {event.start !== event.end && ` – ${format(new Date(event.end), "MMM d")}`}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right: timeline canvas (horizontal scroll) */}
+        <div ref={scrollRef} className="overflow-x-auto min-w-0">
+          <div className="inline-block min-w-0 w-full" style={{ minWidth: `${totalColumns * columnWidth}px` }}>
+            {/* Sticky date header */}
+            <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] min-h-[44px]">
+              <div
+                className="grid"
+                style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
+              >
+                {grid.map((c, idx) => (
+                  <div
+                    key={`dateheader_${c.key}`}
+                    className="flex min-h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                  >
+                    {c.monthLabel ? (
+                      <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                        {c.monthLabel}
+                      </span>
+                    ) : (
+                      <span className="mb-0.5" />
+                    )}
+                    {c.weekLabel ? (
+                      <span className="text-[9px]">{c.weekLabel}</span>
+                    ) : (
+                      <span>{c.dayLabel}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Timeline grid: row-based, no per-cell borders */}
             <div
-              className="grid"
-              style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
+              className="relative grid select-none"
+              style={{
+                position: "relative",
+                gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)`,
+                gridTemplateRows: `repeat(${totalRowCount}, 44px)`,
+              }}
             >
+              {/* Droppable columns for drag-and-drop */}
+              {!readOnly &&
+                grid.map((c, idx) => (
+                  <DroppableColumn
+                    key={`drop_${c.key}`}
+                    id={`column-${idx}`}
+                    columnIndex={idx}
+                    columnWidth={columnWidth}
+                  />
+                ))}
+
+              {/* Vertical grid lines (one per column) */}
               {grid.map((c, idx) => (
                 <div
-                  key={`dateheader_${c.key}`}
-                  className="flex min-h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
-                >
-                  {c.monthLabel ? (
-                    <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
-                      {c.monthLabel}
-                    </span>
-                  ) : (
-                    <span className="mb-0.5" />
-                  )}
-                  {c.weekLabel ? (
-                    <span className="text-[9px]">{c.weekLabel}</span>
-                  ) : (
-                    <span>{c.dayLabel}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Timeline grid */}
-          <div
-            className="relative grid select-none"
-            style={{
-              position: 'relative',
-              gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)`,
-              gridTemplateRows: `repeat(${Math.max(1, Object.values(groupedEvents).reduce((sum, group) => sum + group.length, 0))}, minmax(44px, auto))`,
-            }}
-          >
-            {/* Droppable columns for drag-and-drop */}
-            {!readOnly &&
-              grid.map((c, idx) => (
-                <DroppableColumn
-                  key={`drop_${c.key}`}
-                  id={`column-${idx}`}
-                  columnIndex={idx}
-                  columnWidth={columnWidth}
+                  key={`vline_${c.key}`}
+                  className="pointer-events-none absolute top-0 bottom-0 w-px bg-[var(--border)]"
+                  style={{
+                    left: idx * columnWidth,
+                    height: totalRowCount * 44,
+                  }}
                 />
               ))}
+              {/* Right edge line */}
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-[var(--border)]"
+                style={{
+                  left: totalColumns * columnWidth,
+                  height: totalRowCount * 44,
+                }}
+              />
 
-            {/* Base grid background */}
-            {Object.entries(groupedEvents).flatMap(([groupKey, groupEvents], groupIndex) =>
-              groupEvents.map((event, eventIndexInGroup) => {
-                const eventRowIndex = Object.entries(groupedEvents)
-                  .slice(0, groupIndex)
-                  .reduce((sum, [, events]) => sum + events.length, 0) + eventIndexInGroup;
-                
-                return (
-                  <React.Fragment key={`grid_row_${event.id}`}>
-                    {grid.map((c, idx) => {
-                  return (
-                    <div
-                      key={`grid_${event.id}_${c.key}`}
-                      className={cn(
-                        idx === grid.length - 1 && "border-r",
-                        "pointer-events-none border-[var(--border)]"
-                      )}
-                      style={{
-                        gridColumn: idx + 1,
-                        gridRow: eventRowIndex + 1,
-                        borderLeft: idx === 0 ? undefined : "1px solid var(--border)",
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                    />
-                  );
-                })}
-              </React.Fragment>
-            );
-          })
-            )}
-
-            {/* If no events, show empty grid */}
-            {sortedEvents.length === 0 &&
-              grid.map((c, idx) => (
+              {/* Horizontal row separators */}
+              {Array.from({ length: totalRowCount + 1 }, (_, i) => (
                 <div
-                  key={`grid_empty_${c.key}`}
-                  className={cn(idx === grid.length - 1 && "border-r", "pointer-events-none border-[var(--border)]")}
+                  key={`hline_${i}`}
+                  className="pointer-events-none absolute left-0 right-0 h-px bg-[var(--border)]"
                   style={{
-                    gridColumn: idx + 1,
-                    gridRow: 1,
-                    borderLeft: idx === 0 ? undefined : "1px solid var(--border)",
-                    borderBottom: "1px solid var(--border)",
+                    top: i * 44,
+                    width: totalColumns * columnWidth,
                   }}
                 />
               ))}
 
+              {/* Alternating row banding (subtle) */}
+              {Array.from({ length: totalRowCount }, (_, rowIndex) => (
+                <div
+                  key={`band_${rowIndex}`}
+                  className="pointer-events-none absolute left-0"
+                  style={{
+                    top: rowIndex * 44,
+                    left: 0,
+                    width: totalColumns * columnWidth,
+                    height: 44,
+                    backgroundColor: rowIndex % 2 === 1 ? "var(--surface-hover)" : undefined,
+                    opacity: 0.5,
+                  }}
+                />
+              ))}
 
-            {/* Events overlay */}
-            {Object.entries(groupedEvents).flatMap(([groupKey, groupEvents], groupIndex) =>
-              groupEvents.map((it, eventIndexInGroup) => {
-                const eventRowIndex = Object.entries(groupedEvents)
-                  .slice(0, groupIndex)
-                  .reduce((sum, [, events]) => sum + events.length, 0) + eventIndexInGroup;
-                
-                const isDragging = draggingEventId === it.id;
-                
-                return (
-                  <DraggableEvent
-                    key={it.id}
-                    event={it}
-                    rowIndex={eventRowIndex}
-                    isCritical={false}
-                    isDragging={isDragging}
-                    onMouseEnter={(e) => {
-                      e.stopPropagation();
-                      clearHideTimer();
-                      const bar = (e.currentTarget.querySelector(".event-bar") as HTMLElement) ?? (e.currentTarget as HTMLElement);
-                      const rect = bar.getBoundingClientRect();
-                      setHoveredEventId(it.id);
-                      setTooltipPosition({
-                        top: rect.top,
-                        left: Math.min(rect.left, window.innerWidth - 320 - 8),
-                      });
-                    }}
-                    onMouseLeave={(e) => {
-                      const rt = e.relatedTarget as HTMLElement | null;
-                      if (rt && (rt.closest("[data-event-id]") || rt.closest("#timeline-tooltip"))) {
-                        return;
-                      }
-                      scheduleHide();
-                    }}
-                    onClick={(e) => {
-                      if (readOnly) return;
-                      e.stopPropagation();
-                      openPanel(it.id);
-                      setHoveredEventId(null);
-                      setTooltipPosition(null);
-                    }}
-                    barStyle={barStyle(it.start, it.end, eventRowIndex)}
-                    columnWidth={columnWidth}
-                    readOnly={readOnly}
-                  />
-                );
-              })
-            )}
+              {/* Events overlay */}
+              {Object.entries(groupedEvents).flatMap(([groupKey, groupEvents], groupIndex) =>
+                groupEvents.map((it, eventIndexInGroup) => {
+                  const eventRowIndex = Object.entries(groupedEvents)
+                    .slice(0, groupIndex)
+                    .reduce((sum, [, events]) => sum + events.length, 0) + eventIndexInGroup;
 
-            {/* Empty state when no events */}
-            {sortedEvents.length === 0 && (
-              <div
-                className="py-12 text-center"
-                style={{
-                  gridColumn: `1 / span ${totalColumns}`,
-                  gridRow: 1,
-                }}
-              >
-                <p className="text-sm text-[var(--muted-foreground)]">No events yet. Click "Add event" to create your first milestone.</p>
-              </div>
-            )}
+                  const isDragging = draggingEventId === it.id;
+
+                  return (
+                    <DraggableEvent
+                      key={it.id}
+                      event={it}
+                      rowIndex={eventRowIndex}
+                      isCritical={false}
+                      isDragging={isDragging}
+                      onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        clearHideTimer();
+                        const bar = (e.currentTarget.querySelector(".event-bar") as HTMLElement) ?? (e.currentTarget as HTMLElement);
+                        const rect = bar.getBoundingClientRect();
+                        setHoveredEventId(it.id);
+                        setTooltipPosition({
+                          top: rect.top,
+                          left: Math.min(rect.left, window.innerWidth - 320 - 8),
+                        });
+                      }}
+                      onMouseLeave={(e) => {
+                        const rt = e.relatedTarget as HTMLElement | null;
+                        if (rt && (rt.closest("[data-event-id]") || rt.closest("#timeline-tooltip"))) {
+                          return;
+                        }
+                        scheduleHide();
+                      }}
+                      onClick={(e) => {
+                        if (readOnly) return;
+                        e.stopPropagation();
+                        openPanel(it.id);
+                        setHoveredEventId(null);
+                        setTooltipPosition(null);
+                      }}
+                      barStyle={barStyle(it.start, it.end, eventRowIndex)}
+                      columnWidth={columnWidth}
+                      readOnly={readOnly}
+                    />
+                  );
+                })
+              )}
+
+              {/* Empty state when no events */}
+              {sortedEvents.length === 0 && (
+                <div
+                  className="py-12 text-center"
+                  style={{
+                    gridColumn: `1 / span ${totalColumns}`,
+                    gridRow: 1,
+                  }}
+                >
+                  <p className="text-sm text-[var(--muted-foreground)]">No events yet. Click "Add event" to create your first milestone.</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

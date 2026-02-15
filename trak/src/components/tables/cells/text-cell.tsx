@@ -58,7 +58,7 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
 
   return (
     <button
-      className="w-full text-left text-xs text-[var(--foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
+      className="w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 break-words overflow-wrap-anywhere"
       onClick={onStartEdit}
       disabled={saving}
     >

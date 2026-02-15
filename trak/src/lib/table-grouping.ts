@@ -13,7 +13,7 @@ type Option = { id: string; label: string; color?: string };
 type Member = { id: string; name?: string | null; email?: string | null };
 
 export function canGroupByField(fieldType: FieldType): boolean {
-  return ["select", "multi_select", "status", "priority", "person", "checkbox"].includes(fieldType);
+  return ["select", "multi_select", "status", "priority", "person", "checkbox", "subtask"].includes(fieldType);
 }
 
 export function groupRows(
@@ -64,7 +64,7 @@ export function groupRows(
           (g ?? map.get("__ungrouped__"))?.rows.push(row);
         });
       }
-    } else if (field.type === "checkbox") {
+    } else if (field.type === "checkbox" || field.type === "subtask") {
       const key = value === true ? "true" : value === false ? "false" : "__ungrouped__";
       const g = map.get(key);
       (g ?? map.get("__ungrouped__"))?.rows.push(row);
@@ -117,7 +117,7 @@ function getAllGroups(field: TableField, members?: Member[]): Option[] {
     }));
   }
 
-  if (type === "checkbox") {
+  if (type === "checkbox" || type === "subtask") {
     return [
       { id: "true", label: "Checked" },
       { id: "false", label: "Unchecked" },

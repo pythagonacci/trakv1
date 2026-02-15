@@ -332,7 +332,7 @@ export function TableHeaderCompact({
                 </button>
                 <div className="mt-1 border-t border-[var(--border)]" />
                 {fields
-                  .filter((f) => ["select", "multi_select", "status", "priority", "person", "checkbox"].includes(f.type))
+                  .filter((f) => ["select", "multi_select", "status", "priority", "person", "checkbox", "subtask"].includes(f.type))
                   .map((f) => (
                     <button
                       key={f.id}

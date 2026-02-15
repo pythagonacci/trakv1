@@ -12,6 +12,7 @@ export type FieldType =
   | "multi_select"
   | "date"
   | "checkbox"
+  | "subtask"
   | "url"
   | "email"
   | "phone"

@@ -6,7 +6,7 @@ import {
   reorderTaskItems,
   setTaskSyncModeForBlock,
 } from "@/app/actions/tasks/item-actions";
-import { createTaskSubtask, updateTaskSubtask, deleteTaskSubtask } from "@/app/actions/tasks/subtask-actions";
+import { createTaskSubtask, updateTaskSubtask, deleteTaskSubtask, reorderSubtasks } from "@/app/actions/tasks/subtask-actions";
 import { createTaskComment, updateTaskComment, deleteTaskComment } from "@/app/actions/tasks/comment-actions";
 import { setTaskTags } from "@/app/actions/tasks/tag-actions";
 import { setTaskAssignees } from "@/app/actions/tasks/assignee-actions";
@@ -93,6 +93,11 @@ export function useTaskSubtasks(blockId: string) {
     }),
     remove: useMutation({
       mutationFn: (subtaskId: string) => deleteTaskSubtask(subtaskId),
+      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    }),
+    reorder: useMutation({
+      mutationFn: (input: { taskId: string; orderedSubtaskIds: string[] }) =>
+        reorderSubtasks(input.taskId, input.orderedSubtaskIds),
       onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
   };

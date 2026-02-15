@@ -185,9 +185,77 @@ export async function deleteTaskSubtask(subtaskId: string, opts?: { authContext?
   const membership = await checkWorkspaceMembership(task.workspace_id, userId);
   if (!membership) return { error: "Not a member of this workspace" };
 
+  // Delete entity_properties for this subtask
+  await supabase
+    .from("entity_properties")
+    .delete()
+    .eq("entity_type", "subtask")
+    .eq("entity_id", subtaskId);
+
+  // Delete the subtask itself
   const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
   if (error) return { error: "Failed to delete subtask" };
+
+  // Recompute parent task properties from remaining subtasks
   const { recomputeTaskPropertiesFromSubtasks } = await import("@/app/actions/entity-properties");
   await recomputeTaskPropertiesFromSubtasks(subtask.task_id);
+  return { data: null };
+}
+
+export async function reorderSubtasks(
+  taskId: string,
+  orderedSubtaskIds: string[],
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<null>> {
+  let supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+  let userId: string;
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase;
+    userId = opts.authContext.userId;
+  } else {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { getAuthenticatedUser } = await import("@/lib/auth-utils");
+    const client = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+    supabase = client;
+    userId = user.id;
+  }
+  const { checkWorkspaceMembership } = await import("@/lib/auth-utils");
+
+  const { data: task, error: taskError } = await supabase
+    .from("task_items")
+    .select("workspace_id")
+    .eq("id", taskId)
+    .single();
+
+  if (taskError || !task) return { error: "Task not found" };
+
+  const membership = await checkWorkspaceMembership(task.workspace_id, userId);
+  if (!membership) return { error: "Not a member of this workspace" };
+
+  // Verify all subtasks belong to this task
+  const { data: subtasks, error: subtasksError } = await supabase
+    .from("task_subtasks")
+    .select("id")
+    .eq("task_id", taskId)
+    .in("id", orderedSubtaskIds);
+
+  if (subtasksError) return { error: "Failed to load subtasks" };
+  if (subtasks.length !== orderedSubtaskIds.length) {
+    return { error: "Some subtasks do not belong to this task" };
+  }
+
+  const updates = orderedSubtaskIds.map((id, idx) => ({
+    id,
+    display_order: idx,
+    task_id: taskId,
+  }));
+
+  const { error: updateError } = await supabase
+    .from("task_subtasks")
+    .upsert(updates, { onConflict: "id" });
+
+  if (updateError) return { error: "Failed to reorder subtasks" };
   return { data: null };
 }

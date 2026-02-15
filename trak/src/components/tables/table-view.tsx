@@ -89,6 +89,78 @@ const isTextInputElement = (el: HTMLElement | null) => {
   return contentEditable === "true";
 };
 
+const normalizeFieldName = (name?: string | null) =>
+  (name ?? "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+
+const isSubtaskFieldName = (name?: string | null) => {
+  const normalized = normalizeFieldName(name);
+  return normalized === "subtask" || normalized === "is_subtask";
+};
+
+const toBooleanValue = (value: unknown): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return ["true", "yes", "y", "1", "checked", "x"].includes(normalized);
+  }
+  return false;
+};
+
+type SubtaskRowMeta = {
+  isSubtask: boolean;
+  parentId?: string;
+  hasSubtasks?: boolean;
+  isCollapsed?: boolean;
+};
+
+function buildSubtaskPresentation(
+  rows: TableRowType[],
+  subtaskFieldId: string | null,
+  collapsedParents: Set<string>
+): { rowMeta: Map<string, SubtaskRowMeta>; parentIds: Set<string>; visibleRows: TableRowType[] } {
+  const rowMeta = new Map<string, SubtaskRowMeta>();
+  const parentIds = new Set<string>();
+
+  if (!subtaskFieldId) {
+    rows.forEach((row) => rowMeta.set(row.id, { isSubtask: false }));
+    return { rowMeta, parentIds, visibleRows: rows };
+  }
+
+  let currentParentId: string | null = null;
+
+  rows.forEach((row) => {
+    const isSubtask = toBooleanValue(row.data?.[subtaskFieldId]);
+    if (isSubtask) {
+      const parentId = currentParentId ?? undefined;
+      rowMeta.set(row.id, { isSubtask: true, parentId });
+      if (parentId) parentIds.add(parentId);
+      return;
+    }
+    rowMeta.set(row.id, { isSubtask: false });
+    currentParentId = row.id;
+  });
+
+  parentIds.forEach((parentId) => {
+    const existing = rowMeta.get(parentId) ?? { isSubtask: false };
+    rowMeta.set(parentId, {
+      ...existing,
+      hasSubtasks: true,
+      isCollapsed: collapsedParents.has(parentId),
+    });
+  });
+
+  const visibleRows = rows.filter((row) => {
+    const meta = rowMeta.get(row.id);
+    if (meta?.isSubtask && meta.parentId && collapsedParents.has(meta.parentId)) {
+      return false;
+    }
+    return true;
+  });
+
+  return { rowMeta, parentIds, visibleRows };
+}
+
 interface Props {
   tableId: string;
 }
@@ -124,6 +196,7 @@ export function TableView({ tableId }: Props) {
   const [importMappings, setImportMappings] = useState<ImportColumnMapping[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [collapsedSubtasks, setCollapsedSubtasks] = useState<Set<string>>(new Set());
 
   // Fetch workspace members for person fields
   const { data: workspaceMembers } = useQuery({
@@ -166,6 +239,11 @@ export function TableView({ tableId }: Props) {
   const setSourceSyncMode = useSetTableRowsSourceSyncMode(tableId);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
+  const subtaskField = useMemo(() => {
+    const typed = allFields.find((field) => field.type === "subtask");
+    if (typed) return typed;
+    return allFields.find((field) => isSubtaskFieldName(field.name));
+  }, [allFields]);
   const editableFields = useMemo(
     () =>
       allFields.filter(
@@ -199,10 +277,13 @@ export function TableView({ tableId }: Props) {
   
   const columnTemplate = useMemo(() => {
     if (!fields.length) return `${selectionWidth}px 1fr 40px`;
-    // Use flex widths so columns fill the entire table width
-    const base = fields.map(() => `1fr`).join(" ");
+    // Use minmax to allow columns to fill available space while respecting minimum widths
+    const base = fields.map((f) => {
+      const width = getWidthForField(f.id);
+      return `minmax(${width}px, 1fr)`;
+    }).join(" ");
     return `${selectionWidth}px ${base} 40px`;
-  }, [fields, selectionWidth]);
+  }, [fields, selectionWidth, getWidthForField]);
 
   const widthMap = useMemo(() => {
     const acc: Record<string, number> = {};
@@ -216,6 +297,17 @@ export function TableView({ tableId }: Props) {
   const [sorts, setSorts] = useState<SortCondition[]>(view?.config?.sorts || []);
   const [filters, setFilters] = useState<FilterCondition[]>(view?.config?.filters || []);
   const [savingRows] = useState<Set<string>>(new Set());
+  const toggleSubtasks = useCallback((rowId: string) => {
+    setCollapsedSubtasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) {
+        next.delete(rowId);
+      } else {
+        next.add(rowId);
+      }
+      return next;
+    });
+  }, []);
 
   const persistViewConfig = (nextSorts: SortCondition[], nextFilters: FilterCondition[], nextPinnedFields?: string[]) => {
     if (!view?.id) return;
@@ -282,6 +374,10 @@ export function TableView({ tableId }: Props) {
 
   // Rows arrive filtered/sorted from the server based on view config
   const sortedRows = rows || [];
+  const subtaskPresentation = useMemo(
+    () => buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, collapsedSubtasks),
+    [sortedRows, subtaskField?.id, collapsedSubtasks]
+  );
   const sourceLinkedRows = useMemo(
     () => (rowData?.rows ?? []).filter((row) => Boolean(row.source_entity_id && row.source_entity_type)),
     [rowData?.rows]
@@ -320,11 +416,18 @@ export function TableView({ tableId }: Props) {
     return { grouped: true as const, groups };
   }, [sortedRows, groupByField, groupByConfig, collapsedGroups, workspaceMembers]);
 
-  const visibleRows = useMemo(() => {
+  const baseVisibleRows = useMemo(() => {
     if (viewType !== "table") return sortedRows;
     if (!groupedData.grouped) return groupedData.rows;
     return groupedData.groups.flatMap((group) => (group.isCollapsed ? [] : group.rows));
   }, [groupedData, sortedRows, viewType]);
+
+  const subtaskUiEnabled = viewType === "table" && Boolean(subtaskField) && !groupedData.grouped;
+
+  const visibleRows = useMemo(() => {
+    if (!subtaskUiEnabled) return baseVisibleRows;
+    return subtaskPresentation.visibleRows;
+  }, [baseVisibleRows, subtaskPresentation.visibleRows, subtaskUiEnabled]);
 
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
@@ -886,12 +989,28 @@ export function TableView({ tableId }: Props) {
   };
 
   const handleReorderField = (fieldId: string, direction: "left" | "right") => {
-    const idx = fields.findIndex((f) => f.id === fieldId);
-    if (idx === -1) return;
-    const swapWith = direction === "left" ? idx - 1 : idx + 1;
-    if (swapWith < 0 || swapWith >= fields.length) return;
-    const newOrder = [...fields];
-    [newOrder[idx], newOrder[swapWith]] = [newOrder[swapWith], newOrder[idx]];
+    // Find the field in the visible fields array (what the user sees)
+    const visibleIdx = fields.findIndex((f) => f.id === fieldId);
+    if (visibleIdx === -1) return;
+    
+    // Find the adjacent field in the visible array
+    const swapWithVisibleIdx = direction === "left" ? visibleIdx - 1 : visibleIdx + 1;
+    if (swapWithVisibleIdx < 0 || swapWithVisibleIdx >= fields.length) return;
+    
+    const swapWithFieldId = fields[swapWithVisibleIdx].id;
+    
+    // Now work with the actual ordered fields (all fields sorted by order)
+    const orderedFields = [...allFields].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const fieldIdx = orderedFields.findIndex((f) => f.id === fieldId);
+    const swapWithIdx = orderedFields.findIndex((f) => f.id === swapWithFieldId);
+    
+    if (fieldIdx === -1 || swapWithIdx === -1) return;
+    
+    // Swap the fields in the ordered array
+    const newOrder = [...orderedFields];
+    [newOrder[fieldIdx], newOrder[swapWithIdx]] = [newOrder[swapWithIdx], newOrder[fieldIdx]];
+    
+    // Create payload with new order values (1-indexed)
     const payload = newOrder.map((f, i) => ({ fieldId: f.id, order: i + 1 }));
     setError(null);
     reorderFields.mutate(payload, {
@@ -1065,7 +1184,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
       updateCell.mutate({ rowId, fieldId: groupByField.id, value: next });
       return;
     }
-    if (groupByField.type === "checkbox") {
+    if (groupByField.type === "checkbox" || groupByField.type === "subtask") {
       const value = targetGroupId === "__ungrouped__" ? null : targetGroupId === "true";
       updateCell.mutate({ rowId, fieldId: groupByField.id, value });
       return;
@@ -1081,7 +1200,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
     return parsed.headers.map((header, index) => {
       const normalizedHeader = header.trim().toLowerCase();
       const columnValues = parsed.rows.map((row) => row[index] ?? "");
-      const inferredType = inferFieldType(columnValues);
+      const inferredType =
+        normalizedHeader === "subtask" || normalizedHeader === "is_subtask"
+          ? "subtask"
+          : inferFieldType(columnValues);
 
       if (parsed.hasHeader && normalizedFieldMap.has(normalizedHeader)) {
         return {
@@ -1205,17 +1327,17 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
   }, [createRow, handleAddField]);
 
   const focusCell = useCallback((rowIndex: number, colIndex: number) => {
-    const row = sortedRows[rowIndex];
+    const row = visibleRows[rowIndex];
     const col = fields[colIndex];
     if (!row || !col) return;
     const ref = cellRefs.current[`${row.id}-${col.id}`];
     ref?.focus();
-  }, [sortedRows, fields]);
+  }, [visibleRows, fields]);
 
   const handleCellKeyDown = useCallback((e: React.KeyboardEvent, rowId: string, fieldId: string) => {
     if (isFocusableElement(e.target as HTMLElement)) return;
     if (e.key === "Tab") return;
-    const rowIndex = sortedRows.findIndex((r) => r.id === rowId);
+    const rowIndex = visibleRows.findIndex((r) => r.id === rowId);
     const colIndex = fields.findIndex((f) => f.id === fieldId);
     if (rowIndex === -1 || colIndex === -1) return;
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
@@ -1227,7 +1349,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
       } else if (e.key === "ArrowUp") {
         focusCell(Math.max(0, rowIndex - 1), colIndex);
       } else if (e.key === "ArrowDown") {
-        focusCell(Math.min(sortedRows.length - 1, rowIndex + 1), colIndex);
+        focusCell(Math.min(visibleRows.length - 1, rowIndex + 1), colIndex);
       }
       return;
     }
@@ -1245,7 +1367,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
       e.preventDefault();
       setEditRequest({ rowId, fieldId, initialValue: e.key });
     }
-  }, [fields, sortedRows, focusCell]);
+  }, [fields, visibleRows, focusCell]);
 
   // Sync active view with loaded view
   useEffect(() => {
@@ -1443,10 +1565,10 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           />
           <div className="relative w-full" ref={containerRef}>
           <div className="overflow-x-auto w-full" style={{ maxHeight: "480px", overflowY: "scroll" }}>
-            <div style={{ width: "max-content", minWidth: "100%" }}>
+            <div style={{ width: "100%" }}>
               <div
                 className="max-h-[480px] overflow-x-hidden scrollbar-thin"
-                style={{ width: "max-content", minWidth: "100%", overflowY: "scroll" }}
+                style={{ width: "100%", overflowY: "scroll" }}
               >
                 <TableHeaderRow
                   fields={fields}
@@ -1538,12 +1660,14 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                               e.dataTransfer.effectAllowed = "move";
                             }}
                             onUpdateFieldConfig={handleUpdateFieldConfig}
+                            subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
+                            onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
                           />
                         ))}
                     </React.Fragment>
                   ))
                 ) : (
-                  sortedRows.map((row) => (
+                  visibleRows.map((row) => (
                     <TableRow
                       key={row.id}
                       fields={fields}
@@ -1573,6 +1697,8 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
                       editRequest={editRequest || undefined}
                       onEditRequestHandled={() => setEditRequest(null)}
                       onUpdateFieldConfig={handleUpdateFieldConfig}
+                      subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
+                      onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
                     />
                   ))
                 )}

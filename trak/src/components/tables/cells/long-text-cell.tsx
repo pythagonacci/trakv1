@@ -72,8 +72,8 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
 
   return (
     <button
-      className={`w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 ${
-        isMultiline ? 'whitespace-pre-wrap' : 'truncate'
+      className={`w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 break-words overflow-wrap-anywhere ${
+        isMultiline ? 'whitespace-pre-wrap' : ''
       }`}
       onClick={onStartEdit}
       disabled={saving}

@@ -100,6 +100,7 @@ export const TableCell = memo(function TableCell({
     case "date":
       return <DateCell {...commonProps} field={field} />;
     case "checkbox":
+    case "subtask":
       return <CheckboxCell {...commonProps} field={field} />;
     case "select":
       return <SelectCell {...commonProps} field={field} onUpdateConfig={onUpdateFieldConfig} />;
