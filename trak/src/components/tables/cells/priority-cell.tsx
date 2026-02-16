@@ -118,7 +118,13 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
     };
   }, [dropdownOpen, levels.length]);
 
-  const selectedLevel = levels.find((level) => level.id === value);
+  // Match by id - case-insensitive to handle AI-stored values like "High" vs canonical "high"
+  const valueStr = typeof value === "string" ? value : String(value ?? "");
+  const selectedLevel = levels.find(
+    (level) =>
+      level.id === value ||
+      (valueStr && level.id.toLowerCase() === valueStr.toLowerCase())
+  );
   const sortedLevels = [...levels].sort((a, b) => (b.order || 0) - (a.order || 0));
 
   if (editing && dropdownOpen) {
