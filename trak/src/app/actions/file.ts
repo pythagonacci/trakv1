@@ -331,7 +331,15 @@ export async function deleteFile(fileId: string) {
   }
 
   try {
-    // 4. Delete from storage
+    // 4. Clean up RAG chunks before deleting the file
+    const { cleanupChunksForDeletedSource } = await import("./indexing");
+    await cleanupChunksForDeletedSource({
+      sourceType: "file",
+      sourceId: fileId,
+      supabase,
+    });
+
+    // 5. Delete from storage
     const { error: storageError } = await supabase.storage
       .from('files')
       .remove([file.storage_path]);
@@ -341,7 +349,7 @@ export async function deleteFile(fileId: string) {
       // Continue anyway - file might already be deleted
     }
 
-    // 5. Delete from database (cascades to file_attachments)
+    // 6. Delete from database (cascades to file_attachments)
     const { error: dbError } = await supabase
       .from('files')
       .delete()

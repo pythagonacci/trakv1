@@ -696,7 +696,15 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
       }
     }
 
-    // 7. Delete the block
+    // 7. Clean up RAG chunks before deleting the block
+    const { cleanupChunksForDeletedSource } = await import("./indexing");
+    await cleanupChunksForDeletedSource({
+      sourceType: "block",
+      sourceId: blockId,
+      supabase,
+    });
+
+    // 8. Delete the block
     const { error: deleteError } = await supabase
       .from("blocks")
       .delete()
@@ -707,7 +715,7 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
       return { error: deleteError.message || "Failed to delete block" };
     }
 
-    // 8. Revalidate the tab page path
+    // 9. Revalidate the tab page path
     await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
     await revalidateClientPages(projectId, block.tab_id, {
       publicToken: project.public_token ?? undefined,
