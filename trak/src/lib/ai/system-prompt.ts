@@ -392,30 +392,28 @@ Before choosing which tools to use, **compare all available options**:
 **🚨 CRITICAL: ALWAYS PREFER SUPER-TOOLS FOR TABLE CREATION 🚨**
 
 **TABLE CREATION RULE (NON-NEGOTIABLE):**
-- **ANY time you create a table, you MUST use \`createTableFull\`** - even if no fields or rows are specified
-- **NEVER use** \`createTable\` followed by \`bulkCreateFields\` or \`bulkInsertRows\`
-- **NEVER use** the sequence: createTable → createField → createField → bulkInsertRows
-- Using atomic table tools instead of \`createTableFull\` is a CRITICAL ERROR
+- **Use \`createTableFull\` to create the table and its columns.**
+- **For rows:**
+  - If creating 1-2 rows, you MAY include them in \`createTableFull\`.
+  - **If creating 3+ rows (or rows with long text), you MUST use \`bulkInsertRows\` in separate calls.**
+- **NEVER use** \`createTable\` (atomic) followed by \`bulkCreateFields\`. Always start with \`createTableFull\`.
 
 **Examples:**
 \`\`\`
 User: "Create a table of five brands with their ARR and category"
-  ❌ WRONG: createTable → bulkCreateFields → bulkInsertRows (3 calls)
-  ✅ CORRECT: createTableFull with fields + rows (1 call)
+  ✅ CORRECT Phase 1: createTableFull with fields array (Schema)
+  ✅ CORRECT Phase 2: bulkInsertRows with the 5 rows (Data)
 
 User: "Create a table called Q1 Targets"
-  ❌ WRONG: createTable (1 call)
-  ✅ CORRECT: createTableFull even with no fields/rows specified (1 call)
+  ✅ CORRECT: createTableFull with title only (1 call)
 
 User: "Make a table with columns Name and Email"
-  ❌ WRONG: createTable → bulkCreateFields (2 calls)
   ✅ CORRECT: createTableFull with fields array (1 call)
 \`\`\`
 
 **Why this matters:**
-- Performance: 1 call vs 3+ calls = 3-5x faster for users
-- Atomicity: All-or-nothing operation prevents partial failures
-- Efficiency: Reduces latency and improves user experience
+- **Reliability:** Sending too much data (schema + many rows) in one call causes JSON truncation errors.
+- **splitting schema (createTableFull) and data (bulkInsertRows) prevents these errors.**
 
 #### General Super-Tool Rules:
 
@@ -448,20 +446,18 @@ User updates ONE property on ONE entity:
 
   ✓ "Assign to John"
     → Use setTaskAssignees (if clearer intent)
-
-⚠️ EXCEPTION: Table creation ALWAYS uses createTableFull, never createTable
 \`\`\`
 
 #### Super-Tool Reference:
 - **Tables**:
-  - **createTableFull** (schema + rows) ← USE THIS FOR ALL TABLE CREATION
+  - **createTableFull** (schema + optional small data) ← USE THIS FOR TABLE/COLUMN CREATION
+  - **bulkInsertRows** (data) ← USE THIS FOR BULK DATA ENTRY (3+ rows)
   - **updateTableFull** (schema + rows + metadata) ← USE THIS FOR COMPLEX TABLE UPDATES
-  - NEVER use createTable, bulkCreateFields, bulkInsertRows sequence
 - **Tasks**: createTaskItem (all props), updateTaskItem (all props including assignees/tags)
 - **Projects**: createProject (all props), updateProject (all props including clientName/projectType)
 - **Timeline**: createTimelineEvent (all props), updateTimelineEvent (all props including assignees)
 
-**Key Rule**: If user mentions MULTIPLE properties for the SAME entity, default to super-tool. If only ONE property, prefer atomic tool for simplicity. **FOR TABLES: ALWAYS use createTableFull for creation.**
+**Key Rule**: If user mentions MULTIPLE properties for the SAME entity, default to super-tool. If only ONE property, prefer atomic tool for simplicity. **FOR TABLES: ALWAYS use createTableFull for schema/definition.**
 
 **General reasoning pattern:**
 \`\`\`

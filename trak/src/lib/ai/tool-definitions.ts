@@ -1155,26 +1155,25 @@ const tableActionTools: ToolDefinition[] = [
     name: "createTableFull",
     description:
       "🚨 PRIMARY TABLE CREATION TOOL - ALWAYS USE THIS FOR ANY TABLE CREATION 🚨\n\n" +
-      "★ CREATE TABLE with schema + data in ONE call ★\n\n" +
+      "★ CREATE TABLE with schema (+ optional initial rows) ★\n\n" +
       "THIS IS THE ONLY TOOL YOU SHOULD USE FOR TABLE CREATION. Do NOT use createTable.\n\n" +
       "Use this for:\n" +
-      "- Creating a table with columns AND initial rows\n" +
+      "- Creating a table implementation (schema first)\n" +
       "- Creating a table with just columns (no rows)\n" +
       "- Creating a table with just a title (no columns or rows)\n" +
-      "- ANY table creation scenario\n\n" +
-      "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n" +
-      "Example: 'Create a table called Q1 Targets'\n\n" +
-      "⚠️ SUPER TOOL: This is 3-5x faster than createTable + bulkCreateFields + bulkInsertRows sequence.\n\n" +
+      "- Creating a table with a VERY SMALL number of initial rows (1-2 max)\n\n" +
+      "Example: 'Create a table with columns Name, Email'\n" +
+      "Example: 'Create a table of 50 states' -> Call createTableFull (schema) then bulkInsertRows (data)\n\n" +
+      "⚠️ RELIABILITY WARNING: Do NOT put many rows in this call. It will fail.\n" +
+      "1. Use createTableFull to create the table definition (columns)\n" +
+      "2. Use bulkInsertRows to add the actual data rows in subsequent calls\n\n" +
       "🚨 CRITICAL: When creating tables FROM EXISTING DATA (tasks, timeline events, etc.):\n" +
       "- Status → type: 'status' (NOT text). Priority → type: 'priority' (NOT text)\n" +
       "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
       "- Include ALL source fields (title, status, priority, due date, assignee) - do not omit any\n" +
       "- PRESERVE field types - DO NOT convert to text!\n\n" +
       "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
-      "For large datasets, keep arguments compact:\n" +
-      "- Put schema + initial rows in createTableFull\n" +
-      "- Then use bulkInsertRows for remaining rows in batches (~20-25 rows per call)\n\n" +
-      "Auto-creates table → creates fields → inserts rows in one atomic operation.",
+      "Auto-creates table → creates fields → (optionally) inserts initial rows.",
     category: "table",
     parameters: {
       workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
