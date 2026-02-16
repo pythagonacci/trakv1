@@ -22,22 +22,22 @@
     
     /* Borders - Structural, visible but light */
     --border: #D1D4D6; /* River Mist - structural dividers */
-    --border-strong: #3080a6; /* Secondary color for emphasis (matches sidebar) */
+    --border-strong: #3080a6; /* Primary color for emphasis */
     
     /* Typography Colors - Dark enough for comfortable reading */
     --foreground: #1a1d21; /* Near-black for primary text */
-    --muted-foreground: #374151; /* Dark gray for body/paragraph text */
+    --muted-foreground: #2d3748; /* Darker gray for body/paragraph text */
     --tertiary-foreground: #6b7280; /* Medium gray for placeholders, metadata */
 
-    /* Primary Action - Coffee Patina (bronze/brown) */
-    --primary: #9C7C58; /* Coffee Patina - bronze/brown for buttons, active tabs */
+    /* Primary Action - True semantic primary (#3080a6) */
+    --primary: #3080a6; /* Primary blue for buttons, active tabs, main actions */
     --primary-foreground: #FFFFFF;
-    --primary-hover: #8A6D4C; /* Darker coffee for hover */
-    --focus-ring: rgba(38, 91, 82, 0.3); /* Secondary color with transparency */
+    --primary-hover: #2d789c; /* Darkened by ~6% for hover states */
+    --focus-ring: rgba(48, 128, 166, 0.35); /* Primary color with transparency */
     --ring-offset: #F2F0EB;
     
-    /* Secondary Color */
-    --secondary: #3080a6; /* Secondary color for accents, borders, hover states (matches sidebar) */
+    /* Brand Neutral - Demoted coffee tone */
+    --brand-neutral: #9C7C58; /* Coffee Patina - available for special use cases */
 
     /* Semantic Colors - Muted, low saturation */
     --success: #6B827D; /* Oxidized Sage - muted copper green */
@@ -61,16 +61,19 @@
     --nav-icon: #52637A; /* River Indigo for sidebar icons */
     --nav-icon-active: #4A7A78; /* Dome Teal for active state */
 
-    /* Border Radius - Rounded rectangles for a softer, modern UI */
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 18px;
+    /* Border Radius - Subtle rounding, more square than rounded */
+    --radius-xs: 2px;
+    --radius-sm: 4px; /* Subtle rounding */
+    --radius-md: 6px; /* Moderate rounding */
+    --radius-lg: 8px; /* Slightly more rounding */
+    --radius-xl: 10px;
     
     /* Shadows - Minimal, replaced with borders */
     --shadow-card: none;
     --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.05);
+    
+    /* Overlay - For dialogs and modals */
+    --overlay: rgba(45, 50, 54, 0.4); /* Semantic overlay token */
   }
 
   /* Dark Theme - Maintains Sarajevo aesthetic */
@@ -80,16 +83,19 @@
     --surface-hover: #2D2C2A;
     --surface-muted: #323130;
     --border: #3D3B39;
-    --border-strong: #3890b6; /* Secondary color for dark mode */
+    --border-strong: #3890b6; /* Primary color for dark mode */
     --foreground: #E8E6E1;
-    --muted-foreground: #9CA3AF;
-    --tertiary-foreground: #6B7280;
+    --muted-foreground: #D1D5DB; /* Darker for better readability */
+    --tertiary-foreground: #9CA3AF;
     --ring-offset: #1A1918;
-    --primary: #B89A74; /* Lighter coffee for dark mode */
-    --primary-hover: #C9AB85;
+    --primary: #3890b6; /* Primary blue for dark mode */
+    --primary-foreground: #FFFFFF;
+    --primary-hover: #3a95bd; /* Lightened by ~4% for hover states */
+    --focus-ring: rgba(56, 144, 182, 0.45); /* Primary color with transparency */
+    --overlay: rgba(45, 50, 54, 0.4); /* Semantic overlay token */
     
-    /* Secondary Color (lighter for dark mode) */
-    --secondary: #3890b6;
+    /* Brand Neutral - Demoted coffee tone */
+    --brand-neutral: #B89A74; /* Lighter coffee for dark mode */
     
     /* Arts palette - slightly lighter for dark mode */
     --tile-orange: #D98E74;
@@ -110,22 +116,24 @@
     --border: #3e3e42;
     --border-strong: #464647;
     --foreground: #cccccc;
-    --muted-foreground: #858585;
-    --tertiary-foreground: #6a6a6a;
+    --muted-foreground: #a0a0a0; /* Darker for better readability */
+    --tertiary-foreground: #808080;
     --primary: #007acc;
     --primary-foreground: #ffffff;
+    --primary-hover: #0086e0; /* Lightened for hover */
     --focus-ring: rgba(0, 122, 204, 0.4);
     --ring-offset: #1c1c1c;
+    --overlay: rgba(0, 0, 0, 0.5); /* Darker overlay for brutalist */
     --success: #4ec9b0;
     --warning: #dcdcaa;
     --error: #f48771;
     --info: #4ec9b0;
-    /* Keep theme-specific radius values for consistency */
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 18px;
+    /* Subtle radius values - more square */
+    --radius-xs: 2px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 10px;
   }
 
   * {
@@ -331,7 +339,7 @@
     outline-offset: 2px;
   }
 
-  /* Round legacy sharp utility classes for a modern UI */
+  /* Round legacy sharp utility classes for normalized radius system */
   .rounded-\[2px\] {
     border-radius: var(--radius-sm) !important;
   }
@@ -342,6 +350,11 @@
 
   .rounded-sm {
     border-radius: var(--radius-sm) !important;
+  }
+  
+  /* Subtle shadow utility for interactive cards */
+  .shadow-subtle {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
 }

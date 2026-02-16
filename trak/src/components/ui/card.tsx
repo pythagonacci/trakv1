@@ -3,9 +3,9 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /*
- * SARAJEVO CARD STYLING
- * - "Cut stone" look with 2px border radius
- * - No heavy shadows - depth from borders and padding
+ * CARD STYLING - Apollo-style operational structure
+ * - Normalized radius using CSS variables
+ * - No shadows by default - depth from borders
  * - Structural borders for visual hierarchy
  */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
@@ -13,7 +13,7 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "rounded-[2px] border border-[var(--border)] bg-[var(--surface)] transition-colors duration-150",
+        "rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] transition-colors duration-150",
         className
       )}
       {...props}

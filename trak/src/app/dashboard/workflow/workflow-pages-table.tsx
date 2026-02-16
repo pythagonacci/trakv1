@@ -136,7 +136,7 @@ export default function WorkflowPagesTable({ pages: initialPages }: WorkflowPage
 
   if (pages.length === 0) {
     return (
-      <div className="rounded-md border border-[#3080a6]/20 bg-[#3080a6]/5 p-4 text-sm text-[var(--muted-foreground)]">
+      <div className="rounded-md border border-[var(--primary)]/20 bg-[var(--primary)]/5 p-4 text-sm text-[var(--muted-foreground)]">
         No workflow pages yet.
       </div>
     );

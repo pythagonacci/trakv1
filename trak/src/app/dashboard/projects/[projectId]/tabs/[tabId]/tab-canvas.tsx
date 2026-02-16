@@ -1110,7 +1110,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         ) : (
           <div 
             className={cn(
-              "p-6 transition-all duration-300 relative border border-[var(--foreground)]/15 min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
+              "pl-4 pr-6 pt-2 pb-6 transition-all duration-300 relative min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
               !currentTheme.containerBg && "bg-[var(--surface)]/40"
             )}
             style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}

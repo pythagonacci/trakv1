@@ -191,14 +191,14 @@ export default async function TabPage({
 
   return (
     <div className={isWorkflowTab ? "h-full flex flex-col min-h-0 bg-transparent" : "min-h-screen bg-transparent"}>
-      <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1 w-full px-2 md:px-3 lg:px-4" : "w-full px-2 md:px-3 lg:px-4"}>
-        {/* Project Header - Compact */}
-        <div className="pt-2 pb-1 shrink-0">
-          <ProjectHeader project={project} tabId={tabId} tabs={hierarchicalTabs} />
-        </div>
+      {/* Project Header - Compact */}
+      <div className="pt-1 pb-1 pl-4 pr-6 shrink-0">
+        <ProjectHeader project={project} tabId={tabId} tabs={hierarchicalTabs} />
+      </div>
 
-        {/* Tab Navigation - Sticky */}
-        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm shrink-0">
+      {/* Tab Navigation - Sticky */}
+      <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm shrink-0">
+        <div className="border-b border-[var(--border)]/50 -mx-3 md:-mx-4 lg:-mx-5 px-3 md:px-4 lg:px-5">
           <TabBar 
             tabs={hierarchicalTabs} 
             projectId={projectId}
@@ -206,35 +206,35 @@ export default async function TabPage({
             clientPageEnabled={project.client_page_enabled || false}
           />
         </div>
+      </div>
 
-        {/* Canvas Content with Subtab Navigation or Workflow Layout */}
-        <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1" : "py-3 md:py-4 lg:py-5"}>
-          {isWorkflowTab ? (
-            <WorkflowPageLayout
+      {/* Canvas Content with Subtab Navigation or Workflow Layout */}
+      <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1" : "pt-1 pb-3 md:pb-4 lg:pb-5"}>
+        {isWorkflowTab ? (
+          <WorkflowPageLayout
+            tabId={tabId}
+            projectId={projectId}
+            workspaceId={workspaceId}
+            title={tab.name}
+            blocks={blocks}
+            initialFileUrls={initialFileUrls}
+            inProjectContext
+          />
+        ) : (
+          <SubtabSidebarWrapper
+            sidebarConfig={sidebarConfig}
+            projectId={projectId}
+          >
+            <TabCanvasWrapper 
               tabId={tabId}
               projectId={projectId}
               workspaceId={workspaceId}
-              title={tab.name}
               blocks={blocks}
+              scrollToTaskId={taskId}
               initialFileUrls={initialFileUrls}
-              inProjectContext
             />
-          ) : (
-            <SubtabSidebarWrapper
-              sidebarConfig={sidebarConfig}
-              projectId={projectId}
-            >
-              <TabCanvasWrapper 
-                tabId={tabId}
-                projectId={projectId}
-                workspaceId={workspaceId}
-                blocks={blocks}
-                scrollToTaskId={taskId}
-                initialFileUrls={initialFileUrls}
-              />
-            </SubtabSidebarWrapper>
-          )}
-        </div>
+          </SubtabSidebarWrapper>
+        )}
       </div>
     </div>
   );

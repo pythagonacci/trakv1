@@ -1782,7 +1782,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
       )}
 
       {["list", "gallery", "calendar"].includes(viewType) && (
-        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-gray-500">
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-[var(--tertiary-foreground)]">
           This view type is coming soon.
         </div>
       )}

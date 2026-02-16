@@ -87,7 +87,7 @@ export default function WorkflowPageLayout(props: {
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Header bar only for standalone workflow pages (not in project) */}
         {!inProject && (
-          <div className="flex shrink-0 items-center justify-between border-b border-[#3080a6]/20 bg-[var(--surface)] px-4 py-3">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--primary)]/20 bg-[var(--surface)] px-4 py-3">
             <div className="min-w-0">
               <h1 className="truncate text-sm font-semibold text-[var(--foreground)]">
                 {props.title}
@@ -101,7 +101,7 @@ export default function WorkflowPageLayout(props: {
                 disabled={newPageLoading}
                 className={cn(
                   "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-                  "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15 disabled:opacity-50"
+                  "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15 disabled:opacity-50"
                 )}
                 title="Create a new workflow page"
               >
@@ -114,7 +114,7 @@ export default function WorkflowPageLayout(props: {
                 disabled={shareLoading}
                 className={cn(
                   "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-                  "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15 disabled:opacity-50"
+                  "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15 disabled:opacity-50"
                 )}
               >
                 <Share2 className="h-4 w-4" />
@@ -125,7 +125,7 @@ export default function WorkflowPageLayout(props: {
                 onClick={() => setChatOpen((v) => !v)}
                 className={cn(
                   "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-                  "border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15"
+                  "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15"
                 )}
               >
                 {chatOpen ? <X className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
@@ -136,7 +136,7 @@ export default function WorkflowPageLayout(props: {
         )}
 
         <div className="flex min-h-0 flex-1 relative overflow-hidden">
-          <div className={cn("min-w-0 flex-1 min-h-0", chatOpen && !inProject && "border-r border-[#3080a6]/20", chatOpen && inProject && "border-r border-[var(--border)]")}>
+          <div className={cn("min-w-0 flex-1 min-h-0", chatOpen && !inProject && "border-r border-[var(--primary)]/20", chatOpen && inProject && "border-r border-[var(--border)]")}>
             <div className="h-full min-h-0 overflow-auto px-2 md:px-3 lg:px-4 pt-3">
               <TabCanvasWrapper
                 tabId={props.tabId}

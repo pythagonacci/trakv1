@@ -5,16 +5,16 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /*
- * SARAJEVO TABLE STYLING
- * - Flat/matte design, no shadows
- * - 2px border radius
- * - Airy row heights and padding for "resilient" feel
+ * TABLE STYLING - Apollo-style operational density
+ * - Normalized radius using CSS variables
+ * - Operational density with consistent spacing
  * - Structural borders for visual hierarchy
+ * - Semantic tokens only
  */
 
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <div className="w-full overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)]">
+    <div className="w-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
       <table
         ref={ref}
         className={cn("w-full caption-bottom text-sm", className)}
@@ -30,7 +30,7 @@ const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLAttribut
     <thead 
       ref={ref} 
       className={cn(
-        "bg-[var(--secondary)]/10 text-[var(--tertiary-foreground)] border-b border-[var(--secondary)]",
+        "bg-[var(--surface-muted)] text-[var(--tertiary-foreground)] border-b border-[var(--border)]",
         className
       )} 
       {...props} 
@@ -65,8 +65,8 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        // Arts palette selection state - Dome Teal tint for selected rows
-        "transition-colors duration-150 hover:bg-[var(--dome-teal)]/[0.04] data-[state=selected]:bg-[var(--dome-teal)]/[0.06] data-[state=selected]:border-l-2 data-[state=selected]:border-l-[var(--dome-teal)]",
+        // Apollo-style operational density - semantic hover and selection states
+        "transition-colors duration-150 hover:bg-[var(--surface-hover)] data-[state=selected]:bg-[var(--surface-hover)] data-[state=selected]:border-l-2 data-[state=selected]:border-l-[var(--primary)]",
         className
       )}
       {...props}
@@ -80,7 +80,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
     <th
       ref={ref}
       className={cn(
-        // Airy height for table headers
+        // Apollo-style operational density - font-weight 600 for headers
         "h-12 px-4 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]",
         className
       )}
@@ -95,8 +95,8 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<
     <td
       ref={ref}
       className={cn(
-        // Airy padding for table cells
-        "px-4 py-4 align-middle text-sm text-[var(--foreground)]",
+        // Apollo-style operational density - darker text for readability
+        "px-4 py-4 align-middle text-sm font-medium text-[var(--foreground)]",
         className
       )}
       {...props}

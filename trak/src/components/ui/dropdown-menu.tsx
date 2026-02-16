@@ -35,7 +35,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-pointer select-none items-center gap-2 rounded-[2px] px-3 py-2.5 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] data-[state=open]:bg-[var(--surface-hover)] data-[state=open]:text-[var(--foreground)]",
+      "flex cursor-pointer select-none items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2.5 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] data-[state=open]:bg-[var(--surface-hover)] data-[state=open]:text-[var(--foreground)]",
       inset && "pl-8",
       className
     )}
@@ -55,7 +55,7 @@ const DropdownMenuSubContent = React.forwardRef<
     <DropdownMenuPrimitive.SubContent
       ref={ref}
       className={cn(
-        "z-50 min-w-[10rem] overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)] animate-in",
+        "z-50 min-w-[10rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)] animate-in",
         className
       )}
       {...props}
@@ -76,7 +76,7 @@ const DropdownMenuContent = React.forwardRef<
       align={align}
       avoidCollisions={avoidCollisions}
       className={cn(
-        "z-50 min-w-[12rem] max-h-[min(60vh,24rem)] overflow-y-auto rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)] animate-in",
+        "z-50 min-w-[12rem] max-h-[min(60vh,24rem)] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)] animate-in",
         className
       )}
       {...props}
@@ -94,7 +94,7 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center gap-2 rounded-[2px] px-3 py-2.5 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2.5 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       inset && "pl-8",
       className
     )}
@@ -110,7 +110,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-[2px] py-2.5 pl-8 pr-3 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center rounded-[var(--radius-sm)] py-2.5 pl-8 pr-3 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     checked={checked}
@@ -133,7 +133,7 @@ const DropdownMenuRadioItem = React.forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-[2px] py-2.5 pl-8 pr-3 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center rounded-[var(--radius-sm)] py-2.5 pl-8 pr-3 text-sm font-medium text-[var(--muted-foreground)] outline-none transition-colors duration-150 focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}

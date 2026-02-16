@@ -369,7 +369,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
       <div
         className={cn(
           "flex flex-wrap items-start justify-between gap-2",
-          variant === "floating" ? "px-3 py-1.5" : "px-2 py-0.5 sm:px-2.5"
+          variant === "floating" ? "px-3 py-1.5" : "pl-4 pr-6 py-0.5"
         )}
       >
         <div className="flex items-start gap-3 overflow-x-auto flex-1">
@@ -472,7 +472,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
 
   return (
     <>
-      <div className="border-b border-[var(--border)] bg-transparent backdrop-blur-sm">
+      <div className="bg-transparent backdrop-blur-sm">
         {renderBar("inline")}
       </div>
 
@@ -504,7 +504,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
         }}
       >
         <div className="mx-auto w-full max-w-6xl px-3">
-          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] shadow-md">
+          <div className="rounded-[var(--radius-md)] bg-[var(--surface)] shadow-md">
             {renderBar("floating")}
           </div>
         </div>

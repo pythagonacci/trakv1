@@ -33,17 +33,17 @@ export const PRIORITY_OPTIONS: { value: Priority; label: string; color: string }
 ];
 
 export const STATUS_COLORS: Record<Status, string> = {
-  todo: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  done: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  blocked: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  todo: 'bg-[var(--surface-muted)] text-[var(--muted-foreground)]',
+  in_progress: 'bg-[var(--primary)]/10 text-[var(--primary)]',
+  done: 'bg-[var(--success)]/10 text-[var(--success)]',
+  blocked: 'bg-[var(--error)]/10 text-[var(--error)]',
 };
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
-  low: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  urgent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  low: 'bg-[var(--surface-muted)] text-[var(--tertiary-foreground)]',
+  medium: 'bg-[var(--warning)]/10 text-[var(--warning)]',
+  high: 'bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]',
+  urgent: 'bg-[var(--error)]/10 text-[var(--error)]',
 };
 
 // ============================================================================

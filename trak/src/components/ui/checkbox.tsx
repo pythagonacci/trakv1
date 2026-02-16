@@ -5,11 +5,10 @@ import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /*
- * SARAJEVO CHECKBOX STYLING
- * - Clean, minimal checkbox with subtle borders
- * - Coffee Patina accent color for checked state
+ * CHECKBOX STYLING - Apollo-style operational structure
+ * - Normalized radius using CSS variables
+ * - Token-based primary color for checked state
  * - Proper focus states with ring
- * - Accessible with proper ARIA attributes
  */
 const Checkbox = React.forwardRef<
   React.ElementRef<typeof CheckboxPrimitive.Root>,
@@ -18,7 +17,10 @@ const Checkbox = React.forwardRef<
   <CheckboxPrimitive.Root
     ref={ref}
     className={cn(
-      "peer h-4 w-4 shrink-0 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] ring-offset-[var(--ring-offset)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-[var(--primary)] data-[state=checked]:border-[var(--primary)] data-[state=checked]:text-[var(--primary-foreground)]",
+      "peer h-4 w-4 shrink-0 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] ring-offset-[var(--ring-offset)]",
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50",
+      "data-[state=checked]:bg-[var(--primary)] data-[state=checked]:border-[var(--primary)] data-[state=checked]:text-[var(--primary-foreground)]",
       className
     )}
     {...props}

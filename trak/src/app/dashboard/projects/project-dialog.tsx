@@ -194,7 +194,7 @@ export default function ProjectDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D3236]/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
       <div className="w-full max-w-lg overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.05)]">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">

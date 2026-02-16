@@ -209,12 +209,12 @@ export default function BlockWrapper({
 
       <div
         className={cn(
-          "relative flex min-w-0 flex-col w-full rounded-lg transition-all duration-150 ease-out",
+          "relative flex min-w-0 flex-col w-full rounded-[var(--radius-sm)] transition-all duration-150 ease-out",
           borderless
             ? "border-none bg-transparent px-0 py-0 shadow-none"
             : isTextBlock
-              ? "border-y border-[#3080a6]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
-              : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--secondary)]/20"
+              ? "border-y border-[var(--primary)]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
+              : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--primary)]/20"
         )}
         onDoubleClick={() => {
           if (block.type === "chart" && !readOnly) {

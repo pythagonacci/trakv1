@@ -3715,7 +3715,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
         </DndContext>
       ) : (
         <div className="space-y-2">
-          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+          <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
             <div
               className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
               style={{ gridTemplateColumns: tableColumnTemplate }}
