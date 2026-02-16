@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Send, RotateCcw, PanelRightClose } from "lucide-react";
+import { Loader2, Send, RotateCcw, PanelRightClose, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -69,6 +69,7 @@ export default function WorkflowAIChatPanel(props: {
   const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
   const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
   const [writeClarificationInput, setWriteClarificationInput] = useState("");
+  const [isClearing, setIsClearing] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -488,6 +489,34 @@ export default function WorkflowAIChatPanel(props: {
     }
   };
 
+  const handleClearChat = async () => {
+    if (!sessionId || isClearing || loading) return;
+    const confirmed = window.confirm("Clear this chat? This cannot be undone.");
+    if (!confirmed) return;
+    setIsClearing(true);
+    try {
+      const res = await fetch("/api/workflow/messages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tabId: props.tabId }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Failed to clear chat");
+      }
+      setMessages([]);
+      setInput("");
+      setPendingWriteConfirmation(null);
+      setWriteClarificationInput("");
+      setToast({ message: "Chat cleared.", type: "success" });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to clear chat";
+      setToast({ message, type: "error" });
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   const send = async () => {
     const command = input.trim();
     if (!command || loading) return;
@@ -523,16 +552,29 @@ export default function WorkflowAIChatPanel(props: {
             <span className="text-[11px] text-[var(--muted-foreground)] truncate">Session {sessionId.slice(0, 8)}</span>
           ) : null}
         </div>
-        {props.showCollapseButton && props.onCollapse && (
-          <button
-            type="button"
-            onClick={props.onCollapse}
-            className="rounded-[2px] p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors shrink-0"
-            title="Collapse AI panel"
-          >
-            <PanelRightClose className="h-3.5 w-3.5" />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearChat}
+              disabled={isClearing || loading}
+              className="rounded-[2px] p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors shrink-0 disabled:opacity-50"
+              title="Clear chat"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {props.showCollapseButton && props.onCollapse && (
+            <button
+              type="button"
+              onClick={props.onCollapse}
+              className="rounded-[2px] p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors shrink-0"
+              title="Collapse AI panel"
+            >
+              <PanelRightClose className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3 space-y-3">
