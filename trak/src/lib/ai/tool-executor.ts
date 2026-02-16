@@ -1636,14 +1636,15 @@ export async function executeTool(
               return { success: false, error: "No tasks found for createTaskBoardFromTasks." };
             }
 
-            const blockTitle = (args.title as string | undefined) || "Task Board";
-            const viewMode = (args.viewMode as string | undefined) || "board";
+            const blockTitle = (args.title as string | undefined) || "Tasks";
+            const viewMode = (args.viewMode as string | undefined) || "list";
             const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
 
             const createBlockResult = await createBlock({
               tabId,
               type: "task",
               content: { title: blockTitle, hideIcons: false, viewMode, boardGroupBy },
+              authContext: authContext ?? undefined,
             });
 
             if ("error" in createBlockResult) {
@@ -1655,13 +1656,23 @@ export async function executeTool(
               return { success: false, error: "Failed to create task block." };
             }
 
-            const dupResult = await duplicateTasksToBlock({
+            const rpcDupResult = await duplicateTasksToBlockRpc({
               targetBlockId: taskBlockId,
               taskIds,
               authContext: authContext ?? undefined,
               includeAssignees: args.includeAssignees as boolean | undefined,
               includeTags: args.includeTags as boolean | undefined,
             });
+
+            const dupResult = "error" in rpcDupResult
+              ? await duplicateTasksToBlock({
+                targetBlockId: taskBlockId,
+                taskIds,
+                authContext: authContext ?? undefined,
+                includeAssignees: args.includeAssignees as boolean | undefined,
+                includeTags: args.includeTags as boolean | undefined,
+              })
+              : rpcDupResult;
 
             if ("error" in dupResult) {
               return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
@@ -2350,6 +2361,19 @@ export async function executeTool(
               };
             }
 
+            // Log the exact source values the LLM passed per row (before deterministic backfill)
+            aiDebug("sourceTracking:llmRawInput", {
+              tool: "bulkInsertRows",
+              rowCount: normalizedRows.length,
+              rows: normalizedRows.map((row: any, i: number) => ({
+                index: i,
+                title: row.data?.Title ?? row.data?.Name ?? row.data?.title ?? Object.values(row.data ?? {})[0],
+                source_entity_id: row.source_entity_id ?? null,
+                source_entity_type: row.source_entity_type ?? null,
+                source_sync_mode: row.source_sync_mode ?? null,
+              })),
+            });
+
             const rowsWithSourceMetadata = await annotateRowsWithSourceMetadataForTable({
               tableId: resolvedTableId,
               rows: normalizedRows as Array<Record<string, unknown>>,
@@ -2794,6 +2818,19 @@ export async function executeTool(
               };
             }
 
+            // Log the exact source values the LLM passed per row (before deterministic backfill)
+            aiDebug("sourceTracking:llmRawInput", {
+              tool: "createTableFull",
+              rowCount: rows.length,
+              rows: rows.map((row, i) => ({
+                index: i,
+                title: (row.data as Record<string, unknown>)?.Title ?? (row.data as Record<string, unknown>)?.Name ?? (row.data as Record<string, unknown>)?.title ?? Object.values((row.data as Record<string, unknown>) ?? {})[0],
+                source_entity_id: row.source_entity_id ?? null,
+                source_entity_type: row.source_entity_type ?? null,
+                source_sync_mode: row.source_sync_mode ?? null,
+              })),
+            });
+
             rows = await annotateRowsWithSourceMetadata({
               rows,
               workspaceId,
@@ -2908,21 +2945,21 @@ export async function executeTool(
                 { name: "bulkInsertRows", arguments: { tableId, rows } },
                 context
               );
-            if (!rowsResult.success) {
-              if (blockId) {
-                await deleteBlock(blockId, { authContext: authContext ?? undefined });
+              if (!rowsResult.success) {
+                if (blockId) {
+                  await deleteBlock(blockId, { authContext: authContext ?? undefined });
+                }
+                await deleteTable(tableId, { authContext: authContext ?? undefined });
+                return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
               }
-              await deleteTable(tableId, { authContext: authContext ?? undefined });
-              return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
-            }
-            insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
-              ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
-              : [];
+              insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
+                ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
+                : [];
 
-            if (insertedRows.length > 0) {
-              await syncPriorityStatusToEntityProperties(tableId, insertedRows as string[], authContext ?? undefined);
+              if (insertedRows.length > 0) {
+                await syncPriorityStatusToEntityProperties(tableId, insertedRows as string[], authContext ?? undefined);
+              }
             }
-          }
 
             return {
               success: true,

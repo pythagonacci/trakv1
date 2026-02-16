@@ -872,6 +872,64 @@ function compactToolResult(result: ToolCallResult): ToolCallResult {
   };
 }
 
+/**
+ * Inject _source metadata onto search result items so the LLM can carry
+ * source tracking fields (source_entity_id, source_entity_type, source_sync_mode)
+ * forward to any write operation.
+ *
+ * Only injects _source on entity types that support source data columns:
+ * task (task_items), timeline_event (timeline_events), table_row (table_rows).
+ */
+const SOURCE_SUPPORTED_TYPES = new Set(["task", "timeline_event", "table_row"]);
+
+function injectSourceMetadata(
+  toolName: string,
+  data: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  // Static entity type mapping for single-type search tools
+  const entityTypeMap: Record<string, string> = {
+    searchTasks: "task",
+    searchTimelineEvents: "timeline_event",
+    searchSubtasks: "task",
+  };
+
+  // searchEntitiesByProperties returns mixed types — handle per-item
+  if (toolName === "searchEntitiesByProperties") {
+    return data.map((item) => {
+      const itemType = item.type as string;
+      if (!itemType || !SOURCE_SUPPORTED_TYPES.has(itemType)) return item;
+      const entityId = item.id as string;
+      if (!entityId) return item;
+      return {
+        ...item,
+        _source: {
+          source_entity_id: entityId,
+          source_entity_type: itemType,
+          source_sync_mode: "snapshot",
+        },
+      };
+    });
+  }
+
+  const entityType = entityTypeMap[toolName];
+  if (!entityType) return data;
+
+  return data.map((item) => {
+    const entityId = toolName === "searchSubtasks"
+      ? (item.task_id as string)  // subtasks link to parent task
+      : (item.id as string);
+    if (!entityId) return item;
+    return {
+      ...item,
+      _source: {
+        source_entity_id: entityId,
+        source_entity_type: entityType,
+        source_sync_mode: "snapshot",
+      },
+    };
+  });
+}
+
 // ============================================================================
 // SINGLE-ACTION TOOL NARROWING
 // ============================================================================
@@ -1655,6 +1713,20 @@ export async function executeAICommand(
               titles: searchedEntities.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "searchEntitiesByProperties" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const entity of result.data) {
+              if (entity.id && entity.title && SOURCE_SUPPORTED_TYPES.has(entity.type)) {
+                searchedEntities.push({ id: entity.id, title: entity.title, entityType: entity.type });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           if (taskMutationTools.has(toolName)) {
             sawTaskMutationTool = true;
@@ -1706,15 +1778,19 @@ export async function executeAICommand(
               });
           }
 
-          // Add tool result to messages
-          const compactedForMetrics = compactToolResult(result);
-          const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : result;
+          // Add tool result to messages — inject _source metadata onto search results before serialization
+          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties"]);
+          let resultForModel = result;
+          if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            resultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+          }
+          const compactedForMetrics = compactToolResult(resultForModel);
+          const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : resultForModel;
           let toolMessageContent = JSON.stringify(toolResultForModel);
 
-          // Inject source tracking reminder for search tools so the LLM is reminded to include source metadata
-          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks"]);
+          // Inject strict source tracking reminder for search tools
           if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            toolMessageContent += "\n\nSOURCE TRACKING REMINDER: Each result above has an `id` field. If you create a table using any of these results, you MUST include source_entity_id (the `id` from the matching result), source_entity_type, and source_sync_mode (\"snapshot\") on each row that corresponds to a result. Match rows to results by title. Do NOT add source metadata to rows with new/unrelated data.";
+            toolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n3. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n4. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
             aiDebug("sourceTracking:llmReminderInjected", {
               tool: toolName,
               resultCount: result.data.length,
@@ -2239,12 +2315,12 @@ export async function* executeAICommandStream(
   options: ExecuteAICommandOptions = {}
 ): AsyncGenerator<{
   type:
-    | "thinking"
-    | "tool_call"
-    | "tool_result"
-    | "response_delta"
-    | "response"
-    | "confirmation_required";
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "response_delta"
+  | "response"
+  | "confirmation_required";
   content: string;
   data?: unknown;
 }> {
@@ -2702,6 +2778,20 @@ export async function* executeAICommandStream(
               titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "searchEntitiesByProperties" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const entity of result.data) {
+              if (entity.id && entity.title && SOURCE_SUPPORTED_TYPES.has(entity.type)) {
+                searchedEntitiesStream.push({ id: entity.id, title: entity.title, entityType: entity.type });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           toolCallsThisRound.push({ tool: toolName, result });
           toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
@@ -2791,13 +2881,18 @@ export async function* executeAICommandStream(
             data: result,
           };
 
-          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(result) : result;
+          // Inject _source metadata onto search results before serialization (streaming path)
+          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties"]);
+          let streamResultForModel = result;
+          if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            streamResultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+          }
+          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(streamResultForModel) : streamResultForModel;
           let streamToolMessageContent = JSON.stringify(compactedResult);
 
-          // Inject source tracking reminder for search tools (streaming path)
-          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks"]);
+          // Inject strict source tracking reminder for search tools (streaming path)
           if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            streamToolMessageContent += "\n\nSOURCE TRACKING REMINDER: Each result above has an `id` field. If you create a table using any of these results, you MUST include source_entity_id (the `id` from the matching result), source_entity_type, and source_sync_mode (\"snapshot\") on each row that corresponds to a result. Match rows to results by title. Do NOT add source metadata to rows with new/unrelated data.";
+            streamToolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n3. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n4. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
             aiDebug("sourceTracking:llmReminderInjected:stream", {
               tool: toolName,
               resultCount: result.data.length,

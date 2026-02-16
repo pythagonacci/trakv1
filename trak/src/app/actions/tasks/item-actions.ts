@@ -380,6 +380,15 @@ export async function duplicateTasksToBlock(input: {
     .filter(Boolean);
   const skipped = taskIds.filter((id) => !taskMap.has(id));
 
+  console.log("[duplicateTasksToBlock]", {
+    inputTaskIds: taskIds.length,
+    blockWorkspaceId: block.workspace_id,
+    tasksFoundInDb: (tasks || []).length,
+    orderedTasks: orderedTasks.length,
+    skipped: skipped.length,
+    skippedIds: skipped,
+  });
+
   if (orderedTasks.length === 0) {
     return { data: { createdCount: 0, createdTaskIds: [], skipped } };
   }
@@ -495,12 +504,14 @@ export async function duplicateTasksToBlock(input: {
       .insert({
         ...baseInsert,
         source_task_id: task.id,
+        source_entity_type: "task",
+        source_entity_id: task.id,
         source_sync_mode: "snapshot",
       })
       .select("id")
       .single();
 
-    if (createResult.error && /source_task_id|source_sync_mode/i.test(createResult.error.message || "")) {
+    if (createResult.error && /source_task_id|source_sync_mode|source_entity/i.test(createResult.error.message || "")) {
       createResult = await supabase
         .from("task_items")
         .insert(baseInsert)

@@ -574,10 +574,10 @@ const taskActionTools: ToolDefinition[] = [
   {
     name: "createTaskBoardFromTasks",
     description:
-      "CREATE a new TASK BOARD from existing tasks. This creates a NEW task block in a tab, duplicates the provided tasks into it (leaving originals untouched), and sets the block to board view.\n\n" +
-      "Default behavior: duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
-      "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.\n\n" +
-      "Defaults: viewMode=board, boardGroupBy=status.",
+      "CREATE a new TASK BLOCK from existing tasks. This creates a NEW task block in a tab and duplicates the provided tasks into it (leaving originals untouched).\n\n" +
+      "Default behavior: renders as a LIST. Duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
+      "⚠️ Do NOT pass viewMode unless the user explicitly asks for a board or grouped view. Default is list view.\n\n" +
+      "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.",
     category: "task",
     parameters: {
       tabId: { type: "string", description: "Tab to create the task board in (defaults to current tab if omitted)" },
@@ -588,7 +588,7 @@ const taskActionTools: ToolDefinition[] = [
       sourceProjectId: { type: "string", description: "Optional project scope for source tasks" },
       sourceTabId: { type: "string", description: "Optional tab scope for source tasks" },
       limit: { type: "number", description: "Max tasks to include when using assignee filters (default 500)" },
-      viewMode: { type: "string", enum: ["board", "list"], description: "Task block view mode (default board)" },
+      viewMode: { type: "string", enum: ["board", "list"], description: "OMIT for list view (default). Only pass 'board' if user explicitly requests a board or grouped view." },
       boardGroupBy: {
         type: "string",
         enum: ["status", "priority", "assignee", "dueDate", "tags"],

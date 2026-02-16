@@ -256,7 +256,7 @@ export async function duplicateTasksToBlockRpc(input: {
     p_include_tags: input.includeTags ?? true,
     p_created_by: userId,
   });
-  aiDebug("rpc:result", { name: RPC_DUPLICATE_TASKS_TO_BLOCK, ok: !error, ms: Math.round(performance.now() - t0) });
+  aiDebug("rpc:result", { name: RPC_DUPLICATE_TASKS_TO_BLOCK, ok: !error, ms: Math.round(performance.now() - t0), error: error?.message ?? null, blockWorkspaceId: block.workspace_id, taskIdCount: input.taskIds.length });
 
   if (error) return { error: error.message || "RPC duplicate_tasks_to_block failed" };
 
