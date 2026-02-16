@@ -192,13 +192,13 @@ export default async function TabPage({
   return (
     <div className={isWorkflowTab ? "h-full flex flex-col min-h-0 bg-transparent" : "min-h-screen bg-transparent"}>
       {/* Project Header - Compact */}
-      <div className="pt-1 pb-1 pl-4 pr-6 shrink-0">
+      <div className="pt-1 pb-1 pl-2 pr-4 md:pl-3 md:pr-4 lg:pl-4 lg:pr-4 shrink-0">
         <ProjectHeader project={project} tabId={tabId} tabs={hierarchicalTabs} />
       </div>
 
       {/* Tab Navigation - Sticky */}
       <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm shrink-0">
-        <div className="border-b border-[var(--border)]/50 -mx-3 md:-mx-4 lg:-mx-5 px-3 md:px-4 lg:px-5">
+        <div className="border-b border-[var(--border)]/50 -mx-2 md:-mx-3 lg:-mx-4 px-2 md:px-3 lg:px-4">
           <TabBar 
             tabs={hierarchicalTabs} 
             projectId={projectId}

@@ -702,7 +702,7 @@ function Header() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--background)]">
-      <div className="flex w-full items-center justify-between px-4 py-3 md:px-5 lg:px-6">
+      <div className="flex w-full items-center justify-between px-2 py-3 md:px-3 lg:px-4">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--tertiary-foreground)]">
             Overview
@@ -740,7 +740,7 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
       id="dashboard-content"
       className={cn(
         "flex-1 min-h-0",
-        isFullBleedPage ? "px-0" : "px-3 md:px-4 lg:px-5",
+        isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
         headerHidden || isWorkflowPage || isCalendarPage ? "py-0" : "py-4 lg:py-5"
       )}
