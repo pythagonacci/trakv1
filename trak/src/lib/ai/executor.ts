@@ -893,6 +893,32 @@ function injectSourceMetadata(
     searchSubtasks: "task",
   };
 
+  // unstructuredSearchWorkspace results use sourceId/sourceType instead of id/type.
+  // Unstructured sourceType values (file, table, block, doc) need mapping to entity
+  // types that support source data columns. "table" maps to "table_row" since tables
+  // themselves don't carry source data — table rows do.
+  if (toolName === "unstructuredSearchWorkspace") {
+    const unstructuredTypeMap: Record<string, string> = {
+      table: "table_row",
+    };
+    return data.map((item) => {
+      const sourceId = item.sourceId as string;
+      const sourceType = item.sourceType as string;
+      if (!sourceId || !sourceType) return item;
+      const mappedType = unstructuredTypeMap[sourceType] || sourceType;
+      // Only inject _source for entity types that support source data columns
+      if (!SOURCE_SUPPORTED_TYPES.has(mappedType)) return item;
+      return {
+        ...item,
+        _source: {
+          source_entity_id: sourceId,
+          source_entity_type: mappedType,
+          source_sync_mode: "snapshot",
+        },
+      };
+    });
+  }
+
   // searchEntitiesByProperties returns mixed types — handle per-item
   if (toolName === "searchEntitiesByProperties") {
     return data.map((item) => {
@@ -1727,6 +1753,24 @@ export async function executeAICommand(
               titles: searchedEntities.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const item of result.data) {
+              const sourceId = item.sourceId as string;
+              const sourceType = item.sourceType as string;
+              const summary = item.summary as string;
+              if (!sourceId || !sourceType) continue;
+              if (sourceType === "task" || sourceType === "timeline_event") {
+                searchedEntities.push({ id: sourceId, title: summary || sourceId, entityType: sourceType });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           if (taskMutationTools.has(toolName)) {
             sawTaskMutationTool = true;
@@ -1779,7 +1823,7 @@ export async function executeAICommand(
           }
 
           // Add tool result to messages — inject _source metadata onto search results before serialization
-          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties"]);
+          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties", "unstructuredSearchWorkspace"]);
           let resultForModel = result;
           if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
             resultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
@@ -1796,6 +1840,11 @@ export async function executeAICommand(
               resultCount: result.data.length,
               trackedEntities: searchedEntities.length,
             });
+          }
+
+          // Inject unstructured search follow-up reminder
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            toolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.`;
           }
 
           if (timing) {
@@ -2792,6 +2841,24 @@ export async function* executeAICommandStream(
               titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const item of result.data) {
+              const sourceId = item.sourceId as string;
+              const sourceType = item.sourceType as string;
+              const summary = item.summary as string;
+              if (!sourceId || !sourceType) continue;
+              if (sourceType === "task" || sourceType === "timeline_event") {
+                searchedEntitiesStream.push({ id: sourceId, title: summary || sourceId, entityType: sourceType });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           toolCallsThisRound.push({ tool: toolName, result });
           toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
@@ -2882,7 +2949,7 @@ export async function* executeAICommandStream(
           };
 
           // Inject _source metadata onto search results before serialization (streaming path)
-          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties"]);
+          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties", "unstructuredSearchWorkspace"]);
           let streamResultForModel = result;
           if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
             streamResultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
@@ -2898,6 +2965,11 @@ export async function* executeAICommandStream(
               resultCount: result.data.length,
               trackedEntities: searchedEntitiesStream.length,
             });
+          }
+
+          // Inject unstructured search follow-up reminder (streaming path)
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            streamToolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.`;
           }
 
           messages.push({

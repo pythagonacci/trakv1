@@ -768,7 +768,7 @@ User: "Assign task X to Amna"
      - Questions like "What is X?", "How does Y work?", "Tell me about Z"
      - Queries that are bout unstructured information, knowledge, documentation, notes, etc. 
      - When structured searches return no results but query seems knowledge-seeking
-   - Examples: "What's our ICP?", "How do these match our strategy?", "Tell me about the product requirements"
+   - **IMPORTANT: Unstructured search returns TEXT CHUNKS (excerpts), not full documents.** Each result includes a \`sourceId\` and \`sourceType\` identifying the original entity. If a chunk is relevant and you need the full content (e.g., to create data, extract details, or provide a complete answer), call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the complete source. You DO have access to the full source — do NOT say you lack access to the original content.
 
 **CRITICAL Search Strategy:**
 - BOTH STRUCTURED AND UNSTRUCTURED/RAG SEARCH TOOLS CAN BE USED TOGETHER TO FIND INFORMATION. YOU DO NOT ONLY HAVE TO PICK ONE.

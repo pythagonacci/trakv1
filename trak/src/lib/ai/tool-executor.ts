@@ -1036,6 +1036,19 @@ export async function executeTool(
             ...result,
             chunks: Array.isArray(result.chunks) ? result.chunks.slice(0, Math.max(1, limitChunks)) : [],
           }));
+
+          console.log("--- [Debug Search] ---");
+          console.log("Returning unstructured search results to Workflow LLM:");
+          // Log a sample of invalid JSON to avoid massive logs if possible, or just log length and IDs
+          console.log(`Count: ${trimmed.length}`);
+          trimmed.forEach((r, i) => {
+            console.log(`[${i}] ParentID: ${r.parentId}, SourceID: ${r.sourceId} (${r.sourceType}), Score: ${r.score}`);
+            r.chunks.forEach((c, j) => {
+              console.log(`    Chunk[${j}]: "${c.content.substring(0, 100)}..." (Score: ${c.score})`);
+            });
+          });
+          console.log("------------------------");
+
           return { success: true, data: trimmed };
         }
 
@@ -4996,7 +5009,7 @@ async function annotateRowsWithSourceMetadata(params: {
   }
 
   const ids = Array.from(candidateIds);
-  const [taskResult, timelineResult] = await Promise.all([
+  const [taskResult, timelineResult, tableRowResult] = await Promise.all([
     params.supabase
       .from("task_items")
       .select("id")
@@ -5007,6 +5020,11 @@ async function annotateRowsWithSourceMetadata(params: {
       .select("id")
       .eq("workspace_id", params.workspaceId)
       .in("id", ids),
+    params.supabase
+      .from("table_rows")
+      .select("id")
+      .eq("workspace_id", params.workspaceId)
+      .in("id", ids),
   ]);
 
   const taskIds = new Set(
@@ -5014,6 +5032,9 @@ async function annotateRowsWithSourceMetadata(params: {
   );
   const timelineIds = new Set(
     ((timelineResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
+  const tableRowIds = new Set(
+    ((tableRowResult.data || []) as Array<{ id: string }>).map((item) => item.id)
   );
 
   // Build a title-to-entity map for title matching (case-insensitive)
@@ -5031,13 +5052,14 @@ async function annotateRowsWithSourceMetadata(params: {
   const llmValidated = normalizedRows.filter((row) => {
     if (!hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) return false;
     const id = row.source_entity_id as string;
-    return taskIds.has(id) || timelineIds.has(id);
+    return taskIds.has(id) || timelineIds.has(id) || tableRowIds.has(id);
   });
   const llmInvalid = llmProvidedCount - llmValidated.length;
 
   aiDebug("sourceTracking:dbValidation", {
     validTaskIds: taskIds.size,
     validTimelineIds: timelineIds.size,
+    validTableRowIds: tableRowIds.size,
     titleMapEntries: titleToEntity.size,
   });
   aiDebug("sourceTracking:llmAnnotation", {
@@ -5057,7 +5079,7 @@ async function annotateRowsWithSourceMetadata(params: {
     // Pass 1: Key-name and UUID candidate extraction
     const candidate = extractSourceCandidateIdFromRow(row);
     if (candidate) {
-      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds);
+      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds, tableRowIds);
       if (inferredType) {
         keyMatchCount++;
         aiDebug("sourceTracking:deterministicMatch", {
@@ -5191,8 +5213,8 @@ function hasValidRowSourceMetadata(sourceType: unknown, sourceId: unknown): bool
   return Boolean(normalizeSourceEntityType(sourceType) && normalizeSourceEntityId(sourceId));
 }
 
-function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | null {
-  if (value === "task" || value === "timeline_event") return value;
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | null {
+  if (value === "task" || value === "timeline_event" || value === "table_row") return value;
   return null;
 }
 
@@ -5207,14 +5229,15 @@ function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
 
 function extractSourceCandidateIdFromRow(
   row: SourceLinkedInsertRow
-): { id: string; hintedType?: "task" | "timeline_event" } | null {
+): { id: string; hintedType?: "task" | "timeline_event" | "table_row" } | null {
   const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
   const normalizedEntries = Object.entries(data).map(([key, value]) => [normalizeSourceKey(key), value] as const);
   const normalizedMap = new Map(normalizedEntries);
 
-  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" }> = [
+  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" | "table_row" }> = [
     { keys: ["task_id", "taskid"], hintedType: "task" },
     { keys: ["timeline_event_id", "timelineeventid", "event_id", "eventid"], hintedType: "timeline_event" },
+    { keys: ["table_row_id", "tablerowid", "row_id", "rowid"], hintedType: "table_row" },
     { keys: ["source_id", "entity_id", "id"] },
   ];
 
@@ -5240,17 +5263,21 @@ function normalizeSourceKey(value: string): string {
 }
 
 function inferSourceEntityTypeForCandidate(
-  candidate: { id: string; hintedType?: "task" | "timeline_event" },
+  candidate: { id: string; hintedType?: "task" | "timeline_event" | "table_row" },
   taskIds: Set<string>,
-  timelineIds: Set<string>
-): "task" | "timeline_event" | null {
+  timelineIds: Set<string>,
+  tableRowIds: Set<string> = new Set()
+): "task" | "timeline_event" | "table_row" | null {
   if (candidate.hintedType === "task" && taskIds.has(candidate.id)) return "task";
   if (candidate.hintedType === "timeline_event" && timelineIds.has(candidate.id)) return "timeline_event";
+  if (candidate.hintedType === "table_row" && tableRowIds.has(candidate.id)) return "table_row";
 
   const inTasks = taskIds.has(candidate.id);
   const inTimeline = timelineIds.has(candidate.id);
-  if (inTasks && !inTimeline) return "task";
-  if (!inTasks && inTimeline) return "timeline_event";
+  const inTableRows = tableRowIds.has(candidate.id);
+  if (inTasks && !inTimeline && !inTableRows) return "task";
+  if (!inTasks && inTimeline && !inTableRows) return "timeline_event";
+  if (!inTasks && !inTimeline && inTableRows) return "table_row";
   return null;
 }
 

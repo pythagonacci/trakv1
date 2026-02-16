@@ -576,11 +576,62 @@ function escapePostgrestOrValue(value: string): string {
 }
 
 /**
+ * Common stop words to exclude when tokenizing search text.
+ * These are too generic to produce meaningful matches individually.
+ */
+const SEARCH_STOP_WORDS = new Set([
+  "the", "a", "an", "in", "on", "at", "to", "for", "of", "is", "are",
+  "was", "were", "be", "been", "we", "our", "my", "it", "its", "and",
+  "or", "but", "not", "no", "do", "did", "has", "have", "had", "will",
+  "would", "could", "should", "can", "may", "might", "what", "which",
+  "who", "how", "when", "where", "why", "this", "that", "these", "those",
+  "with", "from", "about", "into", "through", "during", "before", "after",
+  "above", "below", "between", "up", "down", "out", "off", "over", "under",
+  "any", "all", "each", "every", "some", "such", "than",
+]);
+
+/**
+ * Tokenizes a search string into meaningful individual words.
+ * Filters out stop words and very short tokens (< 2 chars).
+ * Returns the original text plus individual words for multi-word input.
+ */
+function tokenizeSearchText(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const words = trimmed.split(/\s+/).filter(
+    (w) => w.length >= 2 && !SEARCH_STOP_WORDS.has(w.toLowerCase())
+  );
+
+  // Single word or no meaningful words after filtering: return original text
+  if (words.length <= 1) return [trimmed];
+
+  // Multi-word: include the full phrase (for exact matches) plus individual words
+  return [trimmed, ...words];
+}
+
+/**
  * Builds a safe OR expression for ilike across multiple columns.
+ * For multi-word text, tokenizes into individual words so that any
+ * single word match is sufficient (e.g. "mountain climbing" matches
+ * a title containing just "mountain").
  */
 function buildOrIlikeFilter(columns: string[], text: string): string {
-  const pattern = escapePostgrestOrValue(`%${text}%`);
-  return columns.map((column) => `${column}.ilike.${pattern}`).join(",");
+  const patterns = tokenizeSearchText(text);
+  if (patterns.length === 0) {
+    // Fallback: use original text as-is
+    const pattern = escapePostgrestOrValue(`%${text}%`);
+    return columns.map((column) => `${column}.ilike.${pattern}`).join(",");
+  }
+
+  const conditions: string[] = [];
+  for (const p of patterns) {
+    const escaped = escapePostgrestOrValue(`%${p}%`);
+    for (const column of columns) {
+      conditions.push(`${column}.ilike.${escaped}`);
+    }
+  }
+  return conditions.join(",");
 }
 
 /**
@@ -2249,10 +2300,15 @@ export async function searchBlocks(
     }
 
     // Filter block JSON content in JS to avoid unsupported jsonb ILIKE in SQL.
+    // Tokenizes multi-word searches so any individual word can match.
     if (searchLower) {
-      results = results.filter((b: Record<string, unknown>) =>
-        toSearchableText(b.content).toLowerCase().includes(searchLower)
-      );
+      const searchWords = tokenizeSearchText(searchLower).map((w) => w.toLowerCase());
+      if (searchWords.length === 0) searchWords.push(searchLower);
+
+      results = results.filter((b: Record<string, unknown>) => {
+        const contentLower = toSearchableText(b.content).toLowerCase();
+        return searchWords.some((word) => contentLower.includes(word));
+      });
     }
 
     // Trim to requested limit after filtering
@@ -2472,30 +2528,34 @@ export async function searchDocContent(params: {
 
     // Extract text content from ProseMirror JSON
     const contentText = extractTextFromContent(doc.content);
-    const searchLower = params.searchText.toLowerCase();
     const contentLower = contentText.toLowerCase();
+    const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+    if (searchWords.length === 0) searchWords.push(params.searchText.toLowerCase());
 
     const snippets: string[] = [];
     let matchCount = 0;
-    let searchStart = 0;
 
-    // Find all occurrences and extract snippets
-    while (true) {
-      const matchIndex = contentLower.indexOf(searchLower, searchStart);
-      if (matchIndex === -1) break;
+    // Find all occurrences and extract snippets across all search words
+    for (const word of searchWords) {
+      let searchStart = 0;
+      while (true) {
+        const matchIndex = contentLower.indexOf(word, searchStart);
+        if (matchIndex === -1) break;
 
-      matchCount++;
-      const snippetStart = Math.max(0, matchIndex - snippetLength);
-      const snippetEnd = Math.min(contentText.length, matchIndex + params.searchText.length + snippetLength);
+        matchCount++;
+        const snippetStart = Math.max(0, matchIndex - snippetLength);
+        const snippetEnd = Math.min(contentText.length, matchIndex + word.length + snippetLength);
 
-      let snippet = contentText.slice(snippetStart, snippetEnd);
-      if (snippetStart > 0) snippet = "..." + snippet;
-      if (snippetEnd < contentText.length) snippet = snippet + "...";
+        let snippet = contentText.slice(snippetStart, snippetEnd);
+        if (snippetStart > 0) snippet = "..." + snippet;
+        if (snippetEnd < contentText.length) snippet = snippet + "...";
 
-      snippets.push(snippet);
-      searchStart = matchIndex + 1;
+        snippets.push(snippet);
+        searchStart = matchIndex + 1;
 
-      // Limit to 10 snippets
+        // Limit to 10 snippets
+        if (snippets.length >= 10) break;
+      }
       if (snippets.length >= 10) break;
     }
 
@@ -2586,6 +2646,8 @@ export async function searchDocsContentAll(params: {
     }
 
     const searchLower = params.searchText.toLowerCase();
+    const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+    if (searchWords.length === 0) searchWords.push(searchLower);
     const results: DocContentSearchResult[] = [];
 
     for (const doc of docs ?? []) {
@@ -2593,36 +2655,40 @@ export async function searchDocsContentAll(params: {
       const contentText = extractTextFromContent(doc.content);
       const contentLower = contentText.toLowerCase();
 
-      // Check if document contains the search text
-      if (!contentLower.includes(searchLower)) {
+      // Check if document contains any search word
+      const matchingWords = searchWords.filter((w) => contentLower.includes(w));
+      if (matchingWords.length === 0) {
         continue;
       }
 
-      // Find all occurrences and extract snippets
+      // Find all occurrences and extract snippets using the first matching word
       const snippets: string[] = [];
       let matchCount = 0;
-      let searchStart = 0;
 
-      while (true) {
-        const matchIndex = contentLower.indexOf(searchLower, searchStart);
-        if (matchIndex === -1) break;
+      for (const word of matchingWords) {
+        let searchStart = 0;
+        while (true) {
+          const matchIndex = contentLower.indexOf(word, searchStart);
+          if (matchIndex === -1) break;
 
-        matchCount++;
+          matchCount++;
 
-        if (snippets.length < maxSnippetsPerDoc) {
-          const snippetStart = Math.max(0, matchIndex - snippetLength);
-          const snippetEnd = Math.min(contentText.length, matchIndex + params.searchText.length + snippetLength);
+          if (snippets.length < maxSnippetsPerDoc) {
+            const snippetStart = Math.max(0, matchIndex - snippetLength);
+            const snippetEnd = Math.min(contentText.length, matchIndex + word.length + snippetLength);
 
-          let snippet = contentText.slice(snippetStart, snippetEnd);
-          if (snippetStart > 0) snippet = "..." + snippet;
-          if (snippetEnd < contentText.length) snippet = snippet + "...";
+            let snippet = contentText.slice(snippetStart, snippetEnd);
+            if (snippetStart > 0) snippet = "..." + snippet;
+            if (snippetEnd < contentText.length) snippet = snippet + "...";
 
-          snippets.push(snippet);
+            snippets.push(snippet);
+          }
+
+          searchStart = matchIndex + 1;
+
+          // Stop counting after 100 matches for performance
+          if (matchCount >= 100) break;
         }
-
-        searchStart = matchIndex + 1;
-
-        // Stop counting after 100 matches for performance
         if (matchCount >= 100) break;
       }
 
@@ -3036,26 +3102,42 @@ export async function searchTableRows(params: {
     }
 
     // Filter by search text across row data (post-query)
+    // Tokenizes multi-word searches so any individual word can match any cell value.
+    // Also checks the parent table title for matches.
     if (params.searchText) {
-      const searchLower = params.searchText.toLowerCase();
+      const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+      if (searchWords.length === 0) {
+        searchWords.push(params.searchText.toLowerCase());
+      }
+
       results = results.filter((r: Record<string, unknown>) => {
         const rowData = r.data as Record<string, unknown>;
-        return Object.values(rowData).some((value) => {
-          if (value === null || value === undefined) return false;
-          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-            return String(value).toLowerCase().includes(searchLower);
-          }
-          if (Array.isArray(value)) {
-            return value.some((v) => String(v).toLowerCase().includes(searchLower));
-          }
-          if (typeof value === "object") {
-            try {
-              return JSON.stringify(value).toLowerCase().includes(searchLower);
-            } catch {
-              return false;
+        const tables = r.tables as { title?: string } | null;
+        const tableTitle = tables?.title?.toLowerCase() ?? "";
+
+        // Check if any search word matches any cell value OR the table title
+        return searchWords.some((word) => {
+          // Check table title
+          if (tableTitle.includes(word)) return true;
+
+          // Check row data values
+          return Object.values(rowData).some((value) => {
+            if (value === null || value === undefined) return false;
+            if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+              return String(value).toLowerCase().includes(word);
             }
-          }
-          return false;
+            if (Array.isArray(value)) {
+              return value.some((v) => String(v).toLowerCase().includes(word));
+            }
+            if (typeof value === "object") {
+              try {
+                return JSON.stringify(value).toLowerCase().includes(word);
+              } catch {
+                return false;
+              }
+            }
+            return false;
+          });
         });
       });
     }

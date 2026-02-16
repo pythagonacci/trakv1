@@ -23,3 +23,21 @@ Both the RPC and fallback `duplicateTasksToBlock` paths failed to insert duplica
 ## Bug 6: `createTaskBoardFromTasks` defaults to board view instead of list view
 
 The AI always rendered the new task block as a board/grouped view even when the user asked for a "task block" (list). This was caused by the tool name `createTaskBoardFromTasks` and its description both biasing the LLM to explicitly pass `viewMode: "board"`, and the executor defaulting to `"board"` when no viewMode was provided. We fixed this by changing the executor default to `"list"`, updating the tool description to emphasize list as default, and adding a warning to only pass `viewMode` when the user explicitly asks for a board/grouped view — in `tool-executor.ts` and `tool-definitions.ts`.
+
+## Bug 7: Unstructured search (RAG) results not processed by source tracking system
+
+Unstructured search results were completely excluded from the source tracking pipeline — no `_source` injection, no entity tracking, no source-tracking reminder.
+This was caused by `injectSourceMetadata`, the `searchToolsForTracking` sets, the entity tracking blocks, and the source-tracking reminder all only covering the four structured search tools (`searchTasks`, `searchTimelineEvents`, `searchSubtasks`, `searchEntitiesByProperties`).
+We fixed this by adding `unstructuredSearchWorkspace` to all source tracking paths — `_source` injection (with `table` → `table_row` type mapping since tables don't carry source columns, table rows do), entity tracking for task/timeline_event sources, and the strict reminder — in both streaming and non-streaming paths in `executor.ts`.
+
+## Bug 8: LLM does not follow up on unstructured search chunks to get full source content
+
+When the LLM got text chunks from RAG search, it would use the excerpts directly or claim it didn't have "access" to the full original content, even though it could retrieve the full source via `getEntityById` using the chunk's `sourceId`.
+This was caused by no prompting or reminder telling the LLM that chunks are excerpts and that it can (and should) call `getEntityById` to read the full source for relevant results.
+We fixed this by appending a dedicated follow-up reminder to unstructured search tool results (in both streaming and non-streaming paths in `executor.ts`) and adding a persistent instruction in the system prompt's unstructured search section (`system-prompt.ts`).
+
+## Bug 9: `normalizeSourceEntityType` rejects `table_row` as a valid source entity type
+
+When the LLM correctly copied `source_entity_type: "table_row"` from `_source` metadata onto created rows, the validation wiped it to null — `llmProvidedSourceMetadata` counted as 0 and all source columns were written as null in the database.
+This was caused by `normalizeSourceEntityType` in `tool-executor.ts` only accepting `"task"` and `"timeline_event"`, even though `SOURCE_SUPPORTED_TYPES` in `executor.ts` already included `"table_row"`.
+We fixed this by adding `"table_row"` to `normalizeSourceEntityType`, adding a `table_rows` DB validation query in `annotateRowsWithSourceMetadata`, passing `tableRowIds` to `inferSourceEntityTypeForCandidate`, and adding `table_row_id`/`row_id` key hints to `extractSourceCandidateIdFromRow` — all in `tool-executor.ts`.
