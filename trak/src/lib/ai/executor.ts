@@ -42,6 +42,13 @@ export interface AIToolCall {
   };
 }
 
+export type SearchManifestEntity = { id: string; title: string; entityType: "task" | "timeline_event" | "table_row" };
+
+export interface SearchManifest {
+  entities: SearchManifestEntity[];
+  searchTools: string[];
+}
+
 export interface ExecutionResult {
   success: boolean;
   response: string;
@@ -52,6 +59,7 @@ export interface ExecutionResult {
   }>;
   undoBatches?: UndoBatch[];
   undoSkippedTools?: string[];
+  searchManifest?: SearchManifest;
   error?: string;
 }
 
@@ -104,6 +112,12 @@ export interface ExecuteAICommandOptions {
    * One-shot approval to continue a previously paused write tool call.
    */
   approvedWriteAction?: WriteConfirmationApproval | null;
+  /**
+   * Pre-seed searchedEntities from previous conversation turns.
+   * Enables cross-turn source metadata annotation when the LLM creates
+   * entities without calling search tools in the current turn.
+   */
+  initialSearchedEntities?: SearchManifestEntity[];
 }
 
 interface ChatCompletionResponse {
@@ -1107,6 +1121,27 @@ export async function executeAICommand(
     if (undoTracker.skippedTools.length > 0) {
       result.undoSkippedTools = undoTracker.skippedTools;
     }
+    // Attach search manifest if any search tools were called during this execution
+    // Only include entities that were found during THIS execution (not seeded from history)
+    const initialCount = options.initialSearchedEntities?.length ?? 0;
+    const newSearchedEntities = searchedEntities.slice(initialCount);
+    if (newSearchedEntities.length > 0) {
+      result.searchManifest = {
+        entities: newSearchedEntities,
+        searchTools: Array.from(searchToolsUsed),
+      };
+      aiDebug("sourceTracking:searchManifestBuilt", {
+        newEntities: newSearchedEntities.length,
+        seededFromHistory: initialCount,
+        searchTools: Array.from(searchToolsUsed),
+        titles: newSearchedEntities.map((e) => e.title),
+      });
+    } else if (initialCount > 0) {
+      aiDebug("sourceTracking:searchManifestSkipped", {
+        reason: "no new entities found this execution",
+        seededFromHistory: initialCount,
+      });
+    }
     logTiming();
     if (timing) {
       (result as any)._timing = {
@@ -1320,7 +1355,18 @@ export async function executeAICommand(
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   // Track searched entities (id + title) for deterministic source metadata annotation
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [];
+  // Seed with entities from previous conversation turns if available
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+    ...(options.initialSearchedEntities ?? []),
+  ];
+  if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
+    aiDebug("sourceTracking:seededFromHistory", {
+      count: options.initialSearchedEntities.length,
+      titles: options.initialSearchedEntities.map((e) => e.title),
+    });
+  }
+  // Track which search tools were called in this execution (for search manifest)
+  const searchToolsUsed = new Set<string>();
   const updatedItemIds = new Set<string>();
   let sawTaskMutationTool = false;
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
@@ -1826,6 +1872,7 @@ export async function executeAICommand(
           let resultForModel = result;
           if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
             resultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+            searchToolsUsed.add(toolName);
           }
           const compactedForMetrics = compactToolResult(resultForModel);
           const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : resultForModel;
@@ -1866,6 +1913,41 @@ export async function executeAICommand(
           messages.push({
             role: "user",
             content: pendingToolUpgradePrompt,
+          });
+          continue;
+        }
+
+        // Post-round source data reminder: when the LLM creates entities without
+        // calling search tools in this round, but previous turns had search results,
+        // inject a preemptive reminder about source data propagation.
+        const sourceWriteTools = new Set([
+          "createTableFull", "bulkInsertRows", "createTaskItem",
+          "createTimelineEvent", "createBlock", "createRow",
+        ]);
+        const sourceSearchTools = new Set([
+          "searchTasks", "searchTimelineEvents", "searchSubtasks",
+          "searchEntitiesByProperties", "unstructuredSearchWorkspace",
+          "searchTableRows", "getEntityById",
+        ]);
+        const hasSourceWriteThisRound = toolNamesThisRound.some((n) => sourceWriteTools.has(n));
+        const hasSourceSearchThisRound = toolNamesThisRound.some((n) => sourceSearchTools.has(n));
+        if (
+          hasSourceWriteThisRound &&
+          !hasSourceSearchThisRound &&
+          conversationHistory.length > 0 &&
+          searchedEntities.length > 0
+        ) {
+          const entitySummary = searchedEntities
+            .slice(-50) // cap to avoid token bloat
+            .map((e) => `  - "${e.title}" (${e.entityType}, id: ${e.id})`)
+            .join("\n");
+          messages.push({
+            role: "user",
+            content: `📋 SOURCE DATA VERIFICATION: You just created entities using data from previous searches. Here are the previously searched entities for reference:\n${entitySummary}\n\nIMPORTANT — Do NOT retry or recreate anything unless source data is actually missing or invalid:\n- If you already included correct source_entity_id, source_entity_type, and source_sync_mode on every row/item that corresponds to an entity above — no action needed. Just respond to the user normally.\n- If a row contains NEW content the user asked you to add (not from search results), having no source metadata is correct — no action needed.\n- ONLY if you realize you omitted source metadata on a row that directly maps to one of the entities above, or the source_entity_id you used is wrong, call the appropriate update tool to fix just that row. Do NOT recreate the entire table or any other entities.\n\nIf everything looks correct, simply proceed with your response to the user.`,
+          });
+          aiDebug("sourceTracking:postRoundReminder", {
+            writeTools: toolNamesThisRound.filter((n) => sourceWriteTools.has(n)),
+            searchedEntityCount: searchedEntities.length,
           });
           continue;
         }
@@ -2400,7 +2482,18 @@ export async function* executeAICommandStream(
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
   // Track searched entities for deterministic source metadata annotation (streaming path)
-  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [];
+  // Seed with entities from previous conversation turns if available
+  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+    ...(options.initialSearchedEntities ?? []),
+  ];
+  if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
+    aiDebug("sourceTracking:seededFromHistory:stream", {
+      count: options.initialSearchedEntities.length,
+      titles: options.initialSearchedEntities.map((e) => e.title),
+    });
+  }
+  // Track which search tools were called in this execution (for search manifest)
+  const searchToolsUsedStream = new Set<string>();
 
   if (!openAIKey && !deepseekKey) {
     yield {
@@ -2552,6 +2645,28 @@ export async function* executeAICommandStream(
         : openAIKey
           ? "openai"
           : "deepseek";
+  // Helper to build search manifest for streaming path
+  const buildStreamSearchManifest = (): SearchManifest | undefined => {
+    const initialCount = options.initialSearchedEntities?.length ?? 0;
+    const newEntities = searchedEntitiesStream.slice(initialCount);
+    if (newEntities.length === 0) {
+      if (initialCount > 0) {
+        aiDebug("sourceTracking:searchManifestSkipped:stream", {
+          reason: "no new entities found this execution",
+          seededFromHistory: initialCount,
+        });
+      }
+      return undefined;
+    }
+    aiDebug("sourceTracking:searchManifestBuilt:stream", {
+      newEntities: newEntities.length,
+      seededFromHistory: initialCount,
+      searchTools: Array.from(searchToolsUsedStream),
+      titles: newEntities.map((e) => e.title),
+    });
+    return { entities: newEntities, searchTools: Array.from(searchToolsUsedStream) };
+  };
+
   let iterations = 0;
 
   while (iterations < MAX_TOOL_ITERATIONS) {
@@ -2888,6 +3003,7 @@ export async function* executeAICommandStream(
                 toolCallsMade,
                 undoBatches: undoTracker.batches,
                 undoSkippedTools: undoTracker.skippedTools,
+                searchManifest: buildStreamSearchManifest(),
                 error: result.success ? undefined : result.error,
               },
             };
@@ -2957,6 +3073,7 @@ export async function* executeAICommandStream(
           let streamResultForModel = result;
           if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
             streamResultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+            searchToolsUsedStream.add(toolName);
           }
           const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(streamResultForModel) : streamResultForModel;
           let streamToolMessageContent = JSON.stringify(compactedResult);
@@ -2989,6 +3106,42 @@ export async function* executeAICommandStream(
           });
         }
 
+        // Post-round source data reminder (streaming path): when the LLM creates
+        // entities without calling search tools in this round, but previous turns
+        // had search results, inject a preemptive reminder about source data.
+        const streamSourceWriteTools = new Set([
+          "createTableFull", "bulkInsertRows", "createTaskItem",
+          "createTimelineEvent", "createBlock", "createRow",
+        ]);
+        const streamSourceSearchTools = new Set([
+          "searchTasks", "searchTimelineEvents", "searchSubtasks",
+          "searchEntitiesByProperties", "unstructuredSearchWorkspace",
+          "searchTableRows", "getEntityById",
+        ]);
+        const toolNamesThisRoundStream = toolCallsThisRound.map((c) => c.tool);
+        const hasStreamSourceWrite = toolNamesThisRoundStream.some((n) => streamSourceWriteTools.has(n));
+        const hasStreamSourceSearch = toolNamesThisRoundStream.some((n) => streamSourceSearchTools.has(n));
+        if (
+          hasStreamSourceWrite &&
+          !hasStreamSourceSearch &&
+          previousMessages.length > 0 &&
+          searchedEntitiesStream.length > 0
+        ) {
+          const entitySummary = searchedEntitiesStream
+            .slice(-50)
+            .map((e) => `  - "${e.title}" (${e.entityType}, id: ${e.id})`)
+            .join("\n");
+          messages.push({
+            role: "user",
+            content: `📋 SOURCE DATA VERIFICATION: You just created entities using data from previous searches. Here are the previously searched entities for reference:\n${entitySummary}\n\nIMPORTANT — Do NOT retry or recreate anything unless source data is actually missing or invalid:\n- If you already included correct source_entity_id, source_entity_type, and source_sync_mode on every row/item that corresponds to an entity above — no action needed. Just respond to the user normally.\n- If a row contains NEW content the user asked you to add (not from search results), having no source metadata is correct — no action needed.\n- ONLY if you realize you omitted source metadata on a row that directly maps to one of the entities above, or the source_entity_id you used is wrong, call the appropriate update tool to fix just that row. Do NOT recreate the entire table or any other entities.\n\nIf everything looks correct, simply proceed with your response to the user.`,
+          });
+          aiDebug("sourceTracking:postRoundReminder:stream", {
+            writeTools: toolNamesThisRoundStream.filter((n) => streamSourceWriteTools.has(n)),
+            searchedEntityCount: searchedEntitiesStream.length,
+          });
+          continue;
+        }
+
         // Fix D: Early-exit after successful writes, but only for single-step commands.
         // Multi-step commands ("create X and assign to Y") must continue so the LLM
         // can issue the remaining tool calls.
@@ -3013,6 +3166,7 @@ export async function* executeAICommandStream(
               toolCallsMade,
               undoBatches: undoTracker.batches,
               undoSkippedTools: undoTracker.skippedTools,
+              searchManifest: buildStreamSearchManifest(),
             },
           };
           return;
@@ -3217,6 +3371,7 @@ export async function* executeAICommandStream(
           toolCallsMade,
           undoBatches: undoTracker.batches,
           undoSkippedTools: undoTracker.skippedTools,
+          searchManifest: buildStreamSearchManifest(),
         },
       };
       return;

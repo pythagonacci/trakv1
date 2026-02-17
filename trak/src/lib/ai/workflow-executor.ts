@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
-import { executeAICommand, executeAICommandStream, type AIMessage, type ExecutionResult } from "@/lib/ai/executor";
+import { executeAICommand, executeAICommandStream, type AIMessage, type ExecutionResult, type SearchManifest } from "@/lib/ai/executor";
+import { aiDebug } from "@/lib/ai/debug";
 import { createUndoTracker, type UndoBatch } from "@/lib/ai/undo";
-import { getOrCreateWorkflowSession, addWorkflowMessage, getWorkflowSessionMessages } from "@/app/actions/workflow-session";
+import { getOrCreateWorkflowSession, addWorkflowMessage, getWorkflowSessionMessages, type WorkflowMessageRecord } from "@/app/actions/workflow-session";
 import { createBlock, deleteBlock } from "@/app/actions/block";
 import { executeTool } from "@/lib/ai/tool-executor";
 import { searchTasks } from "@/app/actions/ai-search";
@@ -31,6 +32,118 @@ function safeTextFromContent(content: unknown): string {
   } catch {
     return String(content);
   }
+}
+
+/**
+ * Extract a compact search history context from recent workflow messages.
+ * Walks backward through history and collects searchManifest data from the
+ * last 5 assistant messages that had search results, paired with their
+ * preceding user message for context.
+ */
+function buildSearchHistoryContext(
+  history: WorkflowMessageRecord[]
+): { searchHistory: string; hasSearchHistory: boolean } {
+  const manifests: Array<{
+    userQuery: string;
+    manifest: SearchManifest;
+  }> = [];
+
+  // Walk backward through history to find assistant messages with search manifests
+  for (let i = history.length - 1; i >= 0 && manifests.length < 5; i--) {
+    const msg = history[i];
+    if (msg.role !== "assistant") continue;
+
+    const content = msg.content as Record<string, unknown> | null;
+    if (!content?.searchManifest) continue;
+
+    const manifest = content.searchManifest as SearchManifest;
+    if (!manifest.entities || manifest.entities.length === 0) continue;
+
+    // Find the preceding user message
+    let userQuery = "(unknown query)";
+    for (let j = i - 1; j >= 0; j--) {
+      if (history[j].role === "user") {
+        userQuery = safeTextFromContent(history[j].content);
+        break;
+      }
+    }
+
+    manifests.push({ userQuery, manifest });
+  }
+
+  if (manifests.length === 0) {
+    aiDebug("sourceTracking:searchHistoryContext", {
+      result: "none",
+      historyLength: history.length,
+      assistantMessagesScanned: history.filter((m) => m.role === "assistant").length,
+    });
+    return { searchHistory: "", hasSearchHistory: false };
+  }
+
+  // Build compact text — reverse so oldest is first
+  manifests.reverse();
+  const totalEntities = manifests.reduce((sum, m) => sum + m.manifest.entities.length, 0);
+  aiDebug("sourceTracking:searchHistoryContext", {
+    result: "found",
+    manifestCount: manifests.length,
+    totalEntities,
+    turns: manifests.map((m) => ({
+      query: m.userQuery.slice(0, 80),
+      tools: m.manifest.searchTools,
+      entityCount: m.manifest.entities.length,
+    })),
+  });
+  const sections = manifests.map((m, idx) => {
+    const entityLines = m.manifest.entities.map(
+      (e) => `  - "${e.title}" (${e.entityType}, id: ${e.id})`
+    );
+    return `--- Search ${idx + 1} (user asked: "${m.userQuery.slice(0, 120)}") ---\nSearched via: ${m.manifest.searchTools.join(", ")}\nEntities found:\n${entityLines.join("\n")}`;
+  });
+
+  const searchHistory = `\n\n📋 SEARCH HISTORY — PREVIOUSLY SEARCHED ENTITIES\nThe following entities were found in your recent search tool calls. If you are about to create or render something that uses this data, you MUST include the correct source_entity_id, source_entity_type ("task" | "timeline_event" | "table_row"), and source_sync_mode ("snapshot") for each entity that corresponds to a row/item you create.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
+
+  return { searchHistory, hasSearchHistory: true };
+}
+
+/**
+ * Extract all searched entities from recent workflow messages to seed
+ * the executor's searchedEntities array for deterministic title matching.
+ */
+function extractInitialSearchedEntities(
+  history: WorkflowMessageRecord[]
+): SearchManifest["entities"] {
+  const entities: SearchManifest["entities"] = [];
+  const seenIds = new Set<string>();
+
+  // Collect from last 5 assistant messages with manifests (same window as buildSearchHistoryContext)
+  let count = 0;
+  for (let i = history.length - 1; i >= 0 && count < 5; i--) {
+    const msg = history[i];
+    if (msg.role !== "assistant") continue;
+
+    const content = msg.content as Record<string, unknown> | null;
+    if (!content?.searchManifest) continue;
+
+    const manifest = content.searchManifest as SearchManifest;
+    if (!manifest.entities || manifest.entities.length === 0) continue;
+
+    count++;
+    for (const entity of manifest.entities) {
+      if (!seenIds.has(entity.id)) {
+        seenIds.add(entity.id);
+        entities.push(entity);
+      }
+    }
+  }
+
+  if (entities.length > 0) {
+    aiDebug("sourceTracking:initialSearchedEntities", {
+      count: entities.length,
+      titles: entities.map((e) => e.title),
+    });
+  }
+
+  return entities;
 }
 
 function extractCreatedBlockIds(toolCallsMade: ExecutionResult["toolCallsMade"]): string[] {
@@ -642,6 +755,10 @@ export async function executeWorkflowAICommand(params: {
 
   const recentHistoryText = conversationHistory.slice(-6).map((m) => m.content ?? "").join(" ");
 
+  // Build search history context from previous turns for source data propagation
+  const { searchHistory, hasSearchHistory } = buildSearchHistoryContext(history);
+  const initialSearchedEntities = hasSearchHistory ? extractInitialSearchedEntities(history) : [];
+
   // Record user message
   await addWorkflowMessage({
     sessionId: session.id,
@@ -765,7 +882,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.`,
+   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? searchHistory : ""}`,
     },
   ];
 
@@ -800,6 +917,7 @@ RESPONSE PATTERN:
       readOnly: !(allowTaskMutations || allowEntityMutations),
       allowedWriteTools,
       enforceBatchUpdateCompletion: allowTaskMutations,
+      initialSearchedEntities: initialSearchedEntities.length > 0 ? initialSearchedEntities : undefined,
       // Workflow pages require unified multi-tool access and should not short-circuit
       // via deterministic parsing (we want the LLM to create blocks/artifacts).
       forcedToolGroups: [
@@ -1020,9 +1138,17 @@ RESPONSE PATTERN:
       toolCallsMade: result.toolCallsMade,
       undoBatches: mergedUndoBatches,
       undoSkippedTools: mergedSkipped,
+      searchManifest: result.searchManifest ?? null,
     },
     createdBlockIds,
   });
+  if (result.searchManifest) {
+    aiDebug("sourceTracking:manifestPersisted", {
+      sessionId: session.id,
+      entityCount: result.searchManifest.entities.length,
+      searchTools: result.searchManifest.searchTools,
+    });
+  }
 
   return {
     success: result.success,
@@ -1074,6 +1200,10 @@ export async function* executeWorkflowAICommandStream(params: {
     content: safeTextFromContent(message.content),
   }));
   const recentHistoryText = conversationHistory.slice(-6).map((m) => m.content ?? "").join(" ");
+
+  // Build search history context from previous turns for source data propagation (streaming path)
+  const { searchHistory: streamSearchHistory, hasSearchHistory: streamHasSearchHistory } = buildSearchHistoryContext(history);
+  const streamInitialSearchedEntities = streamHasSearchHistory ? extractInitialSearchedEntities(history) : [];
 
   if (!params.resumeFromConfirmation) {
     await addWorkflowMessage({
@@ -1195,7 +1325,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.`,
+   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? streamSearchHistory : ""}`,
     },
   ];
 
@@ -1250,6 +1380,7 @@ RESPONSE PATTERN:
       disableOptimisticEarlyExit: true,
       requireWriteConfirmation: true,
       approvedWriteAction: params.confirmation,
+      initialSearchedEntities: streamInitialSearchedEntities.length > 0 ? streamInitialSearchedEntities : undefined,
     }
   );
 
@@ -1277,6 +1408,7 @@ RESPONSE PATTERN:
         toolCallsMade?: unknown;
         undoBatches?: unknown;
         undoSkippedTools?: unknown;
+        searchManifest?: unknown;
       })
     : {};
   const toolCallsMade = Array.isArray(payload.toolCallsMade)
@@ -1288,6 +1420,9 @@ RESPONSE PATTERN:
   const mergedSkipped: string[] = Array.isArray(payload.undoSkippedTools)
     ? [...(payload.undoSkippedTools as string[])]
     : [];
+  const streamSearchManifest = payload.searchManifest && typeof payload.searchManifest === "object"
+    ? (payload.searchManifest as SearchManifest)
+    : undefined;
 
   const allowTextBlockArtifacts = shouldPersistAssistantAsTextBlock(params.command);
   const createdTextBlockIds = extractCreatedTextBlockIds(toolCallsMade);
@@ -1482,9 +1617,17 @@ RESPONSE PATTERN:
       toolCallsMade,
       undoBatches: mergedUndoBatches,
       undoSkippedTools: mergedSkipped,
+      searchManifest: streamSearchManifest ?? null,
     },
     createdBlockIds,
   });
+  if (streamSearchManifest) {
+    aiDebug("sourceTracking:manifestPersisted:stream", {
+      sessionId: session.id,
+      entityCount: streamSearchManifest.entities.length,
+      searchTools: streamSearchManifest.searchTools,
+    });
+  }
 
   yield {
     type: "response",
