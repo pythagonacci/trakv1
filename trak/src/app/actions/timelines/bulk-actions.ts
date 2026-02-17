@@ -89,6 +89,13 @@ export async function bulkDuplicateTimelineEvents(input: {
     baseline_start: event.baseline_start,
     baseline_end: event.baseline_end,
     display_order: event.display_order + idx + 1,
+    ...(event.source_entity_type === "table_row" && event.source_entity_id
+      ? {
+          source_entity_type: "table_row",
+          source_entity_id: event.source_entity_id,
+          source_sync_mode: "snapshot" as const,
+        }
+      : {}),
     created_by: userId,
     updated_by: userId,
   }));

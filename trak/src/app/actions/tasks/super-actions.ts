@@ -32,6 +32,9 @@ export async function createTaskFullRpc(input: {
   startDate?: string | null;
   hideIcons?: boolean;
   recurring?: { enabled: boolean; frequency?: "daily" | "weekly" | "monthly"; interval?: number };
+  sourceEntityType?: "task" | "timeline_event" | "table_row";
+  sourceEntityId?: string | null;
+  sourceSyncMode?: "snapshot" | "live";
   assignees?: Array<{ id?: string | null; name?: string | null }>;
   tags?: string[];
   authContext?: AuthContext;
@@ -60,6 +63,9 @@ export async function createTaskFullRpc(input: {
     p_recurring_enabled: input.recurring?.enabled ?? false,
     p_recurring_frequency: input.recurring?.frequency ?? null,
     p_recurring_interval: input.recurring?.interval ?? null,
+    p_source_entity_type: input.sourceEntityType ?? null,
+    p_source_entity_id: input.sourceEntityId ?? null,
+    p_source_sync_mode: input.sourceSyncMode ?? null,
     p_assignees: input.assignees ?? [],
     p_tags: input.tags ?? [],
     p_created_by: userId,

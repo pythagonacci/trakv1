@@ -461,7 +461,7 @@ async function maybeFilterWorkflowTaskCopies(
 
   const [taskResult, rowResult] = await Promise.all([
     taskIds.length > 0
-      ? supabase.from("task_items").select("id, source_task_id").in("id", taskIds)
+      ? supabase.from("task_items").select("id, source_task_id, source_entity_id").in("id", taskIds)
       : Promise.resolve({ data: [], error: null }),
     tableRowIds.length > 0
       ? supabase.from("table_rows").select("id, source_entity_id").in("id", tableRowIds)
@@ -474,8 +474,8 @@ async function maybeFilterWorkflowTaskCopies(
   }
 
   const copiedTaskIds = new Set(
-    ((taskResult.data || []) as Array<{ id: string; source_task_id: string | null }>)
-      .filter((task) => Boolean(task.source_task_id))
+    ((taskResult.data || []) as Array<{ id: string; source_task_id: string | null; source_entity_id: string | null }>)
+      .filter((task) => Boolean(task.source_entity_id || task.source_task_id))
       .map((task) => task.id)
   );
   const copiedRowIds = new Set(

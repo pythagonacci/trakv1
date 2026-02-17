@@ -49,7 +49,19 @@ BEGIN
       p_target_block_id, p_workspace_id, p_project_id, p_tab_id,
       v_task.title, v_task.status, v_task.priority, v_task.description, v_task.due_date, v_task.due_time, v_task.start_date,
       v_task.hide_icons, v_max_order, v_task.recurring_enabled, v_task.recurring_frequency, v_task.recurring_interval,
-      v_task.id, 'task', v_task.id, 'snapshot',
+      CASE
+        WHEN v_task.source_entity_type = 'table_row' AND v_task.source_entity_id IS NOT NULL THEN NULL
+        ELSE v_task.id
+      END,
+      CASE
+        WHEN v_task.source_entity_type = 'table_row' AND v_task.source_entity_id IS NOT NULL THEN 'table_row'
+        ELSE 'task'
+      END,
+      CASE
+        WHEN v_task.source_entity_type = 'table_row' AND v_task.source_entity_id IS NOT NULL THEN v_task.source_entity_id
+        ELSE v_task.id
+      END,
+      'snapshot',
       p_created_by, p_created_by
     )
     RETURNING id INTO v_new_id;

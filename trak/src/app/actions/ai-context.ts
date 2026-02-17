@@ -166,6 +166,9 @@ interface TimelineEventWithContext {
     | "end_date"
     | "status"
     | "assignee_id"
+    | "source_entity_type"
+    | "source_entity_id"
+    | "source_sync_mode"
     | "progress"
     | "notes"
     | "color"
@@ -362,7 +365,7 @@ export async function getTaskWithContext(params: {
     const { data: task, error: taskError } = await supabase
       .from("task_items")
       .select(
-        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priority, assignee_id, source_task_id, source_sync_mode, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
+        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priority, assignee_id, source_task_id, source_entity_type, source_entity_id, source_sync_mode, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
       )
       .eq("id", params.taskId)
       .eq("workspace_id", workspaceId)
@@ -463,6 +466,8 @@ export async function getTaskWithContext(params: {
           priority: task.priority,
           assignee_id: task.assignee_id ?? null,
           source_task_id: task.source_task_id ?? null,
+          source_entity_type: task.source_entity_type ?? null,
+          source_entity_id: task.source_entity_id ?? null,
           source_sync_mode: task.source_sync_mode ?? "snapshot",
           description: task.description,
           due_date: task.due_date,
@@ -997,7 +1002,7 @@ export async function getTimelineEventWithContext(params: {
     const { data: event, error: eventError } = await supabase
       .from("timeline_events")
       .select(
-        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, assignee_id, progress, notes, color, is_milestone, created_at"
+        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, assignee_id, source_entity_type, source_entity_id, source_sync_mode, progress, notes, color, is_milestone, created_at"
       )
       .eq("id", params.eventId)
       .eq("workspace_id", workspaceId)
@@ -1072,6 +1077,9 @@ export async function getTimelineEventWithContext(params: {
           end_date: event.end_date,
           status: event.status,
           assignee_id: event.assignee_id,
+          source_entity_type: event.source_entity_type ?? null,
+          source_entity_id: event.source_entity_id ?? null,
+          source_sync_mode: event.source_sync_mode ?? null,
           progress: event.progress,
           notes: event.notes,
           color: event.color,

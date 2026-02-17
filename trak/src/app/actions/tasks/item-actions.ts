@@ -23,12 +23,22 @@ export async function createTaskItem(
       frequency?: "daily" | "weekly" | "monthly";
       interval?: number;
     };
+    sourceEntityType?: "task" | "timeline_event" | "table_row";
+    sourceEntityId?: string | null;
+    sourceSyncMode?: TaskSourceSyncMode;
   },
   opts?: { timing?: TaskTimingSink; authContext?: AuthContext }
 ): Promise<ActionResult<TaskItem>> {
   const access = await requireTaskBlockAccess(input.taskBlockId, { timing: opts?.timing, authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, block } = access;
+  const hasSourceMetadata = Boolean(input.sourceEntityType && input.sourceEntityId);
+  const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
+  const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
+  const sourceSyncMode = hasSourceMetadata
+    ? (sourceEntityType === "table_row" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
+    : null;
+  const sourceTaskId = sourceEntityType === "task" ? sourceEntityId : null;
 
   // display_order is set by DB trigger set_task_item_display_order (saves one round-trip)
   const tInsert0 = performance.now();
@@ -52,6 +62,10 @@ export async function createTaskItem(
       recurring_enabled: input.recurring?.enabled ?? false,
       recurring_frequency: input.recurring?.frequency ?? null,
       recurring_interval: input.recurring?.interval ?? null,
+      source_task_id: sourceTaskId,
+      source_entity_type: sourceEntityType,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: sourceSyncMode,
       created_by: userId,
       updated_by: userId,
     })
@@ -365,7 +379,7 @@ export async function duplicateTasksToBlock(input: {
   const { data: tasks, error: tasksError } = await supabase
     .from("task_items")
     .select(
-      "id, title, status, priority, description, due_date, due_time, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval"
+      "id, title, status, priority, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
     )
     .in("id", taskIds)
     .eq("workspace_id", block.workspace_id);
@@ -503,9 +517,18 @@ export async function duplicateTasksToBlock(input: {
       .from("task_items")
       .insert({
         ...baseInsert,
-        source_task_id: task.id,
-        source_entity_type: "task",
-        source_entity_id: task.id,
+        source_task_id:
+          task.source_entity_type === "table_row" && task.source_entity_id
+            ? null
+            : task.id,
+        source_entity_type:
+          task.source_entity_type === "table_row" && task.source_entity_id
+            ? "table_row"
+            : "task",
+        source_entity_id:
+          task.source_entity_type === "table_row" && task.source_entity_id
+            ? task.source_entity_id
+            : task.id,
         source_sync_mode: "snapshot",
       })
       .select("id")
@@ -577,11 +600,37 @@ export async function setTaskSyncModeForBlock(input: {
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  const { data: sourceCandidates, error: sourceCandidatesError } = await supabase
+    .from("task_items")
+    .select("id, source_task_id, source_entity_type, source_entity_id")
+    .eq("task_block_id", input.taskBlockId)
+    .or("source_entity_id.not.is.null,source_task_id.not.is.null");
+
+  if (sourceCandidatesError) return { error: "Failed to load source-linked tasks" };
+
+  const idsToUpdate = (sourceCandidates || [])
+    .filter((task: any) => {
+      const hasUniversalSource = Boolean(task.source_entity_id);
+      const hasLegacyTaskSource = Boolean(task.source_task_id);
+      if (!hasUniversalSource && !hasLegacyTaskSource) return false;
+
+      if (input.mode === "snapshot") return true;
+
+      // Live sync is supported for task-sourced copies only.
+      if (task.source_entity_type === "task" && task.source_entity_id) return true;
+      if (!task.source_entity_type && task.source_task_id) return true;
+      return false;
+    })
+    .map((task: any) => task.id as string);
+
+  if (idsToUpdate.length === 0) {
+    return { data: { updatedCount: 0 } };
+  }
+
   const { data, error } = await supabase
     .from("task_items")
     .update({ source_sync_mode: input.mode })
-    .eq("task_block_id", input.taskBlockId)
-    .not("source_task_id", "is", null)
+    .in("id", idsToUpdate)
     .select("id");
 
   if (error) return { error: "Failed to update task sync mode" };

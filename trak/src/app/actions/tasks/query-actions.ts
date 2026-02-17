@@ -12,6 +12,8 @@ export interface TaskItemView {
   status: "todo" | "in-progress" | "done";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   sourceTaskId?: string | null;
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
+  sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   assignees?: string[];
   dueDate?: string;
@@ -155,6 +157,8 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     status: item.status,
     priority: item.priority,
     sourceTaskId: item.source_task_id ?? null,
+    sourceEntityType: (item.source_entity_type as "task" | "timeline_event" | "table_row" | null) ?? null,
+    sourceEntityId: item.source_entity_id ?? null,
     sourceSyncMode: item.source_sync_mode ?? "snapshot",
     assignees: assigneesByTask.get(item.id) || [],
     dueDate: item.due_date || undefined,
@@ -185,6 +189,7 @@ export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: 
     .from("task_items")
     .select("*")
     .eq("workspace_id", workspaceId)
+    .is("source_entity_id", null)
     .is("source_task_id", null)
     .not("due_date", "is", null)
     .order("updated_at", { ascending: false });

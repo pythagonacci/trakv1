@@ -14,7 +14,20 @@ export interface ToolParameter {
   description: string;
   required?: boolean;
   enum?: string[];
-  items?: { type: string; enum?: string[] };
+  items?: {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string;
+    enum?: string[];
+    items?: {
+      type: "string" | "number" | "boolean" | "object" | "array";
+      description?: string;
+      enum?: string[];
+      properties?: Record<string, ToolParameter>;
+      required?: string[];
+    };
+    properties?: Record<string, ToolParameter>;
+    required?: string[];
+  };
   properties?: Record<string, ToolParameter>;
 }
 
@@ -493,6 +506,17 @@ const taskActionTools: ToolDefinition[] = [
       dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
       dueTime: { type: "string", description: "Due time (HH:MM)" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
+      source_entity_type: {
+        type: "string",
+        description: "Optional source entity type when creating from an existing entity.",
+        enum: ["task", "timeline_event", "table_row"],
+      },
+      source_entity_id: { type: "string", description: "Optional source entity UUID when creating from an existing entity." },
+      source_sync_mode: {
+        type: "string",
+        description: "Optional source sync mode for source-linked tasks (defaults to snapshot).",
+        enum: ["snapshot", "live"],
+      },
     },
     requiredParams: ["title"],
   },
@@ -622,8 +646,44 @@ const taskActionTools: ToolDefinition[] = [
       taskBlockName: { type: "string", description: "Optional: Target block name (e.g. 'Sprint Board'). ONLY use if the user explicitly specifies a different task block. By default, tasks are created in the current tab/project." },
       tasks: {
         type: "array",
-        description: "Array of task objects to create. Each must have 'title' (required). Optional: assignees (array of names), tags, status, priority, description, dueDate, dueTime, startDate.",
-        items: { type: "object" },
+        description: "Array of task objects to create. Each task object supports title, assignees, tags, status, priority, description, dueDate, dueTime, startDate, and optional source metadata.",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Task title" },
+            assignees: {
+              type: "array",
+              description: "Optional list of assignee NAMES (e.g. ['Amna']).",
+              items: { type: "string" },
+            },
+            tags: {
+              type: "array",
+              description: "Optional list of tag names.",
+              items: { type: "string" },
+            },
+            status: { type: "string", description: "Optional task status", enum: ["todo", "in-progress", "blocked", "done"] },
+            priority: { type: "string", description: "Optional task priority", enum: ["low", "medium", "high", "urgent"] },
+            description: { type: "string", description: "Optional task description" },
+            dueDate: { type: "string", description: "Optional due date (YYYY-MM-DD)" },
+            dueTime: { type: "string", description: "Optional due time (HH:MM)" },
+            startDate: { type: "string", description: "Optional start date (YYYY-MM-DD)" },
+            source_entity_type: {
+              type: "string",
+              description: "Optional source entity type when creating from an existing entity.",
+              enum: ["task", "timeline_event", "table_row"],
+            },
+            source_entity_id: {
+              type: "string",
+              description: "Optional source entity UUID when creating from an existing entity.",
+            },
+            source_sync_mode: {
+              type: "string",
+              description: "Optional source sync mode for source-linked tasks (defaults to snapshot).",
+              enum: ["snapshot", "live"],
+            },
+          },
+          required: ["title"],
+        },
       },
     },
     requiredParams: ["tasks"],
@@ -1282,6 +1342,17 @@ const timelineActionTools: ToolDefinition[] = [
       isMilestone: { type: "boolean", description: "Whether this is a milestone" },
       assigneeId: { type: "string", description: "Assignee user ID. PREFER 'assigneeName'." },
       assigneeName: { type: "string", description: "Assignee Name (e.g. 'Amna'). System resolves to ID." },
+      source_entity_type: {
+        type: "string",
+        description: "Optional source entity type when creating from an existing entity.",
+        enum: ["task", "timeline_event", "table_row"],
+      },
+      source_entity_id: { type: "string", description: "Optional source entity UUID when creating from an existing entity." },
+      source_sync_mode: {
+        type: "string",
+        description: "Optional source sync mode for source-linked events (defaults to snapshot).",
+        enum: ["snapshot", "live"],
+      },
     },
     requiredParams: ["title", "startDate", "endDate"],
   },

@@ -24,6 +24,9 @@ export async function createTimelineEvent(input: {
   baselineEnd?: string | null;
   displayOrder?: number;
   assigneeId?: string;
+  sourceEntityType?: "task" | "timeline_event" | "table_row";
+  sourceEntityId?: string | null;
+  sourceSyncMode?: "snapshot" | "live";
   authContext?: AuthContext;
 }): Promise<ActionResult<TimelineEvent>> {
   const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
@@ -41,6 +44,12 @@ export async function createTimelineEvent(input: {
   }
 
   const { supabase, userId, block } = access;
+  const hasSourceMetadata = Boolean(input.sourceEntityType && input.sourceEntityId);
+  const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
+  const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
+  const sourceSyncMode = hasSourceMetadata
+    ? (sourceEntityType === "table_row" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
+    : null;
 
   const { data: latestOrder } = await supabase
     .from("timeline_events")
@@ -70,6 +79,9 @@ export async function createTimelineEvent(input: {
       baseline_end: input.baselineEnd ?? null,
       display_order: input.displayOrder ?? nextOrder,
       assignee_id: input.assigneeId ?? null,
+      source_entity_type: sourceEntityType,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: sourceSyncMode,
       created_by: userId,
       updated_by: userId,
     })
@@ -220,6 +232,7 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   const { supabase, userId, event } = access;
+  const shouldPropagateRowSource = event.source_entity_type === "table_row" && Boolean(event.source_entity_id);
 
   const { data, error } = await supabase
     .from("timeline_events")
@@ -238,6 +251,13 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
       baseline_start: event.baseline_start,
       baseline_end: event.baseline_end,
       display_order: event.display_order + 1,
+      ...(shouldPropagateRowSource
+        ? {
+            source_entity_type: "table_row",
+            source_entity_id: event.source_entity_id,
+            source_sync_mode: "snapshot" as const,
+          }
+        : {}),
       created_by: userId,
       updated_by: userId,
     })

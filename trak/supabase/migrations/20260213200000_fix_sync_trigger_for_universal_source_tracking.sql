@@ -53,6 +53,11 @@ BEGIN
     RETURN COALESCE(NEW, OLD);
   END IF;
 
+  -- Snapshot-only policy for table_row-sourced tasks.
+  IF v_source_entity_type = 'table_row' THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
   -- Determine the actual source task ID to update
   -- Prefer new universal tracking, fall back to old source_task_id
   IF v_source_entity_type = 'task' AND v_source_entity_id IS NOT NULL THEN
@@ -109,6 +114,11 @@ BEGIN
   v_source_task_id := NEW.source_task_id;
   v_source_entity_type := NEW.source_entity_type;
   v_source_entity_id := NEW.source_entity_id;
+
+  -- Snapshot-only policy for table_row-sourced tasks.
+  IF v_source_entity_type = 'table_row' THEN
+    RETURN NEW;
+  END IF;
 
   -- Determine the actual source task ID to update
   IF v_source_entity_type = 'task' AND v_source_entity_id IS NOT NULL THEN
@@ -184,6 +194,11 @@ BEGIN
   FROM public.task_items
   WHERE id = v_task_id;
 
+  -- Snapshot-only policy for table_row-sourced tasks.
+  IF v_source_entity_type = 'table_row' THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
   -- Determine the actual source task ID to update
   IF v_source_entity_type = 'task' AND v_source_entity_id IS NOT NULL THEN
     v_source_task_id := v_source_entity_id;
@@ -239,6 +254,11 @@ BEGIN
   FROM public.task_items
   WHERE id = v_task_id;
 
+  -- Snapshot-only policy for table_row-sourced tasks.
+  IF v_source_entity_type = 'table_row' THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
   -- Determine the actual source task ID to update
   IF v_source_entity_type = 'task' AND v_source_entity_id IS NOT NULL THEN
     v_source_task_id := v_source_entity_id;
@@ -263,7 +283,7 @@ $$;
 
 -- Add comment explaining the sync behavior
 COMMENT ON FUNCTION public.sync_live_task_properties_to_source() IS
-  'Syncs entity_properties changes from a snapshot task to its source task when source_sync_mode = ''live''. Supports both legacy source_task_id and universal source_entity_type/source_entity_id tracking.';
+  'Syncs entity_properties changes from a snapshot task to its source task when source_sync_mode = ''live''. Supports both legacy source_task_id and universal source_entity_type/source_entity_id tracking. table_row sources are snapshot-only.';
 
 COMMENT ON FUNCTION public.sync_live_task_item_to_source() IS
-  'Syncs task_items changes from a snapshot task to its source task when source_sync_mode = ''live''. Supports both legacy source_task_id and universal source_entity_type/source_entity_id tracking.';
+  'Syncs task_items changes from a snapshot task to its source task when source_sync_mode = ''live''. Supports both legacy source_task_id and universal source_entity_type/source_entity_id tracking. table_row sources are snapshot-only.';

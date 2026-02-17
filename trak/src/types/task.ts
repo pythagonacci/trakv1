@@ -2,6 +2,7 @@ export type TaskStatus = "todo" | "in-progress" | "done";
 export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 export type TaskReferenceType = "doc" | "table_row" | "task" | "block" | "tab";
 export type TaskSourceSyncMode = "snapshot" | "live";
+export type TaskSourceEntityType = "task" | "timeline_event" | "table_row";
 
 export interface TaskItem {
   id: string;
@@ -14,7 +15,9 @@ export interface TaskItem {
   priority: TaskPriority;
   assignee_id: string | null;
   source_task_id: string | null;
-  source_sync_mode: TaskSourceSyncMode;
+  source_entity_type: TaskSourceEntityType | null;
+  source_entity_id: string | null;
+  source_sync_mode: TaskSourceSyncMode | null;
   description: string | null;
   due_date: string | null;
   due_time: string | null;

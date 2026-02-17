@@ -85,6 +85,8 @@ interface Task {
   status: "todo" | "in-progress" | "done" | "blocked";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   sourceTaskId?: string | null;
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
+  sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   assignees?: string[];
   dueDate?: string | null;
@@ -724,11 +726,26 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   }, [boardItems]);
 
   const copiedTasks = useMemo(
-    () => orderedTasks.filter((task) => Boolean(task.sourceTaskId)),
+    () =>
+      orderedTasks.filter(
+        (task) => Boolean(task.sourceEntityId || task.sourceTaskId)
+      ),
     [orderedTasks]
   );
   const hasSourceLinkedCopies = copiedTasks.length > 0;
-  const liveSyncEnabled = hasSourceLinkedCopies && copiedTasks.every((task) => task.sourceSyncMode === "live");
+  const liveSyncEligibleTasks = useMemo(
+    () =>
+      copiedTasks.filter((task) => {
+        if (task.sourceEntityType === "task" && task.sourceEntityId) return true;
+        if (!task.sourceEntityType && task.sourceTaskId) return true; // Legacy rows
+        return false;
+      }),
+    [copiedTasks]
+  );
+  const hasLiveSyncEligibleCopies = liveSyncEligibleTasks.length > 0;
+  const liveSyncEnabled =
+    hasLiveSyncEligibleCopies &&
+    liveSyncEligibleTasks.every((task) => task.sourceSyncMode === "live");
 
   const taskMapById = useMemo(() => {
     return new Map(orderedTasks.map((task) => [String(task.id), task]));
@@ -2201,7 +2218,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     "56px minmax(240px, 2fr) minmax(140px, 1fr) minmax(180px, 1fr) minmax(140px, 1fr) minmax(200px, 1fr) 56px";
 
   const handleToggleTaskSourceSync = async (checked: boolean) => {
-    if (isTempBlock || !hasSourceLinkedCopies || setTaskSyncModeMutation.isPending) return;
+    if (isTempBlock || !hasLiveSyncEligibleCopies || setTaskSyncModeMutation.isPending) return;
     const result = await setTaskSyncModeMutation.mutateAsync(checked ? "live" : "snapshot");
     if ("error" in result) {
       console.error("Failed to set task sync mode:", result.error);
@@ -2360,7 +2377,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                 onCheckedChange={(checked) => {
                   void handleToggleTaskSourceSync(Boolean(checked));
                 }}
-                disabled={setTaskSyncModeMutation.isPending}
+                disabled={setTaskSyncModeMutation.isPending || !hasLiveSyncEligibleCopies}
               />
             </div>
           )}
@@ -2391,7 +2408,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       </div>
       {hasSourceLinkedCopies && (
         <p className="mb-2 text-[10px] text-[var(--muted-foreground)]">
-          Source-linked task copies are shown here. Global search and Everything use the source task once.
+          Source-linked task copies are shown here. Global search and Everything use the source task once. Table-row sourced copies are snapshot-only.
         </p>
       )}
       {viewMode === "list" ? (

@@ -704,7 +704,10 @@ CREATE OR REPLACE FUNCTION public.create_task_full(
   p_recurring_interval integer,
   p_assignees jsonb,
   p_tags jsonb,
-  p_created_by uuid
+  p_created_by uuid,
+  p_source_entity_type text DEFAULT NULL,
+  p_source_entity_id uuid DEFAULT NULL,
+  p_source_sync_mode text DEFAULT NULL
 )
 RETURNS public.task_items
 LANGUAGE plpgsql
@@ -719,6 +722,10 @@ DECLARE
   v_primary_assignee jsonb;
   v_tag text;
   v_tag_id uuid;
+  v_effective_source_entity_type text;
+  v_effective_source_entity_id uuid;
+  v_effective_source_sync_mode text;
+  v_effective_source_task_id uuid;
 BEGIN
   SELECT b.tab_id, t.project_id, p.workspace_id
   INTO v_tab_id, v_project_id, v_workspace_id
@@ -730,6 +737,19 @@ BEGIN
 
   IF v_workspace_id IS NULL THEN
     RAISE EXCEPTION 'Task block not found';
+  END IF;
+
+  IF p_source_entity_type IS NOT NULL AND p_source_entity_id IS NOT NULL THEN
+    v_effective_source_entity_type := p_source_entity_type;
+    v_effective_source_entity_id := p_source_entity_id;
+    v_effective_source_sync_mode := CASE
+      WHEN p_source_entity_type = 'table_row' THEN 'snapshot'
+      ELSE COALESCE(p_source_sync_mode, 'snapshot')
+    END;
+
+    IF p_source_entity_type = 'task' THEN
+      v_effective_source_task_id := p_source_entity_id;
+    END IF;
   END IF;
 
   INSERT INTO public.task_items (
@@ -748,6 +768,10 @@ BEGIN
     recurring_enabled,
     recurring_frequency,
     recurring_interval,
+    source_task_id,
+    source_entity_type,
+    source_entity_id,
+    source_sync_mode,
     created_by,
     updated_by
   ) VALUES (
@@ -766,6 +790,10 @@ BEGIN
     COALESCE(p_recurring_enabled, false),
     p_recurring_frequency,
     p_recurring_interval,
+    v_effective_source_task_id,
+    v_effective_source_entity_type,
+    v_effective_source_entity_id,
+    v_effective_source_sync_mode,
     p_created_by,
     p_created_by
   ) RETURNING * INTO v_task;

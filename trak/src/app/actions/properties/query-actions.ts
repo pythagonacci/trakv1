@@ -289,11 +289,13 @@ async function queryEntitiesByType(
     case "task": {
       let query = supabase
         .from("task_items")
-        .select("id, title, tab_id, project_id, source_task_id, tabs(name, project_id)")
+        .select("id, title, tab_id, project_id, source_task_id, source_entity_type, source_entity_id, tabs(name, project_id)")
         .eq("workspace_id", params.workspace_id);
 
       if (!params.include_workflow_representations) {
-        query = query.is("source_task_id", null);
+        query = query
+          .is("source_entity_id", null)
+          .is("source_task_id", null);
       }
 
       // Apply scope filters

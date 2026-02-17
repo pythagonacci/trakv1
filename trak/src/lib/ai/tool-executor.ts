@@ -1150,6 +1150,9 @@ export async function executeTool(
               return { success: false, error: "Missing taskBlockId and could not auto-resolve from context. Please provide a task block ID." };
             }
 
+            const sourceEntityType = normalizeSourceEntityType(args.source_entity_type);
+            const sourceEntityId = normalizeSourceEntityId(args.source_entity_id);
+            const hasSourceMetadata = Boolean(sourceEntityType && sourceEntityId);
             const payload = {
               taskBlockId,
               title: args.title as string,
@@ -1159,6 +1162,9 @@ export async function executeTool(
               dueDate: args.dueDate as string | undefined,
               dueTime: args.dueTime as string | undefined,
               startDate: args.startDate as string | undefined,
+              sourceEntityType: hasSourceMetadata ? sourceEntityType! : undefined,
+              sourceEntityId: hasSourceMetadata ? sourceEntityId! : undefined,
+              sourceSyncMode: hasSourceMetadata ? normalizeSourceSyncMode(args.source_sync_mode) : undefined,
             };
 
             // ------------------------------------------------------------------
@@ -1529,6 +1535,15 @@ export async function executeTool(
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
+                    sourceEntityType:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined,
+                    sourceEntityId:
+                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
+                    sourceSyncMode:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
+                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                        ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
+                        : undefined,
                     assignees: resolvedAssignees,
                     tags: Array.isArray(task.tags) ? (task.tags as string[]) : [],
                     authContext: authContext ?? undefined,
@@ -1548,6 +1563,15 @@ export async function executeTool(
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
+                    sourceEntityType:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined,
+                    sourceEntityId:
+                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
+                    sourceSyncMode:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
+                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                        ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
+                        : undefined,
                   }, { authContext: authContext ?? undefined });
 
                   if (!("error" in directResult)) {
@@ -3274,6 +3298,13 @@ export async function executeTool(
               color: args.color as string | undefined,
               isMilestone: args.isMilestone as boolean | undefined,
               assigneeId,
+              sourceEntityType: normalizeSourceEntityType(args.source_entity_type) ?? undefined,
+              sourceEntityId: normalizeSourceEntityId(args.source_entity_id) ?? undefined,
+              sourceSyncMode:
+                normalizeSourceEntityType(args.source_entity_type) &&
+                normalizeSourceEntityId(args.source_entity_id)
+                  ? normalizeSourceSyncMode(args.source_sync_mode)
+                  : undefined,
               authContext: authContext ?? undefined,
             })
           );

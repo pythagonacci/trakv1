@@ -714,6 +714,7 @@ BLOCK CREATION:
 - Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row", source_entity_id: "<entity-uuid>", source_sync_mode: "snapshot" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
 - NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row".
+- When creating tasks or timeline events from table rows/results, you MUST pass source_entity_type "table_row", source_entity_id as the row id, and source_sync_mode "snapshot" in createTaskItem/createTimelineEvent calls.
 - These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
 - Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
 
@@ -1147,6 +1148,7 @@ BLOCK CREATION:
 - Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row", source_entity_id: "<entity-uuid>", source_sync_mode: "snapshot" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
 - NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row".
+- When creating tasks or timeline events from table rows/results, you MUST pass source_entity_type "table_row", source_entity_id as the row id, and source_sync_mode "snapshot" in createTaskItem/createTimelineEvent calls.
 - These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
 - Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
 

@@ -1256,7 +1256,7 @@ export async function searchTasks(params: {
     let query = supabase
       .from("task_items")
       .select(`
-        id, title, description, status, priority, due_date, start_date, source_task_id,
+        id, title, description, status, priority, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
         workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
         projects(name),
         tabs(name)
@@ -1264,7 +1264,9 @@ export async function searchTasks(params: {
       .eq("workspace_id", workspaceId);
 
     if (!params.includeWorkflowRepresentations) {
-      query = query.is("source_task_id", null);
+      query = query
+        .is("source_entity_id", null)
+        .is("source_task_id", null);
     }
 
     // Apply entity ID filter from property pre-filtering
@@ -1317,7 +1319,7 @@ export async function searchTasks(params: {
         let dueDateQuery = supabase
           .from("task_items")
           .select(`
-            id, title, description, status, priority, due_date, start_date, source_task_id,
+            id, title, description, status, priority, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
             workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
             projects(name),
             tabs(name)
@@ -1326,7 +1328,9 @@ export async function searchTasks(params: {
           .in("id", dueDateMatchIds);
 
         if (!params.includeWorkflowRepresentations) {
-          dueDateQuery = dueDateQuery.is("source_task_id", null);
+          dueDateQuery = dueDateQuery
+            .is("source_entity_id", null)
+            .is("source_task_id", null);
         }
 
         if (params.searchText) {
@@ -5560,8 +5564,9 @@ export async function resolveEntityByName(params: {
       case "task": {
         const { data } = await supabase
           .from("task_items")
-          .select("id, title, project_id, source_task_id, projects(name)")
+          .select("id, title, project_id, source_task_id, source_entity_id, source_entity_type, projects(name)")
           .eq("workspace_id", workspaceId)
+          .is("source_entity_id", null)
           .is("source_task_id", null)
           .ilike("title", `%${searchName}%`)
           .limit(limit * 2);
@@ -6976,25 +6981,90 @@ async function getEditedTaskSnapshotsFromTaskItems(
   if (taskIds.length === 0) return [];
 
   try {
-    // Query task_items for edited snapshots only
-    const { data: snapshotTasks, error } = await supabase
-      .from("task_items")
-      .select(`
-        id, title, description, status, priority, due_date, start_date,
-        workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
-        source_entity_type, source_entity_id, source_sync_mode,
-        projects(name),
-        tabs(name)
-      `)
-      .eq("workspace_id", workspaceId)
-      .eq("source_entity_type", "task")
-      .eq("source_sync_mode", "snapshot")
-      .eq("edited", true)
-      .in("source_entity_id", taskIds);
+    const [taskSourceResult, relatedRowsResult] = await Promise.all([
+      supabase
+        .from("task_items")
+        .select(`
+          id, title, description, status, priority, due_date, start_date,
+          workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
+          source_entity_type, source_entity_id, source_sync_mode,
+          projects(name),
+          tabs(name)
+        `)
+        .eq("workspace_id", workspaceId)
+        .eq("source_entity_type", "task")
+        .eq("source_sync_mode", "snapshot")
+        .eq("edited", true)
+        .in("source_entity_id", taskIds),
+      supabase
+        .from("table_rows")
+        .select("id, tables!inner(workspace_id)")
+        .eq("tables.workspace_id", workspaceId)
+        .eq("source_entity_type", "task")
+        .in("source_entity_id", taskIds),
+    ]);
 
-    if (error || !snapshotTasks) {
-      console.error("getEditedTaskSnapshotsFromTaskItems error:", error);
+    if (taskSourceResult.error || relatedRowsResult.error) {
+      console.error("getEditedTaskSnapshotsFromTaskItems error:", taskSourceResult.error || relatedRowsResult.error);
       return [];
+    }
+
+    const relatedRowIds = (relatedRowsResult.data ?? [])
+      .map((row) => row.id as string)
+      .filter(Boolean);
+
+    const { data: rowSourceData, error: rowSourceError } = relatedRowIds.length
+      ? await supabase
+          .from("task_items")
+          .select(`
+            id, title, description, status, priority, due_date, start_date,
+            workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
+            source_entity_type, source_entity_id, source_sync_mode,
+            projects(name),
+            tabs(name)
+          `)
+          .eq("workspace_id", workspaceId)
+          .eq("source_entity_type", "table_row")
+          .eq("source_sync_mode", "snapshot")
+          .eq("edited", true)
+          .in("source_entity_id", relatedRowIds)
+      : { data: [], error: null };
+
+    if (rowSourceError) {
+      console.error("getEditedTaskSnapshotsFromTaskItems rowSourceError:", rowSourceError);
+      return [];
+    }
+
+    const snapshotTasks = [
+      ...((taskSourceResult.data ?? []) as Array<Record<string, unknown>>),
+      ...((rowSourceData ?? []) as Array<Record<string, unknown>>),
+    ];
+    if (snapshotTasks.length === 0) return [];
+
+    const rowSourceIds = Array.from(
+      new Set(
+        snapshotTasks
+          .filter((snapshot) => snapshot.source_entity_type === "table_row")
+          .map((snapshot) => snapshot.source_entity_id as string)
+          .filter(Boolean)
+      )
+    );
+
+    const { data: sourceRows, error: sourceRowsError } = rowSourceIds.length
+      ? await supabase
+          .from("table_rows")
+          .select("id, data, tables(title)")
+          .in("id", rowSourceIds)
+      : { data: [], error: null };
+
+    if (sourceRowsError) {
+      console.error("getEditedTaskSnapshotsFromTaskItems sourceRows error:", sourceRowsError);
+      return [];
+    }
+
+    const sourceRowsById = new Map<string, Record<string, unknown>>();
+    for (const sourceRow of (sourceRows ?? []) as Array<Record<string, unknown>>) {
+      sourceRowsById.set(sourceRow.id as string, sourceRow);
     }
 
     const editedSnapshots: TaskResult[] = [];
@@ -7002,6 +7072,42 @@ async function getEditedTaskSnapshotsFromTaskItems(
     for (const snapshot of snapshotTasks) {
       const project = coerceRelation<{ name: string }>(snapshot.projects);
       const tab = coerceRelation<{ name: string }>(snapshot.tabs);
+      const sourceEntityType = snapshot.source_entity_type as string | null;
+      const sourceEntityId = snapshot.source_entity_id as string | null;
+
+      if (sourceEntityType === "table_row") {
+        const sourceRow = sourceEntityId ? sourceRowsById.get(sourceEntityId) : null;
+        const sourceRowData = ((sourceRow?.data as Record<string, unknown> | undefined) ?? {});
+        const sourceTable = coerceRelation<{ title: string }>((sourceRow?.tables as unknown) ?? null);
+        const inferredTitle =
+          (typeof sourceRowData["Task Title"] === "string" && sourceRowData["Task Title"]) ||
+          (typeof sourceRowData["Task"] === "string" && sourceRowData["Task"]) ||
+          (typeof sourceRowData["Title"] === "string" && sourceRowData["Title"]) ||
+          null;
+
+        editedSnapshots.push({
+          id: `task-snapshot:${snapshot.id}`,
+          title: (snapshot.title as string) || inferredTitle || "Untitled Task",
+          status: snapshot.status as string,
+          priority: snapshot.priority as string | null,
+          description: snapshot.description as string | null,
+          due_date: snapshot.due_date as string | null,
+          start_date: snapshot.start_date as string | null,
+          workspace_id: workspaceId,
+          project_id: snapshot.project_id as string | null,
+          project_name: project?.name ?? null,
+          tab_id: snapshot.tab_id as string | null,
+          tab_name: `${sourceTable?.title || tab?.name || "Table"} (edited snapshot)`,
+          task_block_id: snapshot.task_block_id as string,
+          assignees: [],
+          tags: [],
+          subtasks: undefined,
+          subtask_list: undefined,
+          created_at: snapshot.created_at as string,
+          updated_at: snapshot.updated_at as string,
+        });
+        continue;
+      }
 
       editedSnapshots.push({
         id: `task-snapshot:${snapshot.id}`,
@@ -7120,30 +7226,105 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
   if (eventIds.length === 0) return [];
 
   try {
-    const { data: snapshotEvents, error } = await supabase
-      .from("timeline_events")
-      .select(`
-        id, title, start_date, end_date, status, priority, progress, notes, color,
-        is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
-        source_entity_type, source_entity_id, source_sync_mode
-      `)
-      .eq("workspace_id", workspaceId)
-      .eq("source_entity_type", "timeline_event")
-      .eq("source_sync_mode", "snapshot")
-      .eq("edited", true)
-      .in("source_entity_id", eventIds);
+    const [eventSourceResult, relatedRowsResult] = await Promise.all([
+      supabase
+        .from("timeline_events")
+        .select(`
+          id, title, start_date, end_date, status, priority, progress, notes, color,
+          is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
+          source_entity_type, source_entity_id, source_sync_mode
+        `)
+        .eq("workspace_id", workspaceId)
+        .eq("source_entity_type", "timeline_event")
+        .eq("source_sync_mode", "snapshot")
+        .eq("edited", true)
+        .in("source_entity_id", eventIds),
+      supabase
+        .from("table_rows")
+        .select("id, tables!inner(workspace_id)")
+        .eq("tables.workspace_id", workspaceId)
+        .eq("source_entity_type", "timeline_event")
+        .in("source_entity_id", eventIds),
+    ]);
 
-    if (error || !snapshotEvents) {
-      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents error:", error);
+    if (eventSourceResult.error || relatedRowsResult.error) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents error:", eventSourceResult.error || relatedRowsResult.error);
       return [];
+    }
+
+    const relatedRowIds = (relatedRowsResult.data ?? [])
+      .map((row) => row.id as string)
+      .filter(Boolean);
+
+    const { data: rowSourceData, error: rowSourceError } = relatedRowIds.length
+      ? await supabase
+          .from("timeline_events")
+          .select(`
+            id, title, start_date, end_date, status, priority, progress, notes, color,
+            is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
+            source_entity_type, source_entity_id, source_sync_mode
+          `)
+          .eq("workspace_id", workspaceId)
+          .eq("source_entity_type", "table_row")
+          .eq("source_sync_mode", "snapshot")
+          .eq("edited", true)
+          .in("source_entity_id", relatedRowIds)
+      : { data: [], error: null };
+
+    if (rowSourceError) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents rowSourceError:", rowSourceError);
+      return [];
+    }
+
+    const snapshotEvents = [
+      ...((eventSourceResult.data ?? []) as Array<Record<string, unknown>>),
+      ...((rowSourceData ?? []) as Array<Record<string, unknown>>),
+    ];
+    if (snapshotEvents.length === 0) return [];
+
+    const rowSourceIds = Array.from(
+      new Set(
+        snapshotEvents
+          .filter((snapshot) => snapshot.source_entity_type === "table_row")
+          .map((snapshot) => snapshot.source_entity_id as string)
+          .filter(Boolean)
+      )
+    );
+
+    const { data: sourceRows, error: sourceRowsError } = rowSourceIds.length
+      ? await supabase
+          .from("table_rows")
+          .select("id, data, tables(title)")
+          .in("id", rowSourceIds)
+      : { data: [], error: null };
+
+    if (sourceRowsError) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents sourceRows error:", sourceRowsError);
+      return [];
+    }
+
+    const sourceRowsById = new Map<string, Record<string, unknown>>();
+    for (const sourceRow of (sourceRows ?? []) as Array<Record<string, unknown>>) {
+      sourceRowsById.set(sourceRow.id as string, sourceRow);
     }
 
     const editedSnapshots: TimelineEventResult[] = [];
 
     for (const snapshot of snapshotEvents) {
+      const sourceEntityType = snapshot.source_entity_type as string | null;
+      const sourceEntityId = snapshot.source_entity_id as string | null;
+      const sourceRow = sourceEntityType === "table_row" && sourceEntityId ? sourceRowsById.get(sourceEntityId) : null;
+      const sourceRowData = ((sourceRow?.data as Record<string, unknown> | undefined) ?? {});
+      const sourceTable = coerceRelation<{ title: string }>((sourceRow?.tables as unknown) ?? null);
+      const inferredTitle =
+        (typeof sourceRowData["Event Title"] === "string" && sourceRowData["Event Title"]) ||
+        (typeof sourceRowData["Title"] === "string" && sourceRowData["Title"]) ||
+        (typeof sourceRowData["Event"] === "string" && sourceRowData["Event"]) ||
+        null;
+
       editedSnapshots.push({
         id: `timeline-snapshot:${snapshot.id}`,
-        title: snapshot.title as string,
+        title: (snapshot.title as string) || inferredTitle || "Untitled Event",
         start_date: snapshot.start_date as string,
         end_date: snapshot.end_date as string,
         status: snapshot.status as string | null,
@@ -7156,7 +7337,10 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
         assignee_id: null,
         assignee_name: null,
         project_id: null,
-        project_name: "(edited snapshot)",
+        project_name:
+          sourceEntityType === "table_row"
+            ? `${sourceTable?.title || "Table"} (edited snapshot)`
+            : "(edited snapshot)",
         created_at: snapshot.created_at as string,
         updated_at: snapshot.updated_at as string,
       });

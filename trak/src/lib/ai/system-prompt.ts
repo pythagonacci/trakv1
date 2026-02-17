@@ -544,6 +544,7 @@ When creating table rows from existing workspace entities (tasks, timeline event
 - You MUST include \`source_entity_type\`, \`source_entity_id\`, and \`source_sync_mode\` on EVERY row that comes from an existing entity.
 - These go on the row object itself, NOT as visible table columns.
 - ONLY add source metadata to rows that actually correspond to a search result you are using. If you create a table with new/original data (not from search results), do NOT add source metadata.
+- The same rule applies when creating tasks or timeline events from table rows/results: pass \`source_entity_type: "table_row"\`, \`source_entity_id: <row-id>\`, and \`source_sync_mode: "snapshot"\` to \`createTaskItem\` / \`createTimelineEvent\`.
 
 **HOW TO DO THIS — Match each row to the search result it came from:**
 1. When you call searchTasks, searchTimelineEvents, etc., each result has an \`id\` field — this is the source entity ID.
