@@ -1,8 +1,10 @@
+import type { TaskFilterExpr, TaskRollupConfig } from "@/types/task-rollups";
+
 export type TaskStatus = "todo" | "in-progress" | "done";
 export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 export type TaskReferenceType = "doc" | "table_row" | "task" | "block" | "tab";
 export type TaskSourceSyncMode = "snapshot" | "live";
-export type TaskSourceEntityType = "task" | "timeline_event" | "table_row";
+export type TaskSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
 
 export interface TaskItem {
   id: string;
@@ -105,4 +107,8 @@ export interface TaskBlockContent {
   hideIcons?: boolean;
   viewMode?: "list" | "board" | "table";
   boardGroupBy?: "status" | "priority" | "assignee" | "dueDate" | "tags";
+  filters?: TaskFilterExpr;
+  search?: string;
+  showDone?: boolean;
+  rollups?: TaskRollupConfig[];
 }

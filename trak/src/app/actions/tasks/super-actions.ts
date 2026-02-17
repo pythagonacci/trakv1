@@ -32,7 +32,7 @@ export async function createTaskFullRpc(input: {
   startDate?: string | null;
   hideIcons?: boolean;
   recurring?: { enabled: boolean; frequency?: "daily" | "weekly" | "monthly"; interval?: number };
-  sourceEntityType?: "task" | "timeline_event" | "table_row";
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
   sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   assignees?: Array<{ id?: string | null; name?: string | null }>;

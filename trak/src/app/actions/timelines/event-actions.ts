@@ -24,7 +24,7 @@ export async function createTimelineEvent(input: {
   baselineEnd?: string | null;
   displayOrder?: number;
   assigneeId?: string;
-  sourceEntityType?: "task" | "timeline_event" | "table_row";
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
   sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   authContext?: AuthContext;
@@ -48,7 +48,7 @@ export async function createTimelineEvent(input: {
   const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
   const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
   const sourceSyncMode = hasSourceMetadata
-    ? (sourceEntityType === "table_row" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
+    ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
     : null;
 
   const { data: latestOrder } = await supabase
