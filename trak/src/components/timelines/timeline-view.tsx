@@ -589,6 +589,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const addEventButtonRef = useRef<HTMLButtonElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   
   // New state for Phase 1 & 2 features
@@ -1421,7 +1422,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
             )}
             
             {!readOnly && (
-              <Button size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
+              <Button ref={addEventButtonRef} size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Add event
               </Button>
             )}
@@ -1654,9 +1655,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       {/* Hover Tooltip */}
       {mounted && tooltipEl && createPortal(tooltipEl, document.body)}
 
-      {/* Add Event Dialog */}
+      {/* Add Event Popover */}
       {!readOnly && (
-        <AddEventDialog
+        <AddEventPopover
           isOpen={isAddDialogOpen}
           onClose={() => setIsAddDialogOpen(false)}
           onSave={saveNewEvent}
@@ -1664,6 +1665,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           defaultEnd={addDays(displayRange.start, 3)}
           members={members}
           workspaceId={workspaceId}
+          anchorRef={addEventButtonRef}
         />
       )}
       {!readOnly && projectId && workspaceId && (
@@ -1716,8 +1718,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   );
 }
 
-// Add Event Dialog Component
-function AddEventDialog({
+// Add Event Popover – compact popup above Add event button
+function AddEventPopover({
   isOpen,
   onClose,
   onSave,
@@ -1725,6 +1727,7 @@ function AddEventDialog({
   defaultEnd,
   members,
   workspaceId,
+  anchorRef,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -1733,6 +1736,7 @@ function AddEventDialog({
   defaultEnd: Date;
   members: WorkspaceMember[];
   workspaceId?: string;
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }) {
   // Fetch property definitions for Status and Priority
   const supabase = createClient();
@@ -1770,8 +1774,8 @@ function AddEventDialog({
 
   const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
   const [showColors, setShowColors] = useState(false);
-
-  const dialogKey = isOpen ? `${defaultStart.toISOString()}-${defaultEnd.toISOString()}` : null;
+  const [popoverRect, setPopoverRect] = useState<{ top: number; left: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const handleSave = () => {
     if (!local.title.trim()) return;
@@ -1784,50 +1788,119 @@ function AddEventDialog({
     }
   }, [isOpen, getInitialState]);
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md" key={dialogKey || undefined}>
-        <DialogHeader>
-          <DialogTitle>Add Event</DialogTitle>
-        </DialogHeader>
+  // Position popover above the Add event button; update on resize/scroll
+  const updatePosition = React.useCallback(() => {
+    if (!anchorRef?.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    const margin = 8;
+    const maxW = Math.min(300, Math.max(260, window.innerWidth - 24));
+    const left = Math.max(margin, Math.min(rect.left + rect.width / 2 - maxW / 2, window.innerWidth - maxW - margin));
+    const top = Math.max(margin, rect.top - 360 - margin);
+    setPopoverRect({ top, left });
+  }, [anchorRef]);
 
-        <div className="space-y-4 py-4">
+  React.useLayoutEffect(() => {
+    if (!isOpen || !anchorRef?.current) {
+      setPopoverRect(null);
+      return;
+    }
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, anchorRef, updatePosition]);
+
+  // Click outside to close
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (popoverRef.current && !popoverRef.current.contains(target) && anchorRef?.current && !anchorRef.current.contains(target)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [isOpen, onClose, anchorRef]);
+
+  // Escape to close
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !popoverRect) return null;
+
+  const maxW = Math.min(300, Math.max(260, window.innerWidth - 24));
+
+  const popoverContent = (
+    <div
+      ref={popoverRef}
+      role="dialog"
+      aria-label="Add event"
+      className="fixed z-[100] flex flex-col rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
+      style={{
+        top: popoverRect?.top ?? -9999,
+        left: popoverRect?.left ?? -9999,
+        width: maxW,
+        maxHeight: Math.min(window.innerHeight * 0.85, 360),
+      }}
+    >
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+        <span className="text-sm font-medium text-[var(--foreground)]">Add event</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          aria-label="Close"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 min-h-0 px-3 py-2 space-y-2.5">
           {/* Title */}
           <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Title</label>
             <input
               type="text"
               value={local.title}
               onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
               placeholder="Event title"
               autoFocus
             />
           </div>
 
           {/* Color & Status */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Color</label>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Color</label>
               <div className="relative">
                 <button
                   type="button"
                   className={cn(
-                    "w-full h-10 rounded-lg border border-neutral-200 dark:border-neutral-800 flex items-center gap-2 px-3",
+                    "w-full h-8 rounded-[4px] border border-[var(--border)] flex items-center gap-1.5 px-2",
                     local.color || "bg-neutral-900"
                   )}
                   onClick={() => setShowColors((v) => !v)}
                 >
-                  <div className={cn("h-5 w-5 rounded-full", local.color || "bg-neutral-900")} />
-                  <span className="text-sm text-neutral-600 dark:text-neutral-400">Change</span>
+                  <div className={cn("h-3.5 w-3.5 rounded-full", local.color || "bg-neutral-900")} />
+                  <span className="text-[11px] text-[var(--muted-foreground)]">Change</span>
                 </button>
                 {showColors && (
-                  <div className="absolute z-10 mt-2 grid grid-cols-6 gap-2 p-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg">
+                  <div className="absolute z-10 mt-1 grid grid-cols-6 gap-1.5 p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] shadow-lg">
                     {DEFAULT_COLORS.map((c) => (
                       <button
                         key={c}
                         type="button"
-                        className={cn("h-8 w-8 rounded-full", c)}
+                        className={cn("h-6 w-6 rounded-full", c)}
                         onClick={() => {
                           setLocal((s) => ({ ...s, color: c }));
                           setShowColors(false);
@@ -1838,19 +1911,16 @@ function AddEventDialog({
                 )}
               </div>
             </div>
-
             <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Status</label>
               <select
                 value={local.status ?? "todo"}
                 onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
               >
                 {statusOptions.length > 0 ? (
                   statusOptions.map((opt: any) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
                   ))
                 ) : (
                   <>
@@ -1864,47 +1934,45 @@ function AddEventDialog({
             </div>
           </div>
 
-          {/* Priority */}
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
-            <select
-              value={local.priority ?? ""}
-              onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">None</option>
-              {priorityOptions.length > 0 ? (
-                priorityOptions.map((opt: any) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))
-              ) : (
-                <>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </>
-              )}
-            </select>
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Start</label>
+              <input
+                type="date"
+                value={format(new Date(local.start), "yyyy-MM-dd")}
+                onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
+                disabled={local.isMilestone}
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">End</label>
+              <input
+                type="date"
+                value={format(new Date(local.end), "yyyy-MM-dd")}
+                onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
+                disabled={local.isMilestone}
+              />
+            </div>
           </div>
 
           {/* Progress & Milestone */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Progress (%)</label>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Progress %</label>
               <input
                 type="number"
                 min="0"
                 max="100"
                 value={local.progress ?? 0}
                 onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
               />
             </div>
             <div className="flex items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-1.5 cursor-pointer py-1.5">
                 <input
                   type="checkbox"
                   checked={local.isMilestone ?? false}
@@ -1915,110 +1983,105 @@ function AddEventDialog({
                       end: e.target.checked ? s.start : s.end,
                     }));
                   }}
-                  className="w-4 h-4 rounded border-neutral-300"
+                  className="w-3.5 h-3.5 rounded border-[var(--border)]"
                 />
-                <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Milestone</span>
+                <span className="text-[11px] text-[var(--foreground)]">Milestone</span>
               </label>
             </div>
           </div>
 
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Priority & Assignee - compact row */}
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
-              <input
-                type="date"
-                value={format(new Date(local.start), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={local.isMilestone}
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
-              <input
-                type="date"
-                value={format(new Date(local.end), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={local.isMilestone}
-              />
-            </div>
-          </div>
-
-          {/* Assignee */}
-          <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Assignee (optional)</label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm text-left flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-neutral-500" />
-                    <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                      {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
-                    </span>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-neutral-400" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
-                <DropdownMenuItem
-                  onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
-                  className="text-neutral-500"
-                >
-                  Unassigned
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {members.length > 0 ? (
-                  members.map((member) => (
-                    <DropdownMenuItem
-                      key={member.id}
-                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                          {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
-                          <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Priority</label>
+              <select
+                value={local.priority ?? ""}
+                onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
+                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+              >
+                <option value="">None</option>
+                {priorityOptions.length > 0 ? (
+                  priorityOptions.map((opt: any) => (
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
                   ))
                 ) : (
-                  <DropdownMenuItem disabled className="text-neutral-400">
-                    Loading members...
-                  </DropdownMenuItem>
+                  <>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </>
                 )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Assignee</label>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="w-full h-8 px-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[11px] text-left flex items-center gap-1.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]">
+                    <User className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
+                    <span className={cn("truncate", local.assigneeId ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]")}>
+                      {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-[var(--muted-foreground)] shrink-0 ml-auto" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48 max-h-48 overflow-y-auto z-[110]">
+                  <DropdownMenuItem
+                    onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
+                    className="text-[11px] text-[var(--muted-foreground)]"
+                  >
+                    Unassigned
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {members.length > 0 ? (
+                    members.map((member) => (
+                      <DropdownMenuItem
+                        key={member.id}
+                        onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
+                        className="text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-full bg-[var(--surface-hover)] flex items-center justify-center text-[10px] font-medium shrink-0">
+                            {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
+                          </div>
+                          <span className="truncate">{member.name ?? member.email ?? "Unknown"}</span>
+                        </div>
+                      </DropdownMenuItem>
+                    ))
+                  ) : (
+                    <DropdownMenuItem disabled className="text-[11px] text-[var(--muted-foreground)]">
+                      Loading...
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
-          {/* Notes */}
+          {/* Notes - compact */}
           <div>
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Notes</label>
             <textarea
               value={local.notes ?? ""}
               onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Additional details..."
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs min-h-[48px] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] resize-none"
+              placeholder="Optional..."
             />
           </div>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={!local.title.trim()}>
-            Add Event
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div className="flex items-center justify-end gap-1.5 px-3 py-2 border-t border-[var(--border)]">
+        <Button variant="outline" size="sm" onClick={onClose} className="h-7 px-2 text-xs">
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSave} disabled={!local.title.trim()} className="h-7 px-2 text-xs">
+          Add
+        </Button>
+      </div>
+    </div>
   );
+
+  return createPortal(popoverContent, document.body);
 }
 
 function EventDetailsPanel({

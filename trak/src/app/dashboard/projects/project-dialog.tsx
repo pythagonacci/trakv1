@@ -194,24 +194,24 @@ export default function ProjectDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
-      <div className="w-full max-w-lg overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.05)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-3">
+      <div className="w-full max-w-md overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_16px_rgba(0,0,0,0.05)]">
         {/* Dialog Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <h2 className="text-lg font-semibold text-[var(--foreground)]">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <h2 className="text-base font-semibold text-[var(--foreground)]">
             {mode === "create" ? "New Project" : "Edit Project"}
           </h2>
           <button
             onClick={handleClose}
-            className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--border)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            className="flex h-7 w-7 items-center justify-center rounded-[2px] border border-[var(--border)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             disabled={isSubmitting}
           >
-            <X className="h-4 w-4" />
+            <X className="h-3 w-3" />
           </button>
         </div>
 
         {/* Dialog Body */}
-        <form onSubmit={handleSubmit} className="space-y-5 px-6 py-5">
+        <form onSubmit={handleSubmit} className="space-y-4 px-4 py-4">
           {/* Error Message */}
           {formError && (
             <div className="rounded-[2px] border border-[var(--error)]/30 bg-[var(--error)]/10 px-4 py-3">
@@ -221,7 +221,7 @@ export default function ProjectDialog({
 
           {/* Project Name */}
           <div>
-            <label htmlFor="project-name" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+            <label htmlFor="project-name" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
               Project Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -230,7 +230,7 @@ export default function ProjectDialog({
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="Enter project name"
-              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
               autoFocus
             />
@@ -238,8 +238,11 @@ export default function ProjectDialog({
 
           {/* Client Input (Autocomplete + Create) */}
           <div className="relative">
-            <label htmlFor="client" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-              Client <span className="text-xs text-[var(--tertiary-foreground)]">(optional - type to create or select)</span>
+            <label htmlFor="client" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+              Client{" "}
+              <span className="text-[10px] text-[var(--tertiary-foreground)]">
+                (optional - type to create or select)
+              </span>
             </label>
             <input
               id="client"
@@ -249,7 +252,7 @@ export default function ProjectDialog({
               onFocus={() => setShowClientDropdown(clientInput.length > 0)}
               onBlur={() => setTimeout(() => setShowClientDropdown(false), 200)}
               placeholder="Type client name..."
-              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             />
             
@@ -284,7 +287,7 @@ export default function ProjectDialog({
             )}
             
             {clientInput && !formData.client_id && (
-              <p className="mt-1 text-xs text-[var(--primary)]">
+              <p className="mt-0.5 text-[10px] text-[var(--primary)]">
                 ✨ New client "{clientInput}" will be created
               </p>
             )}
@@ -292,14 +295,14 @@ export default function ProjectDialog({
 
           {/* Status */}
           <div>
-            <label htmlFor="status" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+            <label htmlFor="status" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
               Status
             </label>
             <select
               id="status"
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value as FormData["status"] })}
-              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             >
               <option value="not_started">Not started</option>
@@ -310,8 +313,9 @@ export default function ProjectDialog({
 
           {/* Due Date */}
           <div>
-            <label htmlFor="due-date" className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-              Due Date <span className="text-neutral-400 text-xs">(optional)</span>
+            <label htmlFor="due-date" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+              Due Date{" "}
+              <span className="text-neutral-400 text-[10px]">(optional)</span>
             </label>
             <input
               id="due-date"
@@ -319,7 +323,7 @@ export default function ProjectDialog({
               value={formData.due_date}
               onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
               placeholder="YYYY-MM-DD or custom text"
-              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             />
           </div>
@@ -327,13 +331,13 @@ export default function ProjectDialog({
           {/* Project Access Permissions */}
           {mode === "create" && (
             <div>
-              <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+              <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
                 Project Access
               </label>
 
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {/* Radio: All workspace members */}
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
                     name="permission"
@@ -342,16 +346,16 @@ export default function ProjectDialog({
                     className="h-4 w-4"
                     disabled={isSubmitting}
                   />
-                  <span className="text-sm text-[var(--foreground)]">
+                  <span className="text-xs text-[var(--foreground)]">
                     All workspace members{" "}
-                    <span className="text-[var(--muted-foreground)]">
+                    <span className="text-[10px] text-[var(--muted-foreground)]">
                       ({workspaceMembers.length} {workspaceMembers.length === 1 ? "member" : "members"})
                     </span>
                   </span>
                 </label>
 
                 {/* Radio: Specific members */}
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
                     name="permission"
@@ -360,17 +364,17 @@ export default function ProjectDialog({
                     className="h-4 w-4"
                     disabled={isSubmitting}
                   />
-                  <span className="text-sm text-[var(--foreground)]">Specific members only</span>
+                  <span className="text-xs text-[var(--foreground)]">Specific members only</span>
                 </label>
 
                 {/* Member selector (shown when "specific" is selected) */}
                 {permissionMode === "specific" && (
-                  <div className="ml-6 space-y-2 max-h-48 overflow-y-auto border border-[var(--border)] rounded-[2px] p-3">
+                  <div className="ml-5 space-y-1.5 max-h-40 overflow-y-auto border border-[var(--border)] rounded-[2px] p-2.5">
                     {workspaceMembers.length === 0 ? (
                       <p className="text-xs text-[var(--muted-foreground)]">Loading members...</p>
                     ) : (
                       workspaceMembers.map((member) => (
-                        <label key={member.id} className="flex items-center gap-2 cursor-pointer">
+                        <label key={member.id} className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={selectedMemberIds.includes(member.id)}
@@ -385,10 +389,12 @@ export default function ProjectDialog({
                             disabled={isSubmitting}
                           />
                           <div className="flex-1">
-                            <div className="text-sm font-medium text-[var(--foreground)]">{member.name}</div>
-                            <div className="text-xs text-[var(--muted-foreground)]">{member.email}</div>
+                            <div className="text-xs font-medium text-[var(--foreground)]">{member.name}</div>
+                            <div className="text-[10px] text-[var(--muted-foreground)]">{member.email}</div>
                           </div>
-                          <span className="text-xs text-[var(--tertiary-foreground)] capitalize">{member.role}</span>
+                          <span className="text-[10px] text-[var(--tertiary-foreground)] capitalize">
+                            {member.role}
+                          </span>
                         </label>
                       ))
                     )}
@@ -396,7 +402,7 @@ export default function ProjectDialog({
                 )}
 
                 {permissionMode === "specific" && selectedMemberIds.length === 0 && (
-                  <p className="ml-6 text-xs text-[var(--muted-foreground)]">
+                  <p className="ml-5 text-[10px] text-[var(--muted-foreground)]">
                     Select at least one member (you'll be automatically included)
                   </p>
                 )}
@@ -404,18 +410,18 @@ export default function ProjectDialog({
             </div>
           )}
 
-          <div className="flex gap-3 pt-6 border-t border-[var(--border)]">
+          <div className="flex gap-2.5 pt-4 border-t border-[var(--border)]">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]"
+              className="flex-1 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-[2px] bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--primary-foreground)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex-1 rounded-[2px] bg-[var(--primary)] px-3 py-2 text-xs font-medium text-[var(--primary-foreground)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isSubmitting}
             >
               {isSubmitting ? "Saving..." : mode === "create" ? "Create project" : "Save changes"}

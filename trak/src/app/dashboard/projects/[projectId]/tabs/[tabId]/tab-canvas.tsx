@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
+import React, { useState, useEffect, useMemo, useRef, createContext, useContext, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
@@ -26,6 +26,17 @@ import DocSidebar from "./doc-sidebar";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
+import { Undo2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+const UNDO_STACK_MAX = 10;
+type UndoEntry = { type: "delete_block"; block: Block; index: number };
 
 // Create context for file URLs
 export const FileUrlContext = createContext<Record<string, string>>({});
@@ -61,6 +72,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
   const [tabTheme, setTabTheme] = useState<string>(propTheme || "default");
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [isUndoing, setIsUndoing] = useState(false);
   
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
@@ -76,6 +89,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     if (prevTabIdRef.current !== tabId) {
       prevTabIdRef.current = tabId;
       setBlocks(initialBlocks);
+      setUndoStack([]);
       justDraggedRef.current = false;
       lastDragTimeRef.current = 0;
     }
@@ -286,6 +300,13 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       if (result.error) {
         throw new Error(result.error);
       }
+      // Push to undo stack for "undo delete"
+      if (blockSnapshot) {
+        setUndoStack((prev) => {
+          const next = [...prev, { type: "delete_block", block: blockSnapshot, index: blockIndex }];
+          return next.slice(-UNDO_STACK_MAX);
+        });
+      }
       router.refresh();
     } catch (error) {
       console.error("Failed to delete block:", error);
@@ -311,6 +332,68 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       }
     }
   };
+
+  const handleUndo = useCallback(async () => {
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry || isUndoing) return;
+    if (entry.type !== "delete_block") return;
+
+    setIsUndoing(true);
+    setUndoStack((prev) => prev.slice(0, -1));
+
+    const { block, index } = entry;
+    // Table blocks: don't pass content (creates fresh table; original table was deleted)
+    const content = block.type === "table" ? undefined : block.content;
+    const position = typeof block.position === "number" ? block.position : index;
+    const column = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
+
+    try {
+      const result = await createBlock({
+        tabId,
+        type: block.type,
+        content,
+        position,
+        column,
+      });
+      if (result.error) throw new Error(result.error);
+      if (result.data) {
+        const newBlock = { ...block, ...result.data };
+        setBlocks((prev) => {
+          const next = [...prev];
+          const insertionIndex = Math.min(index, next.length);
+          next.splice(insertionIndex, 0, newBlock);
+          return next;
+        });
+        setNewBlockIds((prev) => new Set(prev).add(newBlock.id));
+        queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) => {
+          if (!old) return old;
+          const next = [...old];
+          next.splice(insertionIndex, 0, newBlock);
+          return next;
+        });
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("Undo failed:", error);
+      alert(error instanceof Error ? error.message : "Undo failed");
+      setUndoStack((prev) => [...prev, entry]);
+    } finally {
+      setIsUndoing(false);
+    }
+  }, [undoStack, isUndoing, tabId, queryClient, router]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+        const target = e.target as HTMLElement;
+        if (target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        if (undoStack.length > 0 && !isUndoing) handleUndo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undoStack.length, isUndoing, handleUndo]);
 
   const handleConvert = async (blockId: string, newType: BlockType) => {
     // Determine default content for the new type
@@ -1115,6 +1198,32 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
             )}
             style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
           >
+            {undoStack.length > 0 && (
+              <div className="absolute top-3 right-10 z-10">
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5 px-2.5 text-xs shadow-sm"
+                        onClick={handleUndo}
+                        disabled={isUndoing}
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                        Undo
+                        {undoStack.length > 1 && (
+                          <span className="text-[10px] opacity-70">({undoStack.length})</span>
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      Undo last action (⌘Z)
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            )}
             {!isMounted ? (
               <div className="space-y-5">
                 {blockRows.map((row, rowIdx) => (
