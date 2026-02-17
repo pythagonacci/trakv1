@@ -15,7 +15,7 @@ export default async function ProfilePage() {
 
   if (workspacesResult.error || !workspacesResult.data) {
     return (
-      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--surface)] flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">
             Error Loading Workspaces

@@ -349,6 +349,8 @@ export interface TableRow {
   created_by: string | null;
   /** Last editor user ID */
   updated_by: string | null;
+  /** Whether the snapshot row has been locally edited */
+  edited?: boolean;
 }
 
 export type TableRowSourceEntityType = "task" | "timeline_event" | "table_row";

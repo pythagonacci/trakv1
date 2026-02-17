@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Send, RotateCcw, PanelRightClose, Trash2 } from "lucide-react";
+import { Loader2, Send, RotateCcw, PanelRightClose, Trash2, Square, Plus } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import Toast from "@/app/dashboard/projects/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { queryKeys } from "@/lib/react-query/query-client";
+import { createBlock } from "@/app/actions/block";
 import type { UndoBatch } from "@/lib/ai/undo";
 import type { WriteConfirmationApproval, WriteConfirmationRequest } from "@/lib/ai/write-confirmation";
 
@@ -70,8 +71,10 @@ export default function WorkflowAIChatPanel(props: {
   const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
   const [writeClarificationInput, setWriteClarificationInput] = useState("");
   const [isClearing, setIsClearing] = useState(false);
+  const [addingToPageMessageId, setAddingToPageMessageId] = useState<string | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const renderedMessages = useMemo(() => {
     return messages
@@ -186,6 +189,8 @@ export default function WorkflowAIChatPanel(props: {
     setLoading(true);
     setStreamingStatus(null);
     setStreamingResponse(null);
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
       const res = await fetch("/api/workflow/stream", {
         method: "POST",
@@ -196,6 +201,7 @@ export default function WorkflowAIChatPanel(props: {
           confirmation: options.confirmation ?? null,
           resumeFromConfirmation: Boolean(options.resumeFromConfirmation),
         }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const errorText = await res.text();
@@ -383,12 +389,32 @@ export default function WorkflowAIChatPanel(props: {
         router.refresh();
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to run workflow AI";
-      setToast({ message, type: "error" });
+      if (e instanceof Error && e.name === "AbortError") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: { text: "Stopped." },
+            created_at: new Date().toISOString(),
+            created_block_ids: [],
+          },
+        ]);
+      } else {
+        const message = e instanceof Error ? e.message : "Failed to run workflow AI";
+        setToast({ message, type: "error" });
+      }
     } finally {
+      streamAbortRef.current = null;
       setLoading(false);
       setStreamingStatus(null);
       setStreamingResponse(null);
+    }
+  };
+
+  const stopStreaming = () => {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
     }
   };
 
@@ -486,6 +512,31 @@ export default function WorkflowAIChatPanel(props: {
       setToast({ message, type: "error" });
     } finally {
       setUndoingMessageId(null);
+    }
+  };
+
+  const handleAddToPage = async (messageId: string, text: string) => {
+    const trimmed = text?.trim();
+    if (!trimmed || addingToPageMessageId) return;
+    setAddingToPageMessageId(messageId);
+    try {
+      const result = await createBlock({
+        tabId: props.tabId,
+        type: "text",
+        content: { text: trimmed },
+      });
+      if ("error" in result) {
+        setToast({ message: result.error ?? "Failed to add to page", type: "error" });
+        return;
+      }
+      setToast({ message: "Added to page", type: "success" });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(props.tabId) });
+      router.refresh();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to add to page";
+      setToast({ message, type: "error" });
+    } finally {
+      setAddingToPageMessageId(null);
     }
   };
 
@@ -631,6 +682,28 @@ export default function WorkflowAIChatPanel(props: {
                 </button>
               </div>
             )}
+            {m.role === "assistant" && getText(m.content).trim() && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => handleAddToPage(m.id, getText(m.content))}
+                  disabled={addingToPageMessageId === m.id}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]",
+                    addingToPageMessageId === m.id && "opacity-60"
+                  )}
+                  title="Add this response as a text block on the workflow page"
+                >
+                  {addingToPageMessageId === m.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Plus className="h-3 w-3" />
+                  )}
+                  Add to page
+                </button>
+              </div>
+            )}
           </div>
         ))}
 
@@ -711,17 +784,32 @@ export default function WorkflowAIChatPanel(props: {
               "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--secondary)]"
             )}
           />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className={cn(
-              "inline-flex h-[44px] items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
-              "border-[var(--secondary)] bg-[var(--secondary)] text-white hover:bg-[var(--secondary)]/90 disabled:opacity-50"
-            )}
-          >
-            <Send className="h-4 w-4" />
-            Send
-          </button>
+          {loading ? (
+            <button
+              type="button"
+              onClick={stopStreaming}
+              className={cn(
+                "inline-flex h-[44px] items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
+                "border-[var(--destructive)]/60 bg-[var(--destructive)]/10 text-[var(--destructive)] hover:bg-[var(--destructive)]/20"
+              )}
+              title="Stop AI"
+            >
+              <Square className="h-4 w-4" />
+              Stop
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className={cn(
+                "inline-flex h-[44px] items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
+                "border-[var(--secondary)] bg-[var(--secondary)] text-white hover:bg-[var(--secondary)]/90 disabled:opacity-50"
+              )}
+            >
+              <Send className="h-4 w-4" />
+              Send
+            </button>
+          )}
         </div>
       </form>
 

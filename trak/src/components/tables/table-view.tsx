@@ -27,6 +27,8 @@ import {
   useBulkUpdateRows,
   useBulkInsertRows,
   useSetTableRowsSourceSyncMode,
+  usePushEditedSnapshotRows,
+  useRefreshEditedSnapshotRows,
 } from "@/lib/hooks/use-table-queries";
 import { TableHeaderRow } from "./table-header-row";
 import { TableRow } from "./table-row";
@@ -37,6 +39,7 @@ import { TableContextMenu } from "./table-context-menu";
 import { PropertyMenu } from "@/components/properties";
 import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 import { BulkDeleteDialog } from "./bulk-delete-dialog";
+import { SyncEditedRowsDialog, type SyncResolution } from "./sync-edited-rows-dialog";
 import { RelationConfigModal } from "./relation-config-modal";
 import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
@@ -237,6 +240,10 @@ export function TableView({ tableId }: Props) {
   const bulkUpdateRows = useBulkUpdateRows(tableId);
   const bulkInsertRows = useBulkInsertRows(tableId);
   const setSourceSyncMode = useSetTableRowsSourceSyncMode(tableId);
+  const pushEditedRows = usePushEditedSnapshotRows(tableId);
+  const refreshEditedRows = useRefreshEditedSnapshotRows(tableId);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncDialogResolving, setSyncDialogResolving] = useState(false);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
   const subtaskField = useMemo(() => {
@@ -383,6 +390,11 @@ export function TableView({ tableId }: Props) {
     [rowData?.rows]
   );
   const hasSourceLinkedRows = sourceLinkedRows.length > 0;
+  const editedSnapshotRows = useMemo(
+    () => sourceLinkedRows.filter((row) => row.edited === true),
+    [sourceLinkedRows]
+  );
+  const hasEditedSnapshots = editedSnapshotRows.length > 0;
   const sourceEntityTypes = useMemo(
     () =>
       Array.from(
@@ -1495,8 +1507,13 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             <span className="text-[10px] font-medium text-[var(--muted-foreground)]">Sync edits to source</span>
             <Switch
               checked={liveSourceSyncEnabled}
-              disabled={setSourceSyncMode.isPending}
+              disabled={setSourceSyncMode.isPending || syncDialogResolving}
               onCheckedChange={(checked) => {
+                // When turning on live sync and there are edited snapshots, show dialog
+                if (checked && hasEditedSnapshots) {
+                  setSyncDialogOpen(true);
+                  return;
+                }
                 setSourceSyncMode.mutate(
                   { mode: checked ? "live" : "snapshot" },
                   {
@@ -1545,6 +1562,75 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         </div>
       )}
 
+      <SyncEditedRowsDialog
+        open={syncDialogOpen}
+        editedRowCount={editedSnapshotRows.length}
+        resolving={syncDialogResolving}
+        onResolve={async (resolution: SyncResolution) => {
+          if (resolution === "cancel") {
+            setSyncDialogOpen(false);
+            return;
+          }
+
+          setSyncDialogResolving(true);
+          try {
+            const action = resolution === "push" ? pushEditedRows : refreshEditedRows;
+            const result = await action.mutateAsync();
+
+            if ("error" in result) {
+              setToast({ message: result.error || "Failed to resolve edited rows.", type: "error" });
+              setSyncDialogResolving(false);
+              return;
+            }
+
+            const data = result.data;
+            const failedCount = data.failedRowIds?.length ?? 0;
+            if (failedCount > 0) {
+              setToast({
+                message: `${failedCount} row${failedCount === 1 ? "" : "s"} failed to ${resolution === "push" ? "push" : "refresh"}. Sync mode was not changed for failed rows.`,
+                type: "error",
+              });
+              // If some rows failed, still try to switch sync mode for the ones that succeeded
+            }
+
+            // Now apply the sync mode change
+            setSourceSyncMode.mutate(
+              { mode: "live" },
+              {
+                onSuccess: (res) => {
+                  setSyncDialogResolving(false);
+                  setSyncDialogOpen(false);
+                  if ("error" in res) {
+                    setToast({ message: res.error || "Failed to update source sync mode.", type: "error" });
+                    return;
+                  }
+                  const resolvedCount = resolution === "push"
+                    ? (data as any).pushedCount
+                    : (data as any).refreshedCount;
+                  setToast({
+                    message: `${resolution === "push" ? "Pushed" : "Discarded"} edits for ${resolvedCount} row${resolvedCount === 1 ? "" : "s"}. Live sync enabled.`,
+                    type: "success",
+                  });
+                },
+                onError: (error) => {
+                  setSyncDialogResolving(false);
+                  setSyncDialogOpen(false);
+                  setToast({
+                    message: error instanceof Error ? error.message : "Failed to update source sync mode.",
+                    type: "error",
+                  });
+                },
+              }
+            );
+          } catch (err) {
+            setSyncDialogResolving(false);
+            setToast({
+              message: err instanceof Error ? err.message : "An error occurred while resolving edited rows.",
+              type: "error",
+            });
+          }
+        }}
+      />
       <BulkDeleteDialog
         open={deleteDialogOpen}
         rowCount={selectedRows.size}

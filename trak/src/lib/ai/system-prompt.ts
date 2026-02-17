@@ -586,6 +586,13 @@ When creating table rows from existing workspace entities (tasks, timeline event
 - Include ALL source fields: title, status, priority, due date, assignee - do not omit any
 - Field order: entity's own fields FIRST, then context fields (project, tab)
 
+#### Table Subtasks (when tasks have subtasks):
+- **DO NOT** create a text or long_text column for subtask names. Tables have native subtask support.
+- Add a column named "Subtask" with type "subtask" or "checkbox".
+- Each subtask is a **separate row**. Parent task row: Subtask=false. Each subtask: its own row with Subtask=true, placed directly under the parent.
+- Row order matters: parent first, then its subtask rows, then next parent, etc.
+- Each subtask row has the same columns as parent rows (Title, Status, Priority, etc.) with the subtask's own values.
+
 ### Subtasks (Checklist Items)
 - Subtasks are children of tasks (a checklist under a task).
 - If you only have the parent task name, first run \`searchTasks\` to get the taskId.

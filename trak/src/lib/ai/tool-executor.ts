@@ -4556,6 +4556,17 @@ function normalizeRowsForSelectFields(
       const field = fieldByName.get(normalizeFieldName(key));
       if (!field) continue;
       const fieldType = String(field.type ?? "");
+
+      // Normalize checkbox/subtask to boolean
+      if ((fieldType === "checkbox" || fieldType === "subtask") && (typeof rawValue === "string" || typeof rawValue === "number")) {
+        const boolVal = typeof rawValue === "number" ? rawValue === 1 : ["true", "yes", "y", "1", "checked", "x"].includes(String(rawValue).toLowerCase().trim());
+        if (nextData[key] !== boolVal) {
+          nextData[key] = boolVal;
+          changed = true;
+        }
+        continue;
+      }
+
       if (!isSelectLike(fieldType)) continue;
 
       // Status/Priority are universal properties backed by workspace property_definitions.
@@ -5483,10 +5494,11 @@ function resolveUpdateValue(
     return { value, updatedConfig: resolved.updatedConfig };
   }
 
-  if (field.type === "checkbox" && typeof rawValue === "string") {
-    const normalized = rawValue.toLowerCase().trim();
-    if (normalized === "true") return { value: true };
-    if (normalized === "false") return { value: false };
+  if ((field.type === "checkbox" || field.type === "subtask") && (typeof rawValue === "string" || typeof rawValue === "number")) {
+    if (typeof rawValue === "number") return { value: rawValue === 1 };
+    const normalized = String(rawValue).toLowerCase().trim();
+    if (["true", "yes", "y", "1", "checked", "x"].includes(normalized)) return { value: true };
+    if (["false", "no", "n", "0", "unchecked"].includes(normalized)) return { value: false };
   }
 
   return { value: rawValue };

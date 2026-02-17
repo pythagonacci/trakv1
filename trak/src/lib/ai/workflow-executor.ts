@@ -843,6 +843,13 @@ BLOCK CREATION:
 - INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
+🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
+- Add a "Subtask" field with type "subtask" or "checkbox" to the table schema.
+- Each subtask is a SEPARATE ROW: parent task row has Subtask=false, each subtask has its own row with Subtask=true placed directly under the parent.
+- Row order: Parent → subtask1 → subtask2 → next parent → its subtasks...
+- Each subtask row fills ALL columns (Title, Status, Priority, etc.) with the subtask's own values — treat it like a regular row.
+- NEVER create a text/long_text "Subtasks" column that lists names in one cell.
+
 CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
 - When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information
 - NEVER create text blocks with generic or made-up content - always base them on actual workspace data
@@ -1289,6 +1296,13 @@ BLOCK CREATION:
 - Date fields → type: "date". Value must be YYYY-MM-DD format
 - INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
+
+🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
+- Add a "Subtask" field with type "subtask" or "checkbox" to the table schema.
+- Each subtask is a SEPARATE ROW: parent task row has Subtask=false, each subtask has its own row with Subtask=true placed directly under the parent.
+- Row order: Parent → subtask1 → subtask2 → next parent → its subtasks...
+- Each subtask row fills ALL columns (Title, Status, Priority, etc.) with the subtask's own values — treat it like a regular row.
+- NEVER create a text/long_text "Subtasks" column that lists names in one cell.
 
 CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
 - When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information

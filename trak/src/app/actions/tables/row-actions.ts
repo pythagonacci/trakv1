@@ -465,6 +465,263 @@ export async function setTableRowsSourceSyncMode(input: {
 }
 
 // ---------------------------------------------------------------------------
+// Push edited snapshot rows to source
+// ---------------------------------------------------------------------------
+
+export async function pushEditedSnapshotRowsToSource(input: {
+  tableId: string;
+  authContext?: AuthContext;
+}): Promise<ActionResult<{ pushedCount: number; failedRowIds: string[] }>> {
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, userId } = access;
+
+  // Fetch all edited source-linked rows
+  const { data: editedRows, error: fetchErr } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data, source_entity_type, source_entity_id, source_sync_mode")
+    .eq("table_id", input.tableId)
+    .eq("edited", true)
+    .not("source_entity_id", "is", null);
+
+  if (fetchErr) return { error: "Failed to fetch edited rows" };
+  if (!editedRows || editedRows.length === 0) return { data: { pushedCount: 0, failedRowIds: [] } };
+
+  // Fetch table fields for mapping
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config, is_primary, property_definition_id")
+    .eq("table_id", input.tableId);
+
+  const tableFields = (fields ?? []) as TableField[];
+  const authContext: AuthContext = input.authContext ?? { supabase, userId };
+
+  const failedRowIds: string[] = [];
+  let pushedCount = 0;
+
+  for (const row of editedRows) {
+    try {
+      const rowData = (row.data ?? {}) as Record<string, unknown>;
+
+      if (row.source_entity_type === "task") {
+        const updates: Record<string, unknown> = {};
+        for (const field of tableFields) {
+          if (rowData[field.id] === undefined) continue;
+          const mapped = mapTaskUpdateFromField(field, rowData[field.id]);
+          if (mapped) Object.assign(updates, mapped);
+        }
+        if (Object.keys(updates).length > 0) {
+          const result = await updateTaskItem(row.source_entity_id!, updates as any, { authContext });
+          if ("error" in result) { failedRowIds.push(row.id); continue; }
+        }
+      } else if (row.source_entity_type === "timeline_event") {
+        const updates: Record<string, unknown> = {};
+        for (const field of tableFields) {
+          if (rowData[field.id] === undefined) continue;
+          const mapped = mapTimelineUpdateFromField(field, rowData[field.id]);
+          if (mapped) Object.assign(updates, mapped);
+        }
+        if (Object.keys(updates).length > 0) {
+          const result = await updateTimelineEvent(row.source_entity_id!, updates as any, { authContext });
+          if ("error" in result) { failedRowIds.push(row.id); continue; }
+        }
+      } else if (row.source_entity_type === "table_row") {
+        // Push each mapped field to source table row
+        for (const field of tableFields) {
+          if (rowData[field.id] === undefined) continue;
+          await syncTableRowEditToSourceTableRow(row.source_entity_id!, field, rowData[field.id], authContext);
+        }
+      }
+
+      // Clear edited flag on success
+      await supabase
+        .from("table_rows")
+        .update({ edited: false, updated_by: userId })
+        .eq("id", row.id);
+
+      pushedCount++;
+    } catch (err) {
+      console.error(`pushEditedSnapshotRowsToSource: failed for row ${row.id}`, err);
+      failedRowIds.push(row.id);
+    }
+  }
+
+  return { data: { pushedCount, failedRowIds } };
+}
+
+// ---------------------------------------------------------------------------
+// Refresh edited snapshot rows from source
+// ---------------------------------------------------------------------------
+
+export async function refreshEditedSnapshotRowsFromSource(input: {
+  tableId: string;
+  authContext?: AuthContext;
+}): Promise<ActionResult<{ refreshedCount: number; failedRowIds: string[] }>> {
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, userId } = access;
+
+  // Fetch all edited source-linked rows
+  const { data: editedRows, error: fetchErr } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data, source_entity_type, source_entity_id, source_sync_mode")
+    .eq("table_id", input.tableId)
+    .eq("edited", true)
+    .not("source_entity_id", "is", null);
+
+  if (fetchErr) return { error: "Failed to fetch edited rows" };
+  if (!editedRows || editedRows.length === 0) return { data: { refreshedCount: 0, failedRowIds: [] } };
+
+  // Fetch table fields for reverse mapping
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config, is_primary, property_definition_id")
+    .eq("table_id", input.tableId);
+
+  const tableFields = (fields ?? []) as TableField[];
+  const failedRowIds: string[] = [];
+  let refreshedCount = 0;
+
+  for (const row of editedRows) {
+    try {
+      const rowData = { ...((row.data ?? {}) as Record<string, unknown>) };
+      let refreshed = false;
+
+      if (row.source_entity_type === "task") {
+        const { data: task, error: taskErr } = await supabase
+          .from("task_items")
+          .select("*")
+          .eq("id", row.source_entity_id!)
+          .maybeSingle();
+
+        if (taskErr || !task) { failedRowIds.push(row.id); continue; }
+
+        // Map task fields back into row data
+        for (const field of tableFields) {
+          const value = mapTaskFieldToRowValue(field, task);
+          if (value !== undefined) rowData[field.id] = value;
+        }
+        refreshed = true;
+      } else if (row.source_entity_type === "timeline_event") {
+        const { data: event, error: eventErr } = await supabase
+          .from("timeline_events")
+          .select("*")
+          .eq("id", row.source_entity_id!)
+          .maybeSingle();
+
+        if (eventErr || !event) { failedRowIds.push(row.id); continue; }
+
+        for (const field of tableFields) {
+          const value = mapTimelineEventFieldToRowValue(field, event);
+          if (value !== undefined) rowData[field.id] = value;
+        }
+        refreshed = true;
+      } else if (row.source_entity_type === "table_row") {
+        const { data: sourceRow, error: sourceErr } = await supabase
+          .from("table_rows")
+          .select("id, table_id, data")
+          .eq("id", row.source_entity_id!)
+          .maybeSingle();
+
+        if (sourceErr || !sourceRow) { failedRowIds.push(row.id); continue; }
+
+        // Get source table's fields and map by name
+        const { data: sourceFields } = await supabase
+          .from("table_fields")
+          .select("id, name")
+          .eq("table_id", sourceRow.table_id);
+
+        const sourceData = (sourceRow.data ?? {}) as Record<string, unknown>;
+        const sourceFieldList = sourceFields ?? [];
+
+        for (const field of tableFields) {
+          const sourceField = sourceFieldList.find((sf: any) => sf.name === field.name);
+          if (sourceField && sourceData[sourceField.id] !== undefined) {
+            rowData[field.id] = sourceData[sourceField.id];
+          }
+        }
+        refreshed = true;
+      }
+
+      if (refreshed) {
+        await supabase
+          .from("table_rows")
+          .update({ data: rowData, edited: false, updated_by: userId })
+          .eq("id", row.id);
+        refreshedCount++;
+      } else {
+        failedRowIds.push(row.id);
+      }
+    } catch (err) {
+      console.error(`refreshEditedSnapshotRowsFromSource: failed for row ${row.id}`, err);
+      failedRowIds.push(row.id);
+    }
+  }
+
+  return { data: { refreshedCount, failedRowIds } };
+}
+
+// ---------------------------------------------------------------------------
+// Reverse mapping helpers: source entity → row data value
+// ---------------------------------------------------------------------------
+
+function mapTaskFieldToRowValue(
+  field: TableField,
+  task: Record<string, unknown>
+): unknown | undefined {
+  const normalizedFieldName = normalizeFieldName(field.name);
+
+  if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "task") {
+    return task.title ?? "";
+  }
+  if (field.type === "status" || normalizedFieldName === "status") {
+    return task.status ?? null;
+  }
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    return task.priority ?? null;
+  }
+  if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
+    return task.description ?? null;
+  }
+  if (field.type === "date" || normalizedFieldName.includes("date")) {
+    if (normalizedFieldName.includes("start")) return task.start_date ?? null;
+    if (normalizedFieldName.includes("due") || normalizedFieldName === "date") return task.due_date ?? null;
+  }
+  return undefined;
+}
+
+function mapTimelineEventFieldToRowValue(
+  field: TableField,
+  event: Record<string, unknown>
+): unknown | undefined {
+  const normalizedFieldName = normalizeFieldName(field.name);
+
+  if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "event") {
+    return event.title ?? "";
+  }
+  if (field.type === "status" || normalizedFieldName === "status") {
+    return event.status ?? null;
+  }
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    return event.priority ?? null;
+  }
+  if (normalizedFieldName.includes("progress")) {
+    return event.progress ?? null;
+  }
+  if (normalizedFieldName.includes("milestone")) {
+    return event.is_milestone ?? null;
+  }
+  if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
+    return event.notes ?? null;
+  }
+  if (field.type === "date" || normalizedFieldName.includes("date")) {
+    if (normalizedFieldName.includes("end")) return event.end_date ?? null;
+    if (normalizedFieldName.includes("start") || normalizedFieldName === "date") return event.start_date ?? null;
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

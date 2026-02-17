@@ -17,6 +17,8 @@ import {
   reorderRows,
   duplicateRow,
   setTableRowsSourceSyncMode,
+  pushEditedSnapshotRowsToSource,
+  refreshEditedSnapshotRowsFromSource,
 } from "@/app/actions/tables/row-actions";
 import { createView, getView, updateView, deleteView, setDefaultView, listViews } from "@/app/actions/tables/view-actions";
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
@@ -625,6 +627,26 @@ export function useSetTableRowsSourceSyncMode(tableId: string) {
         mode: input.mode,
         sourceEntityType: input.sourceEntityType,
       }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function usePushEditedSnapshotRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => pushEditedSnapshotRowsToSource({ tableId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function useRefreshEditedSnapshotRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => refreshEditedSnapshotRowsFromSource({ tableId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
     },
