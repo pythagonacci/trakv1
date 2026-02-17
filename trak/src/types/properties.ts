@@ -267,7 +267,6 @@ export interface QueryEntitiesParams {
   entity_types?: EntityType[];
   filters?: QueryFilter[];
   properties?: PropertyFilter[];
-  include_inherited?: boolean;
   include_workflow_representations?: boolean;
 }
 

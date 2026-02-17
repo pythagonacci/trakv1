@@ -377,7 +377,6 @@ const searchTools: ToolDefinition[] = [
       tagId: { type: "string", description: "Filter by tag ID" },
       assigneeName: { type: "string", description: "Filter by assignee name" },
       assigneeId: { type: "string", description: "Filter by assignee ID" },
-      includeInherited: { type: "boolean", description: "Include inherited properties via entity links" },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],

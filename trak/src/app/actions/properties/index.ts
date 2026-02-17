@@ -19,7 +19,6 @@ export {
   removeEntityProperty,
   getEntityPropertiesWithInheritance,
   getEntitiesProperties,
-  setInheritedPropertyVisibility,
 } from "./entity-property-actions";
 
 export {

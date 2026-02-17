@@ -10,7 +10,6 @@ import type {
   EntityType,
   EntityProperties,
   EntityPropertiesWithInheritance,
-  InheritedEntityProperties,
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
@@ -642,99 +641,18 @@ export async function getEntitiesProperties(
 }
 
 /**
- * Get properties with inheritance (direct + inherited from linked entities)
+ * Get properties (direct only; inheritance removed).
  */
 export async function getEntityPropertiesWithInheritance(
   entityType: EntityType,
   entityId: string
 ): Promise<ActionResult<EntityPropertiesWithInheritance>> {
-  const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return { error: access.error };
-  const { supabase, workspaceId } = access;
-
-  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
-  if ("error" in definitions) return { error: definitions.error };
-
-  // Get direct properties
-  const definitionIds = Object.values(definitions.byKey).filter(Boolean);
-  const { data: directRows, error: directError } = await supabase
-    .from("entity_properties")
-    .select("id, property_definition_id, value, created_at, updated_at")
-    .eq("entity_type", entityType)
-    .eq("entity_id", entityId)
-    .in("property_definition_id", definitionIds);
-  if (directError) {
-    console.error("getEntityPropertiesWithInheritance error:", directError);
-    return { error: "Failed to fetch entity properties" };
-  }
-  const direct =
-    directRows && directRows.length > 0
-      ? buildEntityPropertiesFromRows(
-          entityType,
-          entityId,
-          workspaceId,
-          directRows,
-          definitions.byId
-        )
-      : null;
-
-  // Get entities that link TO this entity (they pass their properties down)
-  const { data: incomingLinks } = await supabase
-    .from("entity_links")
-    .select("source_entity_type, source_entity_id")
-    .eq("target_entity_type", entityType)
-    .eq("target_entity_id", entityId);
-
-  const inherited: InheritedEntityProperties[] = [];
-
-  // For each linking entity, get their properties
-  for (const link of incomingLinks ?? []) {
-    const { data: sourceRows } = await supabase
-      .from("entity_properties")
-      .select("id, property_definition_id, value, created_at, updated_at")
-      .eq("entity_type", link.source_entity_type)
-      .eq("entity_id", link.source_entity_id)
-      .in("property_definition_id", definitionIds);
-
-    if (!sourceRows || sourceRows.length === 0) continue;
-
-    // Check visibility preference
-    const { data: displayPref } = await supabase
-      .from("entity_inherited_display")
-      .select("is_visible")
-      .eq("entity_type", entityType)
-      .eq("entity_id", entityId)
-      .eq("source_entity_type", link.source_entity_type)
-      .eq("source_entity_id", link.source_entity_id)
-      .maybeSingle();
-
-    const isVisible = displayPref?.is_visible ?? true;
-
-    // Get source entity title
-    const sourceTitle = await getEntityTitle(
-      link.source_entity_type as EntityType,
-      link.source_entity_id
-    );
-
-    inherited.push({
-      source_entity_type: link.source_entity_type as EntityType,
-      source_entity_id: link.source_entity_id,
-      source_title: sourceTitle,
-      properties: buildEntityPropertiesFromRows(
-        link.source_entity_type as EntityType,
-        link.source_entity_id,
-        workspaceId,
-        sourceRows,
-        definitions.byId
-      ),
-      visible: isVisible,
-    });
-  }
-
+  const directResult = await getEntityProperties(entityType, entityId);
+  if ("error" in directResult) return directResult;
   return {
     data: {
-      direct: direct || null,
-      inherited,
+      direct: directResult.data ?? null,
+      inherited: [],
     },
   };
 }
@@ -1315,43 +1233,3 @@ export async function getEntityLinks(
   };
 }
 
-// ============================================================================
-// Inherited Property Visibility
-// ============================================================================
-
-/**
- * Set visibility preference for an inherited property
- */
-export async function setInheritedPropertyVisibility(
-  input: {
-    entity_type: EntityType;
-    entity_id: string;
-    source_entity_type: EntityType;
-    source_entity_id: string;
-    is_visible: boolean;
-  }
-): Promise<ActionResult<null>> {
-  const access = await requireEntityAccess(input.entity_type, input.entity_id);
-  if ("error" in access) return { error: access.error };
-  const { supabase } = access;
-
-  const { error } = await supabase.from("entity_inherited_display").upsert(
-    {
-      entity_type: input.entity_type,
-      entity_id: input.entity_id,
-      source_entity_type: input.source_entity_type,
-      source_entity_id: input.source_entity_id,
-      is_visible: input.is_visible,
-    },
-    {
-      onConflict: "entity_type,entity_id,source_entity_type,source_entity_id",
-    }
-  );
-
-  if (error) {
-    console.error("setInheritedPropertyVisibility error:", error);
-    return { error: "Failed to update visibility preference" };
-  }
-
-  return { data: null };
-}

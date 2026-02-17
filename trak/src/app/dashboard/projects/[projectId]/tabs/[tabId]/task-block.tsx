@@ -407,7 +407,6 @@ function TaskPropertyBadges({
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
 
   const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -428,15 +427,6 @@ function TaskPropertyBadges({
           memberNames={getMemberNames(direct)}
         />
       )}
-      {inherited.map((inh) => (
-        <PropertyBadges
-          key={`inherited-${inh.source_entity_id}`}
-          properties={inh.properties}
-          inherited
-          onClick={onOpen}
-          memberNames={getMemberNames(inh.properties)}
-        />
-      ))}
     </div>
   );
 }

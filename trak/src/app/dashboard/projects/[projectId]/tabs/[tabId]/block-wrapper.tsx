@@ -90,7 +90,6 @@ export default function BlockWrapper({
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -106,12 +105,7 @@ export default function BlockWrapper({
     return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
   };
 
-  const directCount = countEntityProperties(direct);
-  const inheritedCount = inherited.reduce(
-    (sum, inh) => sum + countEntityProperties(inh.properties),
-    0
-  );
-  const totalPropertiesCount = directCount + inheritedCount;
+  const totalPropertiesCount = countEntityProperties(direct);
   const hasProperties = totalPropertiesCount > 0;
 
   // Check if block has comments
@@ -782,15 +776,6 @@ export default function BlockWrapper({
                     memberNames={getMemberNames(direct)}
                   />
                 )}
-                {inherited.map((inh) => (
-                  <PropertyBadges
-                    key={`inherited-${inh.source_entity_id}`}
-                    properties={inh.properties}
-                    inherited
-                    onClick={() => setPropertiesOpen(true)}
-                    memberNames={getMemberNames(inh.properties)}
-                  />
-                ))}
               </div>
             )}
 

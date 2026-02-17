@@ -6307,7 +6307,6 @@ export async function searchEntitiesByProperties(params: {
   tagId?: string | string[];
   assigneeName?: string | string[];
   assigneeId?: string | string[];
-  includeInherited?: boolean;
   includeWorkflowRepresentations?: boolean;
   limit?: number;
   authContext?: AuthContext;
@@ -6391,7 +6390,6 @@ export async function searchEntitiesByProperties(params: {
       tab_id: params.tabId,
       entity_types: params.entityTypes,
       properties,
-      include_inherited: params.includeInherited ?? true,
       include_workflow_representations: params.includeWorkflowRepresentations ?? false,
     };
 

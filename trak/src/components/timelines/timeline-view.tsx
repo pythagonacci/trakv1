@@ -2045,7 +2045,6 @@ function EventDetailsPanel({
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
 
   const [local, setLocal] = useState({
     status: event.status ?? null,
@@ -2323,18 +2322,11 @@ function EventDetailsPanel({
             />
           </div>
 
-          {workspaceId && (direct || inherited.length > 0) && (
+          {workspaceId && direct && (
             <div className="space-y-2">
               <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</div>
               <div className="flex flex-wrap gap-2">
-                {direct && <PropertyBadges properties={direct} />}
-                {inherited.map((inh) => (
-                  <PropertyBadges
-                    key={`inherited-${inh.source_entity_id}`}
-                    properties={inh.properties}
-                    inherited
-                  />
-                ))}
+                <PropertyBadges properties={direct} />
               </div>
             </div>
           )}
@@ -2468,8 +2460,7 @@ function EditEventDialog({
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
-  
+
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
     const member = findWorkspaceMember(workspaceMembers, assigneeId);
@@ -2748,24 +2739,13 @@ function EditEventDialog({
                       Manage properties
                     </Button>
                   </div>
-                  {(direct || inherited.length > 0) ? (
+                  {direct ? (
                     <div className="flex flex-wrap gap-2">
-                      {direct && (
-                        <PropertyBadges
-                          properties={direct}
-                          onClick={() => setPropertiesOpen(true)}
-                          memberNames={getMemberNames(direct)}
-                        />
-                      )}
-                      {inherited.map((inh) => (
-                        <PropertyBadges
-                          key={`inherited-${inh.source_entity_id}`}
-                          properties={inh.properties}
-                          inherited
-                          onClick={() => setPropertiesOpen(true)}
-                          memberNames={getMemberNames(inh.properties)}
-                        />
-                      ))}
+                      <PropertyBadges
+                        properties={direct}
+                        onClick={() => setPropertiesOpen(true)}
+                        memberNames={getMemberNames(direct)}
+                      />
                     </div>
                   ) : (
                     <p className="text-xs text-neutral-500">No properties yet.</p>

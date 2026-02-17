@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { X, Eye, EyeOff, Calendar as CalendarIcon, User, Tag as TagIcon } from "lucide-react";
+import { X, Calendar as CalendarIcon, User, Tag as TagIcon } from "lucide-react";
 import { buildDueDateRange, formatDueDateRange, hasDueDate, normalizeDueDateRange } from "@/lib/due-date";
 import { DateRangeCalendar } from "@/components/due-date-calendar";
 import {
@@ -31,7 +31,6 @@ import {
   useAddTag,
   useRemoveTag,
   useWorkspaceMembers,
-  useSetInheritedPropertyVisibility,
 } from "@/lib/hooks/use-property-queries";
 import {
   STATUS_OPTIONS,
@@ -79,10 +78,8 @@ export function PropertyMenu({
   const setProperties = useSetEntityProperties(entityType, entityId, workspaceId);
   const addTagMutation = useAddTag(entityType, entityId, workspaceId);
   const removeTagMutation = useRemoveTag(entityType, entityId);
-  const setVisibility = useSetInheritedPropertyVisibility(entityType, entityId);
 
   const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited ?? [];
   const statusDisabled = Boolean(disabledFields?.status);
   const assigneesDisabled = Boolean(disabledFields?.assignees);
   const memberLookup = React.useMemo(() => {
@@ -113,14 +110,6 @@ export function PropertyMenu({
 
   const handleRemoveTag = (tag: string) => {
     removeTagMutation.mutate(tag);
-  };
-
-  const handleToggleInheritedVisibility = (sourceType: EntityType, sourceId: string, currentVisibility: boolean) => {
-    setVisibility.mutate({
-      sourceEntityType: sourceType,
-      sourceEntityId: sourceId,
-      isVisible: !currentVisibility,
-    });
   };
 
   return (
@@ -369,90 +358,6 @@ export function PropertyMenu({
                 </Button>
               </div>
             </div>
-
-            {/* Inherited Properties */}
-            {inherited.length > 0 && (
-              <div className="pt-4 border-t border-[var(--border)] space-y-3">
-                <h4 className="text-sm font-medium">Inherited Properties</h4>
-                {inherited.map((inh) => (
-                  <div
-                    key={`${inh.source_entity_id}`}
-                    className="space-y-2 p-3 rounded border border-dashed border-[var(--border)] bg-[var(--surface-hover)]"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-[var(--muted-foreground)]">
-                        From: {inh.source_title}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          handleToggleInheritedVisibility(
-                            inh.source_entity_type,
-                            inh.source_entity_id,
-                            inh.visible
-                          )
-                        }
-                        title={inh.visible ? "Hide inherited properties" : "Show inherited properties"}
-                      >
-                        {inh.visible ? (
-                          <Eye className="h-4 w-4" />
-                        ) : (
-                          <EyeOff className="h-4 w-4 text-[var(--muted-foreground)]" />
-                        )}
-                      </Button>
-                    </div>
-                    {inh.visible && (
-                      <div className="space-y-1 text-xs">
-                        {inh.properties.status && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-[var(--muted-foreground)]">Status:</span>
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded px-1.5 py-0.5 font-medium",
-                                STATUS_COLORS[inh.properties.status]
-                              )}
-                            >
-                              {STATUS_OPTIONS.find((o) => o.value === inh.properties.status)?.label}
-                            </span>
-                          </div>
-                        )}
-                        {inh.properties.priority && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-[var(--muted-foreground)]">Priority:</span>
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded px-1.5 py-0.5 font-medium",
-                                PRIORITY_COLORS[inh.properties.priority]
-                              )}
-                            >
-                              {PRIORITY_OPTIONS.find((o) => o.value === inh.properties.priority)?.label}
-                            </span>
-                          </div>
-                        )}
-                        {hasDueDate(normalizeDueDateRange(inh.properties.due_date)) && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-[var(--muted-foreground)]">Due:</span>
-                            <span>
-                              {formatDueDateRange(
-                                normalizeDueDateRange(inh.properties.due_date),
-                                (iso) => new Date(iso).toLocaleDateString()
-                              )}
-                            </span>
-                          </div>
-                        )}
-                        {inh.properties.tags && inh.properties.tags.length > 0 && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-[var(--muted-foreground)]">Tags:</span>
-                            <span>{inh.properties.tags.join(", ")}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </DialogContent>

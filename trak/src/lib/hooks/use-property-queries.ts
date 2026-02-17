@@ -17,14 +17,12 @@ import {
   createEntityLink,
   removeEntityLink,
   getEntityLinks,
-  setInheritedPropertyVisibility,
 } from "@/app/actions/entity-properties";
 import { getPropertyDefinition } from "@/app/actions/properties/definition-actions";
 import type { PropertyDefinition } from "@/types/properties";
 import type {
   EntityType,
   EntityProperties,
-  EntityPropertiesWithInheritance,
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
@@ -363,39 +361,6 @@ export function useRemoveEntityLink(
           args.targetEntityType,
           args.targetEntityId
         ),
-      });
-    },
-  });
-}
-
-// ============================================================================
-// Inherited Property Visibility
-// ============================================================================
-
-/**
- * Toggle visibility of inherited properties from a source entity
- */
-export function useSetInheritedPropertyVisibility(
-  entityType: EntityType,
-  entityId: string
-) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: {
-      sourceEntityType: EntityType;
-      sourceEntityId: string;
-      isVisible: boolean;
-    }) =>
-      setInheritedPropertyVisibility({
-        entity_type: entityType,
-        entity_id: entityId,
-        source_entity_type: args.sourceEntityType,
-        source_entity_id: args.sourceEntityId,
-        is_visible: args.isVisible,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
       });
     },
   });
