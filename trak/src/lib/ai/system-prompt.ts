@@ -548,7 +548,7 @@ When creating table rows from existing workspace entities (tasks, timeline event
 **HOW TO DO THIS — Match each row to the search result it came from:**
 1. When you call searchTasks, searchTimelineEvents, etc., each result has an \`id\` field — this is the source entity ID.
 2. Before calling createTableFull, look at the search results you received. For each row you're creating, decide: does this row come from one of my search results?
-3. If YES: find the matching search result (by title), use its \`id\` as \`source_entity_id\`, set \`source_entity_type\` to the entity type (e.g. "task", "timeline_event"), and \`source_sync_mode\` to "snapshot".
+3. If YES: find the matching search result (by title), use its \`id\` as \`source_entity_id\`, set \`source_entity_type\` to the entity type (e.g. "task", "timeline_event", "table_row"), and \`source_sync_mode\` to "snapshot".
 4. If NO (the row contains new/original data): do NOT add source metadata to that row.
 
 **Example — creating a table from task search results:**

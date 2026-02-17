@@ -351,7 +351,7 @@ export interface TableRow {
   updated_by: string | null;
 }
 
-export type TableRowSourceEntityType = "task" | "timeline_event";
+export type TableRowSourceEntityType = "task" | "timeline_event" | "table_row";
 
 export type TableRowSourceSyncMode = "snapshot" | "live";
 

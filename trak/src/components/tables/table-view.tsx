@@ -389,7 +389,7 @@ export function TableView({ tableId }: Props) {
         new Set(
           sourceLinkedRows
             .map((row) => row.source_entity_type)
-            .filter((type): type is "task" | "timeline_event" => Boolean(type))
+            .filter((type): type is "task" | "timeline_event" | "table_row" => Boolean(type))
         )
       ),
     [sourceLinkedRows]
@@ -1420,7 +1420,9 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
   }
 
   const sourceTypeLabel = sourceEntityTypes
-    .map((type) => (type === "timeline_event" ? "timeline events" : "tasks"))
+    .map((type) =>
+      type === "timeline_event" ? "timeline events" : type === "table_row" ? "table rows" : "tasks"
+    )
     .join(" and ");
 
   return (

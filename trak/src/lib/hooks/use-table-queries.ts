@@ -333,8 +333,25 @@ export function useDeleteRow(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowId: string) => deleteRow(rowId),
+    onMutate: async (rowId) => {
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((r) => r.id !== rowId) };
+        }
+      );
+      return { previous };
+    },
+    onError: (_err, _rowId, context) => {
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }
@@ -343,8 +360,26 @@ export function useDeleteRows(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowIds: string[]) => deleteRows(rowIds),
+    onMutate: async (rowIds) => {
+      const ids = new Set(rowIds);
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((r) => !ids.has(r.id)) };
+        }
+      );
+      return { previous };
+    },
+    onError: (_err, _rowIds, context) => {
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }
@@ -525,8 +560,26 @@ export function useBulkDeleteRows(tableId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowIds: string[]) => bulkDeleteRows({ tableId, rowIds }),
+    onMutate: async (rowIds) => {
+      const ids = new Set(rowIds);
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((r) => !ids.has(r.id)) };
+        }
+      );
+      return { previous };
+    },
+    onError: (_err, _rowIds, context) => {
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }
@@ -548,7 +601,7 @@ export function useBulkInsertRows(tableId: string) {
       rows: Array<{
         data: Record<string, unknown>;
         order?: number | string | null;
-        source_entity_type?: "task" | "timeline_event" | null;
+        source_entity_type?: "task" | "timeline_event" | "table_row" | null;
         source_entity_id?: string | null;
         source_sync_mode?: "snapshot" | "live" | null;
       }>
@@ -565,7 +618,7 @@ export function useSetTableRowsSourceSyncMode(tableId: string) {
   return useMutation({
     mutationFn: (input: {
       mode: "snapshot" | "live";
-      sourceEntityType?: "task" | "timeline_event";
+      sourceEntityType?: "task" | "timeline_event" | "table_row";
     }) =>
       setTableRowsSourceSyncMode({
         tableId,

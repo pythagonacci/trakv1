@@ -537,10 +537,43 @@ async function syncTableRowEditToSource(params: {
       const timelineUpdates = mapTimelineUpdateFromField(field, value);
       if (!timelineUpdates) return;
       await updateTimelineEvent(row.source_entity_id, timelineUpdates, { authContext });
+      return;
+    }
+
+    if (row.source_entity_type === "table_row") {
+      await syncTableRowEditToSourceTableRow(row.source_entity_id, field, value, authContext);
     }
   } catch (error) {
     console.error("syncTableRowEditToSource error:", error);
   }
+}
+
+async function syncTableRowEditToSourceTableRow(
+  sourceRowId: string,
+  field: TableField,
+  value: unknown,
+  authContext: AuthContext
+): Promise<void> {
+  const supabase = authContext.supabase;
+  const { data: sourceRow } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data")
+    .eq("id", sourceRowId)
+    .maybeSingle();
+  if (!sourceRow?.table_id) return;
+
+  const { data: sourceFields } = await supabase
+    .from("table_fields")
+    .select("id, name")
+    .eq("table_id", sourceRow.table_id);
+  const fieldByName = (sourceFields ?? []).find((f) => f.name === field.name);
+  if (!fieldByName) return;
+
+  const nextData = { ...(sourceRow.data as Record<string, unknown> || {}), [fieldByName.id]: value };
+  await supabase
+    .from("table_rows")
+    .update({ data: nextData, updated_by: authContext.userId })
+    .eq("id", sourceRowId);
 }
 
 function mapTaskUpdateFromField(

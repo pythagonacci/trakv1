@@ -709,11 +709,11 @@ BLOCK CREATION:
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
 
-🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, subtasks, etc.):
+🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, table rows, subtasks, etc.):
 - You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
-- Format: { data: {...}, source_entity_type: "task", source_entity_id: "<task-uuid>", source_sync_mode: "snapshot" }
+- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row", source_entity_id: "<entity-uuid>", source_sync_mode: "snapshot" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
-- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row".
 - These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
 - Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
 
@@ -1142,11 +1142,11 @@ BLOCK CREATION:
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
 
-🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, subtasks, etc.):
+🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, table rows, subtasks, etc.):
 - You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
-- Format: { data: {...}, source_entity_type: "task", source_entity_id: "<task-uuid>", source_sync_mode: "snapshot" }
+- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row", source_entity_id: "<entity-uuid>", source_sync_mode: "snapshot" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
-- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row".
 - These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
 - Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
 

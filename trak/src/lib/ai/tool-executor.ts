@@ -234,7 +234,7 @@ export interface ToolExecutionContext {
   currentProjectId?: string;
   undoTracker?: UndoTracker;
   authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
 }
 
 const shouldUseTestContext =
@@ -1065,6 +1065,7 @@ export async function executeTool(
           return await wrapResult(resolveEntityByName({ ...args as any, authContext }));
 
         case "getEntityById":
+          console.log(`[getEntityById] entityType=${(args as any)?.entityType}, id=${(args as any)?.id}`);
           return await wrapResult(getEntityById(args as any));
 
         case "getEntityContext":
@@ -4947,7 +4948,7 @@ async function annotateRowsWithSourceMetadataForTable(params: {
   tableId: string;
   rows: Array<Record<string, unknown>>;
   authContext?: AuthContext;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
 }): Promise<Array<Record<string, unknown>>> {
   if (!params.rows.length) return params.rows;
   const tableResult = await getTable(params.tableId, { authContext: params.authContext });
@@ -4964,7 +4965,7 @@ async function annotateRowsWithSourceMetadata(params: {
   rows: Array<Record<string, unknown>>;
   workspaceId: string;
   supabase: SupabaseClient;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
 }): Promise<Array<Record<string, unknown>>> {
   const normalizedRows = params.rows.map((row) => normalizeSourceMetadataOnRow(row as SourceLinkedInsertRow));
   const candidateIds = new Set<string>();
@@ -5022,8 +5023,8 @@ async function annotateRowsWithSourceMetadata(params: {
       .in("id", ids),
     params.supabase
       .from("table_rows")
-      .select("id")
-      .eq("workspace_id", params.workspaceId)
+      .select("id, tables!inner(workspace_id)")
+      .eq("tables.workspace_id", params.workspaceId)
       .in("id", ids),
   ]);
 
@@ -5038,11 +5039,11 @@ async function annotateRowsWithSourceMetadata(params: {
   );
 
   // Build a title-to-entity map for title matching (case-insensitive)
-  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" }>();
+  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" | "table_row" }>();
   if (params.searchedEntities) {
     for (const entity of params.searchedEntities) {
       // Only include entities that are validated (exist in DB)
-      if (taskIds.has(entity.id) || timelineIds.has(entity.id)) {
+      if (taskIds.has(entity.id) || timelineIds.has(entity.id) || tableRowIds.has(entity.id)) {
         titleToEntity.set(entity.title.toLowerCase(), { id: entity.id, entityType: entity.entityType });
       }
     }

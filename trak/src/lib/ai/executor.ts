@@ -894,25 +894,24 @@ function injectSourceMetadata(
   };
 
   // unstructuredSearchWorkspace results use sourceId/sourceType instead of id/type.
-  // Unstructured sourceType values (file, table, block, doc) need mapping to entity
-  // types that support source data columns. "table" maps to "table_row" since tables
-  // themselves don't carry source data — table rows do.
+  // Unstructured sourceType values are container-level types (file, table, block, doc).
+  // Only "task" and "timeline_event" are valid source provenance types — the sourceId
+  // for those directly maps to task_items.id / timeline_events.id.
+  // Other types like "table" have a sourceId pointing to tables.id (not table_rows.id),
+  // so they cannot be used as source_entity_type — the ID doesn't match the row-level entity.
   if (toolName === "unstructuredSearchWorkspace") {
-    const unstructuredTypeMap: Record<string, string> = {
-      table: "table_row",
-    };
     return data.map((item) => {
       const sourceId = item.sourceId as string;
       const sourceType = item.sourceType as string;
       if (!sourceId || !sourceType) return item;
-      const mappedType = unstructuredTypeMap[sourceType] || sourceType;
-      // Only inject _source for entity types that support source data columns
-      if (!SOURCE_SUPPORTED_TYPES.has(mappedType)) return item;
+      // Only inject _source when the sourceType directly matches a valid provenance type
+      // and the sourceId is the actual entity ID (not a container ID)
+      if (sourceType !== "task" && sourceType !== "timeline_event") return item;
       return {
         ...item,
         _source: {
           source_entity_id: sourceId,
-          source_entity_type: mappedType,
+          source_entity_type: sourceType,
           source_sync_mode: "snapshot",
         },
       };
@@ -1321,7 +1320,7 @@ export async function executeAICommand(
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   // Track searched entities (id + title) for deterministic source metadata annotation
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }> = [];
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [];
   const updatedItemIds = new Set<string>();
   let sawTaskMutationTool = false;
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
@@ -1842,9 +1841,14 @@ export async function executeAICommand(
             });
           }
 
+          // Inject table source tracking reminder when getEntityById returns a table
+          if (toolName === "getEntityById" && toolArgs.entityType === "table" && result.success) {
+            toolMessageContent += `\n\n⚠️ TABLE SOURCE TRACKING ⚠️\nThis table response includes its rows with their individual row IDs.\nWhen you create data (table rows, tasks, etc.) based on specific rows from this table, you MUST use the actual row ID (from the rows array above) as source_entity_id with source_entity_type "table_row". Do NOT use the table ID as source_entity_id — that is the container, not the source row.`;
+          }
+
           // Inject unstructured search follow-up reminder
           if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            toolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.`;
+            toolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.\n6. SOURCE TRACKING FOR TABLE-SOURCED CHUNKS: When a chunk's sourceType is "table", the sourceId is the TABLE ID (not a row ID). After calling \`getEntityById\` to retrieve the table, you will receive the table's rows with their individual row IDs. When creating data based on specific rows from that table, use the actual \`table_rows.id\` as source_entity_id with source_entity_type "table_row" — NOT the table ID.`;
           }
 
           if (timing) {
@@ -2396,7 +2400,7 @@ export async function* executeAICommandStream(
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
   // Track searched entities for deterministic source metadata annotation (streaming path)
-  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }> = [];
+  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [];
 
   if (!openAIKey && !deepseekKey) {
     yield {
@@ -2967,9 +2971,14 @@ export async function* executeAICommandStream(
             });
           }
 
+          // Inject table source tracking reminder when getEntityById returns a table (streaming path)
+          if (toolName === "getEntityById" && toolArgs.entityType === "table" && result.success) {
+            streamToolMessageContent += `\n\n⚠️ TABLE SOURCE TRACKING ⚠️\nThis table response includes its rows with their individual row IDs.\nWhen you create data (table rows, tasks, etc.) based on specific rows from this table, you MUST use the actual row ID (from the rows array above) as source_entity_id with source_entity_type "table_row". Do NOT use the table ID as source_entity_id — that is the container, not the source row.`;
+          }
+
           // Inject unstructured search follow-up reminder (streaming path)
           if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            streamToolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.`;
+            streamToolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.\n6. SOURCE TRACKING FOR TABLE-SOURCED CHUNKS: When a chunk's sourceType is "table", the sourceId is the TABLE ID (not a row ID). After calling \`getEntityById\` to retrieve the table, you will receive the table's rows with their individual row IDs. When creating data based on specific rows from that table, use the actual \`table_rows.id\` as source_entity_id with source_entity_type "table_row" — NOT the table ID.`;
           }
 
           messages.push({

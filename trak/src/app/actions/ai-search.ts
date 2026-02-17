@@ -4456,21 +4456,6 @@ export async function getEntityById(params: {
         const priority = normalizedPriority === "none" ? null : normalizedPriority;
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
         const tab = coerceRelation<{ name: string }>(data.tabs);
 
         // Merge properties into data for backward compatibility
@@ -4751,16 +4736,23 @@ export async function getEntityById(params: {
         if (error || !data) return { data: null, error: error?.message ?? "Table not found" };
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
+
+        // Also fetch the table's rows so the LLM can reference specific row IDs
+        // (e.g., for source tracking when creating data from unstructured search chunks)
+        const { data: rows } = await supabase
+          .from("table_rows")
+          .select("id, data, order")
+          .eq("table_id", params.id)
+          .eq("workspace_id", workspaceId)
+          .order("order", { ascending: true })
+          .limit(200);
 
         return {
           data: {
             type: "table",
             id: data.id,
             name: data.title,
-            data: data,
+            data: { ...data, rows: rows ?? [] },
             context: {
               workspace_id: data.workspace_id,
               project_id: data.project_id ?? undefined,
@@ -4886,9 +4878,6 @@ export async function getEntityById(params: {
         if (error || !data) return { data: null, error: error?.message ?? "File not found" };
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
 
         return {
           data: {
@@ -4917,9 +4906,6 @@ export async function getEntityById(params: {
         if (error || !data) return { data: null, error: error?.message ?? "Payment not found" };
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
         const client = coerceRelation<{ name: string }>(data.clients);
 
         return {

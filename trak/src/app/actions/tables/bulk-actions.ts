@@ -385,7 +385,7 @@ export async function bulkInsertRows(input: {
   rows: Array<{
     data: Record<string, unknown>;
     order?: number | string | null;
-    source_entity_type?: "task" | "timeline_event" | null;
+    source_entity_type?: "task" | "timeline_event" | "table_row" | null;
     source_entity_id?: string | null;
     source_sync_mode?: "snapshot" | "live" | null;
   }>;
@@ -478,8 +478,8 @@ export async function bulkInsertRows(input: {
   return { data: { insertedIds } };
 }
 
-function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | null {
-  if (value === "task" || value === "timeline_event") return value;
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | null {
+  if (value === "task" || value === "timeline_event" || value === "table_row") return value;
   return null;
 }
 
