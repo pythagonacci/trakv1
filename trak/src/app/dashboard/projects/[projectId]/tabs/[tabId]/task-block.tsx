@@ -45,6 +45,7 @@ import {
   useCreateSubtaskReference,
   useDeleteSubtaskReference,
 } from "@/lib/hooks/use-task-queries";
+import { TaskRollupBar, type RollupTask } from "@/components/tasks/task-rollup-bar";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import DOMPurify from "isomorphic-dompurify";
@@ -859,6 +860,18 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     if (props?.tags) return props.tags;
     return task.tags ?? [];
   };
+
+  const rollupTasks: RollupTask[] = useMemo(
+    () =>
+      orderedTasks.map((task) => ({
+        id: String(task.id),
+        status: getEffectiveStatus(String(task.id), task),
+        priority: getEffectivePriority(String(task.id), task),
+        assigneeIds: getEffectiveAssigneeIds(String(task.id), task),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orderedTasks, propertyOverrides, taskPropertiesById, subtaskPropertyOverrides, subtaskPropertiesById]
+  );
 
   // Board-only: task properties WITHOUT deriving from subtasks
   const getTaskOnlyStatus = (taskId: string, task: Task) => {
@@ -3212,6 +3225,14 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
             </div>
           );
         })}
+
+        <TaskRollupBar
+          tasks={rollupTasks}
+          getMemberName={(id) => {
+            const m = workspaceMemberLookup.get(id);
+            return m?.name ?? m?.email;
+          }}
+        />
 
         <button
           onClick={addTask}
