@@ -353,7 +353,7 @@ export interface TableRow {
   edited?: boolean;
 }
 
-export type TableRowSourceEntityType = "task" | "timeline_event" | "table_row";
+export type TableRowSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
 
 export type TableRowSourceSyncMode = "snapshot" | "live";
 

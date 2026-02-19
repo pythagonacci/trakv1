@@ -509,7 +509,7 @@ const taskActionTools: ToolDefinition[] = [
       source_entity_type: {
         type: "string",
         description: "Optional source entity type when creating from an existing entity.",
-        enum: ["task", "timeline_event", "table_row"],
+        enum: ["task", "timeline_event", "table_row", "block"],
       },
       source_entity_id: { type: "string", description: "Optional source entity UUID when creating from an existing entity." },
       source_sync_mode: {
@@ -670,7 +670,7 @@ const taskActionTools: ToolDefinition[] = [
             source_entity_type: {
               type: "string",
               description: "Optional source entity type when creating from an existing entity.",
-              enum: ["task", "timeline_event", "table_row"],
+              enum: ["task", "timeline_event", "table_row", "block"],
             },
             source_entity_id: {
               type: "string",
@@ -1114,7 +1114,7 @@ const tableActionTools: ToolDefinition[] = [
       "- Status: 'todo', 'in_progress', 'done', 'blocked'\n" +
       "- Use these canonical IDs or display labels ('Low', 'Medium', 'High', 'Urgent', etc.)\n\n" +
       "Optional per-row source metadata for workflow copies:\n" +
-      "- source_entity_type: 'task' | 'timeline_event' | 'table_row'\n" +
+      "- source_entity_type: 'task' | 'timeline_event' | 'table_row' | 'block'\n" +
       "- source_entity_id: source UUID\n" +
       "- source_sync_mode: 'snapshot' | 'live'\n\n" +
       "SUBTASKS: When inserting tasks that have subtasks, each subtask must be its OWN row with Subtask=true. Parent row has Subtask=false. Place subtask rows immediately after their parent. Do NOT put multiple subtask names in one cell.\n\n" +
@@ -1126,7 +1126,7 @@ const tableActionTools: ToolDefinition[] = [
       tableName: { type: "string", description: "Target Table Name (e.g. 'Q1 Goals'). System finds fuzzy match." },
       rows: {
         type: "array",
-        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },
@@ -1232,7 +1232,7 @@ const tableActionTools: ToolDefinition[] = [
       "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
       "- Include ALL source fields (title, status, priority, due date, assignee) - do not omit any\n" +
       "- PRESERVE field types - DO NOT convert to text!\n\n" +
-      "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, getEntityById table rows, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result or row), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. For rows from another table use source_entity_type \"table_row\" and the row's id. Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
+      "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, searchBlocks, getEntityById table rows, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result or row), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Valid source_entity_type: \"task\", \"timeline_event\", \"table_row\", \"block\". For rows from another table use source_entity_type \"table_row\". For blocks use \"block\". Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
       "🚨 TABLE SUBTASKS (when tasks have subtasks): DO NOT put subtask names in a text/long_text column! Tables have native subtask support:\n" +
       "- Add a field { name: \"Subtask\", type: \"subtask\" } (or type \"checkbox\") to the schema.\n" +
       "- Each subtask is a SEPARATE ROW. Parent task = one row with Subtask=false. Each subtask = its own row with Subtask=true, placed directly under the parent.\n" +
@@ -1240,7 +1240,8 @@ const tableActionTools: ToolDefinition[] = [
       "- Each subtask row has the same columns (Title, Status, Priority, etc.) with the subtask's own values — fill all fields as for a regular row.\n" +
       "- Example: Task \"Build feature\" with subtasks \"Design\" and \"Implement\" → 3 rows: row1 {Title:\"Build feature\", Subtask:false}, row2 {Title:\"Design\", Subtask:true}, row3 {Title:\"Implement\", Subtask:true}.\n" +
       "- NEVER create a \"Subtasks\" or \"Subtask\" text column that lists names in one cell.\n\n" +
-      "Auto-creates table → creates fields → (optionally) inserts initial rows.",
+      "Auto-creates table → creates fields → (optionally) inserts initial rows.\n\n" +
+      "⚠️ IMPORTANT: This tool CREATES ALL FIELDS AUTOMATICALLY. Do NOT call bulkCreateFields after createTableFull - the fields are already created!",
     category: "table",
     parameters: {
       workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
@@ -1255,7 +1256,7 @@ const tableActionTools: ToolDefinition[] = [
       },
       rows: {
         type: "array",
-        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },
@@ -1353,7 +1354,7 @@ const timelineActionTools: ToolDefinition[] = [
       source_entity_type: {
         type: "string",
         description: "Optional source entity type when creating from an existing entity.",
-        enum: ["task", "timeline_event", "table_row"],
+        enum: ["task", "timeline_event", "table_row", "block"],
       },
       source_entity_id: { type: "string", description: "Optional source entity UUID when creating from an existing entity." },
       source_sync_mode: {

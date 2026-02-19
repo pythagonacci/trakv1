@@ -15,6 +15,8 @@ import type { TableRowSourceEntityType, TableRowSourceSyncMode } from "@/types/t
 import { updateTaskItem } from "@/app/actions/tasks/item-actions";
 import { updateTimelineEvent } from "@/app/actions/timelines/event-actions";
 import { validateEventPriority, validateEventStatus } from "@/app/actions/timelines/validators";
+import { setEntityProperties } from "@/app/actions/entity-properties";
+import type { Status, Priority } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -799,10 +801,112 @@ async function syncTableRowEditToSource(params: {
 
     if (row.source_entity_type === "table_row") {
       await syncTableRowEditToSourceTableRow(row.source_entity_id, field, value, authContext);
+      return;
+    }
+
+    if (row.source_entity_type === "block") {
+      await syncTableRowEditToBlock(row.source_entity_id, field, value, authContext);
     }
   } catch (error) {
     console.error("syncTableRowEditToSource error:", error);
   }
+}
+
+async function syncTableRowEditToBlock(
+  blockId: string,
+  field: TableField,
+  value: unknown,
+  authContext: AuthContext
+): Promise<void> {
+  const supabase = authContext.supabase;
+  const { data: blockRow } = await supabase
+    .from("blocks")
+    .select("id, tabs!inner(projects!inner(workspace_id))")
+    .eq("id", blockId)
+    .maybeSingle();
+
+  const workspaceId = (blockRow as { tabs?: { projects?: { workspace_id?: string } } } | null)?.tabs?.projects?.workspace_id;
+  if (!workspaceId) return;
+
+  const updates = mapBlockUpdateFromField(field, value);
+  if (!updates || Object.keys(updates).length === 0) return;
+
+  const result = await setEntityProperties({
+    entity_type: "block",
+    entity_id: blockId,
+    workspace_id: workspaceId,
+    updates,
+  });
+  if ("error" in result) {
+    console.error("syncTableRowEditToBlock error:", result.error);
+  }
+}
+
+function mapBlockUpdateFromField(
+  field: TableField,
+  value: unknown
+): Partial<{
+  status: Status | null;
+  priority: Priority | null;
+  assignee_id: string | null;
+  assignee_ids: string[] | null;
+  due_date: { start: string | null; end: string | null } | null;
+  tags: string[];
+}> | null {
+  const normalizedFieldName = normalizeFieldName(field.name);
+  const textValue = valueToString(value);
+
+  if (field.type === "status" || normalizedFieldName === "status") {
+    const status = normalizeTimelineStatus(resolveSelectLikeValue(field, value));
+    return status !== null ? { status } : null;
+  }
+
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    const priority = normalizeTimelinePriority(resolveSelectLikeValue(field, value));
+    return priority !== undefined && priority !== null ? { priority } : null;
+  }
+
+  if (normalizedFieldName.includes("assignee") || field.type === "person") {
+    const assigneeId = extractAssigneeIdFromValue(value);
+    if (assigneeId !== undefined) {
+      return assigneeId ? { assignee_id: assigneeId, assignee_ids: [assigneeId] } : { assignee_id: null, assignee_ids: [] };
+    }
+    return null;
+  }
+
+  if (field.type === "date" || normalizedFieldName.includes("due") || normalizedFieldName.includes("date")) {
+    const dateValue = normalizeDateTimeForTimeline(value);
+    if (!dateValue) return null;
+    const dateOnly = dateValue.slice(0, 10);
+    return { due_date: { start: dateOnly, end: dateOnly } };
+  }
+
+  if (normalizedFieldName.includes("tag")) {
+    const tags = extractTagsFromValue(value);
+    if (tags) return { tags };
+    return null;
+  }
+
+  return null;
+}
+
+function extractAssigneeIdFromValue(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "object" && value !== null && "id" in (value as object)) {
+    const id = (value as { id?: string }).id;
+    return typeof id === "string" ? id : null;
+  }
+  return undefined;
+}
+
+function extractTagsFromValue(value: unknown): string[] | null {
+  if (Array.isArray(value)) {
+    const tags = value.map((t) => (typeof t === "string" ? t.trim() : null)).filter((t): t is string => Boolean(t));
+    return tags.length ? tags : null;
+  }
+  const s = valueToString(value);
+  return s ? [s] : null;
 }
 
 async function syncTableRowEditToSourceTableRow(

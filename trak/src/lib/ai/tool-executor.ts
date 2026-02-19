@@ -2257,34 +2257,91 @@ export async function executeTool(
 
             // Execute all writes in parallel — each targets a distinct field
             const results = await Promise.all(
-              plans.map(async (plan) => {
-                if (plan.kind === "existing") {
-                  return { success: true, data: plan.data };
+              plans.map(async (plan, index) => {
+                try {
+                  if (plan.kind === "existing") {
+                    return { success: true, data: plan.data };
+                  }
+                  if (plan.kind === "reuse") {
+                    const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
+                    const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
+                    if (nextConfig !== undefined) payload.config = nextConfig;
+                    const result = await wrapResult(updateField(plan.candidateId, payload));
+                    if (!result.success) {
+                      aiDebug("bulkCreateFields:reuseFailed", {
+                        fieldIndex: index,
+                        fieldName: plan.name,
+                        candidateId: plan.candidateId,
+                        error: result.error,
+                      });
+                    }
+                    return result;
+                  }
+                  // kind === "create"
+                  const result = await wrapResult(
+                    createField({
+                      tableId,
+                      name: plan.name,
+                      type: plan.type as any,
+                      config: plan.config as any,
+                      isPrimary: plan.isPrimary,
+                    })
+                  );
+                  if (!result.success) {
+                    aiDebug("bulkCreateFields:createFailed", {
+                      fieldIndex: index,
+                      fieldName: plan.name,
+                      fieldType: plan.type,
+                      error: result.error,
+                    });
+                  }
+                  return result;
+                } catch (error) {
+                  const fieldName = plan.kind === "create" ? plan.name : plan.kind === "reuse" ? plan.name : "unknown";
+                  aiDebug("bulkCreateFields:exception", {
+                    fieldIndex: index,
+                    fieldName,
+                    planKind: plan.kind,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
+                  return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                  };
                 }
-                if (plan.kind === "reuse") {
-                  const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
-                  const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
-                  if (nextConfig !== undefined) payload.config = nextConfig;
-                  return await wrapResult(updateField(plan.candidateId, payload));
-                }
-                // kind === "create"
-                return await wrapResult(
-                  createField({
-                    tableId,
-                    name: plan.name,
-                    type: plan.type as any,
-                    config: plan.config as any,
-                    isPrimary: plan.isPrimary,
-                  })
-                );
               })
             );
 
             const allSuccessful = results.every((r) => r.success);
+            const failures = results
+              .map((r, i) => ({ index: i, result: r, plan: plans[i] }))
+              .filter(({ result }) => !result.success);
+
+            if (!allSuccessful && failures.length > 0) {
+              const errorMessages = failures.map(({ plan, result }) => {
+                const fieldName = plan.kind === "create" ? plan.name : plan.kind === "reuse" ? plan.name : "unknown";
+                return `Field "${fieldName}" (${plan.kind}): ${result.error ?? "Unknown error"}`;
+              });
+              const errorSummary = `Failed to create ${failures.length} of ${fields.length} fields:\n${errorMessages.join("\n")}`;
+              aiDebug("bulkCreateFields:summary", {
+                totalFields: fields.length,
+                successful: results.filter((r) => r.success).length,
+                failed: failures.length,
+                failures: failures.map((f) => ({
+                  fieldName: f.plan.kind === "create" ? f.plan.name : f.plan.kind === "reuse" ? f.plan.name : "unknown",
+                  error: f.result.error,
+                })),
+              });
+              return {
+                success: false,
+                data: results.map((r) => r.data),
+                error: errorSummary,
+              };
+            }
+
             return {
-              success: allSuccessful,
+              success: true,
               data: results.map((r) => r.data),
-              error: allSuccessful ? undefined : results.find((r) => !r.success)?.error,
             };
           }
 
@@ -4990,7 +5047,7 @@ async function annotateRowsWithSourceMetadataForTable(params: {
   tableId: string;
   rows: Array<Record<string, unknown>>;
   authContext?: AuthContext;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>;
 }): Promise<Array<Record<string, unknown>>> {
   if (!params.rows.length) return params.rows;
   const tableResult = await getTable(params.tableId, { authContext: params.authContext });
@@ -5007,7 +5064,7 @@ async function annotateRowsWithSourceMetadata(params: {
   rows: Array<Record<string, unknown>>;
   workspaceId: string;
   supabase: SupabaseClient;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>;
 }): Promise<Array<Record<string, unknown>>> {
   const normalizedRows = params.rows.map((row) => normalizeSourceMetadataOnRow(row as SourceLinkedInsertRow));
   const candidateIds = new Set<string>();
@@ -5052,7 +5109,7 @@ async function annotateRowsWithSourceMetadata(params: {
   }
 
   const ids = Array.from(candidateIds);
-  const [taskResult, timelineResult, tableRowResult] = await Promise.all([
+  const [taskResult, timelineResult, tableRowResult, blockResult] = await Promise.all([
     params.supabase
       .from("task_items")
       .select("id")
@@ -5068,6 +5125,11 @@ async function annotateRowsWithSourceMetadata(params: {
       .select("id, tables!inner(workspace_id)")
       .eq("tables.workspace_id", params.workspaceId)
       .in("id", ids),
+    params.supabase
+      .from("blocks")
+      .select("id, tabs!inner(projects!inner(workspace_id))")
+      .eq("tabs.projects.workspace_id", params.workspaceId)
+      .in("id", ids),
   ]);
 
   const taskIds = new Set(
@@ -5079,13 +5141,16 @@ async function annotateRowsWithSourceMetadata(params: {
   const tableRowIds = new Set(
     ((tableRowResult.data || []) as Array<{ id: string }>).map((item) => item.id)
   );
+  const blockIds = new Set(
+    ((blockResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
 
   // Build a title-to-entity map for title matching (case-insensitive)
-  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" | "table_row" }>();
+  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>();
   if (params.searchedEntities) {
     for (const entity of params.searchedEntities) {
       // Only include entities that are validated (exist in DB)
-      if (taskIds.has(entity.id) || timelineIds.has(entity.id) || tableRowIds.has(entity.id)) {
+      if (taskIds.has(entity.id) || timelineIds.has(entity.id) || tableRowIds.has(entity.id) || blockIds.has(entity.id)) {
         titleToEntity.set(entity.title.toLowerCase(), { id: entity.id, entityType: entity.entityType });
       }
     }
@@ -5095,7 +5160,7 @@ async function annotateRowsWithSourceMetadata(params: {
   const llmValidated = normalizedRows.filter((row) => {
     if (!hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) return false;
     const id = row.source_entity_id as string;
-    return taskIds.has(id) || timelineIds.has(id) || tableRowIds.has(id);
+    return taskIds.has(id) || timelineIds.has(id) || tableRowIds.has(id) || blockIds.has(id);
   });
   const llmInvalid = llmProvidedCount - llmValidated.length;
 
@@ -5103,6 +5168,7 @@ async function annotateRowsWithSourceMetadata(params: {
     validTaskIds: taskIds.size,
     validTimelineIds: timelineIds.size,
     validTableRowIds: tableRowIds.size,
+    validBlockIds: blockIds.size,
     titleMapEntries: titleToEntity.size,
   });
   aiDebug("sourceTracking:llmAnnotation", {
@@ -5122,7 +5188,7 @@ async function annotateRowsWithSourceMetadata(params: {
     // Pass 1: Key-name and UUID candidate extraction
     const candidate = extractSourceCandidateIdFromRow(row);
     if (candidate) {
-      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds, tableRowIds);
+      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds, tableRowIds, blockIds);
       if (inferredType) {
         keyMatchCount++;
         aiDebug("sourceTracking:deterministicMatch", {
@@ -5256,8 +5322,8 @@ function hasValidRowSourceMetadata(sourceType: unknown, sourceId: unknown): bool
   return Boolean(normalizeSourceEntityType(sourceType) && normalizeSourceEntityId(sourceId));
 }
 
-function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | null {
-  if (value === "task" || value === "timeline_event" || value === "table_row") return value;
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | "block" | null {
+  if (value === "task" || value === "timeline_event" || value === "table_row" || value === "block") return value;
   return null;
 }
 
@@ -5272,15 +5338,16 @@ function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
 
 function extractSourceCandidateIdFromRow(
   row: SourceLinkedInsertRow
-): { id: string; hintedType?: "task" | "timeline_event" | "table_row" } | null {
+): { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" } | null {
   const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
   const normalizedEntries = Object.entries(data).map(([key, value]) => [normalizeSourceKey(key), value] as const);
   const normalizedMap = new Map(normalizedEntries);
 
-  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" | "table_row" }> = [
+  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" | "table_row" | "block" }> = [
     { keys: ["task_id", "taskid"], hintedType: "task" },
     { keys: ["timeline_event_id", "timelineeventid", "event_id", "eventid"], hintedType: "timeline_event" },
     { keys: ["table_row_id", "tablerowid", "row_id", "rowid"], hintedType: "table_row" },
+    { keys: ["block_id", "blockid"], hintedType: "block" },
     { keys: ["source_id", "entity_id", "id"] },
   ];
 
@@ -5306,11 +5373,13 @@ function normalizeSourceKey(value: string): string {
 }
 
 function inferSourceEntityTypeForCandidate(
-  candidate: { id: string; hintedType?: "task" | "timeline_event" | "table_row" },
+  candidate: { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" },
   taskIds: Set<string>,
   timelineIds: Set<string>,
-  tableRowIds: Set<string> = new Set()
-): "task" | "timeline_event" | "table_row" | null {
+  tableRowIds: Set<string> = new Set(),
+  blockIds: Set<string> = new Set()
+): "task" | "timeline_event" | "table_row" | "block" | null {
+  if (candidate.hintedType === "block" && blockIds.has(candidate.id)) return "block";
   if (candidate.hintedType === "task" && taskIds.has(candidate.id)) return "task";
   if (candidate.hintedType === "timeline_event" && timelineIds.has(candidate.id)) return "timeline_event";
   if (candidate.hintedType === "table_row" && tableRowIds.has(candidate.id)) return "table_row";
@@ -5318,9 +5387,11 @@ function inferSourceEntityTypeForCandidate(
   const inTasks = taskIds.has(candidate.id);
   const inTimeline = timelineIds.has(candidate.id);
   const inTableRows = tableRowIds.has(candidate.id);
-  if (inTasks && !inTimeline && !inTableRows) return "task";
-  if (!inTasks && inTimeline && !inTableRows) return "timeline_event";
-  if (!inTasks && !inTimeline && inTableRows) return "table_row";
+  const inBlocks = blockIds.has(candidate.id);
+  if (inBlocks && !inTasks && !inTimeline && !inTableRows) return "block";
+  if (inTasks && !inTimeline && !inTableRows && !inBlocks) return "task";
+  if (!inTasks && inTimeline && !inTableRows && !inBlocks) return "timeline_event";
+  if (!inTasks && !inTimeline && inTableRows && !inBlocks) return "table_row";
   return null;
 }
 

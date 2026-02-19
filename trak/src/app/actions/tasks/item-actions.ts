@@ -23,7 +23,7 @@ export async function createTaskItem(
       frequency?: "daily" | "weekly" | "monthly";
       interval?: number;
     };
-    sourceEntityType?: "task" | "timeline_event" | "table_row";
+    sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
     sourceEntityId?: string | null;
     sourceSyncMode?: TaskSourceSyncMode;
   },
@@ -36,7 +36,7 @@ export async function createTaskItem(
   const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
   const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
   const sourceSyncMode = hasSourceMetadata
-    ? (sourceEntityType === "table_row" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
+    ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
     : null;
   const sourceTaskId = sourceEntityType === "task" ? sourceEntityId : null;
 

@@ -3,7 +3,7 @@ export type TimelineEventStatus = "todo" | "in_progress" | "blocked" | "done";
 
 // Canonical IDs for priority (matches workspace property_definitions)
 export type TimelineEventPriority = "low" | "medium" | "high" | "urgent";
-export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row";
+export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
 export type TimelineSourceSyncMode = "snapshot" | "live";
 
 export type DependencyType = "finish-to-start" | "start-to-start" | "finish-to-finish" | "start-to-finish";

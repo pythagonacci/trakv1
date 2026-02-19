@@ -582,6 +582,16 @@ export async function getEntityProperties(
 }
 
 /**
+ * Get direct properties for a block (convenience wrapper for getEntityProperties).
+ * Use when creating table rows, timeline events, or tasks from blocks to read block properties.
+ */
+export async function getBlockProperties(
+  blockId: string
+): Promise<ActionResult<EntityProperties | null>> {
+  return getEntityProperties("block", blockId);
+}
+
+/**
  * Bulk fetch direct properties for multiple entities of the same type.
  * Returns a map keyed by entity_id.
  */
