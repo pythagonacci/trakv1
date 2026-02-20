@@ -5,6 +5,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import type { AuthContext } from "@/lib/auth-context";
 import { queryEntities } from "@/app/actions/properties/query-actions";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import type { QueryEntitiesParams, PropertyFilter, EntityReference } from "@/types/properties";
 
 // ============================================================================
@@ -118,6 +119,12 @@ function getCanonicalPriorityFromNamed(priorities: unknown): string | null {
   ) as { value?: unknown } | undefined;
   const raw = canonical?.value ?? (priorities[0] as any)?.value;
   return typeof raw === "string" ? raw : null;
+}
+
+function normalizeNamedTimelinePriorities(
+  priorities: unknown
+): Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }> {
+  return normalizeTimelinePriorities(priorities);
 }
 
 function normalizeDateValue(value: unknown): string | null {
@@ -352,6 +359,8 @@ interface TimelineEventResult {
   start_date: string;
   end_date: string;
   status: string | null;
+  priority?: string | null;
+  priorities?: Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }>;
   progress: number;
   notes: string | null;
   color: string | null;
@@ -3378,10 +3387,12 @@ export async function searchTimelineEvents(params: {
     const mapped: TimelineEventResult[] = results.map((e: Record<string, unknown>) => {
       const blocks = e.blocks as { tabs: { project_id: string; projects: { name: string } | null } | null } | null;
       const props = propertiesMap.get(e.id as string) ?? [];
+      const namedPriorities = normalizeNamedTimelinePriorities((e as any).priorities);
 
       // Extract properties by name
       const assigneeProp = props.find((p) => p.name === "Assignee");
       const statusProp = props.find((p) => p.name === "Status");
+      const priorityProp = props.find((p) => p.name === "Priority");
 
       const assignees = parseAssigneeValue(assigneeProp?.value);
       const primaryAssignee = assignees[0] ?? null;
@@ -3389,6 +3400,8 @@ export async function searchTimelineEvents(params: {
       // Parse status (select type: string/object)
       const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof e.status === "string" ? e.status : null);
       const status = normalizeStatusValue(rawStatus);
+      const rawPriority = normalizeSelectValue(priorityProp?.value) ?? getCanonicalPriorityFromNamed(namedPriorities);
+      const priority = normalizePriorityValue(rawPriority);
 
       return {
         id: e.id as string,
@@ -3396,6 +3409,8 @@ export async function searchTimelineEvents(params: {
         start_date: e.start_date as string,
         end_date: e.end_date as string,
         status,
+        priority,
+        priorities: namedPriorities,
         progress: e.progress as number,
         notes: e.notes as string | null,
         color: e.color as string | null,
@@ -4852,12 +4867,12 @@ export async function getEntityById(params: {
 
         const assignees = parseAssigneeValue(assigneeProp?.value);
         const tags = normalizeTagsValue(tagsProp?.value).map((tag) => tag.name);
+        const namedPriorities = normalizeNamedTimelinePriorities((data as any).priorities);
         const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof data.status === "string" ? data.status : null);
         const status = normalizeStatusValue(rawStatus);
         const rawPriority =
           normalizeSelectValue(priorityProp?.value) ??
-          (typeof data.priority === "string" ? data.priority : null) ??
-          getCanonicalPriorityFromNamed((data as any).priorities);
+          getCanonicalPriorityFromNamed(namedPriorities);
         const priority = normalizePriorityValue(rawPriority);
         const dueDate = normalizeDateValue(dueDateProp?.value);
 
@@ -4865,6 +4880,7 @@ export async function getEntityById(params: {
           ...data,
           status,
           priority,
+          priorities: namedPriorities,
           assignees,
           tags,
           due_date: dueDate,
@@ -7334,6 +7350,7 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
       const sourceRow = sourceEntityType === "table_row" && sourceEntityId ? sourceRowsById.get(sourceEntityId) : null;
       const sourceRowData = ((sourceRow?.data as Record<string, unknown> | undefined) ?? {});
       const sourceTable = coerceRelation<{ title: string }>((sourceRow?.tables as unknown) ?? null);
+      const namedPriorities = normalizeNamedTimelinePriorities(snapshot.priorities);
       const inferredTitle =
         (typeof sourceRowData["Event Title"] === "string" && sourceRowData["Event Title"]) ||
         (typeof sourceRowData["Title"] === "string" && sourceRowData["Title"]) ||
@@ -7346,6 +7363,8 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
         start_date: snapshot.start_date as string,
         end_date: snapshot.end_date as string,
         status: snapshot.status as string | null,
+        priority: normalizePriorityValue(getCanonicalPriorityFromNamed(namedPriorities)),
+        priorities: namedPriorities,
         progress: snapshot.progress as number,
         notes: snapshot.notes as string | null,
         color: snapshot.color as string | null,
@@ -7413,6 +7432,7 @@ async function getEditedTimelineEventSnapshots(
 
       const snapshotData = (row.data || {}) as Record<string, unknown>;
       const table = (row.tables as unknown as { workspace_id: string; title: string } | null);
+      const sourcePriorities = normalizeNamedTimelinePriorities(sourceEvent.priorities);
 
       editedSnapshots.push({
         id: `table-timeline-snapshot:${row.id}`,
@@ -7420,6 +7440,11 @@ async function getEditedTimelineEventSnapshots(
         start_date: snapshotData["Start Date"] ? String(snapshotData["Start Date"]) : sourceEvent.start_date,
         end_date: snapshotData["End Date"] ? String(snapshotData["End Date"]) : sourceEvent.end_date,
         status: snapshotData["Status"] ? String(snapshotData["Status"]) as any : sourceEvent.status,
+        priority:
+          snapshotData["Priority"]
+            ? normalizePriorityValue(String(snapshotData["Priority"]))
+            : normalizePriorityValue(getCanonicalPriorityFromNamed(sourcePriorities)),
+        priorities: sourcePriorities,
         progress: sourceEvent.progress,
         notes: snapshotData["Notes"] ? String(snapshotData["Notes"]) : sourceEvent.notes,
         color: sourceEvent.color,

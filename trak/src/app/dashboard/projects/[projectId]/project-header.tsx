@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowLeft, Edit, Palette, LayoutDashboard, Users } from "lucide-react";
+import { ArrowLeft, Edit, Palette, LayoutDashboard, Users, ChevronUp, ChevronDown } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
 import ClientPageToggle from "./client-page-toggle";
 import ProjectPermissionsDialog from "../project-permissions-dialog";
+import TabBar from "./tab-bar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -54,6 +55,8 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   const router = useRouter();
   const [tabTheme, setTabTheme] = useState<string>("default");
   const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isTabBarOpen, setIsTabBarOpen] = useState(false);
 
   // Load theme from localStorage
   useEffect(() => {
@@ -63,6 +66,33 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
       setTabTheme(saved);
     }
   }, [tabId]);
+
+  // Load collapsed state from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem(`trak-project-header-collapsed-${project.id}`);
+    if (saved === "true") {
+      setIsCollapsed(true);
+    }
+  }, [project.id]);
+
+  // Close tab bar when tab changes
+  useEffect(() => {
+    setIsTabBarOpen(false);
+  }, [tabId]);
+
+  // Save collapsed state to localStorage
+  const handleCollapseToggle = () => {
+    const newCollapsed = !isCollapsed;
+    setIsCollapsed(newCollapsed);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`trak-project-header-collapsed-${project.id}`, String(newCollapsed));
+    }
+    // Dispatch event so parent can react to collapse state
+    window.dispatchEvent(new CustomEvent("project-header-collapse-changed", { 
+      detail: { projectId: project.id, collapsed: newCollapsed } 
+    }));
+  };
 
   // Listen for theme changes from tab canvas
   useEffect(() => {
@@ -108,6 +138,71 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   const isOverview = pathname?.endsWith("/overview");
   const projectOverviewPath = `/dashboard/projects/${project.id}/overview`;
 
+  // Find current tab name
+  const findTabName = (tabs: Tab[], tabId: string | undefined): string | null => {
+    if (!tabId) return null;
+    for (const tab of tabs) {
+      if (tab.id === tabId) return tab.name;
+      if (tab.children) {
+        for (const child of tab.children) {
+          if (child.id === tabId) return child.name;
+        }
+      }
+    }
+    return null;
+  };
+
+  const currentTabName = tabId ? findTabName(tabs, tabId) : null;
+
+
+  // Collapsed view - only show when collapsed and on a tab
+  if (isCollapsed && tabId && currentTabName) {
+    return (
+      <>
+        <div className="flex items-center justify-between h-5 px-2 border-b border-[var(--border)]/30 bg-[var(--surface)]/50 backdrop-blur-sm">
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--foreground)]/70">
+            <span className="font-medium truncate">{project.name}</span>
+            <span className="text-[var(--foreground)]/30">·</span>
+            <span className="flex items-center gap-1">
+              <span className="h-1 w-1 rounded-full bg-[var(--foreground)]/50"></span>
+              <span className="truncate">{currentTabName}</span>
+              {tabs.length > 0 && (
+                <button
+                  onClick={() => setIsTabBarOpen(!isTabBarOpen)}
+                  className="inline-flex items-center p-0.5 text-[var(--foreground)]/40 hover:text-[var(--foreground)]/70 transition-colors rounded hover:bg-[var(--surface-hover)]"
+                  title="Show tabs"
+                >
+                  <ChevronDown className={cn("h-2.5 w-2.5 transition-transform", isTabBarOpen && "rotate-180")} />
+                </button>
+              )}
+            </span>
+          </div>
+          <button
+            onClick={handleCollapseToggle}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground)]/50 hover:text-[var(--foreground)]/80 transition-colors rounded hover:bg-[var(--surface-hover)]"
+            title="Expand header"
+          >
+            <ChevronDown className="h-2.5 w-2.5" />
+            Expand
+          </button>
+        </div>
+        {/* TabBar shown when dropdown is open */}
+        {isTabBarOpen && (
+          <div className="border-b border-[var(--border)]/50 bg-[var(--surface)]/50 backdrop-blur-sm">
+            <div className="px-2 md:px-3 lg:px-4">
+              <TabBar 
+                tabs={tabs} 
+                projectId={project.id}
+                isClientProject={!!project.client}
+                clientPageEnabled={project.client_page_enabled || false}
+              />
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -151,6 +246,18 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Collapse button - only show when on a tab */}
+          {tabId && (
+            <button
+              onClick={handleCollapseToggle}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+              title="Collapse header"
+            >
+              <ChevronUp className="h-3 w-3" />
+              Collapse
+            </button>
+          )}
+
           {/* Theme selector - only show when on a tab */}
           {tabId && (
             <DropdownMenu>

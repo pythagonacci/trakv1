@@ -15,8 +15,14 @@ import type { TableRowSourceEntityType, TableRowSourceSyncMode } from "@/types/t
 import { updateTaskItem } from "@/app/actions/tasks/item-actions";
 import { updateTimelineEvent } from "@/app/actions/timelines/event-actions";
 import { validateEventPriority, validateEventStatus } from "@/app/actions/timelines/validators";
+import {
+  getCanonicalTimelinePriority,
+  mergeTimelinePriorityField,
+  normalizeTimelinePriorities,
+} from "@/lib/timeline-priority-sync";
 import { setEntityProperties } from "@/app/actions/entity-properties";
 import type { Status, Priority } from "@/types/properties";
+import type { TimelineNamedPriority } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -499,6 +505,26 @@ export async function pushEditedSnapshotRowsToSource(input: {
 
   const tableFields = (fields ?? []) as TableField[];
   const authContext: AuthContext = input.authContext ?? { supabase, userId };
+  const timelineSourceIds = Array.from(
+    new Set(
+      (editedRows ?? [])
+        .filter((row) => row.source_entity_type === "timeline_event" && typeof row.source_entity_id === "string")
+        .map((row) => row.source_entity_id as string)
+    )
+  );
+  const sourceTimelinePriorities = new Map<string, TimelineNamedPriority[]>();
+  if (timelineSourceIds.length > 0) {
+    const { data: sourceEvents } = await supabase
+      .from("timeline_events")
+      .select("id, priorities")
+      .in("id", timelineSourceIds);
+    for (const sourceEvent of sourceEvents ?? []) {
+      sourceTimelinePriorities.set(
+        sourceEvent.id as string,
+        normalizeTimelinePriorities((sourceEvent as any)?.priorities ?? [])
+      );
+    }
+  }
 
   const failedRowIds: string[] = [];
   let pushedCount = 0;
@@ -520,14 +546,38 @@ export async function pushEditedSnapshotRowsToSource(input: {
         }
       } else if (row.source_entity_type === "timeline_event") {
         const updates: Record<string, unknown> = {};
+        const sourceEventId = row.source_entity_id as string;
+        let nextPriorities = normalizeTimelinePriorities(sourceTimelinePriorities.get(sourceEventId) ?? []);
+        let hasPriorityUpdate = false;
         for (const field of tableFields) {
           if (rowData[field.id] === undefined) continue;
           const mapped = mapTimelineUpdateFromField(field, rowData[field.id]);
-          if (mapped) Object.assign(updates, mapped);
+          if (!mapped) continue;
+
+          const priorityUpdates = (mapped as any).priorities as
+            | Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" | null }>
+            | undefined;
+          if (Array.isArray(priorityUpdates)) {
+            hasPriorityUpdate = true;
+            for (const priorityUpdate of priorityUpdates) {
+              nextPriorities = mergeTimelinePriorityField(
+                nextPriorities,
+                priorityUpdate.field_name,
+                priorityUpdate.value
+              );
+            }
+          }
+
+          const { priorities: _ignoredPriorities, ...rest } = mapped as Record<string, unknown>;
+          Object.assign(updates, rest);
+        }
+        if (hasPriorityUpdate) {
+          updates.priorities = nextPriorities;
         }
         if (Object.keys(updates).length > 0) {
           const result = await updateTimelineEvent(row.source_entity_id!, updates as any, { authContext });
           if ("error" in result) { failedRowIds.push(row.id); continue; }
+          sourceTimelinePriorities.set(sourceEventId, nextPriorities);
         }
       } else if (row.source_entity_type === "table_row") {
         // Push each mapped field to source table row
@@ -704,11 +754,15 @@ function mapTimelineEventFieldToRowValue(
   event: Record<string, unknown>
 ): unknown | undefined {
   const normalizedFieldName = normalizeFieldName(field.name);
-  const eventPriorities = Array.isArray(event.priorities) ? event.priorities : [];
-  const eventPriority =
-    eventPriorities.find((entry: any) => String(entry?.field_name || "").trim().toLowerCase() === "priority")?.value ??
-    eventPriorities[0]?.value ??
-    event.priority;
+  const eventPriorities = normalizeTimelinePriorities(event.priorities ?? []);
+  const matchingPriority = eventPriorities.find(
+    (entry) => entry.field_name.trim().toLowerCase() === field.name.trim().toLowerCase()
+  );
+  const shouldFallbackToCanonical = Boolean(
+    (field.config as any)?.timelinePriorityFallbackToCanonical === true ||
+      (field.config as any)?.useCanonicalTimelinePriorityFallback === true
+  );
+  const canonicalPriority = getCanonicalTimelinePriority(eventPriorities);
 
   if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "event") {
     return event.title ?? "";
@@ -717,7 +771,9 @@ function mapTimelineEventFieldToRowValue(
     return event.status ?? null;
   }
   if (field.type === "priority" || normalizedFieldName === "priority") {
-    return eventPriority ?? null;
+    if (matchingPriority?.value) return matchingPriority.value;
+    if (shouldFallbackToCanonical) return canonicalPriority ?? null;
+    return null;
   }
   if (normalizedFieldName.includes("progress")) {
     return event.progress ?? null;
@@ -807,7 +863,35 @@ async function syncTableRowEditToSource(params: {
     if (row.source_entity_type === "timeline_event") {
       const timelineUpdates = mapTimelineUpdateFromField(field, value);
       if (!timelineUpdates) return;
-      await updateTimelineEvent(row.source_entity_id, timelineUpdates, { authContext });
+      const priorityUpdates = (timelineUpdates as any).priorities as
+        | Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" | null }>
+        | undefined;
+      if (Array.isArray(priorityUpdates)) {
+        const { data: sourceEvent } = await authContext.supabase
+          .from("timeline_events")
+          .select("priorities")
+          .eq("id", row.source_entity_id)
+          .maybeSingle();
+        let mergedPriorities = normalizeTimelinePriorities((sourceEvent as any)?.priorities ?? []);
+        for (const priorityUpdate of priorityUpdates) {
+          mergedPriorities = mergeTimelinePriorityField(
+            mergedPriorities,
+            priorityUpdate.field_name,
+            priorityUpdate.value
+          );
+        }
+        const { priorities: _ignoredPriorities, ...rest } = timelineUpdates as Record<string, unknown>;
+        await updateTimelineEvent(
+          row.source_entity_id,
+          {
+            ...(rest as any),
+            priorities: mergedPriorities,
+          },
+          { authContext }
+        );
+        return;
+      }
+      await updateTimelineEvent(row.source_entity_id, timelineUpdates as any, { authContext });
       return;
     }
 
@@ -1003,7 +1087,7 @@ function mapTimelineUpdateFromField(
   | Partial<{
       title: string;
       status: "todo" | "in_progress" | "blocked" | "done";
-      priority: "low" | "medium" | "high" | "urgent" | null;
+      priorities: Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" | null }>;
       startDate: string;
       endDate: string;
       progress: number;
@@ -1025,7 +1109,7 @@ function mapTimelineUpdateFromField(
 
   if (field.type === "priority" || normalizedFieldName === "priority") {
     const priority = normalizeTimelinePriority(resolveSelectLikeValue(field, value));
-    return priority !== undefined ? { priority } : null;
+    return priority !== undefined ? { priorities: [{ field_name: field.name, value: priority }] } : null;
   }
 
   if (normalizedFieldName.includes("progress")) {

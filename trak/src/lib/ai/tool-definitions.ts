@@ -1335,7 +1335,8 @@ const timelineActionTools: ToolDefinition[] = [
     name: "createTimelineEvent",
     description: "CREATE a new event in a timeline block. ⚠️ SMART TOOL: Do NOT search for timeline block IDs. Just pass names directly.\n\n" +
       "Auto-Context: Defaults to current view. Provide 'timelineBlockName' (e.g. 'Project Timeline') to target specific blocks.\n" +
-      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
+      "Priority rule: use `priority` only when there is one canonical priority field. If there are multiple priority fields, use `priorities` with named entries.",
     category: "timeline",
     parameters: {
       timelineBlockId: { type: "string", description: "Optional: timeline block ID. PREFER 'timelineBlockName' for natural language." },
@@ -1344,7 +1345,28 @@ const timelineActionTools: ToolDefinition[] = [
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
       status: { type: "string", description: "Event status using canonical IDs", enum: ["todo", "in_progress", "blocked", "done"] },
-      priority: { type: "string", description: "Event priority using canonical IDs (optional)", enum: ["low", "medium", "high", "urgent"] },
+      priority: {
+        type: "string",
+        description: "Single canonical event priority (use this only when there is one priority field).",
+        enum: ["low", "medium", "high", "urgent"],
+      },
+      priorities: {
+        type: "array",
+        description:
+          "Named priorities array for multi-priority timeline events. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name (for example: Priority, Execution Priority)." },
+            value: {
+              type: "string",
+              description: "Priority value.",
+              enum: ["low", "medium", "high", "urgent"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       progress: { type: "number", description: "Progress percentage (0-100)" },
       notes: { type: "string", description: "Event notes" },
       color: { type: "string", description: "Event color (hex)" },
@@ -1362,13 +1384,25 @@ const timelineActionTools: ToolDefinition[] = [
         description: "Optional source sync mode for source-linked events (defaults to snapshot).",
         enum: ["snapshot", "live"],
       },
+      sourceEntityType: {
+        type: "string",
+        description: "CamelCase alias for source_entity_type.",
+        enum: ["task", "timeline_event", "table_row", "block"],
+      },
+      sourceEntityId: { type: "string", description: "CamelCase alias for source_entity_id." },
+      sourceSyncMode: {
+        type: "string",
+        description: "CamelCase alias for source_sync_mode.",
+        enum: ["snapshot", "live"],
+      },
     },
     requiredParams: ["title", "startDate", "endDate"],
   },
   {
     name: "updateTimelineEvent",
     description: "UPDATE a timeline event. ⚠️ SUPER TOOL: Use this when updating multiple properties on the same event (e.g., 'change dates, status, and assignee'). For single-property edits, atomic tools may be faster.\n\n" +
-      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
+      "Priority rule: use `priority` for single canonical updates, and `priorities` when updating multiple named priority fields.",
     category: "timeline",
     parameters: {
       eventId: { type: "string", description: "The event ID" },
@@ -1376,7 +1410,28 @@ const timelineActionTools: ToolDefinition[] = [
       startDate: { type: "string", description: "New start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "New end date (YYYY-MM-DD)" },
       status: { type: "string", description: "New status using canonical IDs", enum: ["todo", "in_progress", "blocked", "done"] },
-      priority: { type: "string", description: "New priority using canonical IDs (optional)", enum: ["low", "medium", "high", "urgent"] },
+      priority: {
+        type: "string",
+        description: "New single canonical priority value (use when updating only one priority field).",
+        enum: ["low", "medium", "high", "urgent"],
+      },
+      priorities: {
+        type: "array",
+        description:
+          "Named priorities array for multi-priority updates. Each entry must be { field_name, value } where value is low|medium|high|urgent.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name (for example: Priority, Execution Priority)." },
+            value: {
+              type: "string",
+              description: "Priority value.",
+              enum: ["low", "medium", "high", "urgent"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       progress: { type: "number", description: "New progress (0-100)" },
       notes: { type: "string", description: "New notes" },
       color: { type: "string", description: "New color (hex)" },

@@ -3,9 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import type { TaskItem } from "@/types/task";
 import type { Table, TableRow, TableField } from "@/types/table";
-import type { TimelineEvent } from "@/types/timeline";
+import { getCanonicalTimelinePriority, type TimelineEvent } from "@/types/timeline";
 import type { Tab } from "@/app/actions/tab";
 import type { Block } from "@/app/actions/block";
 import type { Doc } from "@/app/actions/doc";
@@ -13,6 +14,10 @@ import type { Doc } from "@/app/actions/doc";
 interface ContextResponse<T> {
   data: T | null;
   error: string | null;
+}
+
+function normalizeTimelinePrioritiesForContext(input: unknown): TimelineEvent["priorities"] {
+  return normalizeTimelinePriorities(input);
 }
 
 interface TaskWithContext {
@@ -101,6 +106,8 @@ interface ProjectWithContext {
     start_date: string;
     end_date: string;
     status: string | null;
+    priorities: TimelineEvent["priorities"];
+    priority: TimelineEvent["priority"];
   }>;
 }
 
@@ -165,6 +172,8 @@ interface TimelineEventWithContext {
     | "start_date"
     | "end_date"
     | "status"
+    | "priority"
+    | "priorities"
     | "assignee_id"
     | "source_entity_type"
     | "source_entity_id"
@@ -609,7 +618,7 @@ export async function getProjectWithContext(params: {
 
     const { data: timelineEvents, error: timelineError } = await supabase
       .from("timeline_events")
-      .select("id, title, start_date, end_date, status, blocks!inner(tab_id, tabs!inner(project_id))")
+      .select("id, title, start_date, end_date, status, priorities, blocks!inner(tab_id, tabs!inner(project_id))")
       .eq("blocks.tabs.project_id", params.projectId)
       .limit(100);
 
@@ -647,13 +656,18 @@ export async function getProjectWithContext(params: {
           file_size: file.file_size,
           created_at: file.created_at,
         })),
-        timelineEvents: (timelineEvents ?? []).map((event: any) => ({
-          id: event.id,
-          title: event.title,
-          start_date: event.start_date,
-          end_date: event.end_date,
-          status: event.status,
-        })),
+        timelineEvents: (timelineEvents ?? []).map((event: any) => {
+          const priorities = normalizeTimelinePrioritiesForContext(event.priorities);
+          return {
+            id: event.id,
+            title: event.title,
+            start_date: event.start_date,
+            end_date: event.end_date,
+            status: event.status,
+            priorities,
+            priority: getCanonicalTimelinePriority(priorities),
+          };
+        }),
       },
       error: null,
     };
@@ -1007,7 +1021,7 @@ export async function getTimelineEventWithContext(params: {
     const { data: event, error: eventError } = await supabase
       .from("timeline_events")
       .select(
-        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, assignee_id, source_entity_type, source_entity_id, source_sync_mode, progress, notes, color, is_milestone, created_at"
+        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, priorities, assignee_id, source_entity_type, source_entity_id, source_sync_mode, progress, notes, color, is_milestone, created_at"
       )
       .eq("id", params.eventId)
       .eq("workspace_id", workspaceId)
@@ -1071,6 +1085,8 @@ export async function getTimelineEventWithContext(params: {
       return { data: null, error: "Timeline block not found" };
     }
 
+    const priorities = normalizeTimelinePrioritiesForContext((event as any).priorities);
+
     return {
       data: {
         event: {
@@ -1081,6 +1097,8 @@ export async function getTimelineEventWithContext(params: {
           start_date: event.start_date,
           end_date: event.end_date,
           status: event.status,
+          priorities,
+          priority: getCanonicalTimelinePriority(priorities),
           assignee_id: event.assignee_id,
           source_entity_type: event.source_entity_type ?? null,
           source_entity_id: event.source_entity_id ?? null,

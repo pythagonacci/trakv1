@@ -1,6 +1,11 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import {
+  getCanonicalTimelinePriority,
+  normalizeTimelinePriorities,
+  syncTimelinePriorityFieldsToEntityProperties,
+} from "@/lib/timeline-priority-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent } from "@/types/timeline";
 
@@ -81,6 +86,7 @@ export async function bulkDuplicateTimelineEvents(input: {
     start_date: event.start_date,
     end_date: event.end_date,
     status: event.status,
+    priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
     progress: event.progress,
     notes: event.notes,
@@ -106,6 +112,39 @@ export async function bulkDuplicateTimelineEvents(input: {
     .select("*");
 
   if (error || !data) return { error: "Failed to duplicate timeline events" };
+  const normalized = (data as any[]).map((event) => {
+    const priorities = normalizeTimelinePriorities(event?.priorities);
+    return {
+      ...(event as TimelineEvent),
+      priorities,
+      priority: getCanonicalTimelinePriority(priorities),
+    } as TimelineEvent;
+  });
 
-  return { data: data as TimelineEvent[] };
+  await Promise.all(
+    normalized.map(async (event) => {
+      await supabase.from("entity_properties").upsert(
+        {
+          entity_type: "timeline_event",
+          entity_id: event.id,
+          workspace_id: event.workspace_id,
+          property_definition_id: null,
+          field_name: "Status",
+          field_type: "status",
+          value: event.status,
+        },
+        {
+          onConflict: "entity_type,entity_id,field_name",
+        }
+      );
+      await syncTimelinePriorityFieldsToEntityProperties(
+        supabase,
+        event.id,
+        event.workspace_id,
+        event.priorities
+      );
+    })
+  );
+
+  return { data: normalized };
 }

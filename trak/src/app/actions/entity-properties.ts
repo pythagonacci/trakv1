@@ -6,6 +6,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import { getDueDateEnd, getDueDateStart, normalizeDueDateRange } from "@/lib/due-date";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import type {
   EntityType,
   EntityProperties,
@@ -917,6 +918,16 @@ export async function setEntityProperties(
         );
       }
     }
+  }
+
+  if (input.entity_type === "timeline_event" && (updates.priority !== undefined || updates.priorities !== undefined)) {
+    const timelinePriorities = normalizeTimelinePriorities((data as any).priorities ?? []);
+    await supabase
+      .from("timeline_events")
+      .update({
+        priorities: timelinePriorities,
+      })
+      .eq("id", input.entity_id);
   }
 
   return { data };

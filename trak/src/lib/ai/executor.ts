@@ -1909,6 +1909,19 @@ export async function executeAICommand(
           });
         }
 
+        // Remind to search when a write was called with incomplete source metadata (e.g. placeholder or invalid ID)
+        const anySourceMetadataIncomplete = toolCallsThisRound.some(
+          (c) => (c.result as ToolCallResult).sourceMetadataIncomplete
+        );
+        if (anySourceMetadataIncomplete) {
+          messages.push({
+            role: "user",
+            content: `📌 SOURCE METADATA INCOMPLETE 📌\nYou called a write tool with source_entity_type or source_entity_id that could not be used (e.g. placeholder text or invalid ID).\n\nIf the item you're creating is from an existing source (e.g. a table row, task, or search result), you must search first to get the actual entity ID, then include source_entity_type, source_entity_id, and source_sync_mode on the created item.\n\nYou do NOT have to add source metadata if what you're creating isn't from any sources or isn't meant to reflect that source — in that case omit source_entity_type and source_entity_id and simply respond to the user.`,
+          });
+          aiDebug("sourceTracking:incompleteSourceMetadataReminder", { toolCalls: toolNamesThisRound });
+          continue;
+        }
+
         if (pendingToolUpgradePrompt) {
           messages.push({
             role: "user",
@@ -3104,6 +3117,19 @@ export async function* executeAICommandStream(
             tool_call_id: toolCall.id,
             name: toolName,
           });
+        }
+
+        // Remind to search when a write was called with incomplete source metadata (streaming path)
+        const anyStreamSourceMetadataIncomplete = toolCallsThisRound.some(
+          (c) => (c.result as ToolCallResult).sourceMetadataIncomplete
+        );
+        if (anyStreamSourceMetadataIncomplete) {
+          messages.push({
+            role: "user",
+            content: `📌 SOURCE METADATA INCOMPLETE 📌\nYou called a write tool with source_entity_type or source_entity_id that could not be used (e.g. placeholder text or invalid ID).\n\nIf the item you're creating is from an existing source (e.g. a table row, task, or search result), you must search first to get the actual entity ID, then include source_entity_type, source_entity_id, and source_sync_mode on the created item.\n\nYou do NOT have to add source metadata if what you're creating isn't from any sources or isn't meant to reflect that source — in that case omit source_entity_type and source_entity_id and simply respond to the user.`,
+          });
+          aiDebug("sourceTracking:incompleteSourceMetadataReminder:stream", { toolCalls: toolCallsThisRound.map((c) => c.tool) });
+          continue;
         }
 
         // Post-round source data reminder (streaming path): when the LLM creates

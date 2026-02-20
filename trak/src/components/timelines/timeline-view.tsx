@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -32,9 +32,11 @@ import type {
   TimelineBlockContent,
   TimelineEventStatus,
   TimelineEventPriority,
+  TimelineNamedPriority,
   TimelineItem,
   ReferenceType,
 } from "@/types/timeline";
+import { getCanonicalTimelinePriority as getCanonicalTimelinePriorityFromType } from "@/types/timeline";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -66,6 +68,7 @@ interface TimelineEvent {
   color?: string;
   status?: TimelineEventStatus;
   priority?: TimelineEventPriority | null;
+  priorities?: TimelineNamedPriority[];
   assignee?: string;
   assigneeId?: string | null;
   notes?: string;
@@ -116,6 +119,60 @@ const DEFAULT_COLORS = [
   "bg-teal-500/50",
   "bg-cyan-500/50",
 ];
+
+const PRIORITY_LABELS: Record<TimelineEventPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+const PRIORITY_PILL_COLORS: Record<TimelineEventPriority, string> = {
+  low: "bg-[var(--surface-muted)] text-[var(--muted-foreground)] border-[var(--border)]",
+  medium: "bg-amber-500/12 text-amber-700 border-amber-200",
+  high: "bg-orange-500/12 text-orange-700 border-orange-200",
+  urgent: "bg-red-500/12 text-red-700 border-red-200",
+};
+
+const PRIORITY_BUTTON_COLORS: Record<TimelineEventPriority, string> = {
+  low: "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+  medium: "border border-amber-200 bg-amber-500/12 text-amber-700 hover:bg-amber-500/18",
+  high: "border border-orange-200 bg-orange-500/12 text-orange-700 hover:bg-orange-500/18",
+  urgent: "border border-red-200 bg-red-500/12 text-red-700 hover:bg-red-500/18",
+};
+
+function normalizeTimelinePrioritiesClient(input: unknown): TimelineNamedPriority[] {
+  if (!Array.isArray(input)) return [];
+
+  const normalized: TimelineNamedPriority[] = [];
+  const seen = new Set<string>();
+  for (const rawEntry of input) {
+    const fieldName = String((rawEntry as any)?.field_name ?? "").trim();
+    const rawValue = String((rawEntry as any)?.value ?? "").trim().toLowerCase();
+    if (!fieldName) continue;
+    if (!["low", "medium", "high", "urgent"].includes(rawValue)) continue;
+    const key = fieldName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ field_name: fieldName, value: rawValue as TimelineEventPriority });
+  }
+
+  return normalized.sort((a, b) => {
+    const aKey = a.field_name.trim().toLowerCase();
+    const bKey = b.field_name.trim().toLowerCase();
+    if (aKey === "priority" && bKey !== "priority") return -1;
+    if (bKey === "priority" && aKey !== "priority") return 1;
+    return a.field_name.localeCompare(b.field_name, undefined, { sensitivity: "base" });
+  });
+}
+
+function getCanonicalTimelinePriority(priorities: TimelineNamedPriority[] | null | undefined): TimelineEventPriority | null {
+  return getCanonicalTimelinePriorityFromType(priorities);
+}
+
+function getTimelinePriorityDisplayLabel(priorityField: TimelineNamedPriority): string {
+  return `${PRIORITY_LABELS[priorityField.value]} · ${priorityField.field_name}`;
+}
 
 function findWorkspaceMember(members: WorkspaceMember[], memberId?: string | null) {
   if (!memberId) return undefined;
@@ -772,20 +829,25 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return timelineItems.map((item) => {
       const props = timelinePropertiesById[item.id];
       const assigneeId = props?.assignee_id ?? item.assignee_id ?? null;
+      const propertyPriorities = normalizeTimelinePrioritiesClient(props?.priorities ?? []);
+      const itemPriorities = normalizeTimelinePrioritiesClient(item.priorities ?? []);
+      const priorities = propertyPriorities.length > 0 ? propertyPriorities : itemPriorities;
       return {
-      id: item.id,
-      title: item.title,
-      start: item.start_date,
-      end: item.end_date,
-      color: item.color || undefined,
-      status: item.status,
-      assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
-      assigneeId,
-      progress: item.progress,
-      notes: item.notes ?? undefined,
-      isMilestone: item.is_milestone,
-      baselineStart: item.baseline_start ?? undefined,
-      baselineEnd: item.baseline_end ?? undefined,
+        id: item.id,
+        title: item.title,
+        start: item.start_date,
+        end: item.end_date,
+        color: item.color || undefined,
+        status: item.status,
+        priority: getCanonicalTimelinePriority(priorities) ?? item.priority ?? null,
+        priorities,
+        assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+        assigneeId,
+        progress: item.progress,
+        notes: item.notes ?? undefined,
+        isMilestone: item.is_milestone,
+        baselineStart: item.baseline_start ?? undefined,
+        baselineEnd: item.baseline_end ?? undefined,
       };
     });
   }, [timelineItems, timelinePropertiesById, memberMap]);
@@ -1279,6 +1341,22 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   {event.assignee && (
                     <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                       Assignee: {event.assignee}
+                    </div>
+                  )}
+                  {Array.isArray(event.priorities) && event.priorities.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {event.priorities.map((priorityField) => (
+                        <span
+                          key={`${event.id}-tooltip-priority-${priorityField.field_name.toLowerCase()}`}
+                          className={cn(
+                            "inline-flex max-w-[260px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                            PRIORITY_PILL_COLORS[priorityField.value]
+                          )}
+                          title={getTimelinePriorityDisplayLabel(priorityField)}
+                        >
+                          <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                        </span>
+                      ))}
                     </div>
                   )}
                   {event.notes && (
@@ -2108,10 +2186,20 @@ function EventDetailsPanel({
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
+  const eventPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
+    [event.priorities]
+  );
+  const directPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
+    [direct?.priorities]
+  );
+  const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
+  const canonicalPriority = getCanonicalTimelinePriority(effectivePriorities) ?? event.priority ?? null;
 
   const [local, setLocal] = useState({
     status: event.status ?? null,
-    priority: event.priority ?? null,
+    priority: canonicalPriority,
     assigneeId: event.assigneeId ?? null,
     progress: event.progress ?? 0,
     notes: event.notes ?? "",
@@ -2133,7 +2221,7 @@ function EventDetailsPanel({
   React.useEffect(() => {
     setLocal({
       status: event.status ?? null,
-      priority: event.priority ?? null,
+      priority: canonicalPriority,
       assigneeId: event.assigneeId ?? null,
       progress: event.progress ?? 0,
       notes: event.notes ?? "",
@@ -2143,7 +2231,7 @@ function EventDetailsPanel({
       color: event.color ?? null,
     });
     setIsColorDialogOpen(false);
-  }, [event]);
+  }, [event, canonicalPriority]);
 
   const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
   const assigneeLabel = selectedMember?.name ?? selectedMember?.email ?? "Unassigned";
@@ -2189,7 +2277,7 @@ function EventDetailsPanel({
   const handlePriorityChange = (value: string) => {
     const nextPriority = value === "none" ? null : (value as TimelineEventPriority);
     setLocal((s) => ({ ...s, priority: nextPriority }));
-    if ((event.priority ?? null) !== nextPriority) {
+    if (canonicalPriority !== nextPriority) {
       onUpdate({ priority: nextPriority } as TimelineEventPatch);
     }
   };
@@ -2370,6 +2458,22 @@ function EventDetailsPanel({
                 <option value="high">High</option>
                 <option value="urgent">Urgent</option>
               </select>
+              {effectivePriorities.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {effectivePriorities.map((priorityField) => (
+                    <span
+                      key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`}
+                      className={cn(
+                        "inline-flex max-w-[220px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                        PRIORITY_PILL_COLORS[priorityField.value]
+                      )}
+                      title={getTimelinePriorityDisplayLabel(priorityField)}
+                    >
+                      <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -2500,6 +2604,11 @@ function EditEventDialog({
 
   const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
   const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
+  const eventPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
+    [event.priorities]
+  );
+  const eventCanonicalPriority = getCanonicalTimelinePriority(eventPriorities) ?? event.priority ?? null;
 
   const getInitialState = React.useCallback(
     () => ({
@@ -2508,13 +2617,13 @@ function EditEventDialog({
       end: event.end,
       color: event.color || DEFAULT_COLORS[0],
       status: (event.status || "todo") as TimelineEventStatus,  // Changed from "planned" to "todo"
-      priority: event.priority ?? null,  // NEW: Priority field
+      priority: eventCanonicalPriority,
       assigneeId: event.assigneeId ?? null,
       notes: event.notes || "",
       progress: event.progress ?? 0,
       isMilestone: event.isMilestone ?? false,
     }),
-    [event]
+    [event, eventCanonicalPriority]
   );
 
   const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
@@ -2523,6 +2632,12 @@ function EditEventDialog({
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
+  const directPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
+    [direct?.priorities]
+  );
+  const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
+  const localPriorityLabel = local.priority ? PRIORITY_LABELS[local.priority] : null;
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -2664,27 +2779,69 @@ function EditEventDialog({
               {/* Priority */}
               <div>
                 <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
-                <select
-                  value={local.priority ?? ""}
-                  onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
-                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">None</option>
-                  {priorityOptions.length > 0 ? (
-                    priorityOptions.map((opt: any) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="urgent">Urgent</option>
-                    </>
-                  )}
-                </select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "w-full rounded-lg px-3 py-2 text-sm transition-colors flex items-center justify-between",
+                        local.priority
+                          ? PRIORITY_BUTTON_COLORS[local.priority]
+                          : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-neutral-500 hover:border-[var(--secondary)] hover:text-neutral-700 dark:hover:text-neutral-300"
+                      )}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Flag className="h-4 w-4" />
+                        <span>{localPriorityLabel ?? "None"}</span>
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-neutral-400" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: null }))}>
+                      None
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {priorityOptions.length > 0 ? (
+                      priorityOptions.map((opt: any) => (
+                        <DropdownMenuItem
+                          key={opt.id}
+                          onClick={() =>
+                            setLocal((s) => ({
+                              ...s,
+                              priority: (opt.id as TimelineEventPriority) ?? null,
+                            }))
+                          }
+                        >
+                          {opt.label}
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <>
+                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "low" }))}>Low</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "medium" }))}>Medium</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "high" }))}>High</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "urgent" }))}>Urgent</DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {effectivePriorities.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {effectivePriorities.map((priorityField) => (
+                      <span
+                        key={`${event.id}-edit-priority-${priorityField.field_name.toLowerCase()}`}
+                        className={cn(
+                          "inline-flex max-w-[220px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                          PRIORITY_PILL_COLORS[priorityField.value]
+                        )}
+                        title={getTimelinePriorityDisplayLabel(priorityField)}
+                      >
+                        <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Progress & Milestone */}

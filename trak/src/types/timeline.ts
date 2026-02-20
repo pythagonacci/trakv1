@@ -5,7 +5,16 @@ export type TimelineEventStatus = "todo" | "in_progress" | "blocked" | "done";
 export type TimelineEventPriority = "low" | "medium" | "high" | "urgent";
 export interface TimelineNamedPriority {
   field_name: string;
-  value: TimelineEventPriority | null;
+  value: TimelineEventPriority;
+}
+
+export function getCanonicalTimelinePriority(priorities: TimelineNamedPriority[] | null | undefined): TimelineEventPriority | null {
+  if (!Array.isArray(priorities) || priorities.length === 0) return null;
+  const canonical = priorities.find(
+    (entry) => typeof entry?.field_name === "string" && entry.field_name.trim().toLowerCase() === "priority"
+  );
+  if (canonical?.value) return canonical.value;
+  return priorities[0]?.value ?? null;
 }
 export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
 export type TimelineSourceSyncMode = "snapshot" | "live";

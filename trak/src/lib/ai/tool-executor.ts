@@ -138,6 +138,7 @@ import {
   updateTimelineEvent,
   deleteTimelineEvent,
 } from "@/app/actions/timelines/event-actions";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import {
   createTimelineDependency,
   deleteTimelineDependency,
@@ -218,6 +219,8 @@ export interface ToolCallResult {
   error?: string;
   warnings?: string[];
   hint?: string;
+  /** Set when a write tool was called with source_entity_type/source_entity_id that could not be used (e.g. placeholder or invalid ID). */
+  sourceMetadataIncomplete?: boolean;
 }
 
 export interface ToolCall {
@@ -1153,6 +1156,13 @@ export async function executeTool(
             const sourceEntityType = normalizeSourceEntityType(args.source_entity_type);
             const sourceEntityId = normalizeSourceEntityId(args.source_entity_id);
             const hasSourceMetadata = Boolean(sourceEntityType && sourceEntityId);
+            const taskHadSourceHints = Boolean(
+              (args as Record<string, unknown>).source_entity_type !== undefined ||
+              (args as Record<string, unknown>).source_entity_id !== undefined ||
+              (args as Record<string, unknown>).sourceEntityType !== undefined ||
+              (args as Record<string, unknown>).sourceEntityId !== undefined
+            );
+            const taskSourceMetadataIncomplete = taskHadSourceHints && !hasSourceMetadata;
             const payload = {
               taskBlockId,
               title: args.title as string,
@@ -1178,7 +1188,9 @@ export async function executeTool(
               authContext: authContext ?? undefined,
             });
             if (!("error" in rpcResult)) {
-              return { success: true, data: rpcResult.data };
+              const out: ToolCallResult = { success: true, data: rpcResult.data };
+              if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+              return out;
             }
 
             const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
@@ -1202,7 +1214,9 @@ export async function executeTool(
                 t_insert_assignees_ms: timing.t_insert_assignees_ms,
                 t_fetch_return_ms: timing.t_fetch_return_ms,
               });
-              return { success: true, data: directResult.data };
+              const out: ToolCallResult = { success: true, data: directResult.data };
+              if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+              return out;
             }
 
             if (directResult.error === "Task block not found") {
@@ -1237,7 +1251,9 @@ export async function executeTool(
                   });
 
                   if (!("error" in retryResult)) {
-                    return { success: true, data: retryResult.data };
+                    const out: ToolCallResult = { success: true, data: retryResult.data };
+                    if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+                    return out;
                   }
 
                   return { success: false, error: retryResult.error ?? "Failed to create task" };
@@ -1249,7 +1265,9 @@ export async function executeTool(
                 }, { authContext: authContext ?? undefined });
 
                 if (!("error" in retryResult)) {
-                  return { success: true, data: retryResult.data };
+                  const out: ToolCallResult = { success: true, data: retryResult.data };
+                  if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+                  return out;
                 }
 
                 return { success: false, error: retryResult.error ?? "Failed to create task" };
@@ -1291,7 +1309,9 @@ export async function executeTool(
                     taskBlockId: taskBlockIdToUse,
                   }, { authContext: authContext ?? undefined });
                   if (!("error" in retryResult)) {
-                    return { success: true, data: retryResult.data };
+                    const out: ToolCallResult = { success: true, data: retryResult.data };
+                    if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+                    return out;
                   }
                   return { success: false, error: retryResult.error ?? "Failed to create task" };
                 }
@@ -3341,8 +3361,31 @@ export async function executeTool(
               assigneeId = assigneeResult.resolved[0].id ?? undefined;
             }
           }
+          const sourceMetadata = extractSourceMetadataFromArgs(args as Record<string, unknown>);
+          const hadSourceHints = Boolean(
+            (args as Record<string, unknown>).source_entity_type !== undefined ||
+              (args as Record<string, unknown>).source_entity_id !== undefined ||
+              (args as Record<string, unknown>).sourceEntityType !== undefined ||
+              (args as Record<string, unknown>).sourceEntityId !== undefined ||
+              ((args as Record<string, unknown>)._source && typeof (args as Record<string, unknown>)._source === "object")
+          );
+          const sourceMetadataIncomplete = hadSourceHints && (!sourceMetadata.sourceEntityType || !sourceMetadata.sourceEntityId);
+          if (sourceMetadataIncomplete) {
+            aiDebug("createTimelineEvent:sourceMetadataInvalid", {
+              source_entity_type: (args as Record<string, unknown>).source_entity_type,
+              source_entity_id: (args as Record<string, unknown>).source_entity_id,
+              sourceEntityType: (args as Record<string, unknown>).sourceEntityType,
+              sourceEntityId: (args as Record<string, unknown>).sourceEntityId,
+              normalizedSourceEntityType: sourceMetadata.sourceEntityType ?? null,
+              normalizedSourceEntityId: sourceMetadata.sourceEntityId ?? null,
+            });
+          }
+          const timelinePrioritiesInput =
+            (args as Record<string, unknown>).priorities ??
+            (args as Record<string, unknown>).priorityFields ??
+            (args as Record<string, unknown>).priority_fields;
 
-          return await wrapResult(
+          const timelineResult = await wrapResult(
             createTimelineEvent({
               timelineBlockId,
               title: args.title as string,
@@ -3350,21 +3393,26 @@ export async function executeTool(
               endDate: args.endDate as string,
               status: args.status as TimelineEventStatus | undefined,
               priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
+              priorities:
+                timelinePrioritiesInput !== undefined
+                  ? normalizeTimelinePriorities(timelinePrioritiesInput)
+                  : undefined,
               progress: args.progress as number | undefined,
               notes: args.notes as string | undefined,
               color: args.color as string | undefined,
               isMilestone: args.isMilestone as boolean | undefined,
               assigneeId,
-              sourceEntityType: normalizeSourceEntityType(args.source_entity_type) ?? undefined,
-              sourceEntityId: normalizeSourceEntityId(args.source_entity_id) ?? undefined,
+              sourceEntityType: sourceMetadata.sourceEntityType,
+              sourceEntityId: sourceMetadata.sourceEntityId,
               sourceSyncMode:
-                normalizeSourceEntityType(args.source_entity_type) &&
-                normalizeSourceEntityId(args.source_entity_id)
-                  ? normalizeSourceSyncMode(args.source_sync_mode)
+                sourceMetadata.sourceEntityType && sourceMetadata.sourceEntityId
+                  ? sourceMetadata.sourceSyncMode
                   : undefined,
               authContext: authContext ?? undefined,
             })
           );
+          if (sourceMetadataIncomplete) return { ...timelineResult, sourceMetadataIncomplete: true };
+          return timelineResult;
         }
         case "updateTimelineEvent":
           {
@@ -3388,6 +3436,16 @@ export async function executeTool(
                 endDate: args.endDate as string | undefined,
                 status: args.status as TimelineEventStatus | undefined,
                 priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
+                priorities:
+                  ((args as Record<string, unknown>).priorities ??
+                    (args as Record<string, unknown>).priorityFields ??
+                    (args as Record<string, unknown>).priority_fields) !== undefined
+                    ? normalizeTimelinePriorities(
+                        (args as Record<string, unknown>).priorities ??
+                          (args as Record<string, unknown>).priorityFields ??
+                          (args as Record<string, unknown>).priority_fields
+                      )
+                    : undefined,
                 progress: args.progress as number | undefined,
                 notes: (args.notes as string | null | undefined) ?? undefined,
                 color: (args.color as string | null | undefined) ?? undefined,
@@ -5323,17 +5381,81 @@ function hasValidRowSourceMetadata(sourceType: unknown, sourceId: unknown): bool
 }
 
 function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | "block" | null {
-  if (value === "task" || value === "timeline_event" || value === "table_row" || value === "block") return value;
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    return normalizeSourceEntityType(
+      source.source_entity_type ?? source.sourceEntityType ?? source.entity_type ?? source.entityType ?? null
+    );
+  }
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "task" || normalized === "task_item" || normalized === "taskitem") return "task";
+  if (normalized === "timeline_event" || normalized === "timelineevent" || normalized === "event") return "timeline_event";
+  if (normalized === "table_row" || normalized === "tablerow" || normalized === "row") return "table_row";
+  if (normalized === "block" || normalized === "blocks") return "block";
   return null;
 }
 
 function normalizeSourceEntityId(value: unknown): string | null {
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    return normalizeSourceEntityId(
+      source.source_entity_id ?? source.sourceEntityId ?? source.entity_id ?? source.entityId ?? source.id ?? null
+    );
+  }
   if (typeof value !== "string") return null;
-  return isUuid(value) ? value : null;
+  const normalized = value.trim();
+  return isUuid(normalized) ? normalized : null;
 }
 
 function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
-  return value === "live" ? "live" : "snapshot";
+  if (typeof value === "string" && value.trim().toLowerCase() === "live") return "live";
+  return "snapshot";
+}
+
+function extractSourceMetadataFromArgs(args: Record<string, unknown>): {
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
+  sourceEntityId?: string;
+  sourceSyncMode: "snapshot" | "live";
+} {
+  const sourceObject =
+    args._source && typeof args._source === "object"
+      ? (args._source as Record<string, unknown>)
+      : {};
+
+  const sourceTypeRaw =
+    args.source_entity_type ??
+    args.sourceEntityType ??
+    sourceObject.source_entity_type ??
+    sourceObject.sourceEntityType ??
+    sourceObject.entity_type ??
+    sourceObject.entityType;
+  const sourceIdRaw =
+    args.source_entity_id ??
+    args.sourceEntityId ??
+    sourceObject.source_entity_id ??
+    sourceObject.sourceEntityId ??
+    sourceObject.entity_id ??
+    sourceObject.entityId ??
+    sourceObject.id;
+  const sourceModeRaw =
+    args.source_sync_mode ??
+    args.sourceSyncMode ??
+    sourceObject.source_sync_mode ??
+    sourceObject.sourceSyncMode ??
+    sourceObject.sync_mode ??
+    sourceObject.syncMode;
+
+  const sourceEntityType = normalizeSourceEntityType(sourceTypeRaw) ?? undefined;
+  const sourceEntityId = normalizeSourceEntityId(sourceIdRaw) ?? undefined;
+  const sourceSyncMode = normalizeSourceSyncMode(sourceModeRaw);
+
+  return {
+    sourceEntityType,
+    sourceEntityId,
+    sourceSyncMode,
+  };
 }
 
 function extractSourceCandidateIdFromRow(

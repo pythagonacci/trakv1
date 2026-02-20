@@ -505,7 +505,7 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
     },
     properties: {
       status: raw.status as Status | null,
-      priority: (raw.priority as Priority | null) ?? canonicalPriorityFromNamed(raw.priorities),
+      priority: canonicalPriorityFromNamed(raw.priorities) ?? (raw.priority as Priority | null),
       assignee_ids: raw.assignee_ids || [],
       due_date: normalizeDueDateRange(raw.due_date),
       tags: raw.tags || [],

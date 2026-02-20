@@ -1,6 +1,7 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import { getCanonicalTimelinePriority, normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent, TimelineItem } from "@/types/timeline";
 
@@ -21,7 +22,16 @@ export async function getTimelineItems(timelineBlockId: string, opts?: { authCon
 
   if (eventError) return { error: "Failed to load timeline events" };
 
-  return { data: { events: (events || []) as TimelineEvent[] } };
+  const normalizedEvents = ((events || []) as any[]).map((event) => {
+    const priorities = normalizeTimelinePriorities(event?.priorities);
+    return {
+      ...(event as TimelineEvent),
+      priorities,
+      priority: getCanonicalTimelinePriority(priorities),
+    } as TimelineEvent;
+  });
+
+  return { data: { events: normalizedEvents } };
 }
 
 export async function getResolvedTimelineItems(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineItem[]>> {
@@ -39,6 +49,8 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     start_date: event.start_date,
     end_date: event.end_date,
     status: event.status,
+    priority: event.priority ?? getCanonicalTimelinePriority(event.priorities),
+    priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
     progress: event.progress,
     color: event.color,
