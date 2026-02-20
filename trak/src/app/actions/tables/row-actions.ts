@@ -289,7 +289,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   }
 
   // Sync priority/status updates to entity_properties
-  if ((field.type === "priority" || field.type === "status") && field.property_definition_id) {
+  if (field.type === "priority" || field.type === "status") {
     const { data: tableData } = await supabase
       .from("tables")
       .select("workspace_id")
@@ -305,7 +305,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
           .delete()
           .eq("entity_type", "table_row")
           .eq("entity_id", rowId)
-          .eq("property_definition_id", field.property_definition_id);
+          .eq("field_name", field.name);
       } else {
         // Insert or update entity_property
         await supabase
@@ -313,11 +313,13 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
           .upsert({
             entity_type: "table_row",
             entity_id: rowId,
-            property_definition_id: field.property_definition_id,
+            property_definition_id: null,
+            field_name: field.name,
+            field_type: field.type,
             value: value,
             workspace_id: tableData.workspace_id,
           }, {
-            onConflict: "entity_type,entity_id,property_definition_id"
+            onConflict: "entity_type,entity_id,field_name"
           });
       }
     }
@@ -672,6 +674,11 @@ function mapTaskFieldToRowValue(
   task: Record<string, unknown>
 ): unknown | undefined {
   const normalizedFieldName = normalizeFieldName(field.name);
+  const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
+  const taskPriority =
+    taskPriorities.find((entry: any) => String(entry?.field_name || "").trim().toLowerCase() === "priority")?.value ??
+    taskPriorities[0]?.value ??
+    task.priority;
 
   if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "task") {
     return task.title ?? "";
@@ -680,7 +687,7 @@ function mapTaskFieldToRowValue(
     return task.status ?? null;
   }
   if (field.type === "priority" || normalizedFieldName === "priority") {
-    return task.priority ?? null;
+    return taskPriority ?? null;
   }
   if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
     return task.description ?? null;
@@ -697,6 +704,11 @@ function mapTimelineEventFieldToRowValue(
   event: Record<string, unknown>
 ): unknown | undefined {
   const normalizedFieldName = normalizeFieldName(field.name);
+  const eventPriorities = Array.isArray(event.priorities) ? event.priorities : [];
+  const eventPriority =
+    eventPriorities.find((entry: any) => String(entry?.field_name || "").trim().toLowerCase() === "priority")?.value ??
+    eventPriorities[0]?.value ??
+    event.priority;
 
   if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "event") {
     return event.title ?? "";
@@ -705,7 +717,7 @@ function mapTimelineEventFieldToRowValue(
     return event.status ?? null;
   }
   if (field.type === "priority" || normalizedFieldName === "priority") {
-    return event.priority ?? null;
+    return eventPriority ?? null;
   }
   if (normalizedFieldName.includes("progress")) {
     return event.progress ?? null;

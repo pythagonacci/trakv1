@@ -3,6 +3,10 @@ export type TimelineEventStatus = "todo" | "in_progress" | "blocked" | "done";
 
 // Canonical IDs for priority (matches workspace property_definitions)
 export type TimelineEventPriority = "low" | "medium" | "high" | "urgent";
+export interface TimelineNamedPriority {
+  field_name: string;
+  value: TimelineEventPriority | null;
+}
 export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
 export type TimelineSourceSyncMode = "snapshot" | "live";
 
@@ -18,7 +22,9 @@ export interface TimelineEvent {
   start_date: string;
   end_date: string;
   status: TimelineEventStatus;
-  priority: TimelineEventPriority | null;  // NEW: Priority field using canonical IDs
+  /** Legacy convenience field derived from priorities for backwards compatibility. */
+  priority?: TimelineEventPriority | null;
+  priorities: TimelineNamedPriority[];
   assignee_id: string | null;
   source_entity_type: TimelineSourceEntityType | null;
   source_entity_id: string | null;
@@ -77,7 +83,8 @@ export interface TimelineItem {
   start_date: string;
   end_date: string;
   status: TimelineEventStatus;
-  priority?: TimelineEventPriority | null;  // NEW: Priority field
+  priority?: TimelineEventPriority | null;
+  priorities?: TimelineNamedPriority[];
   assignee_id: string | null;
   source_entity_type?: TimelineSourceEntityType | null;
   source_entity_id?: string | null;

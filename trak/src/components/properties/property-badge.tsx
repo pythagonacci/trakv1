@@ -41,6 +41,7 @@ export function PropertyBadges({
   const hasAnyProperty =
     properties.status ||
     properties.priority ||
+    (Array.isArray(properties.priorities) && properties.priorities.length > 0) ||
     (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) ||
     hasDueDate(properties.due_date) ||
     (properties.tags && properties.tags.length > 0);
@@ -52,9 +53,19 @@ export function PropertyBadges({
       {properties.status && (
         <StatusBadge status={properties.status} inherited={inherited} onClick={onClick} />
       )}
-      {properties.priority && (
-        <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
-      )}
+      {Array.isArray(properties.priorities) && properties.priorities.length > 0
+        ? properties.priorities.map((priorityField) => (
+            <PriorityBadge
+              key={priorityField.id}
+              priority={priorityField.value}
+              label={priorityField.field_name}
+              inherited={inherited}
+              onClick={onClick}
+            />
+          ))
+        : properties.priority && (
+            <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
+          )}
       {(properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
         <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
       )}
@@ -105,15 +116,22 @@ export function StatusBadge({
  */
 export function PriorityBadge({
   priority,
+  label,
   inherited = false,
   onClick,
 }: {
   priority: Priority;
+  label?: string;
   inherited?: boolean;
   onClick?: () => void;
 }) {
   const option = PRIORITY_OPTIONS.find((o) => o.value === priority);
   if (!option) return null;
+  const fieldLabel = label?.trim();
+  const text =
+    fieldLabel && fieldLabel.toLowerCase() !== "priority"
+      ? `${fieldLabel}: ${option.label}`
+      : option.label;
 
   return (
     <button
@@ -126,7 +144,7 @@ export function PriorityBadge({
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {option.label}
+      {text}
     </button>
   );
 }

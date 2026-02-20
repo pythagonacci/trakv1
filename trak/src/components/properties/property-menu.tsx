@@ -58,6 +58,42 @@ interface PropertyMenuProps {
   }>;
 }
 
+type PriorityFieldDraft = { id: string; field_name: string; value: Priority };
+
+function buildPriorityDrafts(
+  direct: { priorities?: Array<{ id?: string; field_name?: string; value?: Priority | null }>; priority?: Priority | null } | null | undefined
+): PriorityFieldDraft[] {
+  const named = Array.isArray(direct?.priorities)
+    ? direct!.priorities
+        .map((field, index) => {
+          const fieldName = String(field?.field_name ?? "").trim();
+          const value = field?.value;
+          if (!fieldName) return null;
+          if (value !== "low" && value !== "medium" && value !== "high" && value !== "urgent") return null;
+          return {
+            id: String(field?.id ?? `priority-${index}-${fieldName.toLowerCase()}`),
+            field_name: fieldName,
+            value,
+          } as PriorityFieldDraft;
+        })
+        .filter((field): field is PriorityFieldDraft => Boolean(field))
+    : [];
+
+  if (named.length > 0) return named;
+  if (direct?.priority) {
+    return [{ id: "priority-canonical", field_name: "Priority", value: direct.priority }];
+  }
+  return [];
+}
+
+function getNextPriorityFieldName(existing: PriorityFieldDraft[]): string {
+  const existingLower = new Set(existing.map((field) => field.field_name.trim().toLowerCase()));
+  if (!existingLower.has("priority")) return "Priority";
+  let index = 2;
+  while (existingLower.has(`priority ${index}`)) index += 1;
+  return `Priority ${index}`;
+}
+
 /**
  * Menu for viewing and editing properties on an entity
  */
@@ -71,6 +107,8 @@ export function PropertyMenu({
   disabledFields,
 }: PropertyMenuProps) {
   const [newTagInput, setNewTagInput] = useState("");
+  const [priorityDrafts, setPriorityDrafts] = useState<PriorityFieldDraft[]>([]);
+  const priorityDraftsRef = React.useRef<PriorityFieldDraft[]>([]);
 
   const { data: propertiesResult, isLoading } =
     useEntityPropertiesWithInheritance(entityType, entityId);
@@ -100,6 +138,38 @@ export function PropertyMenu({
   const dueDateRange = normalizeDueDateRange(direct?.due_date);
   const hasDirectDueDate = Boolean(dueDateRange?.start || dueDateRange?.end);
   const dueDateLabel = formatDueDateRange(dueDateRange) ?? "No due date";
+
+  React.useEffect(() => {
+    priorityDraftsRef.current = priorityDrafts;
+  }, [priorityDrafts]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setPriorityDrafts(buildPriorityDrafts(direct));
+  }, [open, direct?.updated_at, direct?.id]);
+
+  const persistPriorityDrafts = React.useCallback(
+    (nextDrafts: PriorityFieldDraft[]) => {
+      const seenNames = new Set<string>();
+      const normalized = nextDrafts
+        .map((field) => ({
+          field_name: field.field_name.trim(),
+          value: field.value,
+        }))
+        .filter((field) => field.field_name.length > 0)
+        .filter((field) => {
+          const key = field.field_name.toLowerCase();
+          if (seenNames.has(key)) return false;
+          seenNames.add(key);
+          return true;
+        });
+
+      setProperties.mutate({
+        priorities: normalized.length > 0 ? normalized : null,
+      });
+    },
+    [setProperties]
+  );
 
   const handleAddTag = () => {
     if (!newTagInput.trim()) return;
@@ -173,38 +243,97 @@ export function PropertyMenu({
               )}
             </div>
 
-            {/* Priority */}
+            {/* Priorities (named fields) */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Priority</Label>
-              <Select
-                value={direct?.priority || "none"}
-                onValueChange={(value) =>
-                  setProperties.mutate({
-                    priority: value === "none" ? null : (value as Priority),
-                  })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select priority..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    <span className="text-[var(--muted-foreground)]">None</span>
-                  </SelectItem>
-                  {PRIORITY_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
-                          PRIORITY_COLORS[option.value]
-                        )}
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Priorities</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const next = [
+                      ...priorityDrafts,
+                      {
+                        id: `priority-new-${Date.now()}`,
+                        field_name: getNextPriorityFieldName(priorityDrafts),
+                        value: direct?.priority ?? "medium",
+                      } as PriorityFieldDraft,
+                    ];
+                    setPriorityDrafts(next);
+                    persistPriorityDrafts(next);
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+              {priorityDrafts.length === 0 ? (
+                <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+                  No priority fields
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {priorityDrafts.map((field) => (
+                    <div key={field.id} className="grid grid-cols-[1fr_132px_auto] items-center gap-2">
+                      <Input
+                        value={field.field_name}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setPriorityDrafts((prev) =>
+                            prev.map((entry) =>
+                              entry.id === field.id ? { ...entry, field_name: value } : entry
+                            )
+                          );
+                        }}
+                        onBlur={() => {
+                          persistPriorityDrafts(priorityDraftsRef.current);
+                        }}
+                        placeholder="Field name"
+                      />
+                      <Select
+                        value={field.value}
+                        onValueChange={(value) => {
+                          const next = priorityDrafts.map((entry) =>
+                            entry.id === field.id ? { ...entry, value: value as Priority } : entry
+                          );
+                          setPriorityDrafts(next);
+                          persistPriorityDrafts(next);
+                        }}
                       >
-                        {option.label}
-                      </span>
-                    </SelectItem>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRIORITY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
+                                  PRIORITY_COLORS[option.value]
+                                )}
+                              >
+                                {option.label}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => {
+                          const next = priorityDrafts.filter((entry) => entry.id !== field.id);
+                          setPriorityDrafts(next);
+                          persistPriorityDrafts(next);
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+              )}
             </div>
 
             {/* Assignees (multiple) */}

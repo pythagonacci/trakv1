@@ -53,7 +53,7 @@ export default async function DashboardPage() {
         id,
         title,
         status,
-        priority,
+        priorities,
         due_date,
         due_time,
         task_block_id,
@@ -186,18 +186,25 @@ export default async function DashboardPage() {
       const isDoneStatus = status === "done" || status === "complete" || status === "completed";
       return !isDoneStatus;
     })
-    .map((task: any) => ({
+    .map((task: any) => {
+      const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
+      const canonicalPriority =
+        taskPriorities.find((entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority")?.value ??
+        taskPriorities[0]?.value ??
+        null;
+      return {
       id: `${task.task_block_id}-${task.id}`,
       text: task.title,
       projectName: task.tab?.project?.name || "Unknown",
       tabName: task.tab?.name || "Unknown",
       projectId: task.tab?.project?.id,
       tabId: task.tab?.id,
-      priority: task.priority,
+      priority: canonicalPriority,
       dueDate: task.due_date,
       dueTime: task.due_time,
       status: task.status ?? "todo",
-    }))
+      };
+    })
     .slice(0, 10);
 
   const clientFeedback = commentBlocks

@@ -110,47 +110,43 @@ export async function setTaskAssignees(
     if (error) return { error: "Failed to update assignees" };
   }
 
-  // Step 3: Sync to entity_properties table for AI search (property_def id cached per workspace)
-  const assigneePropertyDef = await getAssigneePropertyDefId(supabase, workspaceId, dbCalls);
-
-  if (assigneePropertyDef) {
-    if (normalized.length > 0) {
-      // Store full assignees array in entity_properties for universal properties / multi-assignee
-      const assigneeValue = normalized.map((a) => ({
-        id: a.id,
-        name: a.name || a.id || "Unknown",
-      }));
-      const tEp0 = performance.now();
-      const { error: epError } = await supabase
-        .from("entity_properties")
-        .upsert(
-          {
-            workspace_id: workspaceId,
-            entity_type: "task",
-            entity_id: taskId,
-            property_definition_id: assigneePropertyDef.id,
-            value: assigneeValue,
-          },
-          { onConflict: "entity_type,entity_id,property_definition_id" }
-        );
-      const tEpMs = Math.round(performance.now() - tEp0);
-      dbCalls.push({ table: "entity_properties", op: "upsert", ms: tEpMs });
-      logDbCall("entity_properties", "upsert", tEpMs);
-      if (epError) return { error: "Failed to update assignees" };
-    } else {
-      // No assignees: remove the assignee property row
-      const tEpDel0 = performance.now();
-      await supabase
-        .from("entity_properties")
-        .delete()
-        .eq("workspace_id", workspaceId)
-        .eq("entity_type", "task")
-        .eq("entity_id", taskId)
-        .eq("property_definition_id", assigneePropertyDef.id);
-      const tEpDelMs = Math.round(performance.now() - tEpDel0);
-      dbCalls.push({ table: "entity_properties", op: "delete", ms: tEpDelMs });
-      logDbCall("entity_properties", "delete", tEpDelMs);
-    }
+  // Step 3: Sync to entity_properties table for AI search.
+  if (normalized.length > 0) {
+    const assigneeValue = normalized.map((a) => ({
+      id: a.id,
+      name: a.name || a.id || "Unknown",
+    }));
+    const tEp0 = performance.now();
+    const { error: epError } = await supabase
+      .from("entity_properties")
+      .upsert(
+        {
+          workspace_id: workspaceId,
+          entity_type: "task",
+          entity_id: taskId,
+          property_definition_id: null,
+          field_name: "Assignee",
+          field_type: "assignee",
+          value: assigneeValue,
+        },
+        { onConflict: "entity_type,entity_id,field_name" }
+      );
+    const tEpMs = Math.round(performance.now() - tEp0);
+    dbCalls.push({ table: "entity_properties", op: "upsert", ms: tEpMs });
+    logDbCall("entity_properties", "upsert", tEpMs);
+    if (epError) return { error: "Failed to update assignees" };
+  } else {
+    const tEpDel0 = performance.now();
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .eq("entity_type", "task")
+      .eq("entity_id", taskId)
+      .eq("field_name", "Assignee");
+    const tEpDelMs = Math.round(performance.now() - tEpDel0);
+    dbCalls.push({ table: "entity_properties", op: "delete", ms: tEpDelMs });
+    logDbCall("entity_properties", "delete", tEpDelMs);
   }
 
   if (opts?.timing) opts.timing.t_insert_assignees_ms = Math.round(performance.now() - t0);

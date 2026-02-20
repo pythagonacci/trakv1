@@ -365,7 +365,7 @@ export async function getTaskWithContext(params: {
     const { data: task, error: taskError } = await supabase
       .from("task_items")
       .select(
-        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priority, assignee_id, source_task_id, source_entity_type, source_entity_id, source_sync_mode, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
+        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priorities, assignee_id, source_task_id, source_entity_type, source_entity_id, source_sync_mode, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
       )
       .eq("id", params.taskId)
       .eq("workspace_id", workspaceId)
@@ -463,7 +463,12 @@ export async function getTaskWithContext(params: {
           tab_id: task.tab_id,
           title: task.title,
           status: task.status,
-          priority: task.priority,
+          priorities: Array.isArray(task.priorities) ? task.priorities : [],
+          priority:
+            (Array.isArray(task.priorities)
+              ? task.priorities.find((entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority")?.value ??
+                task.priorities[0]?.value
+              : null) ?? null,
           assignee_id: task.assignee_id ?? null,
           source_task_id: task.source_task_id ?? null,
           source_entity_type: task.source_entity_type ?? null,

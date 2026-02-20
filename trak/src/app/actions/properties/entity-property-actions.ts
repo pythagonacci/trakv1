@@ -72,7 +72,7 @@ export async function setEntityProperty(
   // Verify the property definition belongs to this workspace
   const { data: definition, error: defError } = await supabase
     .from("property_definitions")
-    .select("id, workspace_id")
+    .select("id, workspace_id, name, type")
     .eq("id", input.property_definition_id)
     .maybeSingle();
 
@@ -84,6 +84,19 @@ export async function setEntityProperty(
     return { error: "Property definition does not belong to this workspace" };
   }
 
+  const normalizedFieldType =
+    definition.name?.toLowerCase() === "priority"
+      ? "priority"
+      : definition.name?.toLowerCase() === "status"
+      ? "status"
+      : definition.name?.toLowerCase() === "assignee"
+      ? "assignee"
+      : definition.name?.toLowerCase() === "due date"
+      ? "due_date"
+      : definition.name?.toLowerCase() === "tags"
+      ? "tags"
+      : "tags";
+
   // Upsert the property value
   const { data, error } = await supabase
     .from("entity_properties")
@@ -92,6 +105,8 @@ export async function setEntityProperty(
         entity_type: input.entity_type,
         entity_id: input.entity_id,
         property_definition_id: input.property_definition_id,
+        field_name: definition.name,
+        field_type: normalizedFieldType,
         value: input.value,
         workspace_id: workspaceId,
       },
@@ -145,7 +160,8 @@ export async function getEntityPropertiesWithInheritance(
   entityId: string,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<EntityPropertiesResult>> {
-  const directResult = await getEntityProperties(entityType, entityId, opts);
+  void opts;
+  const directResult = await getEntityProperties(entityType, entityId);
   if ("error" in directResult) return directResult;
   return {
     data: {
@@ -208,4 +224,3 @@ export async function getEntitiesProperties(
 
   return { data: result };
 }
-

@@ -2,9 +2,43 @@
 
 import { requireTaskBlockAccess, requireTaskItemAccess, type TaskTimingSink } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { TaskItem, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
+import type { TaskItem, TaskItemPriority, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
+import { getCanonicalPriority } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+function normalizeTaskPriorities(input: unknown): TaskItemPriority[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((entry) => {
+      const fieldName = String((entry as any)?.field_name ?? "").trim();
+      const value = (entry as any)?.value;
+      if (!fieldName) return null;
+      if (value !== "low" && value !== "medium" && value !== "high" && value !== "urgent") return null;
+      return { field_name: fieldName, value } as TaskItemPriority;
+    })
+    .filter((entry): entry is TaskItemPriority => Boolean(entry));
+}
+
+function prioritiesFromSingle(priority?: TaskPriority | null): TaskItemPriority[] {
+  if (!priority || priority === "none") return [];
+  if (priority !== "low" && priority !== "medium" && priority !== "high" && priority !== "urgent") return [];
+  return [{ field_name: "Priority", value: priority }];
+}
+
+function toLegacyPriority(priorities: TaskItemPriority[]): TaskPriority {
+  const canonical = getCanonicalPriority(priorities);
+  return canonical ?? "none";
+}
+
+function normalizeTaskRow(row: any): TaskItem {
+  const priorities = normalizeTaskPriorities(row?.priorities ?? prioritiesFromSingle(row?.priority));
+  return {
+    ...(row as TaskItem),
+    priorities,
+    priority: toLegacyPriority(priorities),
+  };
+}
 
 export async function createTaskItem(
   input: {
@@ -39,6 +73,7 @@ export async function createTaskItem(
     ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
     : null;
   const sourceTaskId = sourceEntityType === "task" ? sourceEntityId : null;
+  const priorities = prioritiesFromSingle(input.priority);
 
   // display_order is set by DB trigger set_task_item_display_order (saves one round-trip)
   const tInsert0 = performance.now();
@@ -51,7 +86,7 @@ export async function createTaskItem(
       tab_id: block.tab_id,
       title: input.title,
       status: input.status ?? "todo",
-      priority: input.priority ?? "none",
+      priorities,
       description: input.description ?? null,
       due_date: input.dueDate ?? null,
       due_time: input.dueTime ?? null,
@@ -77,7 +112,7 @@ export async function createTaskItem(
   }
 
   if (error || !data) return { error: "Failed to create task" };
-  return { data: data as TaskItem };
+  return { data: normalizeTaskRow(data) };
 }
 
 export async function updateTaskItem(
@@ -86,6 +121,7 @@ export async function updateTaskItem(
     title: string;
     status: TaskStatus;
     priority: TaskPriority;
+    priorities: TaskItemPriority[];
     description: string | null;
     dueDate: string | null;
     dueTime: string | null;
@@ -108,7 +144,10 @@ export async function updateTaskItem(
 
   if (updates.title !== undefined) payload.title = updates.title;
   if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.priority !== undefined) payload.priority = updates.priority;
+  if (updates.priorities !== undefined) payload.priorities = normalizeTaskPriorities(updates.priorities);
+  if (updates.priority !== undefined && updates.priorities === undefined) {
+    payload.priorities = prioritiesFromSingle(updates.priority);
+  }
   if (updates.description !== undefined) payload.description = updates.description;
   if (updates.dueDate !== undefined) payload.due_date = updates.dueDate;
   if (updates.dueTime !== undefined) payload.due_time = updates.dueTime;
@@ -132,6 +171,7 @@ export async function updateTaskItem(
     .single();
 
   if (error || !data) return { error: "Failed to update task" };
+  const normalizedTask = normalizeTaskRow(data);
 
   // Update entity_properties to keep status, priority, and due date in sync
   const { setEntityProperties } = await import("@/app/actions/entity-properties");
@@ -150,6 +190,12 @@ export async function updateTaskItem(
   // Map task priority to entity property priority
   if (updates.priority !== undefined) {
     entityPropertyUpdates.priority = updates.priority === "none" ? null : updates.priority;
+  }
+  if (updates.priorities !== undefined) {
+    entityPropertyUpdates.priorities = normalizeTaskPriorities(updates.priorities).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
   }
 
   // Update due date if provided
@@ -178,7 +224,7 @@ export async function updateTaskItem(
     });
   }
 
-  return { data: data as TaskItem };
+  return { data: normalizedTask };
 }
 
 export async function bulkUpdateTaskItems(input: {
@@ -187,6 +233,7 @@ export async function bulkUpdateTaskItems(input: {
     title: string;
     status: TaskStatus;
     priority: TaskPriority;
+    priorities: TaskItemPriority[];
     description: string | null;
     dueDate: string | null;
     dueTime: string | null;
@@ -229,7 +276,10 @@ export async function bulkUpdateTaskItems(input: {
 
   if (input.updates.title !== undefined) payload.title = input.updates.title;
   if (input.updates.status !== undefined) payload.status = input.updates.status;
-  if (input.updates.priority !== undefined) payload.priority = input.updates.priority;
+  if (input.updates.priorities !== undefined) payload.priorities = normalizeTaskPriorities(input.updates.priorities);
+  if (input.updates.priority !== undefined && input.updates.priorities === undefined) {
+    payload.priorities = prioritiesFromSingle(input.updates.priority);
+  }
   if (input.updates.description !== undefined) payload.description = input.updates.description;
   if (input.updates.dueDate !== undefined) payload.due_date = input.updates.dueDate;
   if (input.updates.dueTime !== undefined) payload.due_time = input.updates.dueTime;
@@ -266,6 +316,12 @@ export async function bulkUpdateTaskItems(input: {
   // Map task priority to entity property priority
   if (input.updates.priority !== undefined) {
     entityPropertyUpdates.priority = input.updates.priority === "none" ? null : input.updates.priority;
+  }
+  if (input.updates.priorities !== undefined) {
+    entityPropertyUpdates.priorities = normalizeTaskPriorities(input.updates.priorities).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
   }
 
   // Update entity_properties for each task
@@ -379,7 +435,7 @@ export async function duplicateTasksToBlock(input: {
   const { data: tasks, error: tasksError } = await supabase
     .from("task_items")
     .select(
-      "id, title, status, priority, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
+      "id, title, status, priorities, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
     )
     .in("id", taskIds)
     .eq("workspace_id", block.workspace_id);
@@ -411,7 +467,6 @@ export async function duplicateTasksToBlock(input: {
   const includeTags = input.includeTags !== false;
 
   let assigneeMap = new Map<string, Array<{ assignee_id: string | null; assignee_name: string | null }>>();
-  let assigneePropertyId: string | null = null;
 
   if (includeAssignees) {
     const { data: assignees } = await supabase
@@ -425,42 +480,47 @@ export async function duplicateTasksToBlock(input: {
       assigneeMap.set(row.task_id, list);
     });
 
-    const { data: assigneeDef } = await supabase
-      .from("property_definitions")
-      .select("id")
-      .eq("workspace_id", block.workspace_id)
-      .eq("name", "Assignee")
-      .eq("type", "person")
-      .maybeSingle();
+    const missingAssigneeTaskIds = orderedTasks
+      .map((t: any) => t.id)
+      .filter((taskId: string) => !assigneeMap.has(taskId));
 
-    assigneePropertyId = assigneeDef?.id ?? null;
+    if (missingAssigneeTaskIds.length > 0) {
+      const { data: assigneeProps } = await supabase
+        .from("entity_properties")
+        .select("entity_id, value")
+        .eq("workspace_id", block.workspace_id)
+        .eq("entity_type", "task")
+        .eq("field_type", "assignee")
+        .in("entity_id", missingAssigneeTaskIds);
 
-    if (assigneePropertyId) {
-      const missingAssigneeTaskIds = orderedTasks
-        .map((t: any) => t.id)
-        .filter((taskId: string) => !assigneeMap.has(taskId));
-
-      if (missingAssigneeTaskIds.length > 0) {
-        const { data: assigneeProps } = await supabase
-          .from("entity_properties")
-          .select("entity_id, value")
-          .eq("workspace_id", block.workspace_id)
-          .eq("entity_type", "task")
-          .eq("property_definition_id", assigneePropertyId)
-          .in("entity_id", missingAssigneeTaskIds);
-
-        (assigneeProps || []).forEach((row: any) => {
-          const value = row.value as { id?: string | null; name?: string | null } | null;
-          if (value?.id || value?.name) {
-            assigneeMap.set(row.entity_id, [
-              {
-                assignee_id: value?.id ?? null,
-                assignee_name: value?.name ?? value?.id ?? null,
-              },
-            ]);
-          }
-        });
-      }
+      (assigneeProps || []).forEach((row: any) => {
+        const value = row.value;
+        const values = Array.isArray(value) ? value : [value];
+        const parsed: Array<{ assignee_id: string | null; assignee_name: string | null }> = values
+          .map((entry: any) => {
+            if (entry && typeof entry === "object") {
+              return {
+                assignee_id: typeof entry.id === "string" ? entry.id : null,
+                assignee_name:
+                  typeof entry.name === "string"
+                    ? entry.name
+                    : typeof entry.id === "string"
+                    ? entry.id
+                    : null,
+              };
+            }
+            if (typeof entry === "string") {
+              return { assignee_id: entry, assignee_name: entry };
+            }
+            return null;
+          })
+          .filter((entry): entry is { assignee_id: string | null; assignee_name: string | null } => {
+            return Boolean(entry && (entry.assignee_id || entry.assignee_name));
+          });
+        if (parsed.length > 0) {
+          assigneeMap.set(row.entity_id, parsed);
+        }
+      });
     }
   }
 
@@ -498,7 +558,7 @@ export async function duplicateTasksToBlock(input: {
       tab_id: block.tab_id,
       title: task.title,
       status: task.status ?? "todo",
-      priority: task.priority ?? "none",
+      priorities: normalizeTaskPriorities(task.priorities),
       description: task.description ?? null,
       due_date: task.due_date ?? null,
       due_time: task.due_time ?? null,
@@ -562,19 +622,23 @@ export async function duplicateTasksToBlock(input: {
         const { error: assigneeError } = await supabase.from("task_assignees").insert(payload);
         if (assigneeError) return { error: "Failed to copy assignees" };
 
-        if (assigneePropertyId) {
-          const primary = assignees[0];
-          await supabase.from("entity_properties").insert({
+        await supabase.from("entity_properties").upsert(
+          {
             workspace_id: block.workspace_id,
             entity_type: "task",
             entity_id: created.id,
-            property_definition_id: assigneePropertyId,
-            value: {
-              id: primary.assignee_id,
-              name: primary.assignee_name || primary.assignee_id || "Unknown",
-            },
-          });
-        }
+            field_name: "Assignee",
+            field_type: "assignee",
+            property_definition_id: null,
+            value: assignees
+              .filter((assignee) => assignee.assignee_id)
+              .map((assignee) => ({
+                id: assignee.assignee_id,
+                name: assignee.assignee_name || assignee.assignee_id || "Unknown",
+              })),
+          },
+          { onConflict: "entity_type,entity_id,field_name" }
+        );
       }
     }
 

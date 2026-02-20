@@ -13,6 +13,7 @@ export type EntityType = 'block' | 'task' | 'subtask' | 'timeline_event' | 'tabl
 
 export type Status = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export type FieldType = 'priority' | 'status' | 'assignee' | 'due_date' | 'tags';
 export interface DueDateRange {
   start: string | null;
   end: string | null;
@@ -50,6 +51,18 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
 // Entity Properties
 // ============================================================================
 
+export interface NamedField<TValue = unknown> {
+  id: string;
+  entity_type: EntityType;
+  entity_id: string;
+  workspace_id: string;
+  field_name: string;
+  field_type: FieldType;
+  value: TValue;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface EntityProperties {
   id: string;
   entity_type: EntityType;
@@ -63,6 +76,12 @@ export interface EntityProperties {
   assignee_ids: string[];
   due_date: DueDateRange | null; // { start, end } in ISO date format (YYYY-MM-DD)
   tags: string[];
+  /** Named fields for each property type. Canonical flat fields above are derived for backward compatibility. */
+  priorities: Array<NamedField<Priority>>;
+  statuses: Array<NamedField<Status>>;
+  assignees: Array<NamedField<string[]>>;
+  due_dates: Array<NamedField<DueDateRange>>;
+  tag_fields: Array<NamedField<string[]>>;
   created_at: string;
   updated_at: string;
 }
@@ -132,7 +151,18 @@ export interface SetEntityPropertiesInput {
     assignee_ids?: string[] | null;
     due_date?: DueDateRange | null;
     tags?: string[];
+    /** Replace all named priority fields for this entity. */
+    priorities?: Array<{ field_name: string; value: Priority | null }> | null;
   };
+}
+
+export interface SetNamedFieldInput {
+  entity_type: EntityType;
+  entity_id: string;
+  workspace_id: string;
+  field_name: string;
+  field_type: FieldType;
+  value: Priority | Status | string[] | DueDateRange | null;
 }
 
 export interface AddTagInput {

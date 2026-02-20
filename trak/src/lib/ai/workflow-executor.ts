@@ -368,6 +368,19 @@ function extractAssigneeIds(task: Record<string, unknown>): string[] | null {
   return ids.length > 0 ? ids : null;
 }
 
+function extractCanonicalTaskPriority(task: Record<string, unknown>): unknown {
+  const priorities = task.priorities;
+  if (Array.isArray(priorities) && priorities.length > 0) {
+    const canonical = priorities.find((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const fieldName = String((entry as Record<string, unknown>).field_name ?? "").trim().toLowerCase();
+      return fieldName === "priority";
+    }) as Record<string, unknown> | undefined;
+    return canonical?.value ?? (priorities[0] as Record<string, unknown> | undefined)?.value ?? task.priority;
+  }
+  return task.priority;
+}
+
 function coerceTaskRows(tasks: Array<Record<string, unknown>>) {
   return tasks.map((task) => ({
     source_entity_type: "task",
@@ -376,7 +389,7 @@ function coerceTaskRows(tasks: Array<Record<string, unknown>>) {
     data: {
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
-      Priority: normalizeTaskPriorityForTable(task.priority),
+      Priority: normalizeTaskPriorityForTable(extractCanonicalTaskPriority(task)),
       "Due Date": toDateOnly(task.due_date),
       Assignee: extractAssigneeIds(task),
       Project: String(task.project_name || ""),
@@ -423,7 +436,7 @@ function coerceTaskRowsForWorkflowFallback(tasks: Array<Record<string, unknown>>
     data: {
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
-      Priority: normalizeTaskPriorityForTable(task.priority),
+      Priority: normalizeTaskPriorityForTable(extractCanonicalTaskPriority(task)),
       "Due Date": toDateOnly(task.due_date),
       Assignee: extractAssigneeIds(task),
       Project: String(task.project_name || ""),

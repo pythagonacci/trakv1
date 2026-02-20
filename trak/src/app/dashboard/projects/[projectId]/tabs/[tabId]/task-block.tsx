@@ -58,7 +58,7 @@ import {
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, STATUS_OPTIONS, type EntityProperties, type EntityType, type Status } from "@/types/properties";
-import type { TaskBlockContent } from "@/types/task";
+import { getCanonicalPriority, type TaskBlockContent, type TaskItemPriority } from "@/types/task";
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable, closestCenter } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -85,6 +85,7 @@ interface Task {
   text: string;
   status: "todo" | "in-progress" | "done" | "blocked";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
+  priorities?: TaskItemPriority[];
   sourceTaskId?: string | null;
   sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
   sourceEntityId?: string | null;
@@ -828,10 +829,63 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     return props?.status || statusFromLegacy(task.status);
   };
 
-  const getEffectivePriority = (taskId: string, task: Task) => {
+  const normalizePriority = (value?: string | null) => {
+    if (!value || value === "none") return null;
+    if (value === "low" || value === "medium" || value === "high" || value === "urgent") {
+      return value;
+    }
+    return null;
+  };
+
+  const getPriorityLabel = (priority: EntityProperties["priority"]) =>
+    priority ? PRIORITY_OPTIONS.find((opt) => opt.value === priority)?.label ?? priority : null;
+
+  const getPriorityDisplayLabel = (priorityField: TaskItemPriority) => {
+    const priorityLabel = getPriorityLabel(priorityField.value);
+    if (!priorityLabel) return null;
+    const fieldName = priorityField.field_name?.trim() || "Priority";
+    return `${priorityLabel} · ${fieldName}`;
+  };
+
+  const getEffectivePriorityFields = (taskId: string, task: Task): TaskItemPriority[] => {
     const props = getEffectiveProperties(taskId, task);
-    const raw = props?.priority ?? task.priority ?? "none";
-    return raw === "none" ? null : raw;
+
+    const normalizeFields = (
+      rows: Array<{ field_name?: string | null; value?: string | null }> | null | undefined
+    ): TaskItemPriority[] => {
+      if (!Array.isArray(rows)) return [];
+      const seen = new Set<string>();
+      const normalized: TaskItemPriority[] = [];
+      rows.forEach((row) => {
+        const rawFieldName = typeof row?.field_name === "string" ? row.field_name.trim() : "";
+        const field_name = rawFieldName || "Priority";
+        const value = normalizePriority(row?.value ?? null);
+        if (!value) return;
+        const key = field_name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        normalized.push({ field_name, value });
+      });
+      return normalized;
+    };
+
+    const fromProperties = normalizeFields(
+      props?.priorities?.map((entry) => ({ field_name: entry.field_name, value: entry.value }))
+    );
+    if (fromProperties.length > 0) return fromProperties;
+
+    const fromTask = normalizeFields(
+      task.priorities?.map((entry) => ({ field_name: entry.field_name, value: entry.value }))
+    );
+    if (fromTask.length > 0) return fromTask;
+
+    const fallbackPriority = normalizePriority(props?.priority ?? (task.priority ?? null));
+    if (!fallbackPriority) return [];
+    return [{ field_name: "Priority", value: fallbackPriority }];
+  };
+
+  const getEffectivePriority = (taskId: string, task: Task) => {
+    return getCanonicalPriority(getEffectivePriorityFields(taskId, task));
   };
 
   const getEffectiveAssigneeIds = (taskId: string, task: Task): string[] => {
@@ -891,11 +945,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     if (props?.assignee_ids?.length) return props.assignee_ids;
     if (props?.assignee_id) return [props.assignee_id];
     return [];
-  };
-
-  const normalizePriority = (value?: string | null) => {
-    if (!value || value === "none") return null;
-    return value as EntityProperties["priority"];
   };
   
   // Stay in sync if title changes externally
@@ -2437,12 +2486,9 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
           const effectiveStatus = getEffectiveStatus(String(task.id), task);
           const isDone = effectiveStatus === "done";
-          const effectivePriority = getEffectivePriority(String(task.id), task);
+          const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
           const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
           const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
-          const priorityLabel = effectivePriority
-            ? PRIORITY_OPTIONS.find((o) => o.value === effectivePriority)?.label ?? effectivePriority
-            : null;
           const assigneeNames = effectiveAssigneeIds
             .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
             .filter(Boolean) as string[];
@@ -2453,7 +2499,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           const hasDueDateValue = hasDueDate(effectiveDueDate);
           const showInlineIcons =
             shouldShowIcons(task) ||
-            Boolean(effectivePriority || effectiveAssigneeIds.length || hasDueDateValue);
+            Boolean(effectivePriorityFields.length || effectiveAssigneeIds.length || hasDueDateValue);
           
           return (
             <div
@@ -2912,55 +2958,33 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                   {/* Inline Icons (Priority / Assignee / Due Date) driven by universal properties */}
                   {canUseProperties && taskEntityId && showInlineIcons && (
                     <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal">
-                      {/* Priority */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      {effectivePriorityFields.map((priorityField) => {
+                        const priorityLabel = getPriorityDisplayLabel(priorityField);
+                        if (!priorityLabel || !priorityField.value) return null;
+                        return (
                           <button
+                            key={`${task.id}-priority-${priorityField.field_name.toLowerCase()}`}
                             type="button"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPropertiesTarget({
+                                type: "task",
+                                id: taskEntityId,
+                                title: task.text || "Task",
+                              });
+                              setPropertiesOpen(true);
+                            }}
                             className={cn(
-                              "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                              effectivePriority
-                                ? PRIORITY_COLORS[effectivePriority]
-                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                              "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-opacity hover:opacity-90",
+                              PRIORITY_COLORS[priorityField.value]
                             )}
-                            title={
-                              effectivePriority
-                                ? `Priority: ${PRIORITY_OPTIONS.find((o) => o.value === effectivePriority)?.label ?? effectivePriority}`
-                                : "Set priority"
-                            }
+                            title={priorityLabel}
                           >
                             <Flag className="h-3 w-3" />
-                            {priorityLabel && <span className="max-w-[120px] truncate">{priorityLabel}</span>}
+                            <span className="max-w-[220px] truncate">{priorityLabel}</span>
                           </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setTaskProperties.mutate({
-                                entityId: taskEntityId,
-                                updates: { priority: null },
-                              })
-                            }
-                          >
-                            None
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {PRIORITY_OPTIONS.map((opt) => (
-                            <DropdownMenuItem
-                              key={opt.value}
-                              onClick={() =>
-                                setTaskProperties.mutate({
-                                  entityId: taskEntityId,
-                                  updates: { priority: opt.value },
-                                })
-                              }
-                            >
-                              {opt.label}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        );
+                      })}
 
                       {/* Assignees (multiple) */}
                       {statusIsDerived ? (
@@ -3284,7 +3308,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         const taskEntityId = typeof task.id === "string" ? task.id : null;
                         const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
                         const effectiveStatus = getEffectiveStatus(taskId, task);
-                        const effectivePriority = getEffectivePriority(taskId, task);
+                        const effectivePriorityFields = getEffectivePriorityFields(taskId, task);
                         const effectiveAssigneeIds = getEffectiveAssigneeIds(taskId, task);
                         const effectiveDueDate = getEffectiveDueDate(taskId, task);
                         const effectiveTags = getEffectiveTags(taskId, task);
@@ -3310,7 +3334,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           );
 
                         const showStatusIcon = shouldShowIcons(task) && boardGroupBy !== "status";
-                        const showPriority = Boolean(effectivePriority) && boardGroupBy !== "priority";
+                        const showPriority = effectivePriorityFields.length > 0 && boardGroupBy !== "priority";
                         const showAssignee = Boolean(assigneeLabel) && boardGroupBy !== "assignee";
                         const hasDueDateValue = hasDueDate(effectiveDueDate);
                         const dueDateLabel = formatDueDateRange(effectiveDueDate) || null;
@@ -3388,16 +3412,26 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             />
                           );
 
-                        const priorityBadge = effectivePriority ? (
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium",
-                              PRIORITY_COLORS[effectivePriority]
-                            )}
-                          >
-                            <Flag className="h-3 w-3" />
-                            {PRIORITY_OPTIONS.find((opt) => opt.value === effectivePriority)?.label ?? "Priority"}
-                          </span>
+                        const priorityBadge = effectivePriorityFields.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {effectivePriorityFields.map((priorityField) => {
+                              const priorityLabel = getPriorityDisplayLabel(priorityField);
+                              if (!priorityLabel || !priorityField.value) return null;
+                              return (
+                                <span
+                                  key={`${taskId}-board-priority-${priorityField.field_name.toLowerCase()}`}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium",
+                                    PRIORITY_COLORS[priorityField.value]
+                                  )}
+                                  title={priorityLabel}
+                                >
+                                  <Flag className="h-3 w-3" />
+                                  <span className="max-w-[180px] truncate">{priorityLabel}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
                         ) : null;
 
                         const assigneeBadge = assigneeLabel ? (
@@ -3776,13 +3810,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const statusIsDerived = task.subtasks && task.subtasks.length > 0;
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
               const isDone = effectiveStatus === "done";
-              const effectivePriority = getEffectivePriority(String(task.id), task);
+              const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
               const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
               const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
               const effectiveTags = getEffectiveTags(String(task.id), task);
-              const priorityLabel = effectivePriority
-                ? PRIORITY_OPTIONS.find((o) => o.value === effectivePriority)?.label ?? effectivePriority
-                : null;
               const assigneeNames = effectiveAssigneeIds
                 .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
                 .filter(Boolean) as string[];
@@ -3946,41 +3977,56 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                       </div>
                     </div>
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                      {canUseProperties && taskEntityId ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => e.stopPropagation()}
-                              className={cn(
-                                "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
-                                effectivePriority
-                                  ? PRIORITY_COLORS[effectivePriority]
-                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                              )}
-                            >
-                              {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
-                              {priorityLabel ?? "None"}
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem onClick={() => updateTaskPriority(String(task.id), null)}>
-                              None
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {PRIORITY_OPTIONS.map((opt) => (
-                              <DropdownMenuItem
-                                key={opt.value}
-                                onClick={() => updateTaskPriority(String(task.id), opt.value)}
+                      <div className="flex flex-wrap items-center gap-1">
+                        {effectivePriorityFields.length > 0 ? (
+                          effectivePriorityFields.map((priorityField) => {
+                            const priorityLabel = getPriorityDisplayLabel(priorityField);
+                            if (!priorityLabel || !priorityField.value) return null;
+
+                            if (canUseProperties && taskEntityId) {
+                              return (
+                                <button
+                                  key={`${task.id}-table-priority-${priorityField.field_name.toLowerCase()}`}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPropertiesTarget({
+                                      type: "task",
+                                      id: taskEntityId,
+                                      title: task.text || "Task",
+                                    });
+                                    setPropertiesOpen(true);
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
+                                    PRIORITY_COLORS[priorityField.value]
+                                  )}
+                                  title={priorityLabel}
+                                >
+                                  {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
+                                  <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <span
+                                key={`${task.id}-table-priority-${priorityField.field_name.toLowerCase()}`}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs",
+                                  PRIORITY_COLORS[priorityField.value]
+                                )}
+                                title={priorityLabel}
                               >
-                                {opt.label}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : (
-                        <span className="text-xs text-[var(--muted-foreground)]">{priorityLabel ?? "—"}</span>
-                      )}
+                                {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
+                                <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                              </span>
+                            );
+                          })
+                        ) : (
+                          <span className="text-xs text-[var(--muted-foreground)]">—</span>
+                        )}
+                      </div>
                     </div>
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       {canUseProperties && taskEntityId ? (

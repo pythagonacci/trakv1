@@ -2,7 +2,8 @@
 
 import type { AuthContext } from "@/lib/auth-context";
 import { aiDebug } from "@/lib/ai/debug";
-import type { TaskItem } from "@/types/task";
+import type { TaskItem, TaskItemPriority, TaskPriority } from "@/types/task";
+import { getCanonicalPriority } from "@/types/task";
 import { requireTaskBlockAccess, requireTaskItemAccess } from "./context";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -19,6 +20,22 @@ const RPC_DISABLED = process.env.DISABLE_RPC === "true";
 function unwrapRpcData<T>(data: T | T[] | null): T | null {
   if (!data) return null;
   return Array.isArray(data) ? (data[0] ?? null) : data;
+}
+
+function toPriorities(priority?: string | null): TaskItemPriority[] {
+  if (!priority || priority === "none") return [];
+  if (priority !== "low" && priority !== "medium" && priority !== "high" && priority !== "urgent") return [];
+  return [{ field_name: "Priority", value: priority }];
+}
+
+function normalizeTaskRow(row: any): TaskItem {
+  const priorities = Array.isArray(row?.priorities) ? row.priorities : toPriorities(row?.priority);
+  const canonical = getCanonicalPriority(priorities as TaskItemPriority[]);
+  return {
+    ...(row as TaskItem),
+    priorities: priorities as TaskItemPriority[],
+    priority: (canonical ?? "none") as TaskPriority,
+  };
 }
 
 export async function createTaskFullRpc(input: {
@@ -54,7 +71,7 @@ export async function createTaskFullRpc(input: {
     p_task_block_id: input.taskBlockId,
     p_title: input.title,
     p_status: input.status ?? null,
-    p_priority: input.priority ?? null,
+    p_priorities: toPriorities(input.priority ?? null),
     p_description: input.description ?? null,
     p_due_date: input.dueDate ?? null,
     p_due_time: input.dueTime ?? null,
@@ -77,7 +94,7 @@ export async function createTaskFullRpc(input: {
   const payload = unwrapRpcData<Record<string, unknown>>(data as any);
   if (!payload) return { error: "RPC create_task_full returned empty payload" };
 
-  const task = (payload.task ?? payload) as TaskItem;
+  const task = normalizeTaskRow(payload.task ?? payload);
   return { data: task };
 }
 
@@ -99,11 +116,17 @@ export async function updateTaskFullRpc(input: {
     return { error: "RPC disabled" };
   }
 
+  const rpcUpdates = { ...(input.updates || {}) } as Record<string, unknown>;
+  if (!("priorities" in rpcUpdates) && typeof rpcUpdates.priority === "string") {
+    rpcUpdates.priorities = toPriorities(rpcUpdates.priority);
+  }
+  delete (rpcUpdates as any).priority;
+
   const t0 = performance.now();
   aiDebug("rpc:start", { name: RPC_UPDATE_TASK_FULL, table: "task_items" });
   const { data, error } = await supabase.rpc(RPC_UPDATE_TASK_FULL, {
     p_task_id: input.taskId,
-    p_updates: input.updates,
+    p_updates: rpcUpdates,
     p_assignees: input.assignees ?? [],
     p_assignees_set: input.assigneesSet ?? false,
     p_tags: input.tags ?? [],
@@ -117,7 +140,7 @@ export async function updateTaskFullRpc(input: {
   const payload = unwrapRpcData<Record<string, unknown>>(data as any);
   if (!payload) return { error: "RPC update_task_full returned empty payload" };
 
-  const task = (payload.task ?? payload) as TaskItem;
+  const task = normalizeTaskRow(payload.task ?? payload);
   return { data: task };
 }
 
@@ -137,11 +160,17 @@ export async function bulkUpdateTaskItemsRpc(input: {
     return { error: "RPC disabled" };
   }
 
+  const rpcUpdates = { ...(input.updates || {}) } as Record<string, unknown>;
+  if (!("priorities" in rpcUpdates) && typeof rpcUpdates.priority === "string") {
+    rpcUpdates.priorities = toPriorities(rpcUpdates.priority);
+  }
+  delete (rpcUpdates as any).priority;
+
   const t0 = performance.now();
   aiDebug("rpc:start", { name: RPC_BULK_UPDATE_TASK_ITEMS, table: "task_items" });
   const { data, error } = await supabase.rpc(RPC_BULK_UPDATE_TASK_ITEMS, {
     p_task_ids: input.taskIds,
-    p_updates: input.updates,
+    p_updates: rpcUpdates,
     p_updated_by: userId,
   });
   aiDebug("rpc:result", { name: RPC_BULK_UPDATE_TASK_ITEMS, ok: !error, ms: Math.round(performance.now() - t0) });

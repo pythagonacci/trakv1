@@ -111,6 +111,15 @@ function normalizePriorityValue(value: string | null): string | null {
   return value;
 }
 
+function getCanonicalPriorityFromNamed(priorities: unknown): string | null {
+  if (!Array.isArray(priorities) || priorities.length === 0) return null;
+  const canonical = priorities.find(
+    (entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority"
+  ) as { value?: unknown } | undefined;
+  const raw = canonical?.value ?? (priorities[0] as any)?.value;
+  return typeof raw === "string" ? raw : null;
+}
+
 function normalizeDateValue(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (value && typeof value === "object") {
@@ -1256,7 +1265,7 @@ export async function searchTasks(params: {
     let query = supabase
       .from("task_items")
       .select(`
-        id, title, description, status, priority, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
+        id, title, description, status, priorities, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
         workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
         projects(name),
         tabs(name)
@@ -1319,7 +1328,7 @@ export async function searchTasks(params: {
         let dueDateQuery = supabase
           .from("task_items")
           .select(`
-            id, title, description, status, priority, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
+            id, title, description, status, priorities, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
             workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
             projects(name),
             tabs(name)
@@ -3310,7 +3319,7 @@ export async function searchTimelineEvents(params: {
     let query = supabase
       .from("timeline_events")
       .select(`
-        id, title, start_date, end_date, status, priority, progress, notes, color,
+        id, title, start_date, end_date, status, priorities, progress, notes, color,
         is_milestone, workspace_id, timeline_block_id,
         created_at, updated_at,
         blocks:timeline_block_id(tab_id, tabs(project_id, projects(name)))
@@ -4455,7 +4464,10 @@ export async function getEntityById(params: {
         // Parse status and priority (select type: string/object)
         const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof data.status === "string" ? data.status : null);
         const status = normalizeStatusValue(rawStatus);
-        const rawPriority = normalizeSelectValue(priorityProp?.value) ?? (typeof data.priority === "string" ? data.priority : null);
+        const rawPriority =
+          normalizeSelectValue(priorityProp?.value) ??
+          (typeof data.priority === "string" ? data.priority : null) ??
+          getCanonicalPriorityFromNamed((data as any).priorities);
         const normalizedPriority = normalizePriorityValue(rawPriority);
         const priority = normalizedPriority === "none" ? null : normalizedPriority;
 
@@ -4466,7 +4478,7 @@ export async function getEntityById(params: {
         const enrichedData = {
           ...data,
           status: status ?? data.status,
-          priority: priority ?? data.priority,
+          priority: priority ?? getCanonicalPriorityFromNamed((data as any).priorities),
           task_assignees: assignees,
           task_tag_links: tags,
         };
@@ -4842,7 +4854,10 @@ export async function getEntityById(params: {
         const tags = normalizeTagsValue(tagsProp?.value).map((tag) => tag.name);
         const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof data.status === "string" ? data.status : null);
         const status = normalizeStatusValue(rawStatus);
-        const rawPriority = normalizeSelectValue(priorityProp?.value) ?? (typeof data.priority === "string" ? data.priority : null);
+        const rawPriority =
+          normalizeSelectValue(priorityProp?.value) ??
+          (typeof data.priority === "string" ? data.priority : null) ??
+          getCanonicalPriorityFromNamed((data as any).priorities);
         const priority = normalizePriorityValue(rawPriority);
         const dueDate = normalizeDateValue(dueDateProp?.value);
 
@@ -6985,7 +7000,7 @@ async function getEditedTaskSnapshotsFromTaskItems(
       supabase
         .from("task_items")
         .select(`
-          id, title, description, status, priority, due_date, start_date,
+          id, title, description, status, priorities, due_date, start_date,
           workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
           source_entity_type, source_entity_id, source_sync_mode,
           projects(name),
@@ -7017,7 +7032,7 @@ async function getEditedTaskSnapshotsFromTaskItems(
       ? await supabase
           .from("task_items")
           .select(`
-            id, title, description, status, priority, due_date, start_date,
+            id, title, description, status, priorities, due_date, start_date,
             workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
             source_entity_type, source_entity_id, source_sync_mode,
             projects(name),
@@ -7187,7 +7202,10 @@ async function getEditedTaskSnapshots(
         id: `snapshot:${row.id}`,
         title: String(snapshotData["Task Title"] || snapshotData["Task"] || snapshotData["Title"] || sourceTask.title),
         status: snapshotData["Status"] ? String(snapshotData["Status"]) as any : sourceTask.status,
-        priority: snapshotData["Priority"] ? String(snapshotData["Priority"]) as any : sourceTask.priority,
+        priority:
+          snapshotData["Priority"]
+            ? (String(snapshotData["Priority"]) as any)
+            : getCanonicalPriorityFromNamed((sourceTask as any).priorities),
         description: snapshotData["Description"] ? String(snapshotData["Description"]) : sourceTask.description,
         due_date: snapshotData["Due Date"] ? String(snapshotData["Due Date"]) : sourceTask.due_date,
         start_date: sourceTask.start_date,
@@ -7230,7 +7248,7 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
       supabase
         .from("timeline_events")
         .select(`
-          id, title, start_date, end_date, status, priority, progress, notes, color,
+          id, title, start_date, end_date, status, priorities, progress, notes, color,
           is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
           source_entity_type, source_entity_id, source_sync_mode
         `)
@@ -7260,7 +7278,7 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
       ? await supabase
           .from("timeline_events")
           .select(`
-            id, title, start_date, end_date, status, priority, progress, notes, color,
+            id, title, start_date, end_date, status, priorities, progress, notes, color,
             is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
             source_entity_type, source_entity_id, source_sync_mode
           `)
