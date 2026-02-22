@@ -5217,7 +5217,7 @@ async function annotateRowsWithSourceMetadata(params: {
           ...row,
           source_entity_type: inferredType,
           source_entity_id: candidate.id,
-          source_sync_mode: "snapshot",
+          source_sync_mode: "live",
         };
       }
     }
@@ -5240,7 +5240,7 @@ async function annotateRowsWithSourceMetadata(params: {
               ...row,
               source_entity_type: matched.entityType,
               source_entity_id: matched.id,
-              source_sync_mode: "snapshot",
+              source_sync_mode: "live",
             };
           }
         }
@@ -5368,8 +5368,8 @@ function normalizeSourceEntityId(value: unknown): string | null {
 }
 
 function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
-  if (typeof value === "string" && value.trim().toLowerCase() === "live") return "live";
-  return "snapshot";
+  if (typeof value === "string" && value.trim().toLowerCase() === "snapshot") return "snapshot";
+  return "live";
 }
 
 function extractSourceMetadataFromArgs(args: Record<string, unknown>): {

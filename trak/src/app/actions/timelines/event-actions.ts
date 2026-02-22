@@ -217,7 +217,7 @@ export async function createTimelineEvent(input: {
   const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
   const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
   const sourceSyncMode = hasSourceMetadata
-    ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
+    ? (input.sourceSyncMode ?? "live")
     : null;
 
   const sourceRowPriorities =
@@ -473,7 +473,7 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
         ? {
           source_entity_type: "table_row",
           source_entity_id: event.source_entity_id,
-          source_sync_mode: "snapshot" as const,
+          source_sync_mode: "live" as const,
         }
         : {}),
       created_by: userId,

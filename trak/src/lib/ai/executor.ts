@@ -926,7 +926,7 @@ function injectSourceMetadata(
         _source: {
           source_entity_id: sourceId,
           source_entity_type: sourceType,
-          source_sync_mode: "snapshot",
+          source_sync_mode: "live",
         },
       };
     });
@@ -944,7 +944,7 @@ function injectSourceMetadata(
         _source: {
           source_entity_id: entityId,
           source_entity_type: itemType,
-          source_sync_mode: "snapshot",
+          source_sync_mode: "live",
         },
       };
     });
@@ -963,7 +963,7 @@ function injectSourceMetadata(
       _source: {
         source_entity_id: entityId,
         source_entity_type: entityType,
-        source_sync_mode: "snapshot",
+        source_sync_mode: "live",
       },
     };
   });

@@ -50,7 +50,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
       order: input.order ?? null,
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
-      source_sync_mode: input.sourceSyncMode ?? "snapshot",
+      source_sync_mode: input.sourceSyncMode ?? "live",
       created_by: userId,
       updated_by: userId,
     })
@@ -421,7 +421,7 @@ export async function duplicateRow(rowId: string, opts?: { authContext?: AuthCon
       order: Number(row.order) + 0.001,
       source_entity_type: sourceEntityId ? row.source_entity_type ?? null : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: row.source_sync_mode ?? "snapshot",
+      source_sync_mode: row.source_sync_mode ?? "live",
       created_by: userId,
       updated_by: userId,
     })

@@ -100,7 +100,7 @@ function buildSearchHistoryContext(
     return `--- Search ${idx + 1} (user asked: "${m.userQuery.slice(0, 120)}") ---\nSearched via: ${m.manifest.searchTools.join(", ")}\nEntities found:\n${entityLines.join("\n")}`;
   });
 
-  const searchHistory = `\n\n📋 SEARCH HISTORY — PREVIOUSLY SEARCHED ENTITIES\nThe following entities were found in your recent search tool calls. If you are about to create or render something that uses this data, you MUST include the correct source_entity_id, source_entity_type ("task" | "timeline_event" | "table_row" | "block"), and source_sync_mode ("snapshot") for each entity that corresponds to a row/item you create.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
+  const searchHistory = `\n\n📋 SEARCH HISTORY — PREVIOUSLY SEARCHED ENTITIES\nThe following entities were found in your recent search tool calls. If you are about to create or render something that uses this data, you MUST include the correct source_entity_id, source_entity_type ("task" | "timeline_event" | "table_row" | "block"), and source_sync_mode ("live") for each entity that corresponds to a row/item you create.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
 
   return { searchHistory, hasSearchHistory: true };
 }
@@ -380,7 +380,7 @@ function coerceTaskRows(tasks: Array<Record<string, unknown>>) {
   return tasks.map((task) => ({
     source_entity_type: "task",
     source_entity_id: typeof task.id === "string" ? task.id : undefined,
-    source_sync_mode: "snapshot",
+    source_sync_mode: "live",
     data: {
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
@@ -427,7 +427,7 @@ function coerceTaskRowsForWorkflowFallback(tasks: Array<Record<string, unknown>>
   return tasks.map((task) => ({
     source_entity_type: "task",
     source_entity_id: typeof task.id === "string" ? task.id : undefined,
-    source_sync_mode: "snapshot",
+    source_sync_mode: "live",
     data: {
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
@@ -836,7 +836,7 @@ BLOCK CREATION:
 
 🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, table rows, subtasks, etc.):
 - You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
-- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row" | "block", source_entity_id: "<entity-uuid>", source_sync_mode: "snapshot" }
+- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row" | "block", source_entity_id: "<entity-uuid>", source_sync_mode: "live" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
 - NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, searchBlocks, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row". For blocks use source_entity_type "block".
 - When creating tasks or timeline events from table rows/results, you MUST pass source_entity_type "table_row", source_entity_id as the row id, and source_sync_mode "snapshot" in createTaskItem/createTimelineEvent calls.
@@ -1290,7 +1290,7 @@ BLOCK CREATION:
 
 🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, table rows, subtasks, etc.):
 - You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
-- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row" | "block", source_entity_id: "<entity-uuid>", source_sync_mode: "snapshot" }
+- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row" | "block", source_entity_id: "<entity-uuid>", source_sync_mode: "live" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
 - NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, searchBlocks, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row". For blocks use source_entity_type "block".
 - When creating tasks or timeline events from table rows/results, you MUST pass source_entity_type "table_row", source_entity_id as the row id, and source_sync_mode "snapshot" in createTaskItem/createTimelineEvent calls.

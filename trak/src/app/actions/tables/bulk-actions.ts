@@ -369,7 +369,7 @@ export async function bulkDuplicateRows(input: {
       order: Number(row.order) + 0.001 * (idx + 1),
       source_entity_type: sourceEntityId ? normalizeSourceEntityType(row.source_entity_type ?? null) : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: row.source_sync_mode ?? "snapshot",
+      source_sync_mode: row.source_sync_mode ?? "live",
       created_by: userId,
       updated_by: userId,
     };
@@ -486,8 +486,7 @@ function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | 
 function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" | null {
   if (value === "live") return "live";
   if (value === "snapshot") return "snapshot";
-  // Default to snapshot when a value is provided but not explicitly "live"
-  return "snapshot";
+  return "live";
 }
 
 function normalizeSourceEntityId(value: unknown): string | null {

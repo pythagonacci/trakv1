@@ -475,7 +475,7 @@ export async function getTaskWithContext(params: {
           source_task_id: task.source_task_id ?? null,
           source_entity_type: task.source_entity_type ?? null,
           source_entity_id: task.source_entity_id ?? null,
-          source_sync_mode: task.source_sync_mode ?? "snapshot",
+          source_sync_mode: task.source_sync_mode ?? "live",
           description: task.description,
           due_date: task.due_date,
           due_time: task.due_time,

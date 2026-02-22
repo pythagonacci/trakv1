@@ -87,7 +87,7 @@ export async function createTaskItem(
   const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
   const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
   const sourceSyncMode = hasSourceMetadata
-    ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
+    ? (input.sourceSyncMode ?? "live")
     : null;
   const sourceTaskId = sourceEntityType === "task" ? sourceEntityId : null;
   const priorities = input.priorities !== undefined ? normalizeTaskPriorities(input.priorities) : prioritiesFromSingle(input.priority);
@@ -627,7 +627,7 @@ export async function duplicateTasksToBlock(input: {
           task.source_entity_type === "table_row" && task.source_entity_id
             ? task.source_entity_id
             : task.id,
-        source_sync_mode: "snapshot",
+        source_sync_mode: "live",
       })
       .select("id")
       .single();

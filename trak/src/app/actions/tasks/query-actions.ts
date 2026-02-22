@@ -166,7 +166,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
       sourceTaskId: item.source_task_id ?? null,
       sourceEntityType: (item.source_entity_type as "task" | "timeline_event" | "table_row" | null) ?? null,
       sourceEntityId: item.source_entity_id ?? null,
-      sourceSyncMode: item.source_sync_mode ?? "snapshot",
+      sourceSyncMode: item.source_sync_mode ?? "live",
       assignees: assigneesByTask.get(item.id) || [],
       dueDate: item.due_date || undefined,
       dueTime: item.due_time ? item.due_time.slice(0, 5) : undefined,
