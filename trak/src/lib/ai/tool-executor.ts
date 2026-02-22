@@ -138,6 +138,7 @@ import {
   updateTimelineEvent,
   deleteTimelineEvent,
 } from "@/app/actions/timelines/event-actions";
+import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import {
   createTimelineDependency,
@@ -148,11 +149,6 @@ import type { TimelineEventStatus, TimelineEventPriority } from "@/types/timelin
 // ============================================================================
 // IMPORTS - Property Actions
 // ============================================================================
-import {
-  createPropertyDefinition,
-  updatePropertyDefinition,
-  deletePropertyDefinition,
-} from "@/app/actions/properties/definition-actions";
 import type { PropertyValue } from "@/types/properties";
 import {
   setEntityProperty,
@@ -488,8 +484,6 @@ async function captureUndoStepsBefore(params: {
     updateTimelineEvent: { table: "timeline_events", idArg: "eventId" },
     deleteTimelineEvent: { table: "timeline_events", idArg: "eventId" },
     deleteTimelineDependency: { table: "timeline_dependencies", idArg: "dependencyId" },
-    updatePropertyDefinition: { table: "property_definitions", idArg: "definitionId" },
-    deletePropertyDefinition: { table: "property_definitions", idArg: "definitionId" },
     updateClient: { table: "clients", idArg: "clientId" },
     deleteClient: { table: "clients", idArg: "clientId" },
     updateDoc: { table: "docs", idArg: "docId" },
@@ -605,43 +599,33 @@ async function captureUndoStepsBefore(params: {
     }
 
     if (workspaceId) {
-      const { data: def } = await supabase
-        .from("property_definitions")
-        .select("id")
+      const { data: props } = await supabase
+        .from("entity_properties")
+        .select("*")
         .eq("workspace_id", workspaceId)
-        .eq("name", "Assignee")
-        .eq("type", "person")
-        .maybeSingle();
-      const defId = def?.id as string | undefined;
-      if (defId) {
-        const { data: props } = await supabase
-          .from("entity_properties")
-          .select("*")
-          .eq("workspace_id", workspaceId)
-          .eq("entity_type", "task")
-          .eq("property_definition_id", defId)
-          .in("entity_id", ids);
+        .eq("entity_type", "task")
+        .eq("field_type", "assignee")
+        .in("entity_id", ids);
 
+      steps.push({
+        action: "delete",
+        table: "entity_properties",
+        ids,
+        idColumn: "entity_id",
+        where: {
+          workspace_id: workspaceId,
+          entity_type: "task",
+          field_type: "assignee",
+        },
+      });
+
+      if (Array.isArray(props) && props.length > 0) {
         steps.push({
-          action: "delete",
+          action: "upsert",
           table: "entity_properties",
-          ids,
-          idColumn: "entity_id",
-          where: {
-            workspace_id: workspaceId,
-            entity_type: "task",
-            property_definition_id: defId,
-          },
+          rows: props as Record<string, unknown>[],
+          onConflict: "entity_type,entity_id,field_name",
         });
-
-        if (Array.isArray(props) && props.length > 0) {
-          steps.push({
-            action: "upsert",
-            table: "entity_properties",
-            rows: props as Record<string, unknown>[],
-            onConflict: "entity_type,entity_id,property_definition_id",
-          });
-        }
       }
     }
 
@@ -678,15 +662,15 @@ async function captureUndoStepsBefore(params: {
   if (toolName === "setEntityProperty" || toolName === "removeEntityProperty") {
     const entityType = String(toolArgs.entityType ?? "");
     const entityId = String(toolArgs.entityId ?? "");
-    const propertyDefinitionId = String(toolArgs.propertyDefinitionId ?? "");
-    if (!entityType || !entityId || !propertyDefinitionId || !workspaceId) return [];
+    const fieldName = String(toolArgs.fieldName ?? "");
+    if (!entityType || !entityId || !fieldName || !workspaceId) return [];
     const { data } = await supabase
       .from("entity_properties")
       .select("*")
       .eq("workspace_id", workspaceId)
       .eq("entity_type", entityType)
       .eq("entity_id", entityId)
-      .eq("property_definition_id", propertyDefinitionId);
+      .eq("field_name", fieldName);
     const rows = (data as Record<string, unknown>[] | null) ?? [];
     if (rows.length > 0) {
       return [
@@ -694,7 +678,7 @@ async function captureUndoStepsBefore(params: {
           action: "upsert",
           table: "entity_properties",
           rows,
-          onConflict: "entity_type,entity_id,property_definition_id",
+          onConflict: "entity_type,entity_id,field_name",
         },
       ];
     }
@@ -706,7 +690,7 @@ async function captureUndoStepsBefore(params: {
           workspace_id: workspaceId,
           entity_type: entityType,
           entity_id: entityId,
-          property_definition_id: propertyDefinitionId,
+          field_name: fieldName,
         },
       },
     ];
@@ -761,8 +745,6 @@ function buildUndoStepsAfter(
       return deleteById("timeline_events", data?.id);
     case "createTimelineDependency":
       return deleteById("timeline_dependencies", data?.id);
-    case "createPropertyDefinition":
-      return deleteById("property_definitions", data?.id);
     case "createRow":
       return deleteById("table_rows", data?.id);
     case "createField":
@@ -1167,7 +1149,9 @@ export async function executeTool(
               taskBlockId,
               title: args.title as string,
               status: args.status as any,
+              statuses: args.statuses as any,
               priority: args.priority as any,
+              priorities: args.priorities as any,
               description: args.description as string | undefined,
               dueDate: args.dueDate as string | undefined,
               dueTime: args.dueTime as string | undefined,
@@ -1362,7 +1346,9 @@ export async function executeTool(
             const baseUpdates: Record<string, unknown> = {};
             if (args.title !== undefined) baseUpdates.title = args.title as string | undefined;
             if (args.status !== undefined) baseUpdates.status = args.status as any;
+            if (args.statuses !== undefined) baseUpdates.statuses = args.statuses as any;
             if (args.priority !== undefined) baseUpdates.priority = args.priority as any;
+            if (args.priorities !== undefined) baseUpdates.priorities = args.priorities as any;
             if (args.description !== undefined) baseUpdates.description = args.description as string | null | undefined;
             if (args.dueDate !== undefined) baseUpdates.dueDate = args.dueDate as string | null | undefined;
             if (args.dueTime !== undefined) baseUpdates.dueTime = args.dueTime as string | null | undefined;
@@ -1417,7 +1403,9 @@ export async function executeTool(
               updateTaskItem(taskId, {
                 title: args.title as string | undefined,
                 status: args.status as any,
+                statuses: args.statuses as any,
                 priority: args.priority as any,
+                priorities: args.priorities as any,
                 description: args.description as string | null | undefined,
                 dueDate: args.dueDate as string | null | undefined,
                 dueTime: args.dueTime as string | null | undefined,
@@ -1479,7 +1467,9 @@ export async function executeTool(
               updates: {
                 title: updatesArg?.title as string | undefined,
                 status: updatesArg?.status as any,
+                statuses: updatesArg?.statuses as any,
                 priority: updatesArg?.priority as any,
+                priorities: updatesArg?.priorities as any,
                 description: updatesArg?.description as string | null | undefined,
                 dueDate: updatesArg?.dueDate as string | null | undefined,
                 dueTime: updatesArg?.dueTime as string | null | undefined,
@@ -1550,7 +1540,9 @@ export async function executeTool(
                     taskBlockId,
                     title: task.title as string,
                     status: task.status as any,
+                    statuses: task.statuses as any,
                     priority: task.priority as any,
+                    priorities: task.priorities as any,
                     description: task.description as string | undefined,
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
@@ -1561,7 +1553,7 @@ export async function executeTool(
                       normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
                     sourceSyncMode:
                       normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
-                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                        normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
                         ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
                         : undefined,
                     assignees: resolvedAssignees,
@@ -1589,7 +1581,7 @@ export async function executeTool(
                       normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
                     sourceSyncMode:
                       normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
-                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                        normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
                         ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
                         : undefined,
                   }, { authContext: authContext ?? undefined });
@@ -3364,10 +3356,10 @@ export async function executeTool(
           const sourceMetadata = extractSourceMetadataFromArgs(args as Record<string, unknown>);
           const hadSourceHints = Boolean(
             (args as Record<string, unknown>).source_entity_type !== undefined ||
-              (args as Record<string, unknown>).source_entity_id !== undefined ||
-              (args as Record<string, unknown>).sourceEntityType !== undefined ||
-              (args as Record<string, unknown>).sourceEntityId !== undefined ||
-              ((args as Record<string, unknown>)._source && typeof (args as Record<string, unknown>)._source === "object")
+            (args as Record<string, unknown>).source_entity_id !== undefined ||
+            (args as Record<string, unknown>).sourceEntityType !== undefined ||
+            (args as Record<string, unknown>).sourceEntityId !== undefined ||
+            ((args as Record<string, unknown>)._source && typeof (args as Record<string, unknown>)._source === "object")
           );
           const sourceMetadataIncomplete = hadSourceHints && (!sourceMetadata.sourceEntityType || !sourceMetadata.sourceEntityId);
           if (sourceMetadataIncomplete) {
@@ -3392,6 +3384,16 @@ export async function executeTool(
               startDate: args.startDate as string,
               endDate: args.endDate as string,
               status: args.status as TimelineEventStatus | undefined,
+              statuses:
+                ((args as Record<string, unknown>).statuses ??
+                  (args as Record<string, unknown>).statusFields ??
+                  (args as Record<string, unknown>).status_fields) !== undefined
+                  ? normalizeTimelineStatuses(
+                    (args as Record<string, unknown>).statuses ??
+                    (args as Record<string, unknown>).statusFields ??
+                    (args as Record<string, unknown>).status_fields
+                  )
+                  : undefined,
               priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
               priorities:
                 timelinePrioritiesInput !== undefined
@@ -3435,16 +3437,26 @@ export async function executeTool(
                 startDate: args.startDate as string | undefined,
                 endDate: args.endDate as string | undefined,
                 status: args.status as TimelineEventStatus | undefined,
+                statuses:
+                  ((args as Record<string, unknown>).statuses ??
+                    (args as Record<string, unknown>).statusFields ??
+                    (args as Record<string, unknown>).status_fields) !== undefined
+                    ? normalizeTimelineStatuses(
+                      (args as Record<string, unknown>).statuses ??
+                      (args as Record<string, unknown>).statusFields ??
+                      (args as Record<string, unknown>).status_fields
+                    )
+                    : undefined,
                 priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
                 priorities:
                   ((args as Record<string, unknown>).priorities ??
                     (args as Record<string, unknown>).priorityFields ??
                     (args as Record<string, unknown>).priority_fields) !== undefined
                     ? normalizeTimelinePriorities(
-                        (args as Record<string, unknown>).priorities ??
-                          (args as Record<string, unknown>).priorityFields ??
-                          (args as Record<string, unknown>).priority_fields
-                      )
+                      (args as Record<string, unknown>).priorities ??
+                      (args as Record<string, unknown>).priorityFields ??
+                      (args as Record<string, unknown>).priority_fields
+                    )
                     : undefined,
                 progress: args.progress as number | undefined,
                 notes: (args.notes as string | null | undefined) ?? undefined,
@@ -3477,78 +3489,25 @@ export async function executeTool(
         // ==================================================================
         // PROPERTY ACTIONS
         // ==================================================================
-        case "createPropertyDefinition":
-          if (!workspaceId) {
-            return { success: false, error: "No workspace selected" };
-          }
-          return await wrapResult(
-            createPropertyDefinition({
-              workspace_id: workspaceId,
-              name: args.name as string,
-              type: args.type as any,
-              options: args.options as any,
-            })
-          );
-
-        case "updatePropertyDefinition":
-          return await wrapResult(
-            updatePropertyDefinition(args.definitionId as string, {
-              name: args.name as string | undefined,
-              options: args.options as any,
-            })
-          );
-
-        case "deletePropertyDefinition":
-          return await wrapResult(
-            deletePropertyDefinition(args.definitionId as string)
-          );
-
         case "setEntityProperty":
           {
             const entityType = args.entityType as any;
             const entityId = args.entityId as string;
-            const propertyNameRaw = (args as any).propertyName ?? (args as any).propertyKey;
-            const normalizedName = normalizePropertyName(propertyNameRaw);
-            const propertyValue = (args as any).propertyValue ?? (args as any).value;
+            const fieldType = (args as any).fieldType as string | undefined;
+            const fieldName = (args as any).fieldName as string | undefined;
+            const value = (args as any).value;
 
-            if (normalizedName) {
-              if (!workspaceId) {
-                return { success: false, error: "No workspace selected" };
-              }
-              const fixedKey = FIXED_PROPERTY_NAME_MAP[normalizedName];
-              const updates: Record<string, unknown> = {};
-
-              if (fixedKey === "status") updates.status = propertyValue;
-              if (fixedKey === "priority") updates.priority = propertyValue;
-              if (fixedKey === "due_date") updates.due_date = propertyValue;
-              if (fixedKey === "tags") {
-                updates.tags = Array.isArray(propertyValue)
-                  ? propertyValue
-                  : propertyValue
-                    ? [String(propertyValue)]
-                    : [];
-              }
-              if (fixedKey === "assignee_ids") {
-                const assigneeIds = await resolveAssigneeIdsFromValue(propertyValue, authContext);
-                updates.assignee_ids = assigneeIds;
-              }
-
-              return await wrapResult(
-                setEntityProperties({
-                  entity_type: entityType,
-                  entity_id: entityId,
-                  workspace_id: workspaceId,
-                  updates,
-                })
-              );
+            if (!fieldType || !fieldName) {
+              return { success: false, error: "fieldType and fieldName are required" };
             }
 
             return await wrapResult(
               setEntityProperty({
                 entity_type: entityType,
                 entity_id: entityId,
-                property_definition_id: args.propertyDefinitionId as string,
-                value: args.value as PropertyValue,
+                field_type: fieldType as any,
+                field_name: fieldName,
+                value: value as PropertyValue,
               })
             );
           }
@@ -3558,7 +3517,7 @@ export async function executeTool(
             removeEntityProperty(
               args.entityType as any,
               args.entityId as string,
-              args.propertyDefinitionId as string
+              args.fieldName as string
             )
           );
 
@@ -4684,7 +4643,7 @@ function normalizeRowsForSelectFields(
 
       if (!isSelectLike(fieldType)) continue;
 
-      // Status/Priority are universal properties backed by workspace property_definitions.
+      // Status/Priority are universal properties with fixed canonical values.
       // Do not remap them using temporary field config options, or canonical values
       // like "todo"/"high" get converted into transient option IDs.
       if (fieldType === "status" || fieldType === "priority") continue;
@@ -5315,9 +5274,7 @@ async function syncPriorityStatusToEntityProperties(
   const workspaceId = tableResult.data.table.workspace_id as string | undefined;
   const fields = tableResult.data.fields || [];
   const relevantFields = fields.filter(
-    (field) =>
-      (field.type === "priority" || field.type === "status") &&
-      field.property_definition_id
+    (field) => field.type === "priority" || field.type === "status"
   );
 
   if (!workspaceId || relevantFields.length === 0) return;
@@ -5347,11 +5304,12 @@ async function syncPriorityStatusToEntityProperties(
           {
             entity_type: "table_row",
             entity_id: rowId,
-            property_definition_id: field.property_definition_id,
+            field_type: field.type,
+            field_name: field.name,
             value: fieldValue,
             workspace_id: workspaceId,
           },
-          { onConflict: "entity_type,entity_id,property_definition_id" }
+          { onConflict: "entity_type,entity_id,field_name" }
         );
     }
   }
@@ -5549,71 +5507,15 @@ function generateOptionId(): string {
 }
 
 function resolveSelectValues(
-  field: { type: string; config: Record<string, unknown>; property_definition_id?: string },
+  field: { type: string; config: Record<string, unknown> },
   rawValue: unknown,
-  allowCreate: boolean,
-  propertyDefinitionOptions?: Array<{ id: string; label: string; color?: string }>
+  allowCreate: boolean
 ): { ids: string[]; updatedConfig?: Record<string, unknown>; missing: boolean } {
   if (rawValue === null || rawValue === undefined) {
     return { ids: [], missing: false };
   }
 
-  // Priority/Status fields: use property definition options (canonical IDs)
-  if ((field.type === "priority" || field.type === "status") && propertyDefinitionOptions) {
-    const inputValues = Array.isArray(rawValue) ? rawValue : [rawValue];
-    const normalizedOptions = new Map(
-      propertyDefinitionOptions.map(opt => [normalizeFieldKey(opt.label), opt])
-    );
-
-    const resolvedIds: string[] = [];
-
-    for (const value of inputValues) {
-      // Handle {id} object format
-      if (value && typeof value === "object") {
-        const asObj = value as Record<string, unknown>;
-        const id = typeof asObj.id === "string" ? asObj.id : undefined;
-        if (id) {
-          // Verify it's a valid canonical ID
-          const exists = propertyDefinitionOptions.some(opt => opt.id === id);
-          if (exists) {
-            resolvedIds.push(id);
-            continue;
-          }
-        }
-      }
-
-      const str = String(value ?? "").trim();
-      if (!str) continue;
-
-      // Check if value is already a canonical ID (case-insensitive)
-      const matchedById = propertyDefinitionOptions.find(
-        opt => opt.id.toLowerCase() === str.toLowerCase()
-      );
-
-      if (matchedById) {
-        resolvedIds.push(matchedById.id);
-        continue;
-      }
-
-      // Try label match (case-insensitive)
-      const normalized = normalizeFieldKey(str);
-      const matchedByLabel = normalizedOptions.get(normalized);
-
-      if (matchedByLabel) {
-        resolvedIds.push(matchedByLabel.id);
-      } else {
-        // Value not found in property definition options
-        const fieldType = field.type === "priority" ? "Priority" : "Status";
-        const validValues = propertyDefinitionOptions.map(opt => `"${opt.id}" (${opt.label})`).join(", ");
-        console.warn(`[resolveSelectValues] Invalid ${fieldType} value: "${str}". Valid options: ${validValues}`);
-        return { ids: [], missing: true };
-      }
-    }
-
-    return { ids: resolvedIds, missing: false };
-  }
-
-  // Regular select fields: use field config options
+  // All select-like fields: use field config options
   const { kind, options } = getOptionEntries(field);
   if (!kind) {
     return { ids: [], missing: true };
@@ -5670,16 +5572,15 @@ function resolveSelectValues(
 }
 
 function resolveUpdateValue(
-  field: { id: string; type: string; config: Record<string, unknown>; property_definition_id?: string },
+  field: { id: string; type: string; config: Record<string, unknown> },
   rawValue: unknown,
-  allowCreateOptions: boolean,
-  propertyDefinitionOptions?: Array<{ id: string; label: string; color?: string }>
+  allowCreateOptions: boolean
 ): { value: unknown; updatedConfig?: Record<string, unknown> } {
   if (isSelectLike(field.type)) {
     if (rawValue === null || rawValue === undefined) {
       return { value: null };
     }
-    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions, propertyDefinitionOptions);
+    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions);
     if (resolved.missing) {
       return { value: null };
     }
@@ -5708,27 +5609,6 @@ async function enhanceFieldsAndNormalizeSelectValues(
 
   const fields = tableResult.data.fields;
 
-  // Fetch property definitions for priority/status fields
-  const propertyDefIds = fields
-    .filter(f => f.property_definition_id)
-    .map(f => f.property_definition_id as string);
-
-  const propertyDefsMap = new Map<string, Array<{ id: string; label: string; color?: string }>>();
-
-  if (propertyDefIds.length > 0) {
-    const supabase = await createSupabaseClient();
-    const { data: propDefs } = await supabase
-      .from("property_definitions")
-      .select("id, options")
-      .in("id", [...new Set(propertyDefIds)]);
-
-    if (propDefs) {
-      for (const pd of propDefs) {
-        propertyDefsMap.set(pd.id, pd.options as Array<{ id: string; label: string; color?: string }>);
-      }
-    }
-  }
-
   // Extract all values for each field from the rows
   const fieldValues = new Map<string, unknown[]>();
   rows.forEach((row) => {
@@ -5742,16 +5622,10 @@ async function enhanceFieldsAndNormalizeSelectValues(
   });
 
   // Enhance select fields that have no options configured
-  // SKIP priority/status fields (they get options from property_definitions)
   const fieldsToUpdate: Array<{ fieldId: string; config: Record<string, unknown> }> = [];
 
   for (const field of fields) {
     if (!isSelectLike(field.type)) continue;
-
-    // Skip priority/status fields - they use property_definitions
-    if ((field.type === "priority" || field.type === "status") && field.property_definition_id) {
-      continue;
-    }
 
     const config = (field.config || {}) as Record<string, unknown>;
     const { options } = getOptionEntries({ type: field.type, config });
@@ -5796,18 +5670,12 @@ async function enhanceFieldsAndNormalizeSelectValues(
         continue;
       }
 
-      // Get property definition options if available
-      const propDefOptions = field.property_definition_id
-        ? propertyDefsMap.get(field.property_definition_id)
-        : undefined;
-
       // Field is a select-like field - normalize the value to option ID
       const config = (field.config || {}) as Record<string, unknown>;
       const { ids, missing } = resolveSelectValues(
-        { type: field.type, config, property_definition_id: field.property_definition_id ?? undefined },
+        { type: field.type, config },
         rawValue,
-        false,
-        propDefOptions
+        false
       );
 
       if (ids.length > 0) {

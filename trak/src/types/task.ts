@@ -17,13 +17,9 @@ export interface TaskItemPriority {
   value: Priority | null;
 }
 
-export function getCanonicalPriority(priorities: TaskItemPriority[] | null | undefined): Priority | null {
-  if (!Array.isArray(priorities) || priorities.length === 0) return null;
-  const canonical = priorities.find(
-    (entry) => typeof entry?.field_name === "string" && entry.field_name.trim().toLowerCase() === "priority"
-  );
-  if (canonical && canonical.value) return canonical.value;
-  return priorities[0]?.value ?? null;
+export interface TaskItemStatus {
+  field_name: string;
+  value: TaskStatus | null;
 }
 
 export interface TaskItem {
@@ -33,9 +29,7 @@ export interface TaskItem {
   project_id: string | null;
   tab_id: string | null;
   title: string;
-  status: TaskStatus;
-  /** Legacy convenience field derived from `priorities` (maps null -> "none"). */
-  priority?: TaskPriority;
+  statuses: TaskItemStatus[];
   priorities: TaskItemPriority[];
   assignee_id: string | null;
   source_task_id: string | null;

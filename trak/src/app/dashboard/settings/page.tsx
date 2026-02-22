@@ -40,7 +40,7 @@ export default async function SettingsPage() {
   return (
     <SettingsClient
       workspace={workspace}
-      members={members}
+      members={members || []}
       currentUserRole={membership.role}
       currentUserId={user.id}
     />

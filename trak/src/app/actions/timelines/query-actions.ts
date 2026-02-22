@@ -1,7 +1,8 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
-import { getCanonicalTimelinePriority, normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
+import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent, TimelineItem } from "@/types/timeline";
 
@@ -24,10 +25,11 @@ export async function getTimelineItems(timelineBlockId: string, opts?: { authCon
 
   const normalizedEvents = ((events || []) as any[]).map((event) => {
     const priorities = normalizeTimelinePriorities(event?.priorities);
+    const statuses = normalizeTimelineStatuses(event?.statuses);
     return {
       ...(event as TimelineEvent),
       priorities,
-      priority: getCanonicalTimelinePriority(priorities),
+      statuses,
     } as TimelineEvent;
   });
 
@@ -48,8 +50,7 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     title: event.title,
     start_date: event.start_date,
     end_date: event.end_date,
-    status: event.status,
-    priority: event.priority ?? getCanonicalTimelinePriority(event.priorities),
+    statuses: normalizeTimelineStatuses(event.statuses),
     priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
     progress: event.progress,

@@ -3,16 +3,14 @@
 import { requireTaskBlockAccess, requireWorkspaceAccessForTasks } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TaskItem, TaskItemPriority } from "@/types/task";
-import { getCanonicalPriority } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
 
 export interface TaskItemView {
   id: string;
   text: string;
-  status: "todo" | "in-progress" | "done";
-  priority?: "urgent" | "high" | "medium" | "low" | "none";
-  priorities?: TaskItemPriority[];
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: TaskItemPriority[];
   sourceTaskId?: string | null;
   sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
   sourceEntityId?: string | null;
@@ -157,12 +155,13 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     const priorities = Array.isArray((item as any).priorities)
       ? ((item as any).priorities as TaskItemPriority[])
       : [];
-    const canonicalPriority = getCanonicalPriority(priorities);
+    const statuses = Array.isArray((item as any).statuses)
+      ? ((item as any).statuses as any[])
+      : [];
     return {
       id: item.id,
       text: item.title,
-      status: item.status,
-      priority: (canonicalPriority ?? "none") as TaskItemView["priority"],
+      statuses,
       priorities,
       sourceTaskId: item.source_task_id ?? null,
       sourceEntityType: (item.source_entity_type as "task" | "timeline_event" | "table_row" | null) ?? null,

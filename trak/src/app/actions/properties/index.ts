@@ -2,18 +2,6 @@
 // Re-exports all property-related server actions
 
 export {
-  getPropertyDefinitions,
-  getPropertyDefinition,
-  createPropertyDefinition,
-  updatePropertyDefinition,
-  deletePropertyDefinition,
-  mergePropertyOptions,
-  addPropertyOption,
-  updatePropertyOption,
-  removePropertyOption,
-} from "./definition-actions";
-
-export {
   getEntityProperties,
   setEntityProperty,
   removeEntityProperty,

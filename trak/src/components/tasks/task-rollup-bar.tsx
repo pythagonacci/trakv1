@@ -12,7 +12,8 @@ type GroupBy = "status" | "priority" | "assignee";
 export interface RollupTask {
   id: string;
   status: StatusValue;
-  priority: PriorityValue;
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: Array<{ field_name: string; value: string | null }>;
   assigneeIds: string[];
 }
 
@@ -117,7 +118,7 @@ function getSegmentColor(value: string, groupBy: GroupBy, assigneeIndex: number)
 
 function matchesFilter(task: RollupTask, groupBy: GroupBy, value: string): boolean {
   if (groupBy === "status") return task.status === value;
-  if (groupBy === "priority") return (task.priority ?? "none") === value;
+  if (groupBy === "priority") return (task.priorities?.[0]?.value ?? "none") === value;
   if (groupBy === "assignee") {
     if (value === "unassigned") return task.assigneeIds.length === 0;
     return task.assigneeIds.includes(value);
@@ -142,7 +143,7 @@ function computeSegments(
     tasks.forEach((t) => groups.set(t.status, (groups.get(t.status) ?? 0) + 1));
   } else if (groupBy === "priority") {
     tasks.forEach((t) => {
-      const key = t.priority ?? "none";
+      const key = t.priorities?.[0]?.value ?? "none";
       groups.set(key, (groups.get(key) ?? 0) + 1);
     });
   } else if (groupBy === "assignee") {
@@ -192,7 +193,7 @@ function getAvailableValues(
     }));
   }
   if (groupBy === "priority") {
-    tasks.forEach((t) => seen.add(t.priority ?? "none"));
+    tasks.forEach((t) => seen.add(t.priorities?.[0]?.value ?? "none"));
     return PRIORITY_ORDER.filter((p) => seen.has(p)).map((p) => ({
       value: p,
       label: PRIORITY_LABELS[p],

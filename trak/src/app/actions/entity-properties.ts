@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import { getDueDateEnd, getDueDateStart, normalizeDueDateRange } from "@/lib/due-date";
 import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
+import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import type {
   EntityType,
   EntityProperties,
@@ -115,8 +116,8 @@ function buildEntityPropertiesFromRows(
   };
   const pickPreferred = <T,>(fields: Array<{ field_name: string; value: T }>, preferredName: string): T | null => {
     if (fields.length === 0) return null;
-    const canonical = fields.find((field) => field.field_name.trim().toLowerCase() === preferredName.trim().toLowerCase());
-    return (canonical ?? fields[0])?.value ?? null;
+    const preferred = fields.find((field) => field.field_name.trim().toLowerCase() === preferredName.trim().toLowerCase());
+    return (preferred ?? fields[0])?.value ?? null;
   };
 
   for (const row of rows) {
@@ -253,7 +254,6 @@ async function upsertEntityPropertyValue(
       entity_type: entityType,
       entity_id: entityId,
       workspace_id: workspaceId,
-      property_definition_id: null,
       field_name,
       field_type,
       value,
@@ -406,10 +406,10 @@ async function syncParentTaskPropertiesFromSubtasks(
     status === "done"
       ? "done"
       : status === "in_progress"
-      ? "in-progress"
-      : status === "blocked"
-      ? "todo"
-      : "todo";
+        ? "in-progress"
+        : status === "blocked"
+          ? "todo"
+          : "todo";
 
   await supabase
     .from("task_items")
@@ -757,6 +757,101 @@ export async function setEntityProperties(
       );
     }
   }
+  if (updates.statuses !== undefined) {
+    const normalizedNamedStatuses = (updates.statuses ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: entry.value,
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "status");
+
+    for (const entry of normalizedNamedStatuses) {
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.status,
+          entry.value,
+          entry.field_name
+        )
+      );
+    }
+  }
+
+  if (updates.assignees !== undefined) {
+    const normalizedNamedAssignees = (updates.assignees ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: entry.value ?? [],
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "assignee");
+
+    for (const entry of normalizedNamedAssignees) {
+      const payload = await buildAssigneePayloadFromIds(supabase, entry.value);
+      const value = payload.length > 0 ? payload : null;
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.assignee_id,
+          value,
+          entry.field_name
+        )
+      );
+    }
+  }
+
+  if (updates.due_dates !== undefined) {
+    const normalizedNamedDueDates = (updates.due_dates ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: normalizeDueDateRange(entry.value),
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "due_date");
+
+    for (const entry of normalizedNamedDueDates) {
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.due_date,
+          entry.value,
+          entry.field_name
+        )
+      );
+    }
+  }
+
   // Assignees: support assignee_ids (array) or legacy assignee_id (single)
   const assigneeIdsToSet =
     updates.assignee_ids !== undefined
@@ -849,15 +944,7 @@ export async function setEntityProperties(
     const assigneeId = (data as any).assignee_id as string | null;
     const priorities = Array.isArray((data as any).priorities) ? (data as any).priorities : [];
 
-    const legacyStatus =
-      status === "done"
-        ? "done"
-        : status === "in_progress"
-        ? "in-progress"
-        : status === "blocked"
-        ? "todo"
-        : "todo";
-
+    const taskStatuses = (data as any).statuses ?? [];
     const taskPriorities = priorities
       .map((field: any) => ({
         field_name: String(field?.field_name || "").trim(),
@@ -869,7 +956,7 @@ export async function setEntityProperties(
       .filter((field: any) => field.field_name.length > 0 && field.value);
 
     const taskItemUpdates: Record<string, any> = {
-      status: legacyStatus,
+      statuses: taskStatuses,
       priorities: taskPriorities,
       assignee_id: assigneeId ?? null,
     };
@@ -920,13 +1007,19 @@ export async function setEntityProperties(
     }
   }
 
-  if (input.entity_type === "timeline_event" && (updates.priority !== undefined || updates.priorities !== undefined)) {
+  if (
+    input.entity_type === "timeline_event" &&
+    (updates.priority !== undefined || updates.priorities !== undefined ||
+      updates.status !== undefined || updates.statuses !== undefined)
+  ) {
     const timelinePriorities = normalizeTimelinePriorities((data as any).priorities ?? []);
+    const timelineUpdate: Record<string, unknown> = { priorities: timelinePriorities };
+    if (updates.status !== undefined || updates.statuses !== undefined) {
+      timelineUpdate.statuses = normalizeTimelineStatuses((data as any).statuses ?? []);
+    }
     await supabase
       .from("timeline_events")
-      .update({
-        priorities: timelinePriorities,
-      })
+      .update(timelineUpdate)
       .eq("id", input.entity_id);
   }
 
@@ -972,7 +1065,7 @@ export async function addTag(input: AddTagInput): Promise<ActionResult<EntityPro
   if ("error" in current) return current;
 
   const currentTags = current.data?.tags || [];
-  
+
   // Check for duplicate (case-insensitive)
   if (currentTags.some((t: string) => t.toLowerCase() === normalizedTag)) {
     return { error: "Tag already exists" };

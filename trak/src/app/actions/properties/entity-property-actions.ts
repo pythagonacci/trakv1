@@ -1,40 +1,34 @@
 "use server";
 
 // Universal Properties & Linking System - Entity Property Actions
-// Set/get/remove property values on entities (blocks, tasks, timeline_events, table_rows)
+// Set/get/remove property values on entities using field_type + field_name + value
 
 import { createClient } from "@/lib/supabase/server";
-import { requireEntityAccess, requireWorkspaceAccessForProperties } from "./context";
+import { requireEntityAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type {
   EntityType,
-  EntityProperty,
-  PropertyValue,
-  EntityPropertyWithDefinition,
-  EntityPropertiesResult,
-  SetEntityPropertyInput,
-  PropertyDefinition,
+  FieldType,
+  NamedField,
 } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
 
 /**
  * Get direct properties on an entity (without inheritance).
+ * Returns NamedField rows from entity_properties.
  */
 export async function getEntityProperties(
   entityType: EntityType,
   entityId: string
-): Promise<ActionResult<EntityPropertyWithDefinition[]>> {
+): Promise<ActionResult<NamedField[]>> {
   const access = await requireEntityAccess(entityType, entityId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select(`
-      *,
-      definition:property_definitions(*)
-    `)
+    .select("*")
     .eq("entity_type", entityType)
     .eq("entity_id", entityId);
 
@@ -43,75 +37,39 @@ export async function getEntityProperties(
     return { error: "Failed to fetch entity properties" };
   }
 
-  // Transform to proper type
-  const properties: EntityPropertyWithDefinition[] = (data ?? []).map((row) => ({
-    id: row.id,
-    entity_type: row.entity_type,
-    entity_id: row.entity_id,
-    property_definition_id: row.property_definition_id,
-    value: row.value,
-    workspace_id: row.workspace_id,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    definition: row.definition as PropertyDefinition,
-  }));
-
-  return { data: properties };
+  return { data: (data ?? []) as NamedField[] };
 }
 
 /**
- * Set/upsert a property value on an entity.
+ * Set/upsert a named field property value on an entity.
  */
 export async function setEntityProperty(
-  input: SetEntityPropertyInput & { authContext?: AuthContext }
-): Promise<ActionResult<EntityProperty>> {
+  input: {
+    entity_type: EntityType;
+    entity_id: string;
+    field_type: FieldType;
+    field_name: string;
+    value: unknown;
+    authContext?: AuthContext;
+  }
+): Promise<ActionResult<NamedField>> {
   const access = await requireEntityAccess(input.entity_type, input.entity_id, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
 
-  // Verify the property definition belongs to this workspace
-  const { data: definition, error: defError } = await supabase
-    .from("property_definitions")
-    .select("id, workspace_id, name, type")
-    .eq("id", input.property_definition_id)
-    .maybeSingle();
-
-  if (defError || !definition) {
-    return { error: "Property definition not found" };
-  }
-
-  if (definition.workspace_id !== workspaceId) {
-    return { error: "Property definition does not belong to this workspace" };
-  }
-
-  const normalizedFieldType =
-    definition.name?.toLowerCase() === "priority"
-      ? "priority"
-      : definition.name?.toLowerCase() === "status"
-      ? "status"
-      : definition.name?.toLowerCase() === "assignee"
-      ? "assignee"
-      : definition.name?.toLowerCase() === "due date"
-      ? "due_date"
-      : definition.name?.toLowerCase() === "tags"
-      ? "tags"
-      : "tags";
-
-  // Upsert the property value
   const { data, error } = await supabase
     .from("entity_properties")
     .upsert(
       {
         entity_type: input.entity_type,
         entity_id: input.entity_id,
-        property_definition_id: input.property_definition_id,
-        field_name: definition.name,
-        field_type: normalizedFieldType,
+        field_name: input.field_name,
+        field_type: input.field_type,
         value: input.value,
         workspace_id: workspaceId,
       },
       {
-        onConflict: "entity_type,entity_id,property_definition_id",
+        onConflict: "entity_type,entity_id,field_name",
       }
     )
     .select("*")
@@ -122,16 +80,16 @@ export async function setEntityProperty(
     return { error: "Failed to set entity property" };
   }
 
-  return { data };
+  return { data: data as NamedField };
 }
 
 /**
- * Remove a property from an entity.
+ * Remove a property from an entity by field_name.
  */
 export async function removeEntityProperty(
   entityType: EntityType,
   entityId: string,
-  propertyDefinitionId: string
+  fieldName: string
 ): Promise<ActionResult<null>> {
   const access = await requireEntityAccess(entityType, entityId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
@@ -142,7 +100,7 @@ export async function removeEntityProperty(
     .delete()
     .eq("entity_type", entityType)
     .eq("entity_id", entityId)
-    .eq("property_definition_id", propertyDefinitionId);
+    .eq("field_name", fieldName);
 
   if (error) {
     console.error("removeEntityProperty error:", error);
@@ -159,7 +117,7 @@ export async function getEntityPropertiesWithInheritance(
   entityType: EntityType,
   entityId: string,
   opts?: { authContext?: AuthContext }
-): Promise<ActionResult<EntityPropertiesResult>> {
+): Promise<ActionResult<{ direct: NamedField[]; inherited: never[] }>> {
   void opts;
   const directResult = await getEntityProperties(entityType, entityId);
   if ("error" in directResult) return directResult;
@@ -177,7 +135,7 @@ export async function getEntityPropertiesWithInheritance(
 export async function getEntitiesProperties(
   entityType: EntityType,
   entityIds: string[]
-): Promise<ActionResult<Map<string, EntityPropertyWithDefinition[]>>> {
+): Promise<ActionResult<Map<string, NamedField[]>>> {
   if (entityIds.length === 0) {
     return { data: new Map() };
   }
@@ -186,10 +144,7 @@ export async function getEntitiesProperties(
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select(`
-      *,
-      definition:property_definitions(*)
-    `)
+    .select("*")
     .eq("entity_type", entityType)
     .in("entity_id", entityIds);
 
@@ -198,27 +153,15 @@ export async function getEntitiesProperties(
     return { error: "Failed to fetch entity properties" };
   }
 
-  const result = new Map<string, EntityPropertyWithDefinition[]>();
+  const result = new Map<string, NamedField[]>();
 
-  // Initialize empty arrays for all requested IDs
   for (const id of entityIds) {
     result.set(id, []);
   }
 
-  // Group properties by entity_id
   for (const row of data ?? []) {
     const props = result.get(row.entity_id) ?? [];
-    props.push({
-      id: row.id,
-      entity_type: row.entity_type,
-      entity_id: row.entity_id,
-      property_definition_id: row.property_definition_id,
-      value: row.value,
-      workspace_id: row.workspace_id,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      definition: row.definition as PropertyDefinition,
-    });
+    props.push(row as NamedField);
     result.set(row.entity_id, props);
   }
 

@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/tooltip";
 
 const UNDO_STACK_MAX = 10;
-type UndoEntry = { type: "delete_block"; block: Block; index: number };
+type UndoEntry = { type: string; block: Block; index: number };
 
 // Create context for file URLs
 export const FileUrlContext = createContext<Record<string, string>>({});
@@ -74,7 +74,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [tabTheme, setTabTheme] = useState<string>(propTheme || "default");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [isUndoing, setIsUndoing] = useState(false);
-  
+
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
   // Blocks are initialized from initialBlocks via useState above
@@ -82,7 +82,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const justDraggedRef = useRef(false);
   const lastDragTimeRef = useRef<number>(0);
   const recentlyDraggedBlocksRef = useRef<Map<string, Block>>(new Map());
-  
+
   useEffect(() => {
     // Only sync from the server when the tab itself actually changes.
     // While you stay on the same tab, the client state is the source of truth.
@@ -196,18 +196,18 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       // Position is now an integer representing the row index
       const rowIndex = Math.floor(block.position); // Floor is safe for integers, but keeps it robust
       const col = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
-      
+
       if (!rowsMap.has(rowIndex)) {
         rowsMap.set(rowIndex, []);
       }
-      
+
       // Find insertion point to maintain column order within row
       const rowBlocks = rowsMap.get(rowIndex)!;
       const insertIndex = rowBlocks.findIndex(b => {
         const bCol = b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
         return bCol > col;
       });
-      
+
       if (insertIndex === -1) {
         rowBlocks.push(block);
       } else {
@@ -311,8 +311,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     } catch (error) {
       console.error("Failed to delete block:", error);
       alert(
-        `Error deleting block: ${
-          error instanceof Error ? error.message : "Unknown error"
+        `Error deleting block: ${error instanceof Error ? error.message : "Unknown error"
         }`
       );
 
@@ -368,6 +367,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) => {
           if (!old) return old;
           const next = [...old];
+          const insertionIndex = Math.min(index, next.length);
           next.splice(insertionIndex, 0, newBlock);
           return next;
         });
@@ -540,8 +540,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
               position: Math.floor(block.position),
               column:
                 block.column !== undefined &&
-                block.column >= 0 &&
-                block.column <= 2
+                  block.column >= 0 &&
+                  block.column <= 2
                   ? block.column
                   : 0,
             }),
@@ -631,62 +631,240 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       const { active, over } = event;
       setIsDragging(false);
 
-    // Allow dropping on the same block (no change needed)
-    if (!over || active.id === over.id) {
-      console.log("No valid drop target or dropped on same block, cancelling drag");
-      setDraggedBlock(null);
-      return;
-    }
+      // Allow dropping on the same block (no change needed)
+      if (!over || active.id === over.id) {
+        console.log("No valid drop target or dropped on same block, cancelling drag");
+        setDraggedBlock(null);
+        return;
+      }
 
-    // Get the dragged block fresh from the current blocks array using active.id
-    const draggedBlockId = active.id as string;
-    const draggedBlock = blocks.find((b) => b.id === draggedBlockId);
+      // Get the dragged block fresh from the current blocks array using active.id
+      const draggedBlockId = active.id as string;
+      const draggedBlock = blocks.find((b) => b.id === draggedBlockId);
 
-    if (!draggedBlock) {
-      console.error("Dragged block not found in blocks array. Active ID:", draggedBlockId, "Available block IDs:", blocks.map(b => b.id));
-      setDraggedBlock(null);
-      return;
-    }
+      if (!draggedBlock) {
+        console.error("Dragged block not found in blocks array. Active ID:", draggedBlockId, "Available block IDs:", blocks.map(b => b.id));
+        setDraggedBlock(null);
+        return;
+      }
 
-    // Validate dragged block has an ID
-    if (!draggedBlock.id) {
-      console.error("Dragged block has no ID:", draggedBlock);
-      setDraggedBlock(null);
-      return;
-    }
+      // Validate dragged block has an ID
+      if (!draggedBlock.id) {
+        console.error("Dragged block has no ID:", draggedBlock);
+        setDraggedBlock(null);
+        return;
+      }
 
-    console.log("Found dragged block:", draggedBlock.id, "Type:", draggedBlock.type, "Position:", draggedBlock.position, "Column:", draggedBlock.column);
+      console.log("Found dragged block:", draggedBlock.id, "Type:", draggedBlock.type, "Position:", draggedBlock.position, "Column:", draggedBlock.column);
 
-    // Try to find the over block
-    const overBlock = blocks.find((b) => b.id === over.id);
-    console.log("Looking for over block:", over.id, "Found:", overBlock ? `${overBlock.id} (pos: ${overBlock.position}, col: ${overBlock.column})` : "not found");
+      // Try to find the over block
+      const overBlock = blocks.find((b) => b.id === over.id);
+      console.log("Looking for over block:", over.id, "Found:", overBlock ? `${overBlock.id} (pos: ${overBlock.position}, col: ${overBlock.column})` : "not found");
 
-    // Determine drag type based on overBlock position (if found)
-    if (overBlock) {
-      const isSameRow = Math.floor(draggedBlock.position) === Math.floor(overBlock.position);
-      const isSameColumn = draggedBlock.column === overBlock.column;
-      console.log("Drag analysis:", { isSameRow, isSameColumn, draggedPos: draggedBlock.position, overPos: overBlock.position, draggedCol: draggedBlock.column, overCol: overBlock.column });
-    }
+      // Determine drag type based on overBlock position (if found)
+      if (overBlock) {
+        const isSameRow = Math.floor(draggedBlock.position) === Math.floor(overBlock.position);
+        const isSameColumn = draggedBlock.column === overBlock.column;
+        console.log("Drag analysis:", { isSameRow, isSameColumn, draggedPos: draggedBlock.position, overPos: overBlock.position, draggedCol: draggedBlock.column, overCol: overBlock.column });
+      }
 
-    if (!overBlock) {
-      console.warn("Over target not found in blocks array. Over ID:", over.id, "Available block IDs:", blocks.map(b => b.id));
+      if (!overBlock) {
+        console.warn("Over target not found in blocks array. Over ID:", over.id, "Available block IDs:", blocks.map(b => b.id));
 
-      // Place dragged block at the end of the canvas
-      const maxPosition = Math.max(
-        ...blocks.map(b => Math.floor(b.position)),
-        -1
+        // Place dragged block at the end of the canvas
+        const maxPosition = Math.max(
+          ...blocks.map(b => Math.floor(b.position)),
+          -1
+        );
+        const newPosition = maxPosition + 1;
+        const newCol = 0;
+
+        const updatedBlocks = blocks.map(block =>
+          block.id === draggedBlock.id
+            ? { ...block, column: newCol, position: newPosition }
+            : block
+        );
+
+        if (updatedBlocks.length !== blocks.length) {
+          console.error("Block count mismatch when placing at end!");
+          setDraggedBlock(null);
+          return;
+        }
+
+        setBlocks(updatedBlocks);
+        justDraggedRef.current = true;
+        lastDragTimeRef.current = Date.now();
+
+        if (!draggedBlock.id.startsWith("temp-")) {
+          try {
+            await updateBlock({
+              blockId: draggedBlock.id.trim(),
+              column: newCol,
+              position: newPosition,
+            });
+          } catch (error) {
+            console.error("Failed to update block position:", error);
+            setBlocks(blocks); // revert
+          }
+        }
+
+        setDraggedBlock(null);
+        return;
+      }
+
+      // Validate over block has an ID
+      if (!overBlock.id) {
+        console.error("Over block has no ID:", overBlock);
+        setDraggedBlock(null);
+        return;
+      }
+
+      const overRowIndex = Math.floor(overBlock.position);
+      const overCol = overBlock.column !== undefined && overBlock.column >= 0 && overBlock.column <= 2 ? overBlock.column : 0;
+
+      const isTempId = (id: string) => id.startsWith("temp-");
+
+      // If user dragged downward significantly on the same row, create a new row below
+      const sourceRowIndex = Math.floor(draggedBlock.position);
+      if (overRowIndex === sourceRowIndex && event.delta.y > 40) {
+        const insertionRow = overRowIndex + 1;
+        const updatedBlocks = blocks.map((block) => {
+          if (block.id === draggedBlock.id) {
+            return { ...block, position: insertionRow, column: 0 };
+          }
+          const blockRow = Math.floor(block.position);
+          if (blockRow >= insertionRow) {
+            return { ...block, position: blockRow + 1 };
+          }
+          return block;
+        });
+
+        setBlocks(updatedBlocks);
+        justDraggedRef.current = true;
+        lastDragTimeRef.current = Date.now();
+
+        // Persist position changes for affected blocks
+        try {
+          const changedBlocks = updatedBlocks.filter((block) => {
+            const original = blocks.find((b) => b.id === block.id);
+            if (!original) return false;
+            return (
+              Math.floor(original.position) !== Math.floor(block.position) ||
+              original.column !== block.column
+            );
+          });
+
+          const persistentBlocks = changedBlocks.filter(
+            (block) => block.id && !isTempId(block.id),
+          );
+
+          if (persistentBlocks.length > 0) {
+            await Promise.all(
+              persistentBlocks.map((block) =>
+                updateBlock({
+                  blockId: block.id.trim(),
+                  position: Math.floor(block.position),
+                  column:
+                    block.column !== undefined &&
+                      block.column >= 0 &&
+                      block.column <= 2
+                      ? block.column
+                      : 0,
+                }),
+              ),
+            );
+          }
+        } catch (error) {
+          console.error("Error updating block when creating new row:", error);
+        } finally {
+          setTimeout(() => {
+            justDraggedRef.current = false;
+          }, 2000);
+        }
+
+        setDraggedBlock(null);
+        return;
+      }
+
+      // Find the target row
+      const targetRow = blockRows.find(r => r.rowIndex === overRowIndex);
+      if (!targetRow) {
+        console.error("Target row not found for rowIndex:", overRowIndex, "Available rows:", blockRows.map(r => r.rowIndex));
+        setDraggedBlock(null);
+        return;
+      }
+
+      // Normalize columns to pack left-to-right with a max of 3 per row
+      const normalizeRow = (rowBlocks: Block[], rowIndex: number): Block[] => {
+        const sorted = [...rowBlocks].sort((a, b) => {
+          const colA =
+            a.column !== undefined && a.column >= 0 && a.column <= 2 ? a.column : 0;
+          const colB =
+            b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
+          return colA - colB;
+        });
+
+        return sorted.slice(0, 3).map((block, idx) => ({
+          ...block,
+          column: idx,
+          position: rowIndex,
+        }));
+      };
+
+      const targetRowBlocks = targetRow.blocks.filter(
+        (b) => b.id !== draggedBlock.id,
       );
-      const newPosition = maxPosition + 1;
-      const newCol = 0;
 
-      const updatedBlocks = blocks.map(block =>
-        block.id === draggedBlock.id
-          ? { ...block, column: newCol, position: newPosition }
-          : block
+      // Build the target row composition with the dragged block included
+      const targetRowWithDragged = normalizeRow(
+        [
+          ...targetRowBlocks,
+          { ...draggedBlock, column: 0, position: overRowIndex },
+        ],
+        overRowIndex,
       );
 
+      // If moving between rows, normalize the source row to close gaps
+      const sourceRowNormalized =
+        sourceRowIndex !== overRowIndex
+          ? (() => {
+            const sourceRow = blockRows.find((r) => r.rowIndex === sourceRowIndex);
+            if (!sourceRow) return null;
+            const remaining = sourceRow.blocks.filter(
+              (b) => b.id !== draggedBlock.id,
+            );
+            return normalizeRow(remaining, sourceRowIndex);
+          })()
+          : null;
+
+      // Apply updates to blocks in the affected rows
+      const updatedBlocks = blocks.map((block) => {
+        const targetReplacement = targetRowWithDragged.find(
+          (b) => b.id === block.id,
+        );
+        if (targetReplacement) return targetReplacement;
+
+        if (sourceRowNormalized) {
+          const sourceReplacement = sourceRowNormalized.find(
+            (b) => b.id === block.id,
+          );
+          if (sourceReplacement) return sourceReplacement;
+        }
+
+        return block;
+      });
+
+      // Safety check: ensure all blocks are preserved
       if (updatedBlocks.length !== blocks.length) {
-        console.error("Block count mismatch when placing at end!");
+        console.error("Block count mismatch after drag update!", {
+          originalCount: blocks.length,
+          updatedCount: updatedBlocks.length,
+          originalIds: blocks.map((b) => b.id),
+          updatedIds: updatedBlocks.map((b) => b.id),
+          missingIds: blocks
+            .filter((b) => !updatedBlocks.find((ub) => ub.id === b.id))
+            .map((b) => b.id),
+        });
         setDraggedBlock(null);
         return;
       }
@@ -695,62 +873,18 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       justDraggedRef.current = true;
       lastDragTimeRef.current = Date.now();
 
-      if (!draggedBlock.id.startsWith("temp-")) {
-        try {
-          await updateBlock({
-            blockId: draggedBlock.id.trim(),
-            column: newCol,
-            position: newPosition,
-          });
-        } catch (error) {
-          console.error("Failed to update block position:", error);
-          setBlocks(blocks); // revert
-        }
-      }
-
-      setDraggedBlock(null);
-      return;
-    }
-    
-    // Validate over block has an ID
-    if (!overBlock.id) {
-      console.error("Over block has no ID:", overBlock);
-      setDraggedBlock(null);
-      return;
-    }
-
-    const overRowIndex = Math.floor(overBlock.position);
-    const overCol = overBlock.column !== undefined && overBlock.column >= 0 && overBlock.column <= 2 ? overBlock.column : 0;
-
-    const isTempId = (id: string) => id.startsWith("temp-");
-
-    // If user dragged downward significantly on the same row, create a new row below
-    const sourceRowIndex = Math.floor(draggedBlock.position);
-    if (overRowIndex === sourceRowIndex && event.delta.y > 40) {
-      const insertionRow = overRowIndex + 1;
-      const updatedBlocks = blocks.map((block) => {
-        if (block.id === draggedBlock.id) {
-          return { ...block, position: insertionRow, column: 0 };
-        }
-        const blockRow = Math.floor(block.position);
-        if (blockRow >= insertionRow) {
-          return { ...block, position: blockRow + 1 };
-        }
-        return block;
-      });
-
-      setBlocks(updatedBlocks);
-      justDraggedRef.current = true;
-      lastDragTimeRef.current = Date.now();
-
-      // Persist position changes for affected blocks
+      // Persist changed blocks (column/row updates only) without overwriting optimistic state
       try {
+        if (!draggedBlock.id) {
+          throw new Error("Dragged block has no ID");
+        }
+
         const changedBlocks = updatedBlocks.filter((block) => {
           const original = blocks.find((b) => b.id === block.id);
           if (!original) return false;
           return (
-            Math.floor(original.position) !== Math.floor(block.position) ||
-            original.column !== block.column
+            original.column !== block.column ||
+            Math.floor(original.position) !== Math.floor(block.position)
           );
         });
 
@@ -759,23 +893,30 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         );
 
         if (persistentBlocks.length > 0) {
-          await Promise.all(
+          const results = await Promise.all(
             persistentBlocks.map((block) =>
               updateBlock({
                 blockId: block.id.trim(),
-                position: Math.floor(block.position),
                 column:
                   block.column !== undefined &&
-                  block.column >= 0 &&
-                  block.column <= 2
+                    block.column >= 0 &&
+                    block.column <= 2
                     ? block.column
                     : 0,
+                position: Math.floor(block.position),
               }),
             ),
           );
+          const failed = results.filter((r) => r?.error);
+          if (failed.length > 0) {
+            console.error(
+              "Some block updates failed:",
+              failed.map((f) => f.error).join(", "),
+            );
+          }
         }
       } catch (error) {
-        console.error("Error updating block when creating new row:", error);
+        console.error("Error updating block after drag:", error);
       } finally {
         setTimeout(() => {
           justDraggedRef.current = false;
@@ -783,147 +924,6 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       }
 
       setDraggedBlock(null);
-      return;
-    }
-
-    // Find the target row
-    const targetRow = blockRows.find(r => r.rowIndex === overRowIndex);
-    if (!targetRow) {
-      console.error("Target row not found for rowIndex:", overRowIndex, "Available rows:", blockRows.map(r => r.rowIndex));
-      setDraggedBlock(null);
-      return;
-    }
-
-    // Normalize columns to pack left-to-right with a max of 3 per row
-    const normalizeRow = (rowBlocks: Block[], rowIndex: number): Block[] => {
-      const sorted = [...rowBlocks].sort((a, b) => {
-        const colA =
-          a.column !== undefined && a.column >= 0 && a.column <= 2 ? a.column : 0;
-        const colB =
-          b.column !== undefined && b.column >= 0 && b.column <= 2 ? b.column : 0;
-        return colA - colB;
-      });
-
-      return sorted.slice(0, 3).map((block, idx) => ({
-        ...block,
-        column: idx,
-        position: rowIndex,
-      }));
-    };
-
-    const targetRowBlocks = targetRow.blocks.filter(
-      (b) => b.id !== draggedBlock.id,
-    );
-
-    // Build the target row composition with the dragged block included
-    const targetRowWithDragged = normalizeRow(
-      [
-        ...targetRowBlocks,
-        { ...draggedBlock, column: 0, position: overRowIndex },
-      ],
-      overRowIndex,
-    );
-
-    // If moving between rows, normalize the source row to close gaps
-    const sourceRowNormalized =
-      sourceRowIndex !== overRowIndex
-        ? (() => {
-            const sourceRow = blockRows.find((r) => r.rowIndex === sourceRowIndex);
-            if (!sourceRow) return null;
-            const remaining = sourceRow.blocks.filter(
-              (b) => b.id !== draggedBlock.id,
-            );
-            return normalizeRow(remaining, sourceRowIndex);
-          })()
-        : null;
-
-    // Apply updates to blocks in the affected rows
-    const updatedBlocks = blocks.map((block) => {
-      const targetReplacement = targetRowWithDragged.find(
-        (b) => b.id === block.id,
-      );
-      if (targetReplacement) return targetReplacement;
-
-      if (sourceRowNormalized) {
-        const sourceReplacement = sourceRowNormalized.find(
-          (b) => b.id === block.id,
-        );
-        if (sourceReplacement) return sourceReplacement;
-      }
-
-      return block;
-    });
-
-    // Safety check: ensure all blocks are preserved
-    if (updatedBlocks.length !== blocks.length) {
-      console.error("Block count mismatch after drag update!", {
-        originalCount: blocks.length,
-        updatedCount: updatedBlocks.length,
-        originalIds: blocks.map((b) => b.id),
-        updatedIds: updatedBlocks.map((b) => b.id),
-        missingIds: blocks
-          .filter((b) => !updatedBlocks.find((ub) => ub.id === b.id))
-          .map((b) => b.id),
-      });
-      setDraggedBlock(null);
-      return;
-    }
-
-    setBlocks(updatedBlocks);
-    justDraggedRef.current = true;
-    lastDragTimeRef.current = Date.now();
-
-    // Persist changed blocks (column/row updates only) without overwriting optimistic state
-    try {
-      if (!draggedBlock.id) {
-        throw new Error("Dragged block has no ID");
-      }
-
-      const changedBlocks = updatedBlocks.filter((block) => {
-        const original = blocks.find((b) => b.id === block.id);
-        if (!original) return false;
-        return (
-          original.column !== block.column ||
-          Math.floor(original.position) !== Math.floor(block.position)
-        );
-      });
-
-      const persistentBlocks = changedBlocks.filter(
-        (block) => block.id && !isTempId(block.id),
-      );
-
-      if (persistentBlocks.length > 0) {
-        const results = await Promise.all(
-          persistentBlocks.map((block) =>
-            updateBlock({
-              blockId: block.id.trim(),
-              column:
-                block.column !== undefined &&
-                block.column >= 0 &&
-                block.column <= 2
-                  ? block.column
-                  : 0,
-              position: Math.floor(block.position),
-            }),
-          ),
-        );
-        const failed = results.filter((r) => r?.error);
-        if (failed.length > 0) {
-          console.error(
-            "Some block updates failed:",
-            failed.map((f) => f.error).join(", "),
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Error updating block after drag:", error);
-    } finally {
-      setTimeout(() => {
-        justDraggedRef.current = false;
-      }, 2000);
-    }
-
-    setDraggedBlock(null);
     } catch (error) {
       console.error("CRITICAL ERROR in handleDragEnd:", error);
       console.error("Error details:", {
@@ -1016,13 +1016,13 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         }
         return block;
       });
-      
+
       // If we didn't find the temp block to replace, the saved block might be new
       // (shouldn't happen, but handle it gracefully)
       if (!replaced && !alreadyExists) {
         return [...prevBlocks, { ...savedBlock, type: savedBlock.type }];
       }
-      
+
       return replaced ? updated : prevBlocks;
     });
 
@@ -1058,23 +1058,23 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         : (prevBlocks.length === 0
           ? 0
           : Math.max(...prevBlocks.map((b) => Math.floor(b.position))) + 1);
-      
+
       const newBlockWithPosition = {
         ...newBlock,
         type: newBlock.type, // Explicitly preserve type
         position: nextPos,
         column: newBlock.column ?? 0,
       };
-      
+
       // Insert block in sorted order by position to maintain correct ordering
       const sorted = [...prevBlocks, newBlockWithPosition].sort((a, b) => a.position - b.position);
       return sorted;
     });
     setIsCreatingBlock(false);
-    
+
     // Mark this block as new so we can animate it
     setNewBlockIds((prev) => new Set(prev).add(newBlock.id));
-    
+
     // Remove from new blocks set after animation completes
     setTimeout(() => {
       setNewBlockIds((prev) => {
@@ -1083,7 +1083,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         return next;
       });
     }, 400);
-    
+
     // Note: We removed router.refresh() here because:
     // 1. We handle optimistic updates immediately
     // 2. resolveOptimisticBlock replaces the temp block with the real one
@@ -1105,7 +1105,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   // Handle click on empty canvas to create text block
   const handleEmptyCanvasClick = async () => {
     if (hasBlocks || isCreatingBlock) return; // Don't create if blocks already exist or already creating
-    
+
     setIsCreatingBlock(true);
 
     // Create optimistic block IMMEDIATELY
@@ -1160,166 +1160,103 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 space-y-2">
           {!hasBlocks ? (
-          <div
-            onClick={handleEmptyCanvasClick}
-            className="cursor-text rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--secondary)]"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                handleEmptyCanvasClick();
-              }
-            }}
-          >
-            <EmptyCanvasState
-              actions={(
-                <div
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <AddBlockButton
-                    tabId={tabId}
-                    projectId={projectId}
-                    onBlockCreated={handleBlockCreated}
-                    onBlockResolved={resolveOptimisticBlock}
-                    onBlockError={handleBlockError}
-                    getNextPosition={getNextPosition}
-                  />
+            <div
+              onClick={handleEmptyCanvasClick}
+              className="cursor-text rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--secondary)]"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleEmptyCanvasClick();
+                }
+              }}
+            >
+              <EmptyCanvasState
+                actions={(
+                  <div
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <AddBlockButton
+                      tabId={tabId}
+                      projectId={projectId}
+                      onBlockCreated={handleBlockCreated}
+                      onBlockResolved={resolveOptimisticBlock}
+                      onBlockError={handleBlockError}
+                      getNextPosition={getNextPosition}
+                    />
+                  </div>
+                )}
+              />
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "pl-4 pr-6 pt-2 pb-6 transition-all duration-300 relative min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
+                !currentTheme.containerBg && "bg-[var(--surface)]/40"
+              )}
+              style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
+            >
+              {undoStack.length > 0 && (
+                <div className="absolute top-3 right-10 z-10">
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2.5 text-xs shadow-sm"
+                          onClick={handleUndo}
+                          disabled={isUndoing}
+                        >
+                          <Undo2 className="h-3.5 w-3.5" />
+                          Undo
+                          {undoStack.length > 1 && (
+                            <span className="text-[10px] opacity-70">({undoStack.length})</span>
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        Undo last action (⌘Z)
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               )}
-            />
-          </div>
-        ) : (
-          <div 
-            className={cn(
-              "pl-4 pr-6 pt-2 pb-6 transition-all duration-300 relative min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
-              !currentTheme.containerBg && "bg-[var(--surface)]/40"
-            )}
-            style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
-          >
-            {undoStack.length > 0 && (
-              <div className="absolute top-3 right-10 z-10">
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-1.5 px-2.5 text-xs shadow-sm"
-                        onClick={handleUndo}
-                        disabled={isUndoing}
-                      >
-                        <Undo2 className="h-3.5 w-3.5" />
-                        Undo
-                        {undoStack.length > 1 && (
-                          <span className="text-[10px] opacity-70">({undoStack.length})</span>
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">
-                      Undo last action (⌘Z)
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            )}
-            {!isMounted ? (
-              <div className="space-y-5">
-                {blockRows.map((row, rowIdx) => (
-                  <div
-                    key={rowIdx}
-                    className={cn(
-                      "grid gap-4",
-                      row.blocks.length === 1
-                        ? "grid-cols-1"
-                        : row.maxColumns === 2
-                        ? "grid-cols-1 md:grid-cols-2"
-                        : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-                    )}
-                  >
-                    {row.blocks.map((block) => (
-                      <div key={`${block.id}-${block.type}`} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
-                        <BlockRenderer
-                          block={block}
-                          workspaceId={workspaceId}
-                          projectId={projectId}
-                          tabId={tabId}
-                          onUpdate={handleUpdate}
-                          scrollToTaskId={scrollToTaskId}
-                          onDelete={handleDelete}
-                          onConvert={handleConvert}
-                          onAddBlockAbove={handleAddBlockAbove}
-                          onAddBlockBelow={handleAddBlockBelow}
-                          onOpenDoc={setOpenDocId}
-                          isDragging={false}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-                {/* Add block button appears right after the last block row */}
-                <div className="flex gap-3 pt-2">
-                  <AddBlockButton
-                    tabId={tabId}
-                    projectId={projectId}
-                    onBlockCreated={handleBlockCreated}
-                    onBlockResolved={resolveOptimisticBlock}
-                    onBlockError={handleBlockError}
-                    getNextPosition={getNextPosition}
-                  />
-                </div>
-              </div>
-            ) : (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-              >
-                <div className="space-y-5 w-full">
+              {!isMounted ? (
+                <div className="space-y-5">
                   {blockRows.map((row, rowIdx) => (
-                    <SortableContext
+                    <div
                       key={rowIdx}
-                      items={row.blocks.map((b) => b.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <div
-                        className={cn(
-                          "grid gap-4",
-                          row.blocks.length === 1
-                            ? "grid-cols-1"
-                            : row.maxColumns === 2
+                      className={cn(
+                        "grid gap-4",
+                        row.blocks.length === 1
+                          ? "grid-cols-1"
+                          : row.maxColumns === 2
                             ? "grid-cols-1 md:grid-cols-2"
-                            : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
-                        )}
-                      >
-                        {row.blocks.map((block) => (
-                          <div
-                            key={`${block.id}-${block.type}`}
-                            className={cn(
-                              "min-w-0",
-                              newBlockIds.has(block.id) && "animate-block-swoosh-in",
-                            )}
-                          >
-                            <BlockRenderer
-                              block={block}
-                              workspaceId={workspaceId}
-                              projectId={projectId}
-                              tabId={tabId}
-                              onUpdate={handleUpdate}
-                              scrollToTaskId={scrollToTaskId}
-                              onDelete={handleDelete}
-                              onConvert={handleConvert}
-                              onAddBlockAbove={handleAddBlockAbove}
-                              onAddBlockBelow={handleAddBlockBelow}
-                              onOpenDoc={setOpenDocId}
-                              isDragging={isDragging && draggedBlock?.id === block.id}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </SortableContext>
+                            : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+                      )}
+                    >
+                      {row.blocks.map((block) => (
+                        <div key={`${block.id}-${block.type}`} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
+                          <BlockRenderer
+                            block={block}
+                            workspaceId={workspaceId}
+                            projectId={projectId}
+                            tabId={tabId}
+                            onUpdate={handleUpdate}
+                            scrollToTaskId={scrollToTaskId}
+                            onDelete={handleDelete}
+                            onConvert={handleConvert}
+                            onAddBlockAbove={handleAddBlockAbove}
+                            onAddBlockBelow={handleAddBlockBelow}
+                            onOpenDoc={setOpenDocId}
+                            isDragging={false}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   ))}
                   {/* Add block button appears right after the last block row */}
                   <div className="flex gap-3 pt-2">
@@ -1333,10 +1270,73 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                     />
                   </div>
                 </div>
-              </DndContext>
-            )}
-          </div>
-        )}
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                >
+                  <div className="space-y-5 w-full">
+                    {blockRows.map((row, rowIdx) => (
+                      <SortableContext
+                        key={rowIdx}
+                        items={row.blocks.map((b) => b.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div
+                          className={cn(
+                            "grid gap-4",
+                            row.blocks.length === 1
+                              ? "grid-cols-1"
+                              : row.maxColumns === 2
+                                ? "grid-cols-1 md:grid-cols-2"
+                                : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+                          )}
+                        >
+                          {row.blocks.map((block) => (
+                            <div
+                              key={`${block.id}-${block.type}`}
+                              className={cn(
+                                "min-w-0",
+                                newBlockIds.has(block.id) && "animate-block-swoosh-in",
+                              )}
+                            >
+                              <BlockRenderer
+                                block={block}
+                                workspaceId={workspaceId}
+                                projectId={projectId}
+                                tabId={tabId}
+                                onUpdate={handleUpdate}
+                                scrollToTaskId={scrollToTaskId}
+                                onDelete={handleDelete}
+                                onConvert={handleConvert}
+                                onAddBlockAbove={handleAddBlockAbove}
+                                onAddBlockBelow={handleAddBlockBelow}
+                                onOpenDoc={setOpenDocId}
+                                isDragging={isDragging && draggedBlock?.id === block.id}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </SortableContext>
+                    ))}
+                    {/* Add block button appears right after the last block row */}
+                    <div className="flex gap-3 pt-2">
+                      <AddBlockButton
+                        tabId={tabId}
+                        projectId={projectId}
+                        onBlockCreated={handleBlockCreated}
+                        onBlockResolved={resolveOptimisticBlock}
+                        onBlockError={handleBlockError}
+                        getNextPosition={getNextPosition}
+                      />
+                    </div>
+                  </div>
+                </DndContext>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

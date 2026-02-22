@@ -406,7 +406,9 @@ function summarizeTaskBlocks(taskBlocks: NonNullable<ChartDataContext["taskBlock
   const statusCounts = { todo: 0, "in-progress": 0, done: 0 };
   taskBlocks.forEach((block) => {
     block.tasks.forEach((task) => {
-      const status = (task.status as keyof typeof statusCounts) || "todo";
+      const status = (Array.isArray(task.statuses) && task.statuses[0]?.value
+        ? task.statuses[0].value
+        : "todo") as keyof typeof statusCounts;
       if (status in statusCounts) statusCounts[status] += 1;
     });
   });
@@ -553,8 +555,8 @@ async function buildChartContext(params: {
         tasks: tasksResult.data.map((task) => ({
           id: task.id,
           text: task.text,
-          status: task.status,
-          priority: task.priority,
+          statuses: task.statuses ?? [],
+          priorities: task.priorities ?? [],
           assignees: task.assignees,
           dueDate: task.dueDate,
           tags: task.tags,
@@ -577,7 +579,7 @@ async function buildChartContext(params: {
           title: event.title,
           start: event.start_date,
           end: event.end_date,
-          status: event.status,
+          statuses: event.statuses ?? [],
           progress: event.progress,
           assigneeId: event.assignee_id,
         })),

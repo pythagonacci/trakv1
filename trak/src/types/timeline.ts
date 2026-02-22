@@ -1,21 +1,18 @@
-// Canonical IDs for status (matches workspace property_definitions)
+// Canonical status values
 export type TimelineEventStatus = "todo" | "in_progress" | "blocked" | "done";
 
-// Canonical IDs for priority (matches workspace property_definitions)
+// Canonical priority values
 export type TimelineEventPriority = "low" | "medium" | "high" | "urgent";
 export interface TimelineNamedPriority {
   field_name: string;
   value: TimelineEventPriority;
 }
 
-export function getCanonicalTimelinePriority(priorities: TimelineNamedPriority[] | null | undefined): TimelineEventPriority | null {
-  if (!Array.isArray(priorities) || priorities.length === 0) return null;
-  const canonical = priorities.find(
-    (entry) => typeof entry?.field_name === "string" && entry.field_name.trim().toLowerCase() === "priority"
-  );
-  if (canonical?.value) return canonical.value;
-  return priorities[0]?.value ?? null;
+export interface TimelineNamedStatus {
+  field_name: string;
+  value: TimelineEventStatus;
 }
+
 export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
 export type TimelineSourceSyncMode = "snapshot" | "live";
 
@@ -30,9 +27,7 @@ export interface TimelineEvent {
   title: string;
   start_date: string;
   end_date: string;
-  status: TimelineEventStatus;
-  /** Legacy convenience field derived from priorities for backwards compatibility. */
-  priority?: TimelineEventPriority | null;
+  statuses: TimelineNamedStatus[];
   priorities: TimelineNamedPriority[];
   assignee_id: string | null;
   source_entity_type: TimelineSourceEntityType | null;
@@ -91,8 +86,7 @@ export interface TimelineItem {
   title: string;
   start_date: string;
   end_date: string;
-  status: TimelineEventStatus;
-  priority?: TimelineEventPriority | null;
+  statuses?: TimelineNamedStatus[];
   priorities?: TimelineNamedPriority[];
   assignee_id: string | null;
   source_entity_type?: TimelineSourceEntityType | null;

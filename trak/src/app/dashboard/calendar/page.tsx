@@ -80,10 +80,7 @@ export default async function CalendarPage() {
   taskItems?.forEach((task: any) => {
     if (task.due_date) {
       const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
-      const canonicalPriority =
-        taskPriorities.find((entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority")?.value ??
-        taskPriorities[0]?.value ??
-        null;
+      const firstPriority = taskPriorities[0]?.value ?? null;
       const dueTime = task.due_time ? String(task.due_time).slice(0, 5) : undefined;
       const dueTimeEnd = task.due_time_end ? String(task.due_time_end).slice(0, 5) : undefined;
       taskEvents.push({
@@ -96,7 +93,7 @@ export default async function CalendarPage() {
         projectId: task.tab?.project?.id,
         tabId: task.tab?.id,
         taskId: String(task.id),
-        priority: canonicalPriority,
+        priority: firstPriority,
         projectName: task.tab?.project?.name || "Unknown",
         tabName: task.tab?.name || "Unknown",
       });

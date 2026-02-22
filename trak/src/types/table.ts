@@ -142,11 +142,9 @@ export interface RollupFieldConfig {
 }
 
 export interface StatusFieldConfig {
-  /** Linked property definition ID (source of truth for canonical values) */
-  property_definition_id?: string;
-  /** Optional: filter to subset of property definition options (e.g., ["todo", "done"]) */
+  /** Optional: filter to subset of allowed options (e.g., ["todo", "done"]) */
   allowed_options?: string[];
-  /** DEPRECATED: Legacy inline options (migration only) */
+  /** Inline options for display */
   options?: SelectFieldOption[];
 }
 
@@ -162,11 +160,9 @@ export interface PriorityLevelConfig {
 }
 
 export interface PriorityFieldConfig {
-  /** Linked property definition ID (source of truth for canonical values) */
-  property_definition_id?: string;
-  /** Optional: filter to subset of property definition options (e.g., ["urgent", "high"]) */
+  /** Optional: filter to subset of allowed options (e.g., ["urgent", "high"]) */
   allowed_options?: string[];
-  /** DEPRECATED: Legacy inline levels (migration only) */
+  /** Inline levels for display */
   levels?: PriorityLevelConfig[];
 }
 
@@ -310,8 +306,6 @@ export interface TableField {
   type: FieldType;
   /** Field-type-specific configuration payload */
   config: FieldConfig | null;
-  /** Property definition ID for priority/status fields (links to workspace-level definitions) */
-  property_definition_id?: string | null;
   /** Column ordering index */
   order: number;
   /** Whether this is the primary display field */

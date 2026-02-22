@@ -5,64 +5,169 @@ import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { requireTimelineAccess } from "./context";
 import { validateEventStatus, validateEventPriority, validateTimelineDateRange } from "./validators";
 import {
-  getCanonicalTimelinePriority,
   mergeTimelinePriorityField,
   normalizeTimelinePriorities,
   normalizeTimelinePriorityValue,
   syncTimelinePriorityFieldsToEntityProperties,
 } from "@/lib/timeline-priority-sync";
+import {
+  mergeTimelineStatusField,
+  normalizeTimelineStatuses,
+  syncTimelineStatusFieldsToEntityProperties,
+} from "@/lib/timeline-status-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type {
   TimelineEvent,
   TimelineEventStatus,
   TimelineEventPriority,
   TimelineNamedPriority,
+  TimelineNamedStatus,
 } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
 function normalizeTimelineEventRow(row: any): TimelineEvent {
   const priorities = normalizeTimelinePriorities(row?.priorities);
+  const statuses = normalizeTimelineStatuses(row?.statuses ?? []);
   return {
     ...(row as TimelineEvent),
     priorities,
-    priority: getCanonicalTimelinePriority(priorities),
+    statuses,
   };
 }
 
-async function buildTimelinePrioritiesFromSourceTableRow(
+async function buildTimelinePrioritiesFromSourceEntity(
   supabase: any,
   sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | null,
   sourceEntityId: string | null
 ): Promise<TimelineNamedPriority[] | null> {
-  if (sourceEntityType !== "table_row" || !sourceEntityId) return null;
+  if (!sourceEntityType || !sourceEntityId || sourceEntityType === "block") return null;
 
-  const { data: sourceRow } = await supabase
-    .from("table_rows")
-    .select("id, table_id, data")
-    .eq("id", sourceEntityId)
-    .maybeSingle();
-  if (!sourceRow?.table_id) return null;
-
-  const { data: priorityFields } = await supabase
-    .from("table_fields")
-    .select("id, name")
-    .eq("table_id", sourceRow.table_id)
-    .eq("type", "priority");
-  if (!priorityFields || priorityFields.length === 0) return null;
-
-  const sourceData = ((sourceRow.data ?? {}) as Record<string, unknown>);
-  const extracted: TimelineNamedPriority[] = [];
-  for (const field of priorityFields as Array<{ id: string; name: string }>) {
-    const fieldName = String(field.name ?? "").trim();
-    if (!fieldName) continue;
-    const normalizedValue = normalizeTimelinePriorityValue(sourceData[field.id] ?? sourceData[fieldName]);
-    if (!normalizedValue) continue;
-    extracted.push({ field_name: fieldName, value: normalizedValue });
+  if (sourceEntityType === "task") {
+    const { data: sourceTask } = await supabase
+      .from("task_items")
+      .select("priorities")
+      .eq("id", sourceEntityId)
+      .maybeSingle();
+    if (sourceTask?.priorities) {
+      const normalized = normalizeTimelinePriorities(sourceTask.priorities);
+      return normalized.length > 0 ? normalized : null;
+    }
+    return null;
   }
 
-  const normalized = normalizeTimelinePriorities(extracted);
-  return normalized.length > 0 ? normalized : null;
+  if (sourceEntityType === "timeline_event") {
+    const { data: sourceEvent } = await supabase
+      .from("timeline_events")
+      .select("priorities")
+      .eq("id", sourceEntityId)
+      .maybeSingle();
+    if (sourceEvent?.priorities) {
+      const normalized = normalizeTimelinePriorities(sourceEvent.priorities);
+      return normalized.length > 0 ? normalized : null;
+    }
+    return null;
+  }
+
+  if (sourceEntityType === "table_row") {
+    const { data: sourceRow } = await supabase
+      .from("table_rows")
+      .select("id, table_id, data")
+      .eq("id", sourceEntityId)
+      .maybeSingle();
+    if (!sourceRow?.table_id) return null;
+
+    const { data: priorityFields } = await supabase
+      .from("table_fields")
+      .select("id, name")
+      .eq("table_id", sourceRow.table_id)
+      .eq("type", "priority");
+    if (!priorityFields || priorityFields.length === 0) return null;
+
+    const sourceData = ((sourceRow.data ?? {}) as Record<string, unknown>);
+    const extracted: TimelineNamedPriority[] = [];
+    for (const field of priorityFields as Array<{ id: string; name: string }>) {
+      const fieldName = String(field.name ?? "").trim();
+      if (!fieldName) continue;
+      const normalizedValue = normalizeTimelinePriorityValue(sourceData[field.id] ?? sourceData[fieldName]);
+      if (!normalizedValue) continue;
+      extracted.push({ field_name: fieldName, value: normalizedValue });
+    }
+
+    const normalized = normalizeTimelinePriorities(extracted);
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  return null;
+}
+
+async function buildTimelineStatusesFromSourceEntity(
+  supabase: any,
+  sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | null,
+  sourceEntityId: string | null
+): Promise<TimelineNamedStatus[] | null> {
+  if (!sourceEntityType || !sourceEntityId || sourceEntityType === "block") return null;
+
+  if (sourceEntityType === "task") {
+    const { data: sourceTask } = await supabase
+      .from("task_items")
+      .select("statuses")
+      .eq("id", sourceEntityId)
+      .maybeSingle();
+    if (sourceTask?.statuses) {
+      const normalized = normalizeTimelineStatuses(sourceTask.statuses);
+      return normalized.length > 0 ? normalized : null;
+    }
+    return null;
+  }
+
+  if (sourceEntityType === "timeline_event") {
+    const { data: sourceEvent } = await supabase
+      .from("timeline_events")
+      .select("statuses")
+      .eq("id", sourceEntityId)
+      .maybeSingle();
+    if (sourceEvent?.statuses) {
+      const normalized = normalizeTimelineStatuses(sourceEvent.statuses);
+      return normalized.length > 0 ? normalized : null;
+    }
+    return null;
+  }
+
+  if (sourceEntityType === "table_row") {
+    const { data: sourceRow } = await supabase
+      .from("table_rows")
+      .select("id, table_id, data")
+      .eq("id", sourceEntityId)
+      .maybeSingle();
+    if (!sourceRow?.table_id) return null;
+
+    const { data: statusFields } = await supabase
+      .from("table_fields")
+      .select("id, name")
+      .eq("table_id", sourceRow.table_id)
+      .eq("type", "status");
+    if (!statusFields || statusFields.length === 0) return null;
+
+    const sourceData = ((sourceRow.data ?? {}) as Record<string, unknown>);
+    const extracted: TimelineNamedStatus[] = [];
+    for (const field of statusFields as Array<{ id: string; name: string }>) {
+      const fieldName = String(field.name ?? "").trim();
+      if (!fieldName) continue;
+      const rawValue = sourceData[field.id] ?? sourceData[fieldName];
+      if (typeof rawValue !== "string") continue;
+      const normalizedValue = ["todo", "in_progress", "blocked", "done"].includes(rawValue.toLowerCase())
+        ? rawValue.toLowerCase() as TimelineEventStatus
+        : null;
+      if (!normalizedValue) continue;
+      extracted.push({ field_name: fieldName, value: normalizedValue });
+    }
+
+    const normalized = normalizeTimelineStatuses(extracted);
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  return null;
 }
 
 export async function createTimelineEvent(input: {
@@ -71,6 +176,7 @@ export async function createTimelineEvent(input: {
   startDate: string;
   endDate: string;
   status?: TimelineEventStatus;
+  statuses?: TimelineNamedStatus[];
   priority?: TimelineEventPriority | null;
   priorities?: TimelineNamedPriority[];
   progress?: number;
@@ -102,6 +208,9 @@ export async function createTimelineEvent(input: {
   if (input.priorities && normalizeTimelinePriorities(input.priorities).length !== input.priorities.length) {
     return { error: "Invalid priorities payload" };
   }
+  if (input.statuses && normalizeTimelineStatuses(input.statuses).length !== input.statuses.length) {
+    return { error: "Invalid statuses payload" };
+  }
 
   const { supabase, userId, block } = access;
   const hasSourceMetadata = Boolean(input.sourceEntityType && input.sourceEntityId);
@@ -110,14 +219,30 @@ export async function createTimelineEvent(input: {
   const sourceSyncMode = hasSourceMetadata
     ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
     : null;
+
   const sourceRowPriorities =
     input.priorities === undefined
-      ? await buildTimelinePrioritiesFromSourceTableRow(supabase, sourceEntityType, sourceEntityId)
+      ? await buildTimelinePrioritiesFromSourceEntity(supabase, sourceEntityType, sourceEntityId)
       : null;
   const priorities =
     input.priorities !== undefined
       ? normalizeTimelinePriorities(input.priorities)
-      : sourceRowPriorities ?? mergeTimelinePriorityField([], "Priority", input.priority ?? null);
+      : sourceRowPriorities && sourceRowPriorities.length > 0
+        ? sourceRowPriorities
+        : input.priority !== undefined
+          ? mergeTimelinePriorityField([], "Priority", input.priority ?? null)
+          : mergeTimelinePriorityField([], "Priority", null);
+
+  const sourceRowStatuses =
+    input.statuses === undefined
+      ? await buildTimelineStatusesFromSourceEntity(supabase, sourceEntityType, sourceEntityId)
+      : null;
+  const statuses =
+    input.statuses !== undefined
+      ? normalizeTimelineStatuses(input.statuses)
+      : input.status !== undefined
+        ? mergeTimelineStatusField(sourceRowStatuses ?? [], "Status", input.status ?? "todo")
+        : sourceRowStatuses ?? mergeTimelineStatusField([], "Status", "todo");
 
   const { data: latestOrder } = await supabase
     .from("timeline_events")
@@ -137,7 +262,7 @@ export async function createTimelineEvent(input: {
       title: input.title,
       start_date: input.startDate,
       end_date: input.endDate,
-      status: input.status ?? "todo",  // Changed default from "planned" to "todo"
+      statuses,
       priorities,
       progress: input.progress ?? 0,
       notes: input.notes ?? null,
@@ -168,7 +293,7 @@ export async function createTimelineEvent(input: {
   const normalized = normalizeTimelineEventRow(data);
 
   // Sync status and priority to entity_properties
-  await syncTimelineEventToEntityProperties(supabase, normalized.id, block.workspace_id, normalized.status, normalized.priorities);
+  await syncTimelineEventToEntityProperties(supabase, normalized.id, block.workspace_id, normalized.statuses, normalized.priorities);
 
   return { data: normalized };
 }
@@ -180,6 +305,7 @@ export async function updateTimelineEvent(
     startDate: string;
     endDate: string;
     status: TimelineEventStatus;
+    statuses: TimelineNamedStatus[];
     priority: TimelineEventPriority | null;
     priorities: TimelineNamedPriority[];
     progress: number;
@@ -206,6 +332,9 @@ export async function updateTimelineEvent(
   if (updates.priorities !== undefined && normalizeTimelinePriorities(updates.priorities).length !== updates.priorities.length) {
     return { error: "Invalid priorities payload" };
   }
+  if (updates.statuses !== undefined && normalizeTimelineStatuses(updates.statuses).length !== updates.statuses.length) {
+    return { error: "Invalid statuses payload" };
+  }
 
   if (updates.startDate && updates.endDate) {
     const { valid, message } = validateTimelineDateRange(updates.startDate, updates.endDate);
@@ -221,7 +350,14 @@ export async function updateTimelineEvent(
   if (updates.title !== undefined) payload.title = updates.title;
   if (updates.startDate !== undefined) payload.start_date = updates.startDate;
   if (updates.endDate !== undefined) payload.end_date = updates.endDate;
-  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.statuses !== undefined) payload.statuses = normalizeTimelineStatuses(updates.statuses);
+  if (updates.status !== undefined && updates.statuses === undefined) {
+    payload.statuses = mergeTimelineStatusField(
+      normalizeTimelineStatuses((event as any).statuses),
+      "Status",
+      updates.status
+    );
+  }
   if (updates.priorities !== undefined) payload.priorities = normalizeTimelinePriorities(updates.priorities);
   if (updates.priority !== undefined && updates.priorities === undefined) {
     payload.priorities = mergeTimelinePriorityField(
@@ -289,9 +425,8 @@ export async function updateTimelineEvent(
   const normalized = normalizeTimelineEventRow(data);
 
   // Sync status and priority to entity_properties if either was updated
-  if (updates.status !== undefined || updates.priority !== undefined || updates.priorities !== undefined) {
-    const finalStatus = updates.status ?? normalized.status;
-    await syncTimelineEventToEntityProperties(supabase, eventId, event.workspace_id, finalStatus, normalized.priorities);
+  if (updates.status !== undefined || updates.statuses !== undefined || updates.priority !== undefined || updates.priorities !== undefined) {
+    await syncTimelineEventToEntityProperties(supabase, eventId, event.workspace_id, normalized.statuses, normalized.priorities);
   }
 
   return { data: normalized };
@@ -324,7 +459,7 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
       title: `${event.title} (Copy)`,
       start_date: event.start_date,
       end_date: event.end_date,
-      status: event.status,
+      statuses: normalizeTimelineStatuses((event as any).statuses),
       priorities: sourcePriorities,
       assignee_id: event.assignee_id,
       progress: event.progress,
@@ -336,10 +471,10 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
       display_order: event.display_order + 1,
       ...(shouldPropagateRowSource
         ? {
-            source_entity_type: "table_row",
-            source_entity_id: event.source_entity_id,
-            source_sync_mode: "snapshot" as const,
-          }
+          source_entity_type: "table_row",
+          source_entity_id: event.source_entity_id,
+          source_sync_mode: "snapshot" as const,
+        }
         : {}),
       created_by: userId,
       updated_by: userId,
@@ -352,7 +487,7 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
   }
 
   const normalized = normalizeTimelineEventRow(data);
-  await syncTimelineEventToEntityProperties(supabase, normalized.id, normalized.workspace_id, normalized.status, normalized.priorities);
+  await syncTimelineEventToEntityProperties(supabase, normalized.id, normalized.workspace_id, normalized.statuses, normalized.priorities);
   return { data: normalized };
 }
 
@@ -422,23 +557,9 @@ async function syncTimelineEventToEntityProperties(
   supabase: any,
   eventId: string,
   workspaceId: string,
-  status: TimelineEventStatus,
+  statuses: TimelineNamedStatus[] | null | undefined,
   priorities: TimelineNamedPriority[] | null | undefined
 ): Promise<void> {
-  await supabase.from("entity_properties").upsert(
-    {
-      entity_type: "timeline_event",
-      entity_id: eventId,
-      workspace_id: workspaceId,
-      property_definition_id: null,
-      field_name: "Status",
-      field_type: "status",
-      value: status,
-    },
-    {
-      onConflict: "entity_type,entity_id,field_name",
-    }
-  );
-
+  await syncTimelineStatusFieldsToEntityProperties(supabase, eventId, workspaceId, statuses ?? []);
   await syncTimelinePriorityFieldsToEntityProperties(supabase, eventId, workspaceId, priorities);
 }

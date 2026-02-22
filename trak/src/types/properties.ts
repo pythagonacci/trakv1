@@ -153,6 +153,12 @@ export interface SetEntityPropertiesInput {
     tags?: string[];
     /** Replace all named priority fields for this entity. */
     priorities?: Array<{ field_name: string; value: Priority | null }> | null;
+    /** Replace all named status fields for this entity. */
+    statuses?: Array<{ field_name: string; value: Status | null }> | null;
+    /** Replace all named assignee fields for this entity. */
+    assignees?: Array<{ field_name: string; value: string[] | null }> | null;
+    /** Replace all named due date fields for this entity. */
+    due_dates?: Array<{ field_name: string; value: DueDateRange | null }> | null;
   };
 }
 
@@ -195,35 +201,8 @@ export interface SetInheritedPropertyVisibilityInput {
 }
 
 // ============================================================================
-// Legacy Property Definition Types (schema-driven properties)
+// Property Value Types
 // ============================================================================
-
-export type PropertyType =
-  | "text"
-  | "number"
-  | "select"
-  | "multi_select"
-  | "date"
-  | "checkbox"
-  | "url"
-  | "email"
-  | "phone";
-
-export interface PropertyOption {
-  id: string;
-  label: string;
-  color?: string | null;
-}
-
-export interface PropertyDefinition {
-  id: string;
-  workspace_id: string;
-  name: string;
-  type: PropertyType;
-  options?: PropertyOption[] | null;
-  created_at: string;
-  updated_at: string;
-}
 
 export type PropertyValue =
   | string
@@ -233,54 +212,6 @@ export type PropertyValue =
   | Record<string, unknown>
   | Array<Record<string, unknown>>
   | null;
-
-export interface CreatePropertyDefinitionInput {
-  workspace_id: string;
-  name: string;
-  type: PropertyType;
-  options?: PropertyOption[];
-}
-
-export interface UpdatePropertyDefinitionInput {
-  name?: string;
-  options?: PropertyOption[];
-}
-
-export interface EntityProperty {
-  id: string;
-  entity_type: EntityType;
-  entity_id: string;
-  property_definition_id: string;
-  value: PropertyValue;
-  workspace_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface EntityPropertyWithDefinition extends EntityProperty {
-  definition: PropertyDefinition;
-}
-
-export interface InheritedProperty {
-  property: EntityPropertyWithDefinition;
-  source: {
-    entity_type: EntityType;
-    entity_id: string;
-  };
-  is_visible: boolean;
-}
-
-export interface EntityPropertiesResult {
-  direct: EntityPropertyWithDefinition[];
-  inherited: InheritedProperty[];
-}
-
-export interface SetEntityPropertyInput {
-  entity_type: EntityType;
-  entity_id: string;
-  property_definition_id: string;
-  value: PropertyValue;
-}
 
 // ============================================================================
 // Query Types
@@ -307,7 +238,8 @@ export interface QueryFilter {
 }
 
 export interface PropertyFilter {
-  property_definition_id: string;
+  field_type: FieldType;
+  field_name?: string;
   operator: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty" | "before" | "after";
   value?: PropertyValue;
 }

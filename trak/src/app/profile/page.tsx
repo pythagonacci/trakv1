@@ -28,7 +28,18 @@ export default async function ProfilePage() {
     );
   }
 
-  const workspaces = workspacesResult.data;
+  const workspaces = workspacesResult.data.map((w: any) => ({
+    id: w.id as string,
+    name: w.name as string,
+    role: w.role as string,
+    owner_id: w.owner_id as string,
+    created_at: w.created_at as string,
+  }));
 
-  return <ProfileContent user={user} initialWorkspaces={workspaces} />;
+  return (
+    <ProfileContent
+      user={{ id: user.id, email: user.email || "" }}
+      initialWorkspaces={workspaces}
+    />
+  );
 }

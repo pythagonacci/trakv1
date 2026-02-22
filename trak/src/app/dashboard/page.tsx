@@ -188,10 +188,7 @@ export default async function DashboardPage() {
     })
     .map((task: any) => {
       const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
-      const canonicalPriority =
-        taskPriorities.find((entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority")?.value ??
-        taskPriorities[0]?.value ??
-        null;
+      const firstPriority = taskPriorities[0]?.value ?? null;
       return {
       id: `${task.task_block_id}-${task.id}`,
       text: task.title,
@@ -199,7 +196,7 @@ export default async function DashboardPage() {
       tabName: task.tab?.name || "Unknown",
       projectId: task.tab?.project?.id,
       tabId: task.tab?.id,
-      priority: canonicalPriority,
+      priority: firstPriority,
       dueDate: task.due_date,
       dueTime: task.due_time,
       status: task.status ?? "todo",

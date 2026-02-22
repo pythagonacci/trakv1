@@ -148,16 +148,13 @@ export default async function ProjectOverviewPage({
     .filter((t: any) => !isDoneStatus(t.status))
     .map((t: any) => {
       const taskPriorities = Array.isArray(t.priorities) ? t.priorities : [];
-      const canonicalPriority =
-        taskPriorities.find((entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority")?.value ??
-        taskPriorities[0]?.value ??
-        null;
+      const firstPriority = taskPriorities[0]?.value ?? null;
       return {
       id: `${t.task_block_id}-${t.id}`,
       text: t.title,
       tabName: t.tab?.name ?? tabNameById[t.tab_id] ?? "Unknown",
       tabId: t.tab_id,
-      priority: canonicalPriority,
+      priority: firstPriority,
       dueDate: t.due_date,
       dueTime: t.due_time,
       status: t.status ?? "todo",

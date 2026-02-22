@@ -500,8 +500,32 @@ const taskActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Task title" },
       assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). Do NOT look up IDs. System resolves names automatically.", items: { type: "string" } },
       tags: { type: "array", description: "List of tag names.", items: { type: "string" } },
-      status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "blocked", "done"] },
-      priority: { type: "string", description: "Task priority", enum: ["low", "medium", "high", "urgent"] },
+      status: { type: "string", description: "Task status using canonical IDs. Use this only when there is one status field.", enum: ["todo", "in-progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+      priority: { type: "string", description: "Single task priority (use only when adding one priority with default field name 'Priority').", enum: ["low", "medium", "high", "urgent"] },
+      priorities: {
+        type: "array",
+        description: "Named priorities array for multi-priority tasks. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+            value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       description: { type: "string", description: "Task description" },
       dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
       dueTime: { type: "string", description: "Due time (HH:MM)" },
@@ -532,7 +556,31 @@ const taskActionTools: ToolDefinition[] = [
       lookupName: { type: "string", description: "Find task by title to update (use this if you don't have the ID yet)" },
       title: { type: "string", description: "New title" },
       status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
+      priorities: {
+        type: "array",
+        description: "Named priorities array for multi-priority tasks. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+            value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       description: { type: "string", description: "New description (set to null to clear)" },
       dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
       dueTime: { type: "string", description: "New due time (HH:MM)" },
@@ -554,7 +602,31 @@ const taskActionTools: ToolDefinition[] = [
         properties: {
           title: { type: "string", description: "New title" },
           status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
+          statuses: {
+            type: "array",
+            description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+            items: {
+              type: "object",
+              properties: {
+                field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+                value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+              },
+              required: ["field_name", "value"],
+            },
+          },
           priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
+          priorities: {
+            type: "array",
+            description: "Named priorities array for multi-priority tasks. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+            items: {
+              type: "object",
+              properties: {
+                field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+                value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+              },
+              required: ["field_name", "value"],
+            },
+          },
           description: { type: "string", description: "New description (set to null to clear)" },
           dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
           dueTime: { type: "string", description: "New due time (HH:MM)" },
@@ -661,8 +733,32 @@ const taskActionTools: ToolDefinition[] = [
               description: "Optional list of tag names.",
               items: { type: "string" },
             },
-            status: { type: "string", description: "Optional task status", enum: ["todo", "in-progress", "blocked", "done"] },
-            priority: { type: "string", description: "Optional task priority", enum: ["low", "medium", "high", "urgent"] },
+            status: { type: "string", description: "Optional single task status", enum: ["todo", "in-progress", "blocked", "done"] },
+            statuses: {
+              type: "array",
+              description: "Optional named statuses array for multi-status tasks. Each entry must be { field_name, value }. If this is provided, it should be used instead of `status`.",
+              items: {
+                type: "object",
+                properties: {
+                  field_name: { type: "string", description: "Status field display name (e.g., Status)." },
+                  value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+                },
+                required: ["field_name", "value"],
+              },
+            },
+            priority: { type: "string", description: "Optional single task priority", enum: ["low", "medium", "high", "urgent"] },
+            priorities: {
+              type: "array",
+              description: "Optional named priorities array for multi-priority tasks. Each entry must be { field_name, value }. If this is provided, it should be used instead of `priority`.",
+              items: {
+                type: "object",
+                properties: {
+                  field_name: { type: "string", description: "Priority field display name (e.g., Priority)." },
+                  value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+                },
+                required: ["field_name", "value"],
+              },
+            },
             description: { type: "string", description: "Optional task description" },
             dueDate: { type: "string", description: "Optional due date (YYYY-MM-DD)" },
             dueTime: { type: "string", description: "Optional due time (HH:MM)" },
@@ -1336,7 +1432,7 @@ const timelineActionTools: ToolDefinition[] = [
     description: "CREATE a new event in a timeline block. ⚠️ SMART TOOL: Do NOT search for timeline block IDs. Just pass names directly.\n\n" +
       "Auto-Context: Defaults to current view. Provide 'timelineBlockName' (e.g. 'Project Timeline') to target specific blocks.\n" +
       "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
-      "Priority rule: use `priority` only when there is one canonical priority field. If there are multiple priority fields, use `priorities` with named entries.",
+      "Priority: use `priorities` with { field_name, value }. Default field_name is 'Priority'. Use the field name the user specifies (e.g. 'Execution Priority', 'Refactor').",
     category: "timeline",
     parameters: {
       timelineBlockId: { type: "string", description: "Optional: timeline block ID. PREFER 'timelineBlockName' for natural language." },
@@ -1344,10 +1440,27 @@ const timelineActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Event title" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
-      status: { type: "string", description: "Event status using canonical IDs", enum: ["todo", "in_progress", "blocked", "done"] },
+      status: { type: "string", description: "Event status using canonical IDs. Use this only when there is one status field.", enum: ["todo", "in_progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description:
+          "Named statuses array for multi-status timeline events. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: {
+              type: "string",
+              description: "Status value.",
+              enum: ["todo", "in_progress", "blocked", "done"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       priority: {
         type: "string",
-        description: "Single canonical event priority (use this only when there is one priority field).",
+        description: "Single event priority (use when adding one priority with default field name 'Priority').",
         enum: ["low", "medium", "high", "urgent"],
       },
       priorities: {
@@ -1357,7 +1470,7 @@ const timelineActionTools: ToolDefinition[] = [
         items: {
           type: "object",
           properties: {
-            field_name: { type: "string", description: "Priority field display name (for example: Priority, Execution Priority)." },
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
             value: {
               type: "string",
               description: "Priority value.",
@@ -1402,17 +1515,34 @@ const timelineActionTools: ToolDefinition[] = [
     name: "updateTimelineEvent",
     description: "UPDATE a timeline event. ⚠️ SUPER TOOL: Use this when updating multiple properties on the same event (e.g., 'change dates, status, and assignee'). For single-property edits, atomic tools may be faster.\n\n" +
       "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
-      "Priority rule: use `priority` for single canonical updates, and `priorities` when updating multiple named priority fields.",
+      "Priority: use `priorities` with { field_name, value }. Default field_name is 'Priority'. Use the field name the user specifies.",
     category: "timeline",
     parameters: {
       eventId: { type: "string", description: "The event ID" },
       title: { type: "string", description: "New title" },
       startDate: { type: "string", description: "New start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "New end date (YYYY-MM-DD)" },
-      status: { type: "string", description: "New status using canonical IDs", enum: ["todo", "in_progress", "blocked", "done"] },
+      status: { type: "string", description: "New status using canonical IDs. Use only when updating one status field.", enum: ["todo", "in_progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description:
+          "Named statuses array for multi-status updates. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: {
+              type: "string",
+              description: "Status value.",
+              enum: ["todo", "in_progress", "blocked", "done"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       priority: {
         type: "string",
-        description: "New single canonical priority value (use when updating only one priority field).",
+        description: "New priority value for default 'Priority' field (use when updating one priority with default name).",
         enum: ["low", "medium", "high", "urgent"],
       },
       priorities: {
@@ -1422,7 +1552,7 @@ const timelineActionTools: ToolDefinition[] = [
         items: {
           type: "object",
           properties: {
-            field_name: { type: "string", description: "Priority field display name (for example: Priority, Execution Priority)." },
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
             value: {
               type: "string",
               description: "Priority value.",
@@ -1479,70 +1609,30 @@ const timelineActionTools: ToolDefinition[] = [
 
 const propertyActionTools: ToolDefinition[] = [
   {
-    name: "createPropertyDefinition",
-    description: "Create a new property definition for the workspace. Properties can be used on tasks, blocks, timeline events, and table rows.",
-    category: "property",
-    parameters: {
-      name: { type: "string", description: "Property name" },
-      type: {
-        type: "string",
-        description: "Property type",
-        enum: ["text", "number", "date", "select", "multi_select", "person", "checkbox", "subtask", "url", "email"],
-      },
-      options: {
-        type: "array",
-        description: "For select/multi_select: array of option objects with id, label, and optional color",
-        items: { type: "object" },
-      },
-    },
-    requiredParams: ["name", "type"],
-  },
-  {
-    name: "updatePropertyDefinition",
-    description: "Update a property definition's name or options.",
-    category: "property",
-    parameters: {
-      definitionId: { type: "string", description: "The property definition ID" },
-      name: { type: "string", description: "New name" },
-      options: { type: "array", description: "New options (for select types)", items: { type: "object" } },
-    },
-    requiredParams: ["definitionId"],
-  },
-  {
-    name: "deletePropertyDefinition",
-    description: "Delete a property definition. This removes the property from all entities.",
-    category: "property",
-    parameters: {
-      definitionId: { type: "string", description: "The property definition ID to delete" },
-    },
-    requiredParams: ["definitionId"],
-  },
-  {
     name: "setEntityProperty",
     description:
       "Set a property value on an entity (task, subtask, block, timeline_event, table_row). " +
-      "Provide EITHER propertyDefinitionId+value (for custom properties) OR propertyName+propertyValue (for fixed properties like status/priority/assignees/due_date/tags).",
+      "Provide fieldType (status/priority/assignee/due_date/tags) and fieldName (the display name) plus value.",
     category: "property",
     parameters: {
       entityType: { type: "string", description: "Entity type", enum: ["task", "subtask", "block", "timeline_event", "table_row"] },
       entityId: { type: "string", description: "The entity ID" },
-      propertyDefinitionId: { type: "string", description: "The property definition ID" },
+      fieldType: { type: "string", description: "Property type: status, priority, assignee, due_date, or tags", enum: ["status", "priority", "assignee", "due_date", "tags"] },
+      fieldName: { type: "string", description: "Display name for the property (e.g. 'Status', 'Priority', 'Assignee')" },
       value: { type: "object", description: "The value to set (format depends on property type)" },
-      propertyName: { type: "string", description: "Fixed property name (status, priority, assignee, due_date, tags)" },
-      propertyValue: { type: "object", description: "Fixed property value (format depends on property)" },
     },
-    requiredParams: ["entityType", "entityId"],
+    requiredParams: ["entityType", "entityId", "fieldType", "fieldName", "value"],
   },
   {
     name: "removeEntityProperty",
-    description: "Remove a property from an entity.",
+    description: "Remove a property from an entity by field name.",
     category: "property",
     parameters: {
       entityType: { type: "string", description: "Entity type" },
       entityId: { type: "string", description: "The entity ID" },
-      propertyDefinitionId: { type: "string", description: "The property definition ID to remove" },
+      fieldName: { type: "string", description: "The field name to remove" },
     },
-    requiredParams: ["entityType", "entityId", "propertyDefinitionId"],
+    requiredParams: ["entityType", "entityId", "fieldName"],
   },
 ];
 
@@ -1951,9 +2041,6 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   doc: pickTools(["searchDocs", "searchDocContent", "createDoc", "updateDoc", "archiveDoc", "deleteDoc"]),
   client: pickTools(["searchClients", "createClient", "updateClient", "deleteClient"]),
   property: pickTools([
-    "createPropertyDefinition",
-    "updatePropertyDefinition",
-    "deletePropertyDefinition",
     "setEntityProperty",
     "removeEntityProperty",
   ]),

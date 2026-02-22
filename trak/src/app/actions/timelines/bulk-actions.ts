@@ -2,10 +2,10 @@
 
 import { requireTimelineAccess } from "./context";
 import {
-  getCanonicalTimelinePriority,
   normalizeTimelinePriorities,
   syncTimelinePriorityFieldsToEntityProperties,
 } from "@/lib/timeline-priority-sync";
+import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent } from "@/types/timeline";
 
@@ -85,7 +85,7 @@ export async function bulkDuplicateTimelineEvents(input: {
     title: `${event.title} (Copy)`,
     start_date: event.start_date,
     end_date: event.end_date,
-    status: event.status,
+    statuses: event.statuses,
     priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
     progress: event.progress,
@@ -97,10 +97,10 @@ export async function bulkDuplicateTimelineEvents(input: {
     display_order: event.display_order + idx + 1,
     ...(event.source_entity_type === "table_row" && event.source_entity_id
       ? {
-          source_entity_type: "table_row",
-          source_entity_id: event.source_entity_id,
-          source_sync_mode: "snapshot" as const,
-        }
+        source_entity_type: "table_row",
+        source_entity_id: event.source_entity_id,
+        source_sync_mode: "snapshot" as const,
+      }
       : {}),
     created_by: userId,
     updated_by: userId,
@@ -117,25 +117,16 @@ export async function bulkDuplicateTimelineEvents(input: {
     return {
       ...(event as TimelineEvent),
       priorities,
-      priority: getCanonicalTimelinePriority(priorities),
     } as TimelineEvent;
   });
 
   await Promise.all(
     normalized.map(async (event) => {
-      await supabase.from("entity_properties").upsert(
-        {
-          entity_type: "timeline_event",
-          entity_id: event.id,
-          workspace_id: event.workspace_id,
-          property_definition_id: null,
-          field_name: "Status",
-          field_type: "status",
-          value: event.status,
-        },
-        {
-          onConflict: "entity_type,entity_id,field_name",
-        }
+      await syncTimelineStatusFieldsToEntityProperties(
+        supabase,
+        event.id,
+        event.workspace_id,
+        event.statuses
       );
       await syncTimelinePriorityFieldsToEntityProperties(
         supabase,

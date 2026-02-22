@@ -8,38 +8,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type ActionResult<T> = { data: T } | { error: string };
 
-/** Cache Assignee property_definition id per workspace to avoid repeated property_definitions select. */
-const assigneePropertyDefCache = new Map<string, { id: string }>();
-
 function logDbCall(table: string, op: string, ms: number) {
   aiDebug("setTaskAssignees:db", { table, op, ms });
-}
-
-async function getAssigneePropertyDefId(
-  supabase: SupabaseClient,
-  workspaceId: string,
-  dbCalls: DbCallLog[]
-): Promise<{ id: string } | null> {
-  const cached = assigneePropertyDefCache.get(workspaceId);
-  if (cached) return cached;
-
-  const t0 = performance.now();
-  const { data } = await supabase
-    .from("property_definitions")
-    .select("id")
-    .eq("workspace_id", workspaceId)
-    .eq("name", "Assignee")
-    .eq("type", "person")
-    .single();
-  const ms = Math.round(performance.now() - t0);
-  dbCalls.push({ table: "property_definitions", op: "select", ms });
-  logDbCall("property_definitions", "select", ms);
-
-  if (data) {
-    assigneePropertyDefCache.set(workspaceId, { id: data.id });
-    return { id: data.id };
-  }
-  return null;
 }
 
 export async function setTaskAssignees(
@@ -124,7 +94,6 @@ export async function setTaskAssignees(
           workspace_id: workspaceId,
           entity_type: "task",
           entity_id: taskId,
-          property_definition_id: null,
           field_name: "Assignee",
           field_type: "assignee",
           value: assigneeValue,

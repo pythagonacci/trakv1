@@ -8,12 +8,10 @@ import type { EntityType, EntityProperties, Status, Priority } from "@/types/pro
 
 type ActionResult<T> = { data: T } | { error: string };
 
-function canonicalPriorityFromNamed(priorities: unknown): Priority | null {
+/** Returns the first priority value when a single value is needed. Does not prefer any field name. */
+function firstPriorityFromNamed(priorities: unknown): Priority | null {
   if (!Array.isArray(priorities) || priorities.length === 0) return null;
-  const canonical = priorities.find(
-    (entry: any) => String(entry?.field_name ?? "").trim().toLowerCase() === "priority"
-  ) as { value?: unknown } | undefined;
-  const value = canonical?.value ?? (priorities[0] as any)?.value;
+  const value = (priorities[0] as any)?.value;
   return value === "low" || value === "medium" || value === "high" || value === "urgent"
     ? (value as Priority)
     : null;
@@ -170,7 +168,7 @@ async function getWorkspaceEverythingFallback(
         },
         properties: {
           status: event.status as Status,
-          priority: canonicalPriorityFromNamed((event as any).priorities),
+          priority: firstPriorityFromNamed((event as any).priorities),
           assignee_ids: [],
           due_date: buildDueDateRange(event.start_date, null), // Use start_date as due_date for timeline events
           tags: [],
@@ -232,7 +230,7 @@ async function getWorkspaceEverythingFallback(
         },
         properties: {
           status: task.status as Status,
-          priority: canonicalPriorityFromNamed((task as any).priorities),
+          priority: firstPriorityFromNamed((task as any).priorities),
           assignee_ids: [],
           due_date: buildDueDateRange(task.start_date ?? null, task.due_date ?? null),
           tags: [],
@@ -505,7 +503,7 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
     },
     properties: {
       status: raw.status as Status | null,
-      priority: canonicalPriorityFromNamed(raw.priorities) ?? (raw.priority as Priority | null),
+      priority: firstPriorityFromNamed(raw.priorities) ?? (raw.priority as Priority | null),
       assignee_ids: raw.assignee_ids || [],
       due_date: normalizeDueDateRange(raw.due_date),
       tags: raw.tags || [],

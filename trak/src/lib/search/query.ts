@@ -448,11 +448,9 @@ function formatBlockChunkPreview(raw: string): string {
                     if (task.status) metaParts.push(String(task.status));
                     if (task.dueDate) metaParts.push(`due ${task.dueDate}`);
                     const taskPriorities = Array.isArray((task as any).priorities) ? (task as any).priorities : [];
-                    const canonicalPriority =
-                        taskPriorities.find((entry: any) => String(entry?.field_name || "").trim().toLowerCase() === "priority")?.value ??
-                        taskPriorities[0]?.value ??
-                        task.priority;
-                    if (canonicalPriority) metaParts.push(String(canonicalPriority));
+                    const firstPriority =
+                        taskPriorities[0]?.value ?? task.priority;
+                    if (firstPriority) metaParts.push(String(firstPriority));
                     const meta = metaParts.length ? ` (${metaParts.join(", ")})` : "";
                     return `- ${text}${meta}`;
                 })

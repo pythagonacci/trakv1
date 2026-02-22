@@ -17,13 +17,9 @@ function dedupeAndSortTimelinePriorities(priorities: TimelineNamedPriority[]): T
     deduped.set(key, entry);
   }
 
-  return Array.from(deduped.values()).sort((a, b) => {
-    const aKey = a.field_name.trim().toLowerCase();
-    const bKey = b.field_name.trim().toLowerCase();
-    if (aKey === "priority" && bKey !== "priority") return -1;
-    if (bKey === "priority" && aKey !== "priority") return 1;
-    return a.field_name.localeCompare(b.field_name, undefined, { sensitivity: "base" });
-  });
+  return Array.from(deduped.values()).sort((a, b) =>
+    a.field_name.localeCompare(b.field_name, undefined, { sensitivity: "base" })
+  );
 }
 
 export function normalizeTimelinePriorityValue(value: unknown): TimelineEventPriority | null {
@@ -49,13 +45,6 @@ export function normalizeTimelinePriorities(input: unknown): TimelineNamedPriori
   }
 
   return dedupeAndSortTimelinePriorities(normalized);
-}
-
-export function getCanonicalTimelinePriority(priorities: TimelineNamedPriority[] | null | undefined): TimelineEventPriority | null {
-  const normalized = normalizeTimelinePriorities(priorities ?? []);
-  if (normalized.length === 0) return null;
-  const canonical = normalized.find((entry) => entry.field_name.trim().toLowerCase() === "priority");
-  return (canonical ?? normalized[0])?.value ?? null;
 }
 
 export function mergeTimelinePriorityField(
@@ -118,7 +107,6 @@ export async function syncTimelinePriorityFieldsToEntityProperties(
     entity_type: "timeline_event",
     entity_id: eventId,
     workspace_id: workspaceId,
-    property_definition_id: null,
     field_name: entry.field_name,
     field_type: "priority",
     value: entry.value,

@@ -30,60 +30,28 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   const { supabase, table } = access;
 
   let config = input.config || {};
-  let propertyDefinitionId: string | undefined;
 
-  // Auto-link priority/status fields to workspace property definitions
-  if (input.type === "priority" || input.type === "status") {
-    // Get workspace ID from table
-    const workspaceId = table.workspace_id;
-
-    // Find or create property definition
-    const propertyName = input.type === "priority" ? "Priority" : "Status";
-    const { data: propDef } = await supabase
-      .from("property_definitions")
-      .select("id")
-      .eq("workspace_id", workspaceId)
-      .eq("name", propertyName)
-      .eq("type", "select")
-      .maybeSingle();
-
-    if (!propDef) {
-      // Create default property definition with canonical IDs
-      const defaultOptions = input.type === "priority"
-        ? [
-            { id: "low", label: "Low", color: "#6b7280" },
-            { id: "medium", label: "Medium", color: "#f59e0b" },
-            { id: "high", label: "High", color: "#f97316" },
-            { id: "urgent", label: "Urgent", color: "#ef4444" },
-          ]
-        : [
-            { id: "todo", label: "To Do", color: "#6b7280" },
-            { id: "in_progress", label: "In Progress", color: "#3b82f6" },
-            { id: "done", label: "Done", color: "#10b981" },
-            { id: "blocked", label: "Blocked", color: "#ef4444" },
-          ];
-
-      const { data: newPropDef, error: createError } = await supabase
-        .from("property_definitions")
-        .insert({
-          workspace_id: workspaceId,
-          name: propertyName,
-          type: "select",
-          options: defaultOptions,
-        })
-        .select("id")
-        .single();
-
-      if (createError || !newPropDef) {
-        return { error: "Failed to create property definition" };
-      }
-      propertyDefinitionId = newPropDef.id;
+  // Ensure priority/status fields have canonical options in config if not provided
+  if ((input.type === "priority" || input.type === "status") && !Object.keys(config).length) {
+    if (input.type === "priority") {
+      config = {
+        levels: [
+          { id: "low", label: "Low", color: "#6b7280", order: 0 },
+          { id: "medium", label: "Medium", color: "#f59e0b", order: 1 },
+          { id: "high", label: "High", color: "#f97316", order: 2 },
+          { id: "urgent", label: "Urgent", color: "#ef4444", order: 3 },
+        ],
+      };
     } else {
-      propertyDefinitionId = propDef.id;
+      config = {
+        options: [
+          { id: "todo", label: "To Do", color: "#6b7280" },
+          { id: "in_progress", label: "In Progress", color: "#3b82f6" },
+          { id: "done", label: "Done", color: "#10b981" },
+          { id: "blocked", label: "Blocked", color: "#ef4444" },
+        ],
+      };
     }
-
-    // Clear legacy config (no longer needed - options come from property_definition)
-    config = {};
   }
 
   const { data, error } = await supabase
@@ -93,7 +61,6 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
       name: input.name || "Untitled Field",
       type: input.type,
       config,
-      property_definition_id: propertyDefinitionId,
       order: input.order ?? null,
       is_primary: input.isPrimary ?? false,
       width: input.width ?? null,
@@ -144,56 +111,27 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
     updatePayload.config = nextConfig;
   }
 
-  // Auto-link priority/status fields to workspace property definitions (same logic as createField)
-  if (updates.type === "priority" || updates.type === "status") {
-    const workspaceId = table.workspace_id;
-    const propertyName = updates.type === "priority" ? "Priority" : "Status";
-
-    const { data: propDef } = await supabase
-      .from("property_definitions")
-      .select("id")
-      .eq("workspace_id", workspaceId)
-      .eq("name", propertyName)
-      .eq("type", "select")
-      .maybeSingle();
-
-    if (!propDef) {
-      // Create default property definition with canonical IDs
-      const defaultOptions = updates.type === "priority"
-        ? [
-            { id: "low", label: "Low", color: "#6b7280" },
-            { id: "medium", label: "Medium", color: "#f59e0b" },
-            { id: "high", label: "High", color: "#f97316" },
-            { id: "urgent", label: "Urgent", color: "#ef4444" },
-          ]
-        : [
-            { id: "todo", label: "To Do", color: "#6b7280" },
-            { id: "in_progress", label: "In Progress", color: "#3b82f6" },
-            { id: "done", label: "Done", color: "#10b981" },
-            { id: "blocked", label: "Blocked", color: "#ef4444" },
-          ];
-
-      const { data: newPropDef, error: createError } = await supabase
-        .from("property_definitions")
-        .insert({
-          workspace_id: workspaceId,
-          name: propertyName,
-          type: "select",
-          options: defaultOptions,
-        })
-        .select("id")
-        .single();
-
-      if (createError || !newPropDef) {
-        return { error: "Failed to create property definition" };
-      }
-      updatePayload.property_definition_id = newPropDef.id;
+  // Ensure priority/status fields have canonical options in config when type changes
+  if ((updates.type === "priority" || updates.type === "status") && updates.config === undefined) {
+    if (updates.type === "priority") {
+      updatePayload.config = {
+        levels: [
+          { id: "low", label: "Low", color: "#6b7280", order: 0 },
+          { id: "medium", label: "Medium", color: "#f59e0b", order: 1 },
+          { id: "high", label: "High", color: "#f97316", order: 2 },
+          { id: "urgent", label: "Urgent", color: "#ef4444", order: 3 },
+        ],
+      };
     } else {
-      updatePayload.property_definition_id = propDef.id;
+      updatePayload.config = {
+        options: [
+          { id: "todo", label: "To Do", color: "#6b7280" },
+          { id: "in_progress", label: "In Progress", color: "#3b82f6" },
+          { id: "done", label: "Done", color: "#10b981" },
+          { id: "blocked", label: "Blocked", color: "#ef4444" },
+        ],
+      };
     }
-
-    // Clear legacy config (options come from property_definition)
-    updatePayload.config = {};
   }
 
   const { data, error: updateError } = await supabase

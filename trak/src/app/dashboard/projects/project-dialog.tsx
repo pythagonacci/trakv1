@@ -145,14 +145,14 @@ export default function ProjectDialog({
   const handleClientInputChange = (value: string) => {
     setClientInput(value);
     setShowClientDropdown(value.length > 0);
-    
+
     // If input doesn't match any existing client, clear client_id
     // This will signal to create a new client
     const existingClient = clients.find(c => c.name.toLowerCase() === value.toLowerCase());
     setFormData({ ...formData, client_id: existingClient?.id || "" });
   };
 
-  const filteredClients = clients.filter(c => 
+  const filteredClients = clients.filter(c =>
     c.name.toLowerCase().includes(clientInput.toLowerCase())
   );
 
@@ -169,8 +169,7 @@ export default function ProjectDialog({
     setIsSubmitting(true);
 
     try {
-      // If clientInput exists but no client_id, we're creating a new client
-      const submitData = {
+      const submitData: FormData = {
         ...formData,
         client_name: clientInput && !formData.client_id ? clientInput.trim() : undefined,
         member_ids: permissionMode === "all" ? "all" : selectedMemberIds,
@@ -255,7 +254,7 @@ export default function ProjectDialog({
               className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
               disabled={isSubmitting}
             />
-            
+
             {/* Dropdown for existing clients or create new */}
             {showClientDropdown && (
               <div className="absolute z-10 mt-1 w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_16px_rgba(0,0,0,0.04)] max-h-60 overflow-auto">
@@ -285,7 +284,7 @@ export default function ProjectDialog({
                 ) : null}
               </div>
             )}
-            
+
             {clientInput && !formData.client_id && (
               <p className="mt-0.5 text-[10px] text-[var(--primary)]">
                 ✨ New client "{clientInput}" will be created

@@ -16,7 +16,6 @@ import { updateTaskItem } from "@/app/actions/tasks/item-actions";
 import { updateTimelineEvent } from "@/app/actions/timelines/event-actions";
 import { validateEventPriority, validateEventStatus } from "@/app/actions/timelines/validators";
 import {
-  getCanonicalTimelinePriority,
   mergeTimelinePriorityField,
   normalizeTimelinePriorities,
 } from "@/lib/timeline-priority-sync";
@@ -118,7 +117,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   // Get all valid field IDs for this table to filter out deleted fields
   const { data: fields, error: fieldsError } = await supabase
     .from("table_fields")
-    .select("id, name, type, config, is_primary, property_definition_id")
+    .select("id, name, type, config, is_primary")
     .eq("table_id", row.table_id);
 
   if (fieldsError) {
@@ -136,28 +135,19 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     return { error: "This field is read-only" };
   }
 
-  // Validate canonical IDs for priority/status fields
+  // Validate canonical IDs for priority/status fields against field config options
   if ((field.type === "priority" || field.type === "status") && value) {
-    const fieldWithPropDef = field as TableField & { property_definition_id?: string };
-
-    if (fieldWithPropDef.property_definition_id) {
-      // Fetch property definition options to validate
-      const { data: propDef } = await supabase
-        .from("property_definitions")
-        .select("options")
-        .eq("id", fieldWithPropDef.property_definition_id)
-        .maybeSingle();
-
-      if (propDef) {
-        const options = (propDef.options as Array<{ id: string; label: string }>) || [];
-        const validIds = options.map(opt => opt.id);
-
-        if (!validIds.includes(String(value))) {
-          const fieldTypeName = field.type === "priority" ? "Priority" : "Status";
-          return {
-            error: `Invalid ${fieldTypeName.toLowerCase()} value "${value}". Must be one of: ${validIds.join(", ")}`
-          };
-        }
+    const fieldConfig = (field.config || {}) as Record<string, unknown>;
+    const rawOptions = (field.type === "priority"
+      ? fieldConfig.levels
+      : fieldConfig.options) as Array<{ id: string }> | undefined;
+    if (rawOptions && rawOptions.length > 0) {
+      const validIds = rawOptions.map((opt) => opt.id);
+      if (!validIds.includes(String(value))) {
+        const fieldTypeName = field.type === "priority" ? "Priority" : "Status";
+        return {
+          error: `Invalid ${fieldTypeName.toLowerCase()} value "${value}". Must be one of: ${validIds.join(", ")}`,
+        };
       }
     }
   }
@@ -319,7 +309,6 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
           .upsert({
             entity_type: "table_row",
             entity_id: rowId,
-            property_definition_id: null,
             field_name: field.name,
             field_type: field.type,
             value: value,
@@ -500,7 +489,7 @@ export async function pushEditedSnapshotRowsToSource(input: {
   // Fetch table fields for mapping
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id, name, type, config, is_primary, property_definition_id")
+    .select("id, name, type, config, is_primary")
     .eq("table_id", input.tableId);
 
   const tableFields = (fields ?? []) as TableField[];
@@ -629,7 +618,7 @@ export async function refreshEditedSnapshotRowsFromSource(input: {
   // Fetch table fields for reverse mapping
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id, name, type, config, is_primary, property_definition_id")
+    .select("id, name, type, config, is_primary")
     .eq("table_id", input.tableId);
 
   const tableFields = (fields ?? []) as TableField[];
@@ -728,13 +717,14 @@ function mapTaskFieldToRowValue(
   const taskPriority =
     taskPriorities.find((entry: any) => String(entry?.field_name || "").trim().toLowerCase() === "priority")?.value ??
     taskPriorities[0]?.value ??
-    task.priority;
+    null;
 
   if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "task") {
     return task.title ?? "";
   }
   if (field.type === "status" || normalizedFieldName === "status") {
-    return task.status ?? null;
+    const statuses = Array.isArray(task.statuses) ? task.statuses : [];
+    return statuses[0]?.value ?? null;
   }
   if (field.type === "priority" || normalizedFieldName === "priority") {
     return taskPriority ?? null;
@@ -762,17 +752,18 @@ function mapTimelineEventFieldToRowValue(
     (field.config as any)?.timelinePriorityFallbackToCanonical === true ||
       (field.config as any)?.useCanonicalTimelinePriorityFallback === true
   );
-  const canonicalPriority = getCanonicalTimelinePriority(eventPriorities);
+  const firstPriority = eventPriorities[0]?.value ?? null;
 
   if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "event") {
     return event.title ?? "";
   }
   if (field.type === "status" || normalizedFieldName === "status") {
-    return event.status ?? null;
+    const statuses = Array.isArray(event.statuses) ? event.statuses : [];
+    return statuses[0]?.value ?? null;
   }
   if (field.type === "priority" || normalizedFieldName === "priority") {
     if (matchingPriority?.value) return matchingPriority.value;
-    if (shouldFallbackToCanonical) return canonicalPriority ?? null;
+    if (shouldFallbackToCanonical) return firstPriority ?? null;
     return null;
   }
   if (normalizedFieldName.includes("progress")) {

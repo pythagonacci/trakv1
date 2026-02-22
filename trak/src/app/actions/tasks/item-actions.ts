@@ -2,8 +2,7 @@
 
 import { requireTaskBlockAccess, requireTaskItemAccess, type TaskTimingSink } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { TaskItem, TaskItemPriority, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
-import { getCanonicalPriority } from "@/types/task";
+import type { TaskItem, TaskItemPriority, TaskItemStatus, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -26,9 +25,26 @@ function prioritiesFromSingle(priority?: TaskPriority | null): TaskItemPriority[
   return [{ field_name: "Priority", value: priority }];
 }
 
-function toLegacyPriority(priorities: TaskItemPriority[]): TaskPriority {
-  const canonical = getCanonicalPriority(priorities);
-  return canonical ?? "none";
+function normalizeTaskStatuses(input: unknown): TaskItemStatus[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((entry) => {
+      const fieldName = String((entry as any)?.field_name ?? "").trim();
+      let value = (entry as any)?.value;
+      if (!fieldName) return null;
+      if (value === "in-progress" || value === "in progress") value = "in_progress";
+      if (value !== "todo" && value !== "in_progress" && value !== "blocked" && value !== "done") return null;
+      return { field_name: fieldName, value } as TaskItemStatus;
+    })
+    .filter((entry): entry is TaskItemStatus => Boolean(entry));
+}
+
+function statusesFromSingle(status?: TaskStatus | null): TaskItemStatus[] {
+  if (!status) return [];
+  let value = status as string;
+  if (value === "in-progress" || value === "in progress") value = "in_progress";
+  if (value !== "todo" && value !== "in_progress" && value !== "blocked" && value !== "done") return [];
+  return [{ field_name: "Status", value: value as any }];
 }
 
 function normalizeTaskRow(row: any): TaskItem {
@@ -36,7 +52,6 @@ function normalizeTaskRow(row: any): TaskItem {
   return {
     ...(row as TaskItem),
     priorities,
-    priority: toLegacyPriority(priorities),
   };
 }
 
@@ -45,7 +60,9 @@ export async function createTaskItem(
     taskBlockId: string;
     title: string;
     status?: TaskStatus;
+    statuses?: TaskItemStatus[];
     priority?: TaskPriority;
+    priorities?: TaskItemPriority[];
     description?: string | null;
     dueDate?: string | null;
     dueTime?: string | null;
@@ -73,7 +90,8 @@ export async function createTaskItem(
     ? (sourceEntityType === "table_row" || sourceEntityType === "block" ? "snapshot" : (input.sourceSyncMode ?? "snapshot"))
     : null;
   const sourceTaskId = sourceEntityType === "task" ? sourceEntityId : null;
-  const priorities = prioritiesFromSingle(input.priority);
+  const priorities = input.priorities !== undefined ? normalizeTaskPriorities(input.priorities) : prioritiesFromSingle(input.priority);
+  const statuses = input.statuses !== undefined ? normalizeTaskStatuses(input.statuses) : statusesFromSingle(input.status);
 
   // display_order is set by DB trigger set_task_item_display_order (saves one round-trip)
   const tInsert0 = performance.now();
@@ -85,7 +103,7 @@ export async function createTaskItem(
       project_id: block.project_id,
       tab_id: block.tab_id,
       title: input.title,
-      status: input.status ?? "todo",
+      statuses: statuses,
       priorities,
       description: input.description ?? null,
       due_date: input.dueDate ?? null,
@@ -120,6 +138,7 @@ export async function updateTaskItem(
   updates: Partial<{
     title: string;
     status: TaskStatus;
+    statuses: TaskItemStatus[];
     priority: TaskPriority;
     priorities: TaskItemPriority[];
     description: string | null;
@@ -143,7 +162,10 @@ export async function updateTaskItem(
   };
 
   if (updates.title !== undefined) payload.title = updates.title;
-  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.statuses !== undefined) payload.statuses = normalizeTaskStatuses(updates.statuses);
+  if (updates.status !== undefined && updates.statuses === undefined) {
+    payload.statuses = statusesFromSingle(updates.status);
+  }
   if (updates.priorities !== undefined) payload.priorities = normalizeTaskPriorities(updates.priorities);
   if (updates.priority !== undefined && updates.priorities === undefined) {
     payload.priorities = prioritiesFromSingle(updates.priority);
@@ -185,6 +207,12 @@ export async function updateTaskItem(
       "done": "done",
     };
     entityPropertyUpdates.status = statusMap[updates.status] || "todo";
+  }
+  if (updates.statuses !== undefined) {
+    entityPropertyUpdates.statuses = normalizeTaskStatuses(updates.statuses).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
   }
 
   // Map task priority to entity property priority
@@ -232,6 +260,7 @@ export async function bulkUpdateTaskItems(input: {
   updates: Partial<{
     title: string;
     status: TaskStatus;
+    statuses: TaskItemStatus[];
     priority: TaskPriority;
     priorities: TaskItemPriority[];
     description: string | null;
@@ -275,7 +304,10 @@ export async function bulkUpdateTaskItems(input: {
   };
 
   if (input.updates.title !== undefined) payload.title = input.updates.title;
-  if (input.updates.status !== undefined) payload.status = input.updates.status;
+  if (input.updates.statuses !== undefined) payload.statuses = normalizeTaskStatuses(input.updates.statuses);
+  if (input.updates.status !== undefined && input.updates.statuses === undefined) {
+    payload.statuses = statusesFromSingle(input.updates.status);
+  }
   if (input.updates.priorities !== undefined) payload.priorities = normalizeTaskPriorities(input.updates.priorities);
   if (input.updates.priority !== undefined && input.updates.priorities === undefined) {
     payload.priorities = prioritiesFromSingle(input.updates.priority);
@@ -311,6 +343,12 @@ export async function bulkUpdateTaskItems(input: {
       "done": "done",
     };
     entityPropertyUpdates.status = statusMap[input.updates.status] || "todo";
+  }
+  if (input.updates.statuses !== undefined) {
+    entityPropertyUpdates.statuses = normalizeTaskStatuses(input.updates.statuses).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
   }
 
   // Map task priority to entity property priority
@@ -505,8 +543,8 @@ export async function duplicateTasksToBlock(input: {
                   typeof entry.name === "string"
                     ? entry.name
                     : typeof entry.id === "string"
-                    ? entry.id
-                    : null,
+                      ? entry.id
+                      : null,
               };
             }
             if (typeof entry === "string") {
@@ -557,7 +595,7 @@ export async function duplicateTasksToBlock(input: {
       project_id: block.project_id,
       tab_id: block.tab_id,
       title: task.title,
-      status: task.status ?? "todo",
+      statuses: Array.isArray(task.statuses) ? normalizeTaskStatuses(task.statuses) : statusesFromSingle(task.status ?? "todo"),
       priorities: normalizeTaskPriorities(task.priorities),
       description: task.description ?? null,
       due_date: task.due_date ?? null,
@@ -629,7 +667,6 @@ export async function duplicateTasksToBlock(input: {
             entity_id: created.id,
             field_name: "Assignee",
             field_type: "assignee",
-            property_definition_id: null,
             value: assignees
               .filter((assignee) => assignee.assignee_id)
               .map((assignee) => ({

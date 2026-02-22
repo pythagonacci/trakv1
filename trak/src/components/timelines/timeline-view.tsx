@@ -36,9 +36,9 @@ import type {
   TimelineItem,
   ReferenceType,
 } from "@/types/timeline";
-import { getCanonicalTimelinePriority as getCanonicalTimelinePriorityFromType } from "@/types/timeline";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 import {
   Dialog,
   DialogContent,
@@ -66,9 +66,8 @@ interface TimelineEvent {
   start: string; // ISO date
   end: string; // ISO date
   color?: string;
-  status?: TimelineEventStatus;
-  priority?: TimelineEventPriority | null;
-  priorities?: TimelineNamedPriority[];
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: TimelineNamedPriority[];
   assignee?: string;
   assigneeId?: string | null;
   notes?: string;
@@ -79,8 +78,8 @@ interface TimelineEvent {
 }
 
 type TimelineEventPatch = Partial<TimelineEvent> & {
-  status?: TimelineEventStatus | null;
-  priority?: TimelineEventPriority | null;
+  statuses?: Array<{ field_name: string; value: string }>;
+  priorities?: TimelineNamedPriority[];
   notes?: string | null;
   color?: string | null;
 };
@@ -157,17 +156,9 @@ function normalizeTimelinePrioritiesClient(input: unknown): TimelineNamedPriorit
     normalized.push({ field_name: fieldName, value: rawValue as TimelineEventPriority });
   }
 
-  return normalized.sort((a, b) => {
-    const aKey = a.field_name.trim().toLowerCase();
-    const bKey = b.field_name.trim().toLowerCase();
-    if (aKey === "priority" && bKey !== "priority") return -1;
-    if (bKey === "priority" && aKey !== "priority") return 1;
-    return a.field_name.localeCompare(b.field_name, undefined, { sensitivity: "base" });
-  });
-}
-
-function getCanonicalTimelinePriority(priorities: TimelineNamedPriority[] | null | undefined): TimelineEventPriority | null {
-  return getCanonicalTimelinePriorityFromType(priorities);
+  return normalized.sort((a, b) =>
+    a.field_name.localeCompare(b.field_name, undefined, { sensitivity: "base" })
+  );
 }
 
 function getTimelinePriorityDisplayLabel(priorityField: TimelineNamedPriority): string {
@@ -189,7 +180,7 @@ function daysBetween(a: Date, b: Date) {
 
 function buildGrid(start: Date, end: Date, zoomLevel: ZoomLevel = "day") {
   const cells: { key: string; date: Date; dayLabel: string; monthLabel?: string; weekLabel?: string }[] = [];
-  
+
   if (zoomLevel === "day") {
     const total = daysBetween(start, end);
     for (let i = 0; i <= total; i++) {
@@ -233,7 +224,7 @@ function buildGrid(start: Date, end: Date, zoomLevel: ZoomLevel = "day") {
       current = addDays(endOfYear(current), 1);
     }
   }
-  
+
   return cells;
 }
 
@@ -251,7 +242,7 @@ function getColumnWidth(zoomLevel: ZoomLevel): number {
 function dateToColumn(date: Date, rangeStart: Date, zoomLevel: ZoomLevel): number {
   const clamped = clampDate(date);
   const start = clampDate(rangeStart);
-  
+
   if (zoomLevel === "day") {
     return differenceInCalendarDays(clamped, start);
   } else if (zoomLevel === "week") {
@@ -266,7 +257,7 @@ function dateToColumn(date: Date, rangeStart: Date, zoomLevel: ZoomLevel): numbe
   } else if (zoomLevel === "quarter") {
     const startQuarter = startOfQuarter(start);
     const dateQuarter = startOfQuarter(clamped);
-    const quartersDiff = ((dateQuarter.getFullYear() - startQuarter.getFullYear()) * 4) + 
+    const quartersDiff = ((dateQuarter.getFullYear() - startQuarter.getFullYear()) * 4) +
       (Math.floor(dateQuarter.getMonth() / 3) - Math.floor(startQuarter.getMonth() / 3));
     return quartersDiff;
   } else if (zoomLevel === "year") {
@@ -312,7 +303,7 @@ function monthColumnOffset(date: Date, rangeStart: Date): number {
 
 function columnToDate(column: number, rangeStart: Date, zoomLevel: ZoomLevel): Date {
   const start = clampDate(rangeStart);
-  
+
   if (zoomLevel === "day") {
     return addDays(start, column);
   } else if (zoomLevel === "week") {
@@ -396,8 +387,8 @@ function DraggableEvent({
       typeof barStyle.width === "string"
         ? parseFloat(barStyle.width)
         : typeof barStyle.width === "number"
-        ? barStyle.width
-        : 0;
+          ? barStyle.width
+          : 0;
     const needsTitleLabel =
       !event.isMilestone &&
       barWidth > 0 &&
@@ -456,8 +447,8 @@ function DraggableEvent({
               )}
               <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
               <span className="flex-1 truncate relative z-10">{event.title}</span>
-              {event.status && (
-                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.status}`} />
+              {(event.statuses?.[0]?.value) && (
+                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />
               )}
               {progress > 0 && (
                 <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
@@ -473,12 +464,12 @@ function DraggableEvent({
     id: `event-${event.id}`,
     disabled: false,
   });
-  
+
   const { attributes: resizeStartAttrs, listeners: resizeStartListeners, setNodeRef: resizeStartRef } = useDraggable({
     id: `resize-start-${event.id}`,
     disabled: event.isMilestone,
   });
-  
+
   const { attributes: resizeEndAttrs, listeners: resizeEndListeners, setNodeRef: resizeEndRef } = useDraggable({
     id: `resize-end-${event.id}`,
     disabled: event.isMilestone,
@@ -486,14 +477,14 @@ function DraggableEvent({
 
   const style = transform
     ? {
-        ...barStyle,
-        transform: CSS.Translate.toString(transform),
-        opacity: isDragging ? 0.5 : 1,
-      }
-    : { 
-        ...barStyle, 
-        opacity: isDragging ? 0.5 : 1 
-      };
+      ...barStyle,
+      transform: CSS.Translate.toString(transform),
+      opacity: isDragging ? 0.5 : 1,
+    }
+    : {
+      ...barStyle,
+      opacity: isDragging ? 0.5 : 1
+    };
 
   const progress = event.progress ?? 0;
   const hasBaseline = event.baselineStart && event.baselineEnd;
@@ -501,8 +492,8 @@ function DraggableEvent({
     typeof barStyle.width === "string"
       ? parseFloat(barStyle.width)
       : typeof barStyle.width === "number"
-      ? barStyle.width
-      : 0;
+        ? barStyle.width
+        : 0;
   const needsTitleLabel =
     !event.isMilestone &&
     barWidth > 0 &&
@@ -569,15 +560,15 @@ function DraggableEvent({
                 style={{ width: `${progress}%` }}
               />
             )}
-            
+
             <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
             <span className="flex-1 truncate relative z-10">{event.title}</span>
-            {event.status && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.status}`} />}
+            {(event.statuses?.[0]?.value) && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />}
             {progress > 0 && (
               <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
             )}
           </div>
-          
+
           {/* Resize handles */}
           <div
             ref={resizeStartRef}
@@ -648,7 +639,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const scrollRef = useRef<HTMLDivElement>(null);
   const addEventButtonRef = useRef<HTMLButtonElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-  
+
   // New state for Phase 1 & 2 features
   const [filters, setFilters] = useState(viewConfig.filters || {});
   const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee">(viewConfig.groupBy || "none");
@@ -838,8 +829,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         start: item.start_date,
         end: item.end_date,
         color: item.color || undefined,
-        status: item.status,
-        priority: getCanonicalTimelinePriority(priorities) ?? item.priority ?? null,
+        statuses: item.statuses ?? [],
         priorities,
         assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
         assigneeId,
@@ -858,15 +848,18 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
     const statusFilters = filters?.status ?? [];
     const assigneeFilters = filters?.assignee ?? [];
-    
+
     if (statusFilters.length > 0) {
-      filtered = filtered.filter(e => e.status && statusFilters.includes(e.status));
+      filtered = filtered.filter(e => {
+        const s = e.statuses?.[0]?.value ?? "todo";
+        return s && statusFilters.includes(s);
+      });
     }
-    
+
     if (assigneeFilters.length > 0) {
       filtered = filtered.filter(e => e.assignee && assigneeFilters.includes(e.assignee));
     }
-    
+
     return filtered;
   }, [events, filters]);
 
@@ -877,7 +870,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     } else if (groupBy === "status") {
       const groups: Record<string, TimelineEvent[]> = {};
       filteredEvents.forEach(event => {
-        const key = event.status || "todo";  // Changed from "planned" to "todo"
+        const key = event.statuses?.[0]?.value ?? "todo";
         if (!groups[key]) groups[key] = [];
         groups[key].push(event);
       });
@@ -977,8 +970,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       title: eventData.title,
       startDate: eventData.start,
       endDate: eventData.end,
-      status: eventData.status,
-      priority: eventData.priority ?? null,  // NEW: Pass priority field
+      statuses: (eventData.statuses ?? []).map((s) => ({ field_name: s.field_name, value: s.value as TimelineEventStatus })),
+      priorities: eventData.priorities ?? [],
       notes: eventData.notes ?? null,
       progress: eventData.progress ?? 0,
       color: eventData.color ?? null,
@@ -1023,8 +1016,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     if (patch.title !== undefined) updates.title = patch.title;
     if (patch.start !== undefined) updates.startDate = patch.start;
     if (patch.end !== undefined) updates.endDate = patch.end;
-    if (patch.status !== undefined) updates.status = patch.status;
-    if (patch.priority !== undefined) updates.priority = patch.priority;  // NEW: Handle priority updates
+    if (patch.statuses !== undefined) updates.statuses = patch.statuses;
+    if (patch.priorities !== undefined) updates.priorities = patch.priorities;
     if (patch.assigneeId !== undefined) {
       const member = findWorkspaceMember(members, patch.assigneeId ?? null);
       const propertyAssigneeId = member?.user_id ?? patch.assigneeId ?? null;
@@ -1146,7 +1139,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const handleDragEnd = async (event: DragEndEvent) => {
     const eventId = draggingEventId;
     const edge = dragResizeEdge;
-    
+
     if (!eventId) {
       setDraggingEventId(null);
       setDragResizeEdge(null);
@@ -1311,83 +1304,83 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const tooltipEl =
     hoveredEventId && tooltipPosition
       ? (() => {
-          const event = sortedEvents.find((e) => e.id === hoveredEventId);
-          if (!event) return null;
-          return (
-            <div
-              id="timeline-tooltip"
-              className="fixed z-[99999] min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg pointer-events-auto"
-              style={{
-                top: `${tooltipPosition.top}px`,
-                left: `${tooltipPosition.left}px`,
-                transform: "translateY(calc(-100% - 8px))",
-              }}
-              onMouseEnter={() => {
-                clearHideTimer();
-              }}
-              onMouseLeave={(e) => {
-                const rt = e.relatedTarget as HTMLElement | null;
-                if (rt && rt.closest("[data-event-id]")) return; // going back to a bar
-                scheduleHide();
-              }}
-            >
-              <div className="flex items-start gap-2">
-                <div className={cn("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", event.color || "bg-[var(--foreground)]")} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-[var(--foreground)]">{event.title}</div>
-                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
-                    {format(new Date(event.start), "MMM d")} – {format(new Date(event.end), "MMM d, yyyy")}
-                  </div>
-                  {event.assignee && (
-                    <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
-                      Assignee: {event.assignee}
-                    </div>
-                  )}
-                  {Array.isArray(event.priorities) && event.priorities.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {event.priorities.map((priorityField) => (
-                        <span
-                          key={`${event.id}-tooltip-priority-${priorityField.field_name.toLowerCase()}`}
-                          className={cn(
-                            "inline-flex max-w-[260px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
-                            PRIORITY_PILL_COLORS[priorityField.value]
-                          )}
-                          title={getTimelinePriorityDisplayLabel(priorityField)}
-                        >
-                          <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {event.notes && (
-                    <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
-                      {event.notes}
-                    </div>
-                  )}
-                  {hoveredReferences.length > 0 && (
-                    <div className="mt-1.5 flex items-start gap-1.5">
-                      <Paperclip className="h-3 w-3 shrink-0 mt-0.5 text-[var(--muted-foreground)]" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
-                          {hoveredReferences.length} attachment{hoveredReferences.length !== 1 ? 's' : ''}
-                        </div>
-                        {hoveredReferences.slice(0, 3).map((ref) => (
-                          <div key={ref.id} className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-                            • {ref.title}
-                          </div>
-                        ))}
-                        {hoveredReferences.length > 3 && (
-                          <div className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
-                            +{hoveredReferences.length - 3} more
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+        const event = sortedEvents.find((e) => e.id === hoveredEventId);
+        if (!event) return null;
+        return (
+          <div
+            id="timeline-tooltip"
+            className="fixed z-[99999] min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg pointer-events-auto"
+            style={{
+              top: `${tooltipPosition.top}px`,
+              left: `${tooltipPosition.left}px`,
+              transform: "translateY(calc(-100% - 8px))",
+            }}
+            onMouseEnter={() => {
+              clearHideTimer();
+            }}
+            onMouseLeave={(e) => {
+              const rt = e.relatedTarget as HTMLElement | null;
+              if (rt && rt.closest("[data-event-id]")) return; // going back to a bar
+              scheduleHide();
+            }}
+          >
+            <div className="flex items-start gap-2">
+              <div className={cn("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", event.color || "bg-[var(--foreground)]")} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-[var(--foreground)]">{event.title}</div>
+                <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                  {format(new Date(event.start), "MMM d")} – {format(new Date(event.end), "MMM d, yyyy")}
                 </div>
+                {event.assignee && (
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                    Assignee: {event.assignee}
+                  </div>
+                )}
+                {Array.isArray(event.priorities) && event.priorities.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {event.priorities.map((priorityField) => (
+                      <span
+                        key={`${event.id}-tooltip-priority-${priorityField.field_name.toLowerCase()}`}
+                        className={cn(
+                          "inline-flex max-w-[260px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                          PRIORITY_PILL_COLORS[priorityField.value]
+                        )}
+                        title={getTimelinePriorityDisplayLabel(priorityField)}
+                      >
+                        <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {event.notes && (
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                    {event.notes}
+                  </div>
+                )}
+                {hoveredReferences.length > 0 && (
+                  <div className="mt-1.5 flex items-start gap-1.5">
+                    <Paperclip className="h-3 w-3 shrink-0 mt-0.5 text-[var(--muted-foreground)]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
+                        {hoveredReferences.length} attachment{hoveredReferences.length !== 1 ? 's' : ''}
+                      </div>
+                      {hoveredReferences.slice(0, 3).map((ref) => (
+                        <div key={ref.id} className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+                          • {ref.title}
+                        </div>
+                      ))}
+                      {hoveredReferences.length > 3 && (
+                        <div className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
+                          +{hoveredReferences.length - 3} more
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
+            </div>
             {!readOnly && (
-            <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex items-center gap-2">
                 <button
                   className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
@@ -1412,100 +1405,100 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 </button>
               </div>
             )}
-            </div>
-          );
-        })()
+          </div>
+        );
+      })()
       : null;
 
   const timelineContent = (
-      <div className="space-y-3 w-full">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
-            <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-              {format(displayRange.start, "MMM d")} – {format(displayRange.end, "MMM d, yyyy")}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {/* Zoom controls */}
-            <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
-              {(["day", "week", "month", "quarter"] as ZoomLevel[]).map((level) => (
-                <button
-                  key={level}
-                  onClick={() => handleZoomChange(level)}
-                  className={cn(
-                    "px-2 py-1 text-[10px] font-medium rounded-[2px] transition-colors",
-                    zoomLevel === level
-                      ? "bg-[var(--foreground)] text-[var(--background)]"
-                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                  )}
-                >
-                  {level[0].toUpperCase()}
-                </button>
-              ))}
-            </div>
-            
-            {/* Filter/Group controls */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
-                  <Filter className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[200px]">
-                <DropdownMenuLabel>Group By</DropdownMenuLabel>
-                {(["none", "status", "assignee"] as const).map((option) => (
-                  <DropdownMenuItem
-                    key={option}
-                    onClick={() => handleGroupByChange(option)}
-                    className={groupBy === option ? "bg-[var(--surface-hover)]" : ""}
-                  >
-                    {option === "none" ? "No Grouping" : option.charAt(0).toUpperCase() + option.slice(1)}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
-                {(["todo", "in_progress", "blocked", "done"] as const).map((status) => {
-                  const isSelected = filters.status?.includes(status);
-                  return (
-                    <DropdownMenuItem
-                      key={status}
-                      onClick={() => {
-                        const newStatusFilters = filters.status || [];
-                        const updated = isSelected
-                          ? newStatusFilters.filter((s: typeof status) => s !== status)
-                          : [...newStatusFilters, status];
-                        handleFilterChange({ ...filters, status: updated });
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={cn("h-2 w-2 rounded-full", isSelected ? "bg-[var(--foreground)]" : "border border-[var(--border)]")} />
-                        {status}
-                      </div>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
-            {/* Save baseline */}
-            {!readOnly && (
-              <button
-                onClick={saveBaseline}
-                className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-                title="Save baseline"
-              >
-                <Target className="h-3.5 w-3.5" />
-              </button>
-            )}
-            
-            {!readOnly && (
-              <Button ref={addEventButtonRef} size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
-                <Plus className="h-3.5 w-3.5" /> Add event
-              </Button>
-            )}
+    <div className="space-y-3 w-full">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
+          <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+            {format(displayRange.start, "MMM d")} – {format(displayRange.end, "MMM d, yyyy")}
           </div>
         </div>
+        <div className="flex items-center gap-1.5">
+          {/* Zoom controls */}
+          <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
+            {(["day", "week", "month", "quarter"] as ZoomLevel[]).map((level) => (
+              <button
+                key={level}
+                onClick={() => handleZoomChange(level)}
+                className={cn(
+                  "px-2 py-1 text-[10px] font-medium rounded-[2px] transition-colors",
+                  zoomLevel === level
+                    ? "bg-[var(--foreground)] text-[var(--background)]"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                )}
+              >
+                {level[0].toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          {/* Filter/Group controls */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                <Filter className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[200px]">
+              <DropdownMenuLabel>Group By</DropdownMenuLabel>
+              {(["none", "status", "assignee"] as const).map((option) => (
+                <DropdownMenuItem
+                  key={option}
+                  onClick={() => handleGroupByChange(option)}
+                  className={groupBy === option ? "bg-[var(--surface-hover)]" : ""}
+                >
+                  {option === "none" ? "No Grouping" : option.charAt(0).toUpperCase() + option.slice(1)}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+              {(["todo", "in_progress", "blocked", "done"] as const).map((status) => {
+                const isSelected = filters.status?.includes(status);
+                return (
+                  <DropdownMenuItem
+                    key={status}
+                    onClick={() => {
+                      const newStatusFilters = filters.status || [];
+                      const updated = isSelected
+                        ? newStatusFilters.filter((s: typeof status) => s !== status)
+                        : [...newStatusFilters, status];
+                      handleFilterChange({ ...filters, status: updated });
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={cn("h-2 w-2 rounded-full", isSelected ? "bg-[var(--foreground)]" : "border border-[var(--border)]")} />
+                      {status}
+                    </div>
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Save baseline */}
+          {!readOnly && (
+            <button
+              onClick={saveBaseline}
+              className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+              title="Save baseline"
+            >
+              <Target className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {!readOnly && (
+            <Button ref={addEventButtonRef} size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
+              <Plus className="h-3.5 w-3.5" /> Add event
+            </Button>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-[320px_1fr] border border-[var(--border)] bg-[var(--surface)] w-full">
         {/* Left rail: event list aligned 1:1 with timeline rows */}
@@ -1709,7 +1702,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           </div>
         </div>
       </div>
-      
+
       {!readOnly && (
         <DragOverlay>
           {draggingEventId ? (
@@ -1770,8 +1763,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         />
       )}
 
-      </div>
-    );
+    </div>
+  );
 
   if (readOnly) {
     return (
@@ -1816,24 +1809,8 @@ function AddEventPopover({
   workspaceId?: string;
   anchorRef?: React.RefObject<HTMLElement | null>;
 }) {
-  // Fetch property definitions for Status and Priority
-  const supabase = createClient();
-  const { data: propertyDefs } = useQuery({
-    queryKey: ["propertyDefinitions", workspaceId],
-    queryFn: async () => {
-      if (!workspaceId) return null;
-      const { data } = await supabase
-        .from("property_definitions")
-        .select("*")
-        .eq("workspace_id", workspaceId)
-        .in("name", ["Status", "Priority"]);
-      return data;
-    },
-    enabled: !!workspaceId,
-  });
-
-  const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
-  const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
+  const statusOptions = STATUS_OPTIONS.map(o => ({ id: o.value, label: o.label, color: o.color }));
+  const priorityOptions = PRIORITY_OPTIONS.map(o => ({ id: o.value, label: o.label, color: o.color }));
 
   const getInitialState = React.useCallback(
     () => ({
@@ -1841,8 +1818,8 @@ function AddEventPopover({
       start: defaultStart.toISOString(),
       end: defaultEnd.toISOString(),
       color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
-      status: "todo" as const,  // Changed from "planned" to "todo"
-      priority: null as TimelineEventPriority | null,  // NEW: Priority field
+      statuses: [{ field_name: "Status", value: "todo" }],
+      priorities: [],
       progress: 0,
       isMilestone: false,
       assigneeId: null as string | null,
@@ -1943,211 +1920,214 @@ function AddEventPopover({
         </button>
       </div>
       <div className="overflow-y-auto flex-1 min-h-0 px-3 py-2 space-y-2.5">
-          {/* Title */}
+        {/* Title */}
+        <div>
+          <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Title</label>
+          <input
+            type="text"
+            value={local.title}
+            onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
+            className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            placeholder="Event title"
+            autoFocus
+          />
+        </div>
+
+        {/* Color & Status */}
+        <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Title</label>
-            <input
-              type="text"
-              value={local.title}
-              onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Color</label>
+            <div className="relative">
+              <button
+                type="button"
+                className={cn(
+                  "w-full h-8 rounded-[4px] border border-[var(--border)] flex items-center gap-1.5 px-2",
+                  local.color || "bg-neutral-900"
+                )}
+                onClick={() => setShowColors((v) => !v)}
+              >
+                <div className={cn("h-3.5 w-3.5 rounded-full", local.color || "bg-neutral-900")} />
+                <span className="text-[11px] text-[var(--muted-foreground)]">Change</span>
+              </button>
+              {showColors && (
+                <div className="absolute z-10 mt-1 grid grid-cols-6 gap-1.5 p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] shadow-lg">
+                  {DEFAULT_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={cn("h-6 w-6 rounded-full", c)}
+                      onClick={() => {
+                        setLocal((s) => ({ ...s, color: c }));
+                        setShowColors(false);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Status</label>
+            <select
+              value={local.statuses?.[0]?.value ?? "todo"}
+              onChange={(e) => setLocal((s) => ({ ...s, statuses: [{ field_name: "Status", value: e.target.value }] }))}
               className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
-              placeholder="Event title"
-              autoFocus
+            >
+              {statusOptions.length > 0 ? (
+                statusOptions.map((opt: any) => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))
+              ) : (
+                <>
+                  <option value="todo">To Do</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="done">Done</option>
+                </>
+              )}
+            </select>
+          </div>
+        </div>
+
+        {/* Dates */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Start</label>
+            <input
+              type="date"
+              value={format(new Date(local.start), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
+              disabled={local.isMilestone}
             />
           </div>
-
-          {/* Color & Status */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Color</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  className={cn(
-                    "w-full h-8 rounded-[4px] border border-[var(--border)] flex items-center gap-1.5 px-2",
-                    local.color || "bg-neutral-900"
-                  )}
-                  onClick={() => setShowColors((v) => !v)}
-                >
-                  <div className={cn("h-3.5 w-3.5 rounded-full", local.color || "bg-neutral-900")} />
-                  <span className="text-[11px] text-[var(--muted-foreground)]">Change</span>
-                </button>
-                {showColors && (
-                  <div className="absolute z-10 mt-1 grid grid-cols-6 gap-1.5 p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] shadow-lg">
-                    {DEFAULT_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={cn("h-6 w-6 rounded-full", c)}
-                        onClick={() => {
-                          setLocal((s) => ({ ...s, color: c }));
-                          setShowColors(false);
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Status</label>
-              <select
-                value={local.status ?? "todo"}
-                onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
-                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
-              >
-                {statusOptions.length > 0 ? (
-                  statusOptions.map((opt: any) => (
-                    <option key={opt.id} value={opt.id}>{opt.label}</option>
-                  ))
-                ) : (
-                  <>
-                    <option value="todo">To Do</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="done">Done</option>
-                  </>
-                )}
-              </select>
-            </div>
-          </div>
-
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Start</label>
-              <input
-                type="date"
-                value={format(new Date(local.start), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
-                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
-                disabled={local.isMilestone}
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">End</label>
-              <input
-                type="date"
-                value={format(new Date(local.end), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
-                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
-                disabled={local.isMilestone}
-              />
-            </div>
-          </div>
-
-          {/* Progress & Milestone */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Progress %</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={local.progress ?? 0}
-                onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
-              />
-            </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-1.5 cursor-pointer py-1.5">
-                <input
-                  type="checkbox"
-                  checked={local.isMilestone ?? false}
-                  onChange={(e) => {
-                    setLocal((s) => ({
-                      ...s,
-                      isMilestone: e.target.checked,
-                      end: e.target.checked ? s.start : s.end,
-                    }));
-                  }}
-                  className="w-3.5 h-3.5 rounded border-[var(--border)]"
-                />
-                <span className="text-[11px] text-[var(--foreground)]">Milestone</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Priority & Assignee - compact row */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Priority</label>
-              <select
-                value={local.priority ?? ""}
-                onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
-                className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
-              >
-                <option value="">None</option>
-                {priorityOptions.length > 0 ? (
-                  priorityOptions.map((opt: any) => (
-                    <option key={opt.id} value={opt.id}>{opt.label}</option>
-                  ))
-                ) : (
-                  <>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </>
-                )}
-              </select>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Assignee</label>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="w-full h-8 px-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[11px] text-left flex items-center gap-1.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]">
-                    <User className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
-                    <span className={cn("truncate", local.assigneeId ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]")}>
-                      {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
-                    </span>
-                    <ChevronDown className="w-3 h-3 text-[var(--muted-foreground)] shrink-0 ml-auto" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48 max-h-48 overflow-y-auto z-[110]">
-                  <DropdownMenuItem
-                    onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
-                    className="text-[11px] text-[var(--muted-foreground)]"
-                  >
-                    Unassigned
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {members.length > 0 ? (
-                    members.map((member) => (
-                      <DropdownMenuItem
-                        key={member.id}
-                        onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
-                        className="text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-5 h-5 rounded-full bg-[var(--surface-hover)] flex items-center justify-center text-[10px] font-medium shrink-0">
-                            {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
-                          </div>
-                          <span className="truncate">{member.name ?? member.email ?? "Unknown"}</span>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  ) : (
-                    <DropdownMenuItem disabled className="text-[11px] text-[var(--muted-foreground)]">
-                      Loading...
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-
-          {/* Notes - compact */}
           <div>
-            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Notes</label>
-            <textarea
-              value={local.notes ?? ""}
-              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs min-h-[48px] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] resize-none"
-              placeholder="Optional..."
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">End</label>
+            <input
+              type="date"
+              value={format(new Date(local.end), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
+              disabled={local.isMilestone}
             />
           </div>
         </div>
+
+        {/* Progress & Milestone */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Progress %</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={local.progress ?? 0}
+              onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            />
+          </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-1.5 cursor-pointer py-1.5">
+              <input
+                type="checkbox"
+                checked={local.isMilestone ?? false}
+                onChange={(e) => {
+                  setLocal((s) => ({
+                    ...s,
+                    isMilestone: e.target.checked,
+                    end: e.target.checked ? s.start : s.end,
+                  }));
+                }}
+                className="w-3.5 h-3.5 rounded border-[var(--border)]"
+              />
+              <span className="text-[11px] text-[var(--foreground)]">Milestone</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Priority & Assignee - compact row */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Priority</label>
+            <select
+              value={local.priorities?.[0]?.value ?? ""}
+              onChange={(e) => setLocal((s) => ({
+                ...s,
+                priorities: e.target.value ? [{ field_name: "Priority", value: e.target.value as TimelineEventPriority }] : [],
+              }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            >
+              <option value="">None</option>
+              {priorityOptions.length > 0 ? (
+                priorityOptions.map((opt: any) => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))
+              ) : (
+                <>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </>
+              )}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Assignee</label>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-full h-8 px-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[11px] text-left flex items-center gap-1.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]">
+                  <User className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
+                  <span className={cn("truncate", local.assigneeId ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]")}>
+                    {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-[var(--muted-foreground)] shrink-0 ml-auto" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48 max-h-48 overflow-y-auto z-[110]">
+                <DropdownMenuItem
+                  onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
+                  className="text-[11px] text-[var(--muted-foreground)]"
+                >
+                  Unassigned
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {members.length > 0 ? (
+                  members.map((member) => (
+                    <DropdownMenuItem
+                      key={member.id}
+                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
+                      className="text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-[var(--surface-hover)] flex items-center justify-center text-[10px] font-medium shrink-0">
+                          {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
+                        </div>
+                        <span className="truncate">{member.name ?? member.email ?? "Unknown"}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled className="text-[11px] text-[var(--muted-foreground)]">
+                    Loading...
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Notes - compact */}
+        <div>
+          <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Notes</label>
+          <textarea
+            value={local.notes ?? ""}
+            onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+            className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs min-h-[48px] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] resize-none"
+            placeholder="Optional..."
+          />
+        </div>
+      </div>
       <div className="flex items-center justify-end gap-1.5 px-3 py-2 border-t border-[var(--border)]">
         <Button variant="outline" size="sm" onClick={onClose} className="h-7 px-2 text-xs">
           Cancel
@@ -2195,11 +2175,18 @@ function EventDetailsPanel({
     [direct?.priorities]
   );
   const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
-  const canonicalPriority = getCanonicalTimelinePriority(effectivePriorities) ?? event.priority ?? null;
 
-  const [local, setLocal] = useState({
-    status: event.status ?? null,
-    priority: canonicalPriority,
+  const [local, setLocal] = useState<{
+    status: string | null;
+    assigneeId: string | null;
+    progress: number;
+    notes: string;
+    start: string;
+    end: string;
+    isMilestone: boolean;
+    color: string | null;
+  }>({
+    status: event.statuses?.[0]?.value ?? null,
     assigneeId: event.assigneeId ?? null,
     progress: event.progress ?? 0,
     notes: event.notes ?? "",
@@ -2220,8 +2207,7 @@ function EventDetailsPanel({
 
   React.useEffect(() => {
     setLocal({
-      status: event.status ?? null,
-      priority: canonicalPriority,
+      status: event.statuses?.[0]?.value ?? null,
       assigneeId: event.assigneeId ?? null,
       progress: event.progress ?? 0,
       notes: event.notes ?? "",
@@ -2231,7 +2217,7 @@ function EventDetailsPanel({
       color: event.color ?? null,
     });
     setIsColorDialogOpen(false);
-  }, [event, canonicalPriority]);
+  }, [event]);
 
   const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
   const assigneeLabel = selectedMember?.name ?? selectedMember?.email ?? "Unassigned";
@@ -2267,19 +2253,18 @@ function EventDetailsPanel({
   };
 
   const handleStatusChange = (value: string) => {
-    const nextStatus = value === "none" ? null : (value as TimelineEventStatus);
+    const nextStatus = value === "none" ? null : value;
     setLocal((s) => ({ ...s, status: nextStatus }));
-    if ((event.status ?? null) !== nextStatus) {
-      onUpdate({ status: nextStatus } as TimelineEventPatch);
+    const nextStatuses = nextStatus ? [{ field_name: "Status", value: nextStatus }] : [];
+    if ((event.statuses?.[0]?.value ?? null) !== nextStatus) {
+      onUpdate({ statuses: nextStatuses });
     }
   };
 
-  const handlePriorityChange = (value: string) => {
-    const nextPriority = value === "none" ? null : (value as TimelineEventPriority);
-    setLocal((s) => ({ ...s, priority: nextPriority }));
-    if (canonicalPriority !== nextPriority) {
-      onUpdate({ priority: nextPriority } as TimelineEventPatch);
-    }
+  const handleAddPriority = (value: TimelineEventPriority) => {
+    const current = event.priorities ?? [];
+    const next = [...current.filter((p) => p.field_name.toLowerCase() !== "priority"), { field_name: "Priority", value }];
+    onUpdate({ priorities: next });
   };
 
   const handleAssigneeChange = (assigneeId: string | null) => {
@@ -2447,19 +2432,8 @@ function EventDetailsPanel({
             </div>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
-              <select
-                value={local.priority ?? "none"}
-                onChange={(e) => handlePriorityChange(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="none">None</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-              {effectivePriorities.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
+              {effectivePriorities.length > 0 ? (
+                <div className="mt-1 flex flex-wrap gap-1">
                   {effectivePriorities.map((priorityField) => (
                     <span
                       key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`}
@@ -2472,6 +2446,26 @@ function EventDetailsPanel({
                       <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
                     </span>
                   ))}
+                </div>
+              ) : (
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-xs text-[var(--muted-foreground)]">None</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        Add priority
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={() => handleAddPriority("low")}>Low</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("medium")}>Medium</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("high")}>High</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("urgent")}>Urgent</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               )}
             </div>
@@ -2586,29 +2580,18 @@ function EditEventDialog({
   members: WorkspaceMember[];
   workspaceId?: string;
 }) {
-  // Fetch property definitions for Status and Priority
-  const supabase = createClient();
-  const { data: propertyDefs } = useQuery({
-    queryKey: ["propertyDefinitions", workspaceId],
-    queryFn: async () => {
-      if (!workspaceId) return null;
-      const { data } = await supabase
-        .from("property_definitions")
-        .select("*")
-        .eq("workspace_id", workspaceId)
-        .in("name", ["Status", "Priority"]);
-      return data;
-    },
-    enabled: !!workspaceId,
-  });
-
-  const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
-  const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
+  const statusOptions = STATUS_OPTIONS.map(o => ({ id: o.value, label: o.label, color: o.color }));
   const eventPriorities = useMemo(
     () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
     [event.priorities]
   );
-  const eventCanonicalPriority = getCanonicalTimelinePriority(eventPriorities) ?? event.priority ?? null;
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
+  const direct = propertiesResult?.direct;
+  const directPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
+    [direct?.priorities]
+  );
+  const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
 
   const getInitialState = React.useCallback(
     () => ({
@@ -2616,28 +2599,20 @@ function EditEventDialog({
       start: event.start,
       end: event.end,
       color: event.color || DEFAULT_COLORS[0],
-      status: (event.status || "todo") as TimelineEventStatus,  // Changed from "planned" to "todo"
-      priority: eventCanonicalPriority,
+      statuses: event.statuses?.length ? event.statuses : [{ field_name: "Status", value: "todo" }],
+      priorities: effectivePriorities,
       assigneeId: event.assigneeId ?? null,
-      notes: event.notes || "",
+      notes: event.notes ?? "",
       progress: event.progress ?? 0,
       isMilestone: event.isMilestone ?? false,
     }),
-    [event, eventCanonicalPriority]
+    [event, effectivePriorities]
   );
 
   const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
   const [showColors, setShowColors] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
-  const direct = propertiesResult?.direct;
-  const directPriorities = useMemo(
-    () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
-    [direct?.priorities]
-  );
-  const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
-  const localPriorityLabel = local.priority ? PRIORITY_LABELS[local.priority] : null;
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -2704,325 +2679,316 @@ function EditEventDialog({
 
       <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
         <div className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
-                <input
-                  type="text"
-                  value={local.title}
-                  onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Event title"
-                  autoFocus
-                />
-              </div>
+          {/* Title */}
+          <div>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
+            <input
+              type="text"
+              value={local.title}
+              onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Event title"
+              autoFocus
+            />
+          </div>
 
-              {/* Color & Status */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Color</label>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className={cn(
-                        "w-full h-10 rounded-lg border border-neutral-200 dark:border-neutral-800 flex items-center gap-2 px-3",
-                        local.color || "bg-neutral-900"
-                      )}
-                      onClick={() => setShowColors((v) => !v)}
-                    >
-                      <div className={cn("h-5 w-5 rounded-full", local.color || "bg-neutral-900")} />
-                      <span className="text-sm text-neutral-600 dark:text-neutral-400">Change</span>
-                    </button>
-                    {showColors && (
-                      <div className="absolute z-10 mt-2 grid grid-cols-6 gap-2 p-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg">
-                        {DEFAULT_COLORS.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            className={cn("h-8 w-8 rounded-full", c)}
-                            onClick={() => {
-                              setLocal((s) => ({ ...s, color: c }));
-                              setShowColors(false);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
-                  <select
-                    value={local.status ?? "todo"}
-                    onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {statusOptions.length > 0 ? (
-                      statusOptions.map((opt: any) => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.label}
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="todo">To Do</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="blocked">Blocked</option>
-                        <option value="done">Done</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-              </div>
-
-              {/* Priority */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className={cn(
-                        "w-full rounded-lg px-3 py-2 text-sm transition-colors flex items-center justify-between",
-                        local.priority
-                          ? PRIORITY_BUTTON_COLORS[local.priority]
-                          : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-neutral-500 hover:border-[var(--secondary)] hover:text-neutral-700 dark:hover:text-neutral-300"
-                      )}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <Flag className="h-4 w-4" />
-                        <span>{localPriorityLabel ?? "None"}</span>
-                      </span>
-                      <ChevronDown className="h-4 w-4 text-neutral-400" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-48">
-                    <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: null }))}>
-                      None
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {priorityOptions.length > 0 ? (
-                      priorityOptions.map((opt: any) => (
-                        <DropdownMenuItem
-                          key={opt.id}
-                          onClick={() =>
-                            setLocal((s) => ({
-                              ...s,
-                              priority: (opt.id as TimelineEventPriority) ?? null,
-                            }))
-                          }
-                        >
-                          {opt.label}
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <>
-                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "low" }))}>Low</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "medium" }))}>Medium</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "high" }))}>High</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setLocal((s) => ({ ...s, priority: "urgent" }))}>Urgent</DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {effectivePriorities.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {effectivePriorities.map((priorityField) => (
-                      <span
-                        key={`${event.id}-edit-priority-${priorityField.field_name.toLowerCase()}`}
-                        className={cn(
-                          "inline-flex max-w-[220px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
-                          PRIORITY_PILL_COLORS[priorityField.value]
-                        )}
-                        title={getTimelinePriorityDisplayLabel(priorityField)}
-                      >
-                        <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
-                      </span>
+          {/* Color & Status */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Color</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  className={cn(
+                    "w-full h-10 rounded-lg border border-neutral-200 dark:border-neutral-800 flex items-center gap-2 px-3",
+                    local.color || "bg-neutral-900"
+                  )}
+                  onClick={() => setShowColors((v) => !v)}
+                >
+                  <div className={cn("h-5 w-5 rounded-full", local.color || "bg-neutral-900")} />
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">Change</span>
+                </button>
+                {showColors && (
+                  <div className="absolute z-10 mt-2 grid grid-cols-6 gap-2 p-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg">
+                    {DEFAULT_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={cn("h-8 w-8 rounded-full", c)}
+                        onClick={() => {
+                          setLocal((s) => ({ ...s, color: c }));
+                          setShowColors(false);
+                        }}
+                      />
                     ))}
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Progress & Milestone */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Progress (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={local.progress ?? 0}
-                    onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={local.isMilestone ?? false}
-                      onChange={(e) => {
-                        setLocal((s) => ({
-                          ...s,
-                          isMilestone: e.target.checked,
-                          end: e.target.checked ? s.start : s.end,
-                        }));
-                      }}
-                      className="w-4 h-4 rounded border-neutral-300"
-                    />
-                    <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Milestone</span>
-                  </label>
-                </div>
+            <div>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
+              <select
+                value={local.statuses?.[0]?.value ?? "todo"}
+                onChange={(e) => setLocal((s) => ({ ...s, statuses: [{ field_name: "Status", value: e.target.value }] }))}
+                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {statusOptions.length > 0 ? (
+                  statusOptions.map((opt: any) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="todo">To Do</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="done">Done</option>
+                  </>
+                )}
+              </select>
+            </div>
+          </div>
+
+          {/* Priority */}
+          <div>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
+            {(local.priorities ?? effectivePriorities).length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {(local.priorities ?? effectivePriorities).map((priorityField) => (
+                  <span
+                    key={`${event.id}-edit-priority-${priorityField.field_name.toLowerCase()}`}
+                    className={cn(
+                      "inline-flex max-w-[220px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                      PRIORITY_PILL_COLORS[priorityField.value]
+                    )}
+                    title={getTimelinePriorityDisplayLabel(priorityField)}
+                  >
+                    <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                  </span>
+                ))}
               </div>
+            ) : (
+              <span className="text-sm text-neutral-500">None</span>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-blue-600 hover:underline"
+                >
+                  Add priority
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "low" }],
+                }))}>
+                  Low
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "medium" }],
+                }))}>
+                  Medium
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "high" }],
+                }))}>
+                  High
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "urgent" }],
+                }))}>
+                  Urgent
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
-              {/* Dates */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
-                  <input
-                    type="date"
-                    value={format(new Date(local.start), "yyyy-MM-dd")}
-                    onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={local.isMilestone}
-                  />
-                </div>
+          {/* Progress & Milestone */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Progress (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={local.progress ?? 0}
+                onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
+                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={local.isMilestone ?? false}
+                  onChange={(e) => {
+                    setLocal((s) => ({
+                      ...s,
+                      isMilestone: e.target.checked,
+                      end: e.target.checked ? s.start : s.end,
+                    }));
+                  }}
+                  className="w-4 h-4 rounded border-neutral-300"
+                />
+                <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Milestone</span>
+              </label>
+            </div>
+          </div>
 
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
-                  <input
-                    type="date"
-                    value={format(new Date(local.end), "yyyy-MM-dd")}
-                    onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={local.isMilestone}
-                  />
-                </div>
-              </div>
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
+              <input
+                type="date"
+                value={format(new Date(local.start), "yyyy-MM-dd")}
+                onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={local.isMilestone}
+              />
+            </div>
 
-              {/* Assignee */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Assignee (optional)</label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm text-left flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-neutral-500" />
-                        <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                          {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
-                        </span>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-neutral-400" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
-                    <DropdownMenuItem
-                      onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
-                      className="text-neutral-500"
-                    >
-                      Unassigned
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {members.length > 0 ? (
+            <div>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
+              <input
+                type="date"
+                value={format(new Date(local.end), "yyyy-MM-dd")}
+                onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={local.isMilestone}
+              />
+            </div>
+          </div>
+
+          {/* Assignee */}
+          <div>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Assignee (optional)</label>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm text-left flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-neutral-500" />
+                    <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
+                      {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
+                <DropdownMenuItem
+                  onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
+                  className="text-neutral-500"
+                >
+                  Unassigned
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {members.length > 0 ? (
                   members.map((member) => (
                     <DropdownMenuItem
                       key={member.id}
                       onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
                     >
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                              {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
-                              <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
-                            </div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <DropdownMenuItem disabled className="text-neutral-400">
-                        Loading members...
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
+                          {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
+                          <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled className="text-neutral-400">
+                    Loading members...
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
-              {/* Properties */}
-              {workspaceId && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
-                    <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
-                      Manage properties
+          {/* Properties */}
+          {workspaceId && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
+                <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
+                  Manage properties
+                </Button>
+              </div>
+              {direct ? (
+                <div className="flex flex-wrap gap-2">
+                  <PropertyBadges
+                    properties={direct}
+                    onClick={() => setPropertiesOpen(true)}
+                    memberNames={getMemberNames(direct)}
+                  />
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500">No properties yet.</p>
+              )}
+            </div>
+          )}
+
+          {/* Attachments */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</label>
+              <Button variant="outline" size="sm" onClick={onAddReference}>
+                Add attachment
+              </Button>
+            </div>
+            {references.length === 0 ? (
+              <p className="text-xs text-neutral-500">No attachments yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {references.map((ref) => (
+                  <div
+                    key={ref.id}
+                    className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium text-neutral-800 dark:text-neutral-200">
+                        {ref.title}
+                      </div>
+                      <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+                        {ref.type_label || ref.reference_type}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onDeleteReference(ref.id)}
+                    >
+                      Remove
                     </Button>
                   </div>
-                  {direct ? (
-                    <div className="flex flex-wrap gap-2">
-                      <PropertyBadges
-                        properties={direct}
-                        onClick={() => setPropertiesOpen(true)}
-                        memberNames={getMemberNames(direct)}
-                      />
-                    </div>
-                  ) : (
-                    <p className="text-xs text-neutral-500">No properties yet.</p>
-                  )}
-                </div>
-              )}
-
-              {/* Attachments */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</label>
-                  <Button variant="outline" size="sm" onClick={onAddReference}>
-                    Add attachment
-                  </Button>
-                </div>
-                {references.length === 0 ? (
-                  <p className="text-xs text-neutral-500">No attachments yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {references.map((ref) => (
-                      <div
-                        key={ref.id}
-                        className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <div className="font-medium text-neutral-800 dark:text-neutral-200">
-                            {ref.title}
-                          </div>
-                          <div className="text-[11px] uppercase tracking-wide text-neutral-400">
-                            {ref.type_label || ref.reference_type}
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onDeleteReference(ref.id)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                ))}
               </div>
-
-              {/* Notes */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
-                <textarea
-                  value={local.notes ?? ""}
-                  onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  placeholder="Additional details..."
-                />
-              </div>
-            </div>
+            )}
           </div>
+
+          {/* Notes */}
+          <div>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
+            <textarea
+              value={local.notes ?? ""}
+              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              placeholder="Additional details..."
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="border-t border-[var(--border)] bg-[var(--surface)] px-6 py-4">
         <div className="flex items-center justify-between gap-4">
@@ -3162,8 +3128,8 @@ function EventDrawer({
             Status
             <select
               className="mt-1 w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={local.status ?? "todo"}
-              onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
+              value={local.statuses?.[0]?.value ?? "todo"}
+              onChange={(e) => setLocal((s) => ({ ...s, statuses: [{ field_name: "Status", value: e.target.value }] }))}
             >
               <option value="todo">To Do</option>
               <option value="in_progress">In Progress</option>

@@ -3,7 +3,6 @@
 import type { AuthContext } from "@/lib/auth-context";
 import { aiDebug } from "@/lib/ai/debug";
 import type { TaskItem, TaskItemPriority, TaskPriority } from "@/types/task";
-import { getCanonicalPriority } from "@/types/task";
 import { requireTaskBlockAccess, requireTaskItemAccess } from "./context";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -28,13 +27,18 @@ function toPriorities(priority?: string | null): TaskItemPriority[] {
   return [{ field_name: "Priority", value: priority }];
 }
 
+function toStatuses(status?: string | null): any {
+  if (!status) return [];
+  if (status !== "todo" && status !== "in-progress" && status !== "blocked" && status !== "done") return [];
+  const validStatus = status === "in-progress" ? "in_progress" : status;
+  return [{ field_name: "Status", value: validStatus }];
+}
+
 function normalizeTaskRow(row: any): TaskItem {
   const priorities = Array.isArray(row?.priorities) ? row.priorities : toPriorities(row?.priority);
-  const canonical = getCanonicalPriority(priorities as TaskItemPriority[]);
   return {
     ...(row as TaskItem),
     priorities: priorities as TaskItemPriority[],
-    priority: (canonical ?? "none") as TaskPriority,
   };
 }
 
@@ -42,7 +46,9 @@ export async function createTaskFullRpc(input: {
   taskBlockId: string;
   title: string;
   status?: string;
+  statuses?: any[];
   priority?: string;
+  priorities?: TaskItemPriority[];
   description?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
@@ -71,7 +77,8 @@ export async function createTaskFullRpc(input: {
     p_task_block_id: input.taskBlockId,
     p_title: input.title,
     p_status: input.status ?? null,
-    p_priorities: toPriorities(input.priority ?? null),
+    p_statuses: input.statuses && input.statuses.length > 0 ? input.statuses : toStatuses(input.status ?? null),
+    p_priorities: input.priorities && input.priorities.length > 0 ? input.priorities : toPriorities(input.priority ?? null),
     p_description: input.description ?? null,
     p_due_date: input.dueDate ?? null,
     p_due_time: input.dueTime ?? null,
@@ -117,10 +124,16 @@ export async function updateTaskFullRpc(input: {
   }
 
   const rpcUpdates = { ...(input.updates || {}) } as Record<string, unknown>;
+
   if (!("priorities" in rpcUpdates) && typeof rpcUpdates.priority === "string") {
     rpcUpdates.priorities = toPriorities(rpcUpdates.priority);
   }
   delete (rpcUpdates as any).priority;
+
+  if (!("statuses" in rpcUpdates) && typeof rpcUpdates.status === "string") {
+    rpcUpdates.statuses = toStatuses(rpcUpdates.status);
+  }
+  delete (rpcUpdates as any).status;
 
   const t0 = performance.now();
   aiDebug("rpc:start", { name: RPC_UPDATE_TASK_FULL, table: "task_items" });
@@ -161,10 +174,16 @@ export async function bulkUpdateTaskItemsRpc(input: {
   }
 
   const rpcUpdates = { ...(input.updates || {}) } as Record<string, unknown>;
+
   if (!("priorities" in rpcUpdates) && typeof rpcUpdates.priority === "string") {
     rpcUpdates.priorities = toPriorities(rpcUpdates.priority);
   }
   delete (rpcUpdates as any).priority;
+
+  if (!("statuses" in rpcUpdates) && typeof rpcUpdates.status === "string") {
+    rpcUpdates.statuses = toStatuses(rpcUpdates.status);
+  }
+  delete (rpcUpdates as any).status;
 
   const t0 = performance.now();
   aiDebug("rpc:start", { name: RPC_BULK_UPDATE_TASK_ITEMS, table: "task_items" });

@@ -9,10 +9,10 @@ const VALID_DEPENDENCY_TYPES: DependencyType[] = [
 
 const VALID_REFERENCE_TYPES: ReferenceType[] = ["doc", "table_row", "block"];
 
-// Canonical IDs for status (matches workspace property_definitions)
+// Canonical status values
 const VALID_EVENT_STATUSES: TimelineEventStatus[] = ["todo", "in_progress", "blocked", "done"];
 
-// Canonical IDs for priority (matches workspace property_definitions)
+// Canonical priority values
 const VALID_EVENT_PRIORITIES: TimelineEventPriority[] = ["low", "medium", "high", "urgent"];
 
 export function validateTimelineDateRange(startDate: string, endDate: string) {

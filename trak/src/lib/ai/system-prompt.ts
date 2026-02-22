@@ -797,7 +797,7 @@ User: "Assign task X to Amna"
 - Block: createBlock, updateBlock, deleteBlock
 - Table: createField, updateField, deleteField, createRow, updateRow, updateCell, deleteRow, bulkInsertRows, bulkUpdateRows
 - Timeline: createTimelineEvent, updateTimelineEvent, deleteTimelineEvent, createTimelineDependency
-- Property: createPropertyDefinition, setEntityProperty, removeEntityProperty
+- Property: setEntityProperty, removeEntityProperty
 - Client: createClient, updateClient, deleteClient
 - Doc: createDoc, updateDoc, archiveDoc, deleteDoc
 - Comment: createComment, updateComment, deleteComment
