@@ -4,10 +4,10 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
+import { parseLocalDate, parseDateSafe } from "@/lib/due-date";
 import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type Block } from "@/app/actions/block";
-import { updateBlock } from "@/app/actions/block";
+import { type Block, getBlockLocation, updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { getAllTeams } from "@/app/actions/workspace-teams";
 import type { WorkspaceTeam } from "@/app/actions/workspace-teams";
@@ -179,6 +179,16 @@ function findWorkspaceMember(members: WorkspaceMember[], memberId?: string | nul
 
 function clampDate(d: Date) {
   return startOfDay(d);
+}
+
+function EventModalToneChip({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "accent" | "warn" | "success" }) {
+  const t: Record<string, string> = {
+    neutral: "bg-zinc-100 text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/50 dark:text-zinc-200 dark:ring-zinc-800",
+    accent: "bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-900/15 dark:text-blue-200 dark:ring-blue-800",
+    warn: "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-900/15 dark:text-amber-200 dark:ring-amber-900/35",
+    success: "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-900/15 dark:text-emerald-200 dark:ring-emerald-900/35",
+  };
+  return <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium", t[tone])}>{children}</span>;
 }
 
 function daysBetween(a: Date, b: Date) {
@@ -1298,7 +1308,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         onClick={closePanel}
       />
       <div
-        className="fixed z-[99999] w-[calc(100vw-24px)] max-w-md rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl overflow-hidden flex flex-col"
+        className="fixed z-[99999] w-[calc(100vw-24px)] max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl overflow-hidden flex flex-col"
         style={{
           top: modalPosition.top,
           left: modalPosition.left,
@@ -2030,8 +2040,8 @@ function AddEventPopover({
             <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Start</label>
             <input
               type="date"
-              value={format(new Date(local.start), "yyyy-MM-dd")}
-              onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+              value={format(parseDateSafe(local.start) || new Date(local.start), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, start: parseLocalDate(e.target.value).toISOString() }))}
               className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
               disabled={local.isMilestone}
             />
@@ -2040,8 +2050,8 @@ function AddEventPopover({
             <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">End</label>
             <input
               type="date"
-              value={format(new Date(local.end), "yyyy-MM-dd")}
-              onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+              value={format(parseDateSafe(local.end) || new Date(local.end), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, end: parseLocalDate(e.target.value).toISOString() }))}
               className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
               disabled={local.isMilestone}
             />
@@ -2056,9 +2066,13 @@ function AddEventPopover({
               type="number"
               min="0"
               max="100"
-              value={local.progress ?? 0}
-              onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+              value={local.progress === 0 ? "" : local.progress}
+              onChange={(e) => {
+                const v = e.target.value;
+                setLocal((s) => ({ ...s, progress: v === "" ? 0 : Math.min(100, Math.max(0, parseInt(v) || 0)) }));
+              }}
+              placeholder="0"
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] placeholder:text-[var(--muted-foreground)]"
             />
           </div>
           <div className="flex items-end">
@@ -2246,6 +2260,7 @@ function EventDetailsPanel({
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [assigneeSearchOpen, setAssigneeSearchOpen] = useState(false);
   const [assigneeSearchQuery, setAssigneeSearchQuery] = useState("");
+  const [notesOpen, setNotesOpen] = useState(Boolean((event.notes ?? "").trim()));
   const assigneeSearchInputRef = useRef<HTMLInputElement>(null);
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
@@ -2288,6 +2303,7 @@ function EventDetailsPanel({
     setIsColorDialogOpen(false);
     setAssigneeSearchQuery("");
     setAssigneeSearchOpen(false);
+    setNotesOpen(Boolean((event.notes ?? "").trim()));
   }, [event]);
 
   const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
@@ -2319,8 +2335,8 @@ function EventDetailsPanel({
 
   const handleStartChange = (value: string) => {
     if (!value) return;
-    const nextStart = clampDate(new Date(value));
-    let nextEnd = clampDate(new Date(local.end));
+    const nextStart = clampDate(/^\d{4}-\d{2}-\d{2}$/.test(value) ? parseLocalDate(value) : new Date(value));
+    let nextEnd = clampDate(parseDateSafe(local.end) ?? new Date(local.end));
     if (nextStart > nextEnd) {
       nextEnd = nextStart;
     }
@@ -2334,8 +2350,8 @@ function EventDetailsPanel({
 
   const handleEndChange = (value: string) => {
     if (!value) return;
-    let nextEnd = clampDate(new Date(value));
-    let nextStart = clampDate(new Date(local.start));
+    let nextEnd = clampDate(/^\d{4}-\d{2}-\d{2}$/.test(value) ? parseLocalDate(value) : new Date(value));
+    let nextStart = clampDate(parseDateSafe(local.start) ?? new Date(local.start));
     if (nextEnd < nextStart) {
       nextStart = nextEnd;
     }
@@ -2415,333 +2431,285 @@ function EventDetailsPanel({
   if (!isOpen) return null;
 
   const isModal = variant === "modal";
-  return (
-    <div
-      className={cn(
-        "flex flex-col min-h-0 overflow-hidden",
-        isModal
-          ? "h-full w-full bg-[var(--surface)]"
-          : "h-full w-full shrink-0 border-t border-[var(--border)] bg-[var(--surface)] shadow-popover lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl"
-      )}
-      role={isModal ? undefined : "complementary"}
-      aria-label={isModal ? undefined : `Event details: ${event.title}`}
-    >
-      <div className={cn(
-        "flex items-center justify-between bg-[var(--surface)]",
-        isModal ? "border-0 px-3 py-2" : "border-b border-[var(--border)] px-6 py-4"
-      )}>
-        <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
-          <div className={cn(
-            "font-semibold text-[var(--foreground)] truncate",
-            isModal ? "text-sm" : "text-lg"
-          )}>
-            {event.title || "Event details"}
-          </div>
-          {event.source_entity_id && (
-            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-              <Link2 className="h-3 w-3 shrink-0" />
-              <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+  const statusDisplay = (local.status === "todo" || !local.status) ? "Not started" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
+  const statusTone = (s: string | null) => (s === "done" ? "success" : s === "blocked" ? "warn" : s === "in_progress" ? "accent" : "neutral");
+  const priorityTone = (v: string) => (v === "high" || v === "urgent" ? "warn" : v === "medium" ? "accent" : "neutral");
+  const statusLabel = (local.status === "todo" || !local.status) ? "To Do" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
+  const p = Math.max(0, Math.min(100, Number.isFinite(local.progress) ? local.progress : 0));
+  const displayColor = local.color ?? "#111827";
+  const isHexColor = typeof displayColor === "string" && /^#([0-9A-Fa-f]{3}){1,2}$/.test(displayColor);
+
+  const Divider = () => <div className="h-px bg-zinc-200/80 dark:bg-zinc-800/80" />;
+  const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+    <div className="text-[9px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">{children}</div>
+  );
+
+  if (isModal) {
+    return (
+      <>
+      <div className="flex flex-col min-h-0 overflow-hidden h-full w-full bg-white dark:bg-zinc-950">
+        <div className="flex items-start justify-between gap-2 px-4 pb-2 pt-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">TIMELINE EVENT</div>
+            <div className="mt-0.5 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsColorDialogOpen(true)}
+                className={cn("h-4 w-4 shrink-0 rounded-full border border-zinc-200 dark:border-zinc-800 cursor-pointer", isHexColor ? "" : displayColor || "bg-zinc-700")}
+                style={isHexColor ? { background: displayColor } : undefined}
+                aria-label="Pick color"
+              />
+              <span className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">{event.title || "Event details"}</span>
             </div>
-          )}
+            {event.source_entity_id && (
+              <div className="mt-1 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+                <Link2 className="h-4 w-4 text-zinc-400 shrink-0" />
+                <span className="truncate">Linked from{" "}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const entityType = event.source_entity_type ?? "block";
+                      const entityId = event.source_entity_id!;
+                      if (!onNavigateToReference) return;
+                      if (entityType === "doc") {
+                        onNavigateToReference({ reference_type: "doc", reference_id: entityId });
+                      } else if (entityType === "task" || entityType === "block") {
+                        const loc = await getBlockLocation(entityId);
+                        if ("data" in loc) {
+                          onNavigateToReference({ reference_type: "block", reference_id: entityId, tab_id: loc.data.tab_id, project_id: loc.data.project_id ?? undefined, is_workflow: loc.data.is_workflow });
+                        }
+                      } else if (entityType === "table_row") {
+                        onNavigateToReference({ reference_type: "table_row", reference_id: entityId });
+                      }
+                    }}
+                    className="underline hover:text-[var(--primary)] focus:outline-none focus:underline"
+                  >
+                    {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}
+                  </button>
+                </span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-zinc-400">·</span>
+                  <span className="text-xs text-zinc-500">Sync with source</span>
+                  <Switch
+                    checked={event.sourceSyncMode === "live"}
+                    onCheckedChange={(checked) => onUpdate({ sourceSyncMode: checked ? "live" : "snapshot" })}
+                  />
+                </span>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-50 active:scale-[.98] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900 shrink-0"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className={isModal ? "h-7 w-7" : "h-8 w-8"}>
-          <X className={isModal ? "h-3.5 w-3.5" : "h-4 w-4"} />
-        </Button>
-      </div>
-
-      <div
-        ref={contentScrollRef}
-        className={cn(
-          "flex-1 overflow-y-auto min-h-0",
-          isModal ? "px-3 py-2.5" : "px-6 py-5"
-        )}
-        data-event-details-modal={isModal ? "true" : undefined}
-      >
-        <div className={cn("space-y-3", isModal && "space-y-2")}>
-          <div className={cn(
-            "rounded-md",
-            isModal ? "border-0 bg-transparent px-0 py-1.5" : "border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5"
-          )}>
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
-            <div className={cn("grid grid-cols-2 gap-2", isModal && "mt-1")}>
-              <input
-                type="date"
-                value={format(new Date(local.start), "yyyy-MM-dd")}
-                onChange={(e) => handleStartChange(e.target.value)}
-                className={cn(
-                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
-                  isModal ? "border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
-                )}
-              />
-              <input
-                type="date"
-                value={format(new Date(local.end), "yyyy-MM-dd")}
-                onChange={(e) => handleEndChange(e.target.value)}
-                className={cn(
-                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
-                  isModal ? "border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
-                )}
-                disabled={local.isMilestone}
-              />
+        <Divider />
+        <div ref={contentScrollRef} className="flex-1 overflow-y-auto min-h-0 px-4" data-event-details-modal="true">
+          <div className="py-2">
+            <div className="flex items-center gap-2">
+              <CalendarIcon className="h-4 w-4 text-zinc-400 shrink-0" />
+              <SectionLabel>SCHEDULE</SectionLabel>
+            </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <label className="block">
+                <span className="sr-only">Start date</span>
+                <input
+                  type="date"
+                  value={format(parseDateSafe(local.start) || new Date(local.start), "yyyy-MM-dd")}
+                  onChange={(e) => handleStartChange(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2.5 text-xs shadow-sm outline-none focus:border-blue-500/55 focus:ring-2 focus:ring-blue-500/15 dark:border-zinc-800 dark:bg-zinc-950"
+                />
+              </label>
+              <label className="block">
+                <span className="sr-only">End date</span>
+                <input
+                  type="date"
+                  value={format(parseDateSafe(local.end) || new Date(local.end), "yyyy-MM-dd")}
+                  onChange={(e) => handleEndChange(e.target.value)}
+                  disabled={local.isMilestone}
+                  className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2.5 text-xs shadow-sm outline-none focus:border-blue-500/55 focus:ring-2 focus:ring-blue-500/15 dark:border-zinc-800 dark:bg-zinc-950"
+                />
+              </label>
             </div>
           </div>
-
-          {event.source_entity_id && (
-            <div className={cn(
-              "flex items-center justify-between gap-2",
-              isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
-            )}>
-              <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sync with source</span>
-              <Switch
-                checked={event.sourceSyncMode === "live"}
-                onCheckedChange={(checked) => onUpdate({ sourceSyncMode: checked ? "live" : "snapshot" })}
-              />
+          <Divider />
+          <div className="py-0.5 grid grid-cols-2 gap-x-4">
+            <div className="flex items-start justify-between gap-2 py-1.5">
+              <div className="min-w-0">
+                <div className="text-[9px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">STATUS</div>
+                <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">{statusDisplay}</div>
+              </div>
+              <div className="shrink-0 pt-[10px]">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="focus:outline-none">
+                      <EventModalToneChip tone={statusTone(local.status) as "neutral" | "accent" | "warn" | "success"}>{statusLabel}</EventModalToneChip>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="z-[100000]" sideOffset={4}>
+                    <DropdownMenuItem onClick={() => handleStatusChange("todo")}>To Do</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleStatusChange("in_progress")}>In Progress</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleStatusChange("blocked")}>Blocked</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleStatusChange("done")}>Done</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleStatusChange("none")}>None</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-          )}
-
-          <div className={cn(
-            "flex items-center gap-2",
-            isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
-          )}>
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] shrink-0">Color</div>
-            <button
-              type="button"
-              onClick={() => setIsColorDialogOpen(true)}
-              className={cn(
-                "rounded-full ring-offset-1 ring-offset-[var(--surface)]",
-                currentColorClass,
-                isModal ? "h-5 w-5 border-0" : "mt-2 h-6 w-6 border border-[var(--border)]"
-              )}
-              title="Change color"
-            />
+            <div className="flex items-start justify-between gap-2 py-1.5">
+              <div className="min-w-0">
+                <div className="text-[9px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">ASSIGNEE</div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="mt-1 truncate text-left text-sm font-medium text-zinc-900 dark:text-zinc-100 hover:opacity-80 focus:outline-none">
+                      {assigneeLabel}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-44 max-h-56 overflow-y-auto z-[100000] py-1 text-xs" sideOffset={4}>
+                    <DropdownMenuItem onClick={handleAssigneeClear} className="text-[11px] text-neutral-500 py-1.5 px-2">Unassigned</DropdownMenuItem>
+                    <DropdownMenuSeparator className="my-1" />
+                    {teams.length > 0 && (
+                      <>
+                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 py-1 px-2">Teams</DropdownMenuLabel>
+                        {filteredTeamsForSearch.map((team) => (
+                          <DropdownMenuItem key={team.id} onClick={() => handleAssigneeTeamChange(team.id)} className="py-1 px-2 gap-1.5">
+                            <span className="truncate text-[11px]">{team.name}</span>
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator className="my-1" />
+                      </>
+                    )}
+                    <div className="flex items-center justify-between gap-1 py-1 px-2">
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 p-0">Members</DropdownMenuLabel>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAssigneeSearchOpen((v) => !v); if (!assigneeSearchOpen) setTimeout(() => assigneeSearchInputRef.current?.focus(), 0); }}
+                        className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600"
+                        title="Search assignees"
+                      >
+                        <Search className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {assigneeSearchOpen && (
+                      <div className="px-2 pb-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          ref={assigneeSearchInputRef}
+                          type="text"
+                          value={assigneeSearchQuery}
+                          onChange={(e) => setAssigneeSearchQuery(e.target.value)}
+                          placeholder="Search..."
+                          className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
+                    {workspaceMembers.length > 0 ? (
+                      filteredMembersForSearch.length > 0 ? (
+                        filteredMembersForSearch.map((member) => (
+                          <DropdownMenuItem key={member.id} onClick={() => handleAssigneeChange(member.user_id ?? member.id)} className="py-1 px-2 gap-1.5">
+                            <div className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-[9px] font-medium shrink-0">
+                              {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
+                            </div>
+                            <span className="truncate text-[11px]">{member.name ?? member.email ?? "Unknown"}</span>
+                          </DropdownMenuItem>
+                        ))
+                      ) : (
+                        <div className="py-1 px-2 text-[11px] text-neutral-400">No members match</div>
+                      )
+                    ) : (
+                      <DropdownMenuItem disabled className="text-[11px] text-neutral-400 py-1 px-2">Loading members...</DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+            <div className="flex items-start justify-between gap-2 py-1.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-[9px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">PROGRESS</div>
+                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+                  <div className="h-full rounded-full bg-blue-600" style={{ width: `${p}%` }} />
+                </div>
+              </div>
+              <div className="shrink-0 pt-[14px] flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={local.progress === 0 ? "" : local.progress}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLocal((s) => ({ ...s, progress: v === "" ? 0 : Math.min(100, Math.max(0, Number(v) || 0)) }));
+                  }}
+                  onBlur={handleProgressBlur}
+                  placeholder="0"
+                  className="w-10 rounded border border-zinc-200 bg-white px-1 py-0.5 text-right text-xs font-semibold outline-none focus:border-blue-500 dark:border-zinc-800 dark:bg-zinc-950 placeholder:text-zinc-400"
+                />
+                <span className="text-xs font-semibold">%</span>
+              </div>
+            </div>
           </div>
-
-          <div className={cn("grid grid-cols-2 gap-2", !isModal && "gap-3")}>
-            <div className={cn(
-              isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
-            )}>
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
-              <select
-                value={local.status ?? "none"}
-                onChange={(e) => handleStatusChange(e.target.value)}
-                className={cn(
-                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
-                  isModal ? "mt-0.5 border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0 shadow-none ring-0 appearance-none" : "mt-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
-                )}
-              >
-                <option value="none">None</option>
-                <option value="todo">To Do</option>
-                <option value="in_progress">In Progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
-            </div>
-            <div className={cn(
-              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
-            )}>
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
+          <Divider />
+          <div className="py-2">
+            <div className="flex items-center justify-between gap-2">
+              <SectionLabel>PRIORITY</SectionLabel>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
-                    className={cn(
-                      "w-full text-left text-xs text-[var(--foreground)] focus:outline-none",
-                      isModal ? "assignee-trigger-btn mt-0.5 rounded-none border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 shadow-none ring-0 focus:shadow-none focus:ring-0" : "mt-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
-                    )}
-                  >
-                    {assigneeLabel}
+                  <button type="button" className="text-xs font-semibold text-blue-600 hover:opacity-80 dark:text-blue-400">
+                    Edit
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-44 max-h-56 overflow-y-auto z-[100000] py-1 text-xs" sideOffset={4}>
-                  <DropdownMenuItem
-                    onClick={handleAssigneeClear}
-                    className="text-[11px] text-neutral-500 py-1.5 px-2"
-                  >
-                    Unassigned
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="my-1" />
-                  {teams.length > 0 && (
-                    <>
-                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 py-1 px-2">
-                        Teams
-                      </DropdownMenuLabel>
-                      {filteredTeamsForSearch.map((team) => (
-                        <DropdownMenuItem
-                          key={team.id}
-                          onClick={() => handleAssigneeTeamChange(team.id)}
-                          className="py-1 px-2 gap-1.5"
-                        >
-                          <span className="truncate text-[11px]">{team.name}</span>
-                        </DropdownMenuItem>
-                      ))}
-                      {assigneeSearchLower && filteredTeamsForSearch.length === 0 && (
-                        <div className="py-1 px-2 text-[11px] text-neutral-400">No teams match</div>
-                      )}
-                      <DropdownMenuSeparator className="my-1" />
-                    </>
-                  )}
-                  <div className="flex items-center justify-between gap-1 py-1 px-2">
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 p-0">
-                      {teams.length > 0 ? "Members" : "Members"}
-                    </DropdownMenuLabel>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setAssigneeSearchOpen((v) => !v);
-                        if (!assigneeSearchOpen) setTimeout(() => assigneeSearchInputRef.current?.focus(), 0);
-                      }}
-                      className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600"
-                      title="Search assignees"
-                    >
-                      <Search className="h-3 w-3" />
-                    </button>
-                  </div>
-                  {assigneeSearchOpen && (
-                    <div className="px-2 pb-1" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        ref={assigneeSearchInputRef}
-                        type="text"
-                        value={assigneeSearchQuery}
-                        onChange={(e) => setAssigneeSearchQuery(e.target.value)}
-                        placeholder="Search..."
-                        className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  )}
-                  {workspaceMembers.length > 0 ? (
-                    filteredMembersForSearch.length > 0 ? (
-                      filteredMembersForSearch.map((member) => (
-                        <DropdownMenuItem
-                          key={member.id}
-                          onClick={() => handleAssigneeChange(member.user_id ?? member.id)}
-                          className="py-1 px-2 gap-1.5"
-                        >
-                          <div className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-[9px] font-medium shrink-0">
-                            {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
-                          </div>
-                          <span className="truncate text-[11px]">{member.name ?? member.email ?? "Unknown"}</span>
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <div className="py-1 px-2 text-[11px] text-neutral-400">No members match</div>
-                    )
-                  ) : (
-                    <DropdownMenuItem disabled className="text-[11px] text-neutral-400 py-1 px-2">
-                      Loading members...
-                    </DropdownMenuItem>
-                  )}
+                <DropdownMenuContent align="end" className="z-[100000]" sideOffset={4}>
+                  <DropdownMenuItem onClick={() => handleAddPriority("low")}>Low</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddPriority("medium")}>Medium</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddPriority("high")}>High</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddPriority("urgent")}>Urgent</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className={cn(
-              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
-            )}>
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={local.progress}
-                onChange={(e) => setLocal((s) => ({ ...s, progress: Number(e.target.value) }))}
-                onBlur={handleProgressBlur}
-                className={cn(
-                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
-                  isModal ? "mt-0.5 w-full border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "mt-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
-                )}
-              />
-            </div>
-            <div className={cn(
-              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
-            )}>
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               {effectivePriorities.length > 0 ? (
-                <div className={cn("flex flex-wrap gap-1", isModal ? "mt-0.5" : "mt-1")}>
-                  {effectivePriorities.map((priorityField) => (
-                    <span
-                      key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`}
-                      className={cn(
-                        "inline-flex max-w-[180px] items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                        isModal && "border-0 shadow-none",
-                        !isModal && "border",
-                        PRIORITY_PILL_COLORS[priorityField.value]
-                      )}
-                      title={getTimelinePriorityDisplayLabel(priorityField)}
-                    >
-                      <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
-                    </span>
-                  ))}
-                </div>
+                effectivePriorities.map((priorityField) => (
+                  <EventModalToneChip key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`} tone={priorityTone(priorityField.value) as "neutral" | "accent" | "warn" | "success"} title={getTimelinePriorityDisplayLabel(priorityField)}>
+                    <span className="font-semibold">{PRIORITY_LABELS[priorityField.value]}</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">•</span>
+                    <span>{priorityField.field_name}</span>
+                  </EventModalToneChip>
+                ))
               ) : (
-                <div className={cn("flex items-center gap-2", isModal ? "mt-0.5" : "mt-1")}>
-                  <span className="text-[10px] text-[var(--muted-foreground)]">None</span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className={cn(
-                          "text-[10px] text-blue-600 hover:underline focus:outline-none",
-                          isModal && "shadow-none ring-0 focus:shadow-none focus:ring-0"
-                        )}
-                      >
-                        Add priority
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="z-[100000]" sideOffset={4}>
-                      <DropdownMenuItem onClick={() => handleAddPriority("low")}>Low</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddPriority("medium")}>Medium</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddPriority("high")}>High</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddPriority("urgent")}>Urgent</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">None</span>
               )}
             </div>
           </div>
-
-          <div className={cn("space-y-1", !isModal && "space-y-2")}>
-            <div className={cn(
-              "font-medium text-neutral-700 dark:text-neutral-300",
-              isModal ? "text-xs" : "text-sm"
-            )}>Notes</div>
-            <textarea
-              ref={notesTextareaRef}
+          <Divider />
+          <div className="py-2">
+            <SectionLabel>NOTES</SectionLabel>
+            <input
+              type="text"
               value={local.notes}
               onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-              onInput={isModal ? resizeNotesTextarea : undefined}
               onBlur={handleNotesBlur}
-              className={cn(
-                "w-full bg-transparent text-[var(--foreground)] focus:outline-none resize-none overflow-hidden",
-                isModal
-                  ? "text-xs border-0 border-b border-[var(--border)] py-1 px-0 min-h-[28px] focus:border-[var(--foreground)]/30"
-                  : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
-              )}
-              placeholder="Add notes..."
-              rows={isModal ? 1 : 2}
+              placeholder="Add notes…"
+              className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs shadow-sm outline-none focus:border-blue-500/55 focus:ring-2 focus:ring-blue-500/15 dark:border-zinc-800 dark:bg-zinc-950 placeholder:text-zinc-400"
             />
           </div>
 
           {workspaceId && direct && (
-            <div className={cn("space-y-1", !isModal && "space-y-2")}>
-              <div className={cn(
-                "font-medium text-neutral-700 dark:text-neutral-300",
-                isModal ? "text-xs" : "text-sm"
-              )}>Properties</div>
-              <div className="flex flex-wrap gap-1.5">
+            <div className="space-y-1 py-2">
+              <div className="text-[11px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">Properties</div>
+              <div className="flex flex-wrap gap-1.5 mt-1">
                 <PropertyBadges properties={direct} />
               </div>
             </div>
           )}
 
-          <div className={cn("space-y-1", !isModal && "space-y-2")}>
+          <div className="space-y-1 py-2">
             <div className="flex items-center justify-between">
-              <div className={cn(
-                "font-medium text-neutral-700 dark:text-neutral-300",
-                isModal ? "text-xs" : "text-sm"
-              )}>Attachments</div>
-              <Button variant="outline" size="icon" className={isModal ? "h-6 w-6" : "h-7 w-7"} onClick={onAddReference}>
-                <Plus className={isModal ? "h-3 w-3" : "h-3.5 w-3.5"} />
+              <div className="text-[11px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">Attachments</div>
+              <Button variant="outline" size="icon" className="h-6 w-6" onClick={onAddReference}>
+                <Plus className="h-3 w-3" />
               </Button>
             </div>
             {references.length > 0 && (
@@ -2769,10 +2737,18 @@ function EventDetailsPanel({
                       <ExternalLink className="h-3 w-3 text-neutral-400 flex-shrink-0" />
                     </div>
                   </button>
-                ))}
+                    ))}
               </div>
             )}
           </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 border-t border-zinc-200 dark:border-zinc-800 px-4 py-3">
+          <button type="button" onClick={onClose} className="inline-flex h-8 flex-1 items-center justify-center rounded-xl border border-zinc-200 bg-white text-xs font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 active:scale-[.98] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900">
+            Cancel
+          </button>
+          <button type="button" onClick={onClose} className="inline-flex h-8 flex-1 items-center justify-center rounded-xl bg-[var(--primary)] text-xs font-semibold text-[var(--primary-foreground)] shadow-sm transition hover:bg-[var(--primary-hover)] active:scale-[.98]">
+            Save
+          </button>
         </div>
       </div>
       <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
@@ -2796,6 +2772,180 @@ function EventDetailsPanel({
                 )}
                 title={choice.label}
               />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      </>
+    );
+  }
+
+  return (
+    <div className="h-full w-full shrink-0 flex flex-col min-h-0 overflow-hidden border-t border-[var(--border)] bg-[var(--surface)] shadow-popover lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl" role="complementary" aria-label={`Event details: ${event.title}`}>
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
+          <div className="text-lg font-semibold text-[var(--foreground)] truncate">{event.title || "Event details"}</div>
+          {event.source_entity_id && (
+            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+              <Link2 className="h-3 w-3 shrink-0" />
+              <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+            </div>
+          )}
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto min-h-0 px-6 py-5">
+        <div className="space-y-3">
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              <input type="date" value={format(parseDateSafe(local.start) || new Date(local.start), "yyyy-MM-dd")} onChange={(e) => handleStartChange(e.target.value)} className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md" />
+              <input type="date" value={format(parseDateSafe(local.end) || new Date(local.end), "yyyy-MM-dd")} onChange={(e) => handleEndChange(e.target.value)} disabled={local.isMilestone} className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md" />
+            </div>
+          </div>
+          {event.source_entity_id && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex items-center justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sync with source</span>
+              <Switch checked={event.sourceSyncMode === "live"} onCheckedChange={(checked) => onUpdate({ sourceSyncMode: checked ? "live" : "snapshot" })} />
+            </div>
+          )}
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex items-center gap-2">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] shrink-0">Color</div>
+            <button type="button" onClick={() => setIsColorDialogOpen(true)} className={cn("rounded-full ring-offset-1 ring-offset-[var(--surface)] mt-2 h-6 w-6 border border-[var(--border)]", currentColorClass)} title="Change color" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
+              <select value={local.status ?? "none"} onChange={(e) => handleStatusChange(e.target.value)} className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md">
+                <option value="none">None</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-left text-xs hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-2 focus:ring-blue-500">{assigneeLabel}</button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-44 max-h-56 overflow-y-auto z-[100000] py-1 text-xs" sideOffset={4}>
+                  <DropdownMenuItem onClick={handleAssigneeClear} className="text-[11px] text-neutral-500 py-1.5 px-2">Unassigned</DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1" />
+                  {teams.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 py-1 px-2">Teams</DropdownMenuLabel>
+                      {filteredTeamsForSearch.map((team) => (
+                        <DropdownMenuItem key={team.id} onClick={() => handleAssigneeTeamChange(team.id)} className="py-1 px-2 gap-1.5">
+                          <span className="truncate text-[11px]">{team.name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator className="my-1" />
+                    </>
+                  )}
+                  <div className="flex items-center justify-between gap-1 py-1 px-2">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 p-0">Members</DropdownMenuLabel>
+                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAssigneeSearchOpen((v) => !v); if (!assigneeSearchOpen) setTimeout(() => assigneeSearchInputRef.current?.focus(), 0); }} className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600" title="Search assignees">
+                      <Search className="h-3 w-3" />
+                    </button>
+                  </div>
+                  {assigneeSearchOpen && (
+                    <div className="px-2 pb-1" onClick={(e) => e.stopPropagation()}>
+                      <input ref={assigneeSearchInputRef} type="text" value={assigneeSearchQuery} onChange={(e) => setAssigneeSearchQuery(e.target.value)} placeholder="Search..." className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    </div>
+                  )}
+                  {workspaceMembers.length > 0 ? (
+                    filteredMembersForSearch.length > 0 ? (
+                      filteredMembersForSearch.map((member) => (
+                        <DropdownMenuItem key={member.id} onClick={() => handleAssigneeChange(member.user_id ?? member.id)} className="py-1 px-2 gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-[9px] font-medium shrink-0">{(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}</div>
+                          <span className="truncate text-[11px]">{member.name ?? member.email ?? "Unknown"}</span>
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <div className="py-1 px-2 text-[11px] text-neutral-400">No members match</div>
+                    )
+                  ) : (
+                    <DropdownMenuItem disabled className="text-[11px] text-neutral-400 py-1 px-2">Loading members...</DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
+              <input type="number" min="0" max="100" value={local.progress === 0 ? "" : local.progress} onChange={(e) => { const v = e.target.value; setLocal((s) => ({ ...s, progress: v === "" ? 0 : Math.min(100, Math.max(0, Number(v) || 0)) })); }} onBlur={handleProgressBlur} placeholder="0" className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md placeholder:text-[var(--muted-foreground)]" />
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
+              {effectivePriorities.length > 0 ? (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {effectivePriorities.map((priorityField) => (
+                    <span key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`} className={cn("inline-flex max-w-[180px] items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border", PRIORITY_PILL_COLORS[priorityField.value])} title={getTimelinePriorityDisplayLabel(priorityField)}>
+                      <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <span className="text-[10px] text-[var(--muted-foreground)]">None</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className="text-[10px] text-blue-600 hover:underline focus:outline-none">Add priority</button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="z-[100000]" sideOffset={4}>
+                      <DropdownMenuItem onClick={() => handleAddPriority("low")}>Low</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("medium")}>Medium</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("high")}>High</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("urgent")}>Urgent</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="font-medium text-neutral-700 dark:text-neutral-300 text-sm">Notes</div>
+            <textarea ref={notesTextareaRef} value={local.notes} onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))} onBlur={handleNotesBlur} placeholder="Add notes..." rows={2} className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          </div>
+          {workspaceId && direct && (
+            <div className="space-y-2">
+              <div className="font-medium text-neutral-700 dark:text-neutral-300 text-sm">Properties</div>
+              <div className="flex flex-wrap gap-1.5"><PropertyBadges properties={direct} /></div>
+            </div>
+          )}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="font-medium text-neutral-700 dark:text-neutral-300 text-sm">Attachments</div>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={onAddReference}><Plus className="h-3.5 w-3.5" /></Button>
+            </div>
+            {references.length > 0 && (
+              <div className="space-y-2">
+                {references.map((ref) => (
+                  <button key={ref.id} onClick={() => onNavigateToReference?.(ref)} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 px-3 py-2 text-left text-xs transition-colors cursor-pointer">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">{ref.title}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-neutral-400">{ref.type_label || ref.reference_type}</div>
+                      </div>
+                      <ExternalLink className="h-3 w-3 text-neutral-400 flex-shrink-0" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Pick a color</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-6 gap-2">
+            {colorChoices.map((choice) => (
+              <button key={choice.label} type="button" onClick={() => { handleColorChange(choice.value); setIsColorDialogOpen(false); }} className={cn("h-8 w-8 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]", choice.className, (local.color ?? null) === choice.value && "ring-2 ring-[var(--foreground)]")} title={choice.label} />
             ))}
           </div>
         </DialogContent>
@@ -3074,9 +3224,13 @@ function EditEventDialog({
                 type="number"
                 min="0"
                 max="100"
-                value={local.progress ?? 0}
-                onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={local.progress === 0 ? "" : local.progress}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLocal((s) => ({ ...s, progress: v === "" ? 0 : Math.min(100, Math.max(0, parseInt(v) || 0)) }));
+                }}
+                placeholder="0"
+                className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-neutral-400"
               />
             </div>
             <div className="flex items-end">
@@ -3104,8 +3258,8 @@ function EditEventDialog({
               <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
               <input
                 type="date"
-                value={format(new Date(local.start), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+                value={format(parseDateSafe(local.start) || new Date(local.start), "yyyy-MM-dd")}
+                onChange={(e) => setLocal((s) => ({ ...s, start: parseLocalDate(e.target.value).toISOString() }))}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={local.isMilestone}
               />
@@ -3115,8 +3269,8 @@ function EditEventDialog({
               <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
               <input
                 type="date"
-                value={format(new Date(local.end), "yyyy-MM-dd")}
-                onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+                value={format(parseDateSafe(local.end) || new Date(local.end), "yyyy-MM-dd")}
+                onChange={(e) => setLocal((s) => ({ ...s, end: parseLocalDate(e.target.value).toISOString() }))}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={local.isMilestone}
               />
@@ -3401,8 +3555,8 @@ function EventDrawer({
             <input
               type="date"
               className="mt-1 w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={format(new Date(local.start), "yyyy-MM-dd")}
-              onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+              value={format(parseDateSafe(local.start) || new Date(local.start), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, start: parseLocalDate(e.target.value).toISOString() }))}
             />
           </label>
           <label className="text-sm text-neutral-600 dark:text-neutral-400">
@@ -3410,8 +3564,8 @@ function EventDrawer({
             <input
               type="date"
               className="mt-1 w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={format(new Date(local.end), "yyyy-MM-dd")}
-              onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+              value={format(parseDateSafe(local.end) || new Date(local.end), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, end: parseLocalDate(e.target.value).toISOString() }))}
             />
           </label>
         </div>

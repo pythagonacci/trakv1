@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { parseDateSafe } from "@/lib/due-date";
 import type { BlockType } from "@/app/actions/block";
 
 interface Project {
@@ -427,7 +428,8 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
     }
 
     if (dateString) {
-      const date = new Date(dateString);
+      const date = parseDateSafe(dateString);
+      if (!date) return { text: null, isOverdue: false };
       const now = new Date();
       now.setHours(0, 0, 0, 0);
       const isOverdue = date < now && date.toDateString() !== now.toDateString();

@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { parseDateSafe } from "@/lib/due-date";
 
 interface Project {
   id: string;
@@ -382,7 +383,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     }
 
     if (dateString) {
-      const date = new Date(dateString);
+      const date = parseDateSafe(dateString);
+      if (!date) return { text: "No due date", isOverdue: false };
       const now = new Date();
       const isOverdue = date < now;
       const formatted = date.toLocaleDateString("en-US", {
@@ -473,7 +475,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       </div>
 
       <Table className="[&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
-          <TableHeader className="bg-[var(--secondary)]/10 border-b border-[var(--secondary)]">
+          <TableHeader className="bg-[var(--primary)]/10 border-b border-[var(--primary)]/30">
             <TableRow className="border-0 hover:bg-transparent">
               <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 <button

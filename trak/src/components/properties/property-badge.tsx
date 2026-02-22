@@ -16,7 +16,7 @@ import {
   type Priority,
   type DueDateRange,
 } from "@/types/properties";
-import { formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
+import { formatDueDateRange, getDueDateEnd, hasDueDate, parseDateSafe } from "@/lib/due-date";
 
 interface PropertyBadgesProps {
   properties: EntityProperties | null;
@@ -310,8 +310,8 @@ export function TagBadge({
  */
 function formatDueDateValue(dateString: string): string {
   try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
+    const date = parseDateSafe(dateString);
+    if (!date || isNaN(date.getTime())) return dateString;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -341,7 +341,8 @@ function formatDueDateValue(dateString: string): string {
  */
 function isToday(dateString: string): boolean {
   try {
-    const date = new Date(dateString);
+    const date = parseDateSafe(dateString);
+    if (!date) return false;
     const today = new Date();
     return (
       date.getDate() === today.getDate() &&

@@ -155,6 +155,52 @@ export async function getChildBlocks(parentBlockId: string) {
   }
 }
 
+/** Returns tab_id, project_id for a block. Used for navigating to source tasks. */
+export async function getBlockLocation(blockId: string): Promise<
+  | { error: string }
+  | { data: { tab_id: string; project_id: string | null; is_workflow?: boolean } }
+> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+
+    const { data: block, error: blockError } = await supabase
+      .from("blocks")
+      .select("tab_id, tabs!inner(id, project_id, projects!inner(workspace_id))")
+      .eq("id", blockId)
+      .single();
+
+    if (blockError || !block) return { error: "Block not found" };
+
+    const tab = (block as any).tabs;
+    const projectId = tab?.project_id ?? null;
+    const workspaceId = tab?.projects?.workspace_id;
+
+    if (!workspaceId) return { error: "Block has no workspace" };
+
+    const { data: membership } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membership) return { error: "Access denied" };
+
+    return {
+      data: {
+        tab_id: (block as any).tab_id,
+        project_id: projectId,
+        is_workflow: !projectId,
+      },
+    };
+  } catch (e) {
+    console.error("getBlockLocation:", e);
+    return { error: "Failed to get block location" };
+  }
+}
+
 // ============================================================================
 // 2. CREATE BLOCK
 // ============================================================================

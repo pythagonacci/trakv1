@@ -379,7 +379,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
       </div>
 
       <Table className="text-sm [&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
-        <TableHeader className="bg-[var(--secondary)]/10 border-b border-[var(--secondary)]">
+        <TableHeader className="bg-[var(--primary)]/10 border-b border-[var(--primary)]/30">
           <TableRow className="border-0 hover:bg-transparent">
             <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
               <button

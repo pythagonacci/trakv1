@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TAB_THEMES } from "./tabs/[tabId]/tab-themes";
 import { cn } from "@/lib/utils";
+import { parseDateSafe } from "@/lib/due-date";
 
 interface Tab {
   id: string;
@@ -121,7 +122,8 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
       return project.due_date_text;
     }
     if (project.due_date_date) {
-      const date = new Date(project.due_date_date);
+      const date = parseDateSafe(project.due_date_date);
+      if (!date) return null;
       return date.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",

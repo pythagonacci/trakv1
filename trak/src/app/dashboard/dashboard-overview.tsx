@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/app/dashboard/theme-context";
+import { parseDateSafe } from "@/lib/due-date";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import AIOverviewBlock from "./ai-overview-block";
 import type { DashboardInsight } from "@/app/actions/dashboard-insights";
@@ -181,7 +182,8 @@ export default function DashboardOverview({
 
   const formatDueDate = (dueDate?: string, dueTime?: string) => {
     if (!dueDate) return null;
-    const date = new Date(dueDate);
+    const date = parseDateSafe(dueDate);
+    if (!date) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);

@@ -20,6 +20,7 @@ import {
   normalizeTimelinePriorities,
 } from "@/lib/timeline-priority-sync";
 import { setEntityProperties } from "@/app/actions/entity-properties";
+import { parseDateSafe } from "@/lib/due-date";
 import type { Status, Priority } from "@/types/properties";
 import type { TimelineNamedPriority } from "@/types/timeline";
 
@@ -1169,9 +1170,12 @@ function normalizeDateForTask(value: unknown): string | null {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
     return value.trim();
   }
-  const parsed = new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  const parsed = parseDateSafe(String(value));
+  if (!parsed) return null;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function normalizeTimelineStatus(value: unknown): "todo" | "in_progress" | "blocked" | "done" | null {
@@ -1194,8 +1198,16 @@ function normalizeTimelinePriority(value: unknown): "low" | "medium" | "high" | 
 
 function normalizeDateTimeForTimeline(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
-  const parsed = new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return null;
+  const str = String(value);
+  // For date-only YYYY-MM-DD, treat as local midnight to avoid timezone shift
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str.trim())) {
+    const d = parseDateSafe(str);
+    if (!d) return null;
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString();
+  }
+  const parsed = parseDateSafe(str);
+  if (!parsed) return null;
   return parsed.toISOString();
 }
 

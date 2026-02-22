@@ -4,6 +4,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { BlockComment } from "@/types/block-comment";
+import { parseDateSafe } from "@/lib/due-date";
 import ProjectHeader from "../project-header";
 import TabBar from "../tab-bar";
 import ProjectOverview from "./project-overview";
@@ -167,7 +168,8 @@ export default async function ProjectOverviewPage({
 
   for (const task of openTasks) {
     if (!task.dueDate) continue;
-    const d = new Date(task.dueDate);
+    const d = parseDateSafe(task.dueDate);
+    if (!d) continue;
     d.setHours(0, 0, 0, 0);
     if (d.getTime() < todayStart.getTime()) {
       tasksOverdue.push(task);

@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { parseDateSafe } from "@/lib/due-date";
 import StatusBadge from "../../projects/status-badge";
 
 interface Project {
@@ -44,7 +45,8 @@ export default function ClientProjects({ projects, clientId }: ClientProjectsPro
     }
 
     if (dateString) {
-      const date = new Date(dateString);
+      const date = parseDateSafe(dateString);
+      if (!date) return { text: "No due date", isOverdue: false };
       const now = new Date();
       const isOverdue = date < now;
       const formatted = date.toLocaleDateString("en-US", {

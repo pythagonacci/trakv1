@@ -216,10 +216,10 @@ export function TableHeaderRow({
   return (
     <div className={`relative w-full ${className ?? ""}`}>
       <div
-        className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
+        className="grid border-b border-l border-[var(--border)] bg-[var(--primary)]/10 w-full"
         style={{ gridTemplateColumns: template }}
       >
-        <div className="flex items-center justify-center border-r border-black/10 bg-[#d8d8d8]/20 sticky left-0 z-30">
+        <div className="flex items-center justify-center border-r border-black/10 bg-[var(--primary)]/10 sticky left-0 z-30">
           <input
             type="checkbox"
             checked={allSelected}
@@ -236,7 +236,7 @@ export function TableHeaderRow({
               <div
               key={field.id}
               ref={columnRefs?.[field.id]}
-              className={`${isPinned ? "sticky z-20 bg-[#d8d8d8]/20" : ""}`}
+              className={`${isPinned ? "sticky z-20 bg-[var(--primary)]/10" : ""}`}
               style={isPinned ? { 
                 left: `${pinnedOffsets[field.id]}px`,
                 boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -273,7 +273,7 @@ export function TableHeaderRow({
         </div>
       );
     })}
-        <div className="flex items-center justify-center border-l border-black/10 bg-[#d8d8d8]/20 min-w-[40px]">
+        <div className="flex items-center justify-center border-l border-black/10 bg-[var(--primary)]/10 min-w-[40px]">
           <button
             onClick={onAddField}
             className="inline-flex items-center justify-center w-8 h-6 rounded-[4px] border border-dashed border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)] transition-colors duration-150 text-sm"

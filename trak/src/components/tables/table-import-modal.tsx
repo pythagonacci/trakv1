@@ -177,7 +177,7 @@ export function TableImportModal({
           <p className="text-sm font-semibold text-[var(--foreground)] mb-2">Preview (first 5 rows)</p>
           <div className="overflow-auto rounded-[4px] border border-[var(--border)]">
             <table className="min-w-full text-xs">
-              <thead className="bg-[var(--surface)]">
+              <thead className="bg-[var(--primary)]/10 border-b border-[var(--primary)]/30">
                 <tr>
                   {columns.map((column) => (
                     <th key={column.columnIndex} className="px-3 py-2 text-left font-medium text-[var(--foreground)]">
