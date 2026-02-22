@@ -299,7 +299,7 @@ export function TableTimelineView({
   };
 
   if (!dateField) {
-    return <div className="p-6 text-sm text-gray-500">Add a date field to enable timeline view.</div>;
+    return <div className="p-6 text-sm text-[var(--tertiary-foreground)]">Add a date field to enable timeline view.</div>;
   }
 
   const todayOffset = range ? getOffsetForDate(new Date()) : null;
@@ -307,9 +307,9 @@ export function TableTimelineView({
   return (
     <div className="bg-white p-4">
       <div className="flex items-center gap-3 mb-3">
-        <label className="text-xs text-gray-500 uppercase tracking-wide">Date field</label>
+        <label className="text-xs text-[var(--tertiary-foreground)] uppercase tracking-wide">Date field</label>
         <select
-          className="text-sm border border-gray-200 rounded px-2 py-1 bg-white text-gray-700"
+          className="text-sm border border-[var(--border)] rounded-[var(--radius-sm)] px-2 py-1 bg-[var(--surface)] text-[var(--foreground)]"
           value={dateField.id}
           onChange={(e) => onDateFieldChange(e.target.value)}
         >
@@ -322,13 +322,13 @@ export function TableTimelineView({
       </div>
 
       {!range && (
-        <div className="text-sm text-gray-500 border border-dashed border-gray-300 rounded-lg p-4">
+        <div className="text-sm text-[var(--tertiary-foreground)] border border-dashed border-[var(--border)] rounded-[var(--radius-md)] p-4">
           No dates set yet. Add a date to see items on the timeline.
         </div>
       )}
 
       {range && (
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-[var(--border)] rounded-[var(--radius-md)] overflow-hidden">
           {/* Scrollable container for both header and content */}
           <div
             className="overflow-x-auto"
@@ -337,12 +337,12 @@ export function TableTimelineView({
           >
             <div style={{ width: timelineWidth }}>
               {/* Header ticks */}
-              <div className="border-b border-gray-200 bg-gray-50/50">
+              <div className="border-b border-[var(--border)] bg-[var(--surface-muted)]">
                 <div className="flex">
                   {ticks.map((tick, idx) => (
                     <div
                       key={`${tick.toISOString()}-${idx}`}
-                      className="text-[11px] text-gray-600 px-3 py-2 border-r border-gray-200 last:border-r-0 whitespace-nowrap"
+                      className="text-[11px] text-[var(--muted-foreground)] px-3 py-2 border-r border-[var(--border)] last:border-r-0 whitespace-nowrap"
                       style={{ width: columnWidth }}
                     >
                       {scale === "month" ? format(tick, "MMM yyyy") : format(tick, "MMM d")}
@@ -385,8 +385,8 @@ export function TableTimelineView({
                 );
 
                 return (
-                  <div key={lane.id} className="border-b border-gray-200">
-                    <div className="px-3 py-2 text-xs font-semibold text-gray-700 bg-white">
+                  <div key={lane.id} className="border-b border-[var(--border)]">
+                    <div className="px-3 py-2 text-xs font-semibold text-[var(--foreground)] bg-[var(--surface)]">
                       {lane.label} · {laneRowsWithDates.length}
                     </div>
 
@@ -513,10 +513,10 @@ export function TableTimelineView({
 
                                 {/* Title + Date */}
                                 <div className="min-w-0 flex-1 flex flex-col justify-center gap-0 overflow-hidden">
-                                  <div className="text-[10px] font-semibold text-gray-900 truncate leading-tight">
+                                  <div className="text-[10px] font-semibold text-[var(--foreground)] truncate leading-tight">
                                     {title}
                                   </div>
-                                  <div className="text-[9px] text-gray-500 leading-tight truncate">
+                                  <div className="text-[9px] text-[var(--tertiary-foreground)] leading-tight truncate">
                                     {format(date, "MMM d")}
                                   </div>
                                 </div>
@@ -539,7 +539,7 @@ export function TableTimelineView({
 
                                   {person && (
                                     <div
-                                      className="h-6 w-6 rounded-full border flex items-center justify-center text-[8px] font-semibold text-gray-700 bg-gray-50"
+                                      className="h-6 w-6 rounded-full border border-[var(--border)] flex items-center justify-center text-[8px] font-semibold text-[var(--foreground)] bg-[var(--surface-muted)]"
                                       style={{ borderColor: "rgba(229,231,235,1)" }}
                                       title={formatUserDisplay(person)}
                                     >
@@ -553,7 +553,7 @@ export function TableTimelineView({
                                     onChange={(e) =>
                                       onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
                                     }
-                                    className="w-3.5 h-3.5 rounded border-gray-300 text-gray-900 focus:ring-1 focus:ring-gray-900 focus:ring-offset-0"
+                                    className="w-3.5 h-3.5 rounded-[var(--radius-sm)] border-[var(--border)] text-[var(--foreground)] focus:ring-1 focus:ring-[var(--primary)] focus:ring-offset-0"
                                   />
                                 </div>
                               </div>
@@ -561,9 +561,9 @@ export function TableTimelineView({
                               {/* Tooltip */}
                               {showTooltip && (
                                 <div className="absolute left-0 top-full mt-2 z-30">
-                                  <div className="w-[300px] rounded-lg border border-gray-200 bg-white shadow-lg p-3">
-                                    <div className="text-sm font-semibold text-gray-900">{title}</div>
-                                    <div className="text-xs text-gray-500 mt-0.5">
+                                  <div className="w-[300px] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] shadow-lg p-3">
+                                    <div className="text-sm font-semibold text-[var(--foreground)]">{title}</div>
+                                    <div className="text-xs text-[var(--tertiary-foreground)] mt-0.5">
                                       {toDateDisplay(date)}
                                     </div>
 
@@ -608,7 +608,7 @@ export function TableTimelineView({
                                       )}
 
                                       {person && (
-                                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">
+                                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-[var(--surface-muted)] rounded-[var(--radius-sm)] text-xs text-[var(--foreground)]">
                                           {formatUserDisplay(person)}
                                         </span>
                                       )}
@@ -631,7 +631,7 @@ export function TableTimelineView({
 
       {unscheduledRows.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--tertiary-foreground)] mb-2">
             Unscheduled
           </div>
           <div className="space-y-2">
@@ -640,15 +640,15 @@ export function TableTimelineView({
               return (
                 <div
                   key={row.id}
-                  className="bg-white border border-gray-200 rounded-lg p-2 hover:shadow-sm transition-all cursor-pointer flex items-center justify-between"
+                  className="bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-md)] p-2 hover:shadow-sm transition-all cursor-pointer flex items-center justify-between"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     onContextMenu?.(e, row.id);
                   }}
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
-                    <div className="text-xs text-gray-500">No date set</div>
+                    <div className="text-sm font-medium text-[var(--foreground)] truncate">{title}</div>
+                    <div className="text-xs text-[var(--tertiary-foreground)]">No date set</div>
                   </div>
                   <input
                     type="checkbox"
@@ -656,7 +656,7 @@ export function TableTimelineView({
                     onChange={(e) =>
                       onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
                     }
-                    className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-2 focus:ring-gray-900 focus:ring-offset-0"
+                    className="w-4 h-4 rounded-[var(--radius-sm)] border-[var(--border)] text-[var(--foreground)] focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-0"
                   />
                 </div>
               );

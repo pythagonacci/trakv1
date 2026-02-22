@@ -42,6 +42,13 @@ export interface AIToolCall {
   };
 }
 
+export type SearchManifestEntity = { id: string; title: string; entityType: "task" | "timeline_event" | "table_row" };
+
+export interface SearchManifest {
+  entities: SearchManifestEntity[];
+  searchTools: string[];
+}
+
 export interface ExecutionResult {
   success: boolean;
   response: string;
@@ -52,6 +59,7 @@ export interface ExecutionResult {
   }>;
   undoBatches?: UndoBatch[];
   undoSkippedTools?: string[];
+  searchManifest?: SearchManifest;
   error?: string;
 }
 
@@ -104,6 +112,12 @@ export interface ExecuteAICommandOptions {
    * One-shot approval to continue a previously paused write tool call.
    */
   approvedWriteAction?: WriteConfirmationApproval | null;
+  /**
+   * Pre-seed searchedEntities from previous conversation turns.
+   * Enables cross-turn source metadata annotation when the LLM creates
+   * entities without calling search tools in the current turn.
+   */
+  initialSearchedEntities?: SearchManifestEntity[];
 }
 
 interface ChatCompletionResponse {
@@ -872,6 +886,89 @@ function compactToolResult(result: ToolCallResult): ToolCallResult {
   };
 }
 
+/**
+ * Inject _source metadata onto search result items so the LLM can carry
+ * source tracking fields (source_entity_id, source_entity_type, source_sync_mode)
+ * forward to any write operation.
+ *
+ * Only injects _source on entity types that support source data columns:
+ * task (task_items), timeline_event (timeline_events), table_row (table_rows).
+ */
+const SOURCE_SUPPORTED_TYPES = new Set(["task", "timeline_event", "table_row"]);
+
+function injectSourceMetadata(
+  toolName: string,
+  data: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  // Static entity type mapping for single-type search tools
+  const entityTypeMap: Record<string, string> = {
+    searchTasks: "task",
+    searchTimelineEvents: "timeline_event",
+    searchSubtasks: "task",
+  };
+
+  // unstructuredSearchWorkspace results use sourceId/sourceType instead of id/type.
+  // Unstructured sourceType values are container-level types (file, table, block, doc).
+  // Only "task" and "timeline_event" are valid source provenance types — the sourceId
+  // for those directly maps to task_items.id / timeline_events.id.
+  // Other types like "table" have a sourceId pointing to tables.id (not table_rows.id),
+  // so they cannot be used as source_entity_type — the ID doesn't match the row-level entity.
+  if (toolName === "unstructuredSearchWorkspace") {
+    return data.map((item) => {
+      const sourceId = item.sourceId as string;
+      const sourceType = item.sourceType as string;
+      if (!sourceId || !sourceType) return item;
+      // Only inject _source when the sourceType directly matches a valid provenance type
+      // and the sourceId is the actual entity ID (not a container ID)
+      if (sourceType !== "task" && sourceType !== "timeline_event") return item;
+      return {
+        ...item,
+        _source: {
+          source_entity_id: sourceId,
+          source_entity_type: sourceType,
+          source_sync_mode: "live",
+        },
+      };
+    });
+  }
+
+  // searchEntitiesByProperties returns mixed types — handle per-item
+  if (toolName === "searchEntitiesByProperties") {
+    return data.map((item) => {
+      const itemType = item.type as string;
+      if (!itemType || !SOURCE_SUPPORTED_TYPES.has(itemType)) return item;
+      const entityId = item.id as string;
+      if (!entityId) return item;
+      return {
+        ...item,
+        _source: {
+          source_entity_id: entityId,
+          source_entity_type: itemType,
+          source_sync_mode: "live",
+        },
+      };
+    });
+  }
+
+  const entityType = entityTypeMap[toolName];
+  if (!entityType) return data;
+
+  return data.map((item) => {
+    const entityId = toolName === "searchSubtasks"
+      ? (item.task_id as string)  // subtasks link to parent task
+      : (item.id as string);
+    if (!entityId) return item;
+    return {
+      ...item,
+      _source: {
+        source_entity_id: entityId,
+        source_entity_type: entityType,
+        source_sync_mode: "live",
+      },
+    };
+  });
+}
+
 // ============================================================================
 // SINGLE-ACTION TOOL NARROWING
 // ============================================================================
@@ -1023,6 +1120,27 @@ export async function executeAICommand(
     result.undoBatches = undoTracker.batches;
     if (undoTracker.skippedTools.length > 0) {
       result.undoSkippedTools = undoTracker.skippedTools;
+    }
+    // Attach search manifest if any search tools were called during this execution
+    // Only include entities that were found during THIS execution (not seeded from history)
+    const initialCount = options.initialSearchedEntities?.length ?? 0;
+    const newSearchedEntities = searchedEntities.slice(initialCount);
+    if (newSearchedEntities.length > 0) {
+      result.searchManifest = {
+        entities: newSearchedEntities,
+        searchTools: Array.from(searchToolsUsed),
+      };
+      aiDebug("sourceTracking:searchManifestBuilt", {
+        newEntities: newSearchedEntities.length,
+        seededFromHistory: initialCount,
+        searchTools: Array.from(searchToolsUsed),
+        titles: newSearchedEntities.map((e) => e.title),
+      });
+    } else if (initialCount > 0) {
+      aiDebug("sourceTracking:searchManifestSkipped", {
+        reason: "no new entities found this execution",
+        seededFromHistory: initialCount,
+      });
     }
     logTiming();
     if (timing) {
@@ -1237,7 +1355,18 @@ export async function executeAICommand(
   // Track search results and updates to detect incomplete batch operations
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   // Track searched entities (id + title) for deterministic source metadata annotation
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }> = [];
+  // Seed with entities from previous conversation turns if available
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+    ...(options.initialSearchedEntities ?? []),
+  ];
+  if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
+    aiDebug("sourceTracking:seededFromHistory", {
+      count: options.initialSearchedEntities.length,
+      titles: options.initialSearchedEntities.map((e) => e.title),
+    });
+  }
+  // Track which search tools were called in this execution (for search manifest)
+  const searchToolsUsed = new Set<string>();
   const updatedItemIds = new Set<string>();
   let sawTaskMutationTool = false;
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
@@ -1655,6 +1784,38 @@ export async function executeAICommand(
               titles: searchedEntities.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "searchEntitiesByProperties" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const entity of result.data) {
+              if (entity.id && entity.title && SOURCE_SUPPORTED_TYPES.has(entity.type)) {
+                searchedEntities.push({ id: entity.id, title: entity.title, entityType: entity.type });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const item of result.data) {
+              const sourceId = item.sourceId as string;
+              const sourceType = item.sourceType as string;
+              const summary = item.summary as string;
+              if (!sourceId || !sourceType) continue;
+              if (sourceType === "task" || sourceType === "timeline_event") {
+                searchedEntities.push({ id: sourceId, title: summary || sourceId, entityType: sourceType });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           if (taskMutationTools.has(toolName)) {
             sawTaskMutationTool = true;
@@ -1706,20 +1867,35 @@ export async function executeAICommand(
               });
           }
 
-          // Add tool result to messages
-          const compactedForMetrics = compactToolResult(result);
-          const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : result;
+          // Add tool result to messages — inject _source metadata onto search results before serialization
+          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties", "unstructuredSearchWorkspace"]);
+          let resultForModel = result;
+          if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            resultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+            searchToolsUsed.add(toolName);
+          }
+          const compactedForMetrics = compactToolResult(resultForModel);
+          const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : resultForModel;
           let toolMessageContent = JSON.stringify(toolResultForModel);
 
-          // Inject source tracking reminder for search tools so the LLM is reminded to include source metadata
-          const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks"]);
+          // Inject strict source tracking reminder for search tools
           if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            toolMessageContent += "\n\nSOURCE TRACKING REMINDER: Each result above has an `id` field. If you create a table using any of these results, you MUST include source_entity_id (the `id` from the matching result), source_entity_type, and source_sync_mode (\"snapshot\") on each row that corresponds to a result. Match rows to results by title. Do NOT add source metadata to rows with new/unrelated data.";
+            toolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Valid source_entity_type values: "task", "timeline_event", "table_row", "block". For task/timeline creation from table rows, use source_entity_type "table_row" and the row ID. For creation from blocks, use source_entity_type "block" and the block ID.\n3. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n4. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n5. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
             aiDebug("sourceTracking:llmReminderInjected", {
               tool: toolName,
               resultCount: result.data.length,
               trackedEntities: searchedEntities.length,
             });
+          }
+
+          // Inject table source tracking reminder when getEntityById returns a table
+          if (toolName === "getEntityById" && toolArgs.entityType === "table" && result.success) {
+            toolMessageContent += `\n\n⚠️ TABLE SOURCE TRACKING ⚠️\nThis table response includes its rows with their individual row IDs.\nWhen you create data (table rows, tasks, timeline events, etc.) based on specific rows from this table, you MUST use the actual row ID (from the rows array above) as source_entity_id with source_entity_type "table_row". Do NOT use the table ID as source_entity_id — that is the container, not the source row.`;
+          }
+
+          // Inject unstructured search follow-up reminder
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            toolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.\n6. SOURCE TRACKING FOR TABLE-SOURCED CHUNKS: When a chunk's sourceType is "table", the sourceId is the TABLE ID (not a row ID). After calling \`getEntityById\` to retrieve the table, you will receive the table's rows with their individual row IDs. When creating data (including tasks/timeline events) based on specific rows from that table, use the actual \`table_rows.id\` as source_entity_id with source_entity_type "table_row" — NOT the table ID.`;
           }
 
           if (timing) {
@@ -1733,10 +1909,58 @@ export async function executeAICommand(
           });
         }
 
+        // Remind to search when a write was called with incomplete source metadata (e.g. placeholder or invalid ID)
+        const anySourceMetadataIncomplete = toolCallsThisRound.some(
+          (c) => (c.result as ToolCallResult).sourceMetadataIncomplete
+        );
+        if (anySourceMetadataIncomplete) {
+          messages.push({
+            role: "user",
+            content: `📌 SOURCE METADATA INCOMPLETE 📌\nYou called a write tool with source_entity_type or source_entity_id that could not be used (e.g. placeholder text or invalid ID).\n\nIf the item you're creating is from an existing source (e.g. a table row, task, or search result), you must search first to get the actual entity ID, then include source_entity_type, source_entity_id, and source_sync_mode on the created item.\n\nYou do NOT have to add source metadata if what you're creating isn't from any sources or isn't meant to reflect that source — in that case omit source_entity_type and source_entity_id and simply respond to the user.`,
+          });
+          aiDebug("sourceTracking:incompleteSourceMetadataReminder", { toolCalls: toolNamesThisRound });
+          continue;
+        }
+
         if (pendingToolUpgradePrompt) {
           messages.push({
             role: "user",
             content: pendingToolUpgradePrompt,
+          });
+          continue;
+        }
+
+        // Post-round source data reminder: when the LLM creates entities without
+        // calling search tools in this round, but previous turns had search results,
+        // inject a preemptive reminder about source data propagation.
+        const sourceWriteTools = new Set([
+          "createTableFull", "bulkInsertRows", "createTaskItem",
+          "createTimelineEvent", "createBlock", "createRow",
+        ]);
+        const sourceSearchTools = new Set([
+          "searchTasks", "searchTimelineEvents", "searchSubtasks",
+          "searchEntitiesByProperties", "unstructuredSearchWorkspace",
+          "searchTableRows", "getEntityById",
+        ]);
+        const hasSourceWriteThisRound = toolNamesThisRound.some((n) => sourceWriteTools.has(n));
+        const hasSourceSearchThisRound = toolNamesThisRound.some((n) => sourceSearchTools.has(n));
+        if (
+          hasSourceWriteThisRound &&
+          !hasSourceSearchThisRound &&
+          conversationHistory.length > 0 &&
+          searchedEntities.length > 0
+        ) {
+          const entitySummary = searchedEntities
+            .slice(-50) // cap to avoid token bloat
+            .map((e) => `  - "${e.title}" (${e.entityType}, id: ${e.id})`)
+            .join("\n");
+          messages.push({
+            role: "user",
+            content: `📋 SOURCE DATA VERIFICATION: You just created entities using data from previous searches. Here are the previously searched entities for reference:\n${entitySummary}\n\nIMPORTANT — Do NOT retry or recreate anything unless source data is actually missing or invalid:\n- If you already included correct source_entity_id, source_entity_type, and source_sync_mode on every row/item that corresponds to an entity above — no action needed. Just respond to the user normally.\n- If a row contains NEW content the user asked you to add (not from search results), having no source metadata is correct — no action needed.\n- ONLY if you realize you omitted source metadata on a row that directly maps to one of the entities above, or the source_entity_id you used is wrong, call the appropriate update tool to fix just that row. Do NOT recreate the entire table or any other entities.\n\nIf everything looks correct, simply proceed with your response to the user.`,
+          });
+          aiDebug("sourceTracking:postRoundReminder", {
+            writeTools: toolNamesThisRound.filter((n) => sourceWriteTools.has(n)),
+            searchedEntityCount: searchedEntities.length,
           });
           continue;
         }
@@ -2239,12 +2463,12 @@ export async function* executeAICommandStream(
   options: ExecuteAICommandOptions = {}
 ): AsyncGenerator<{
   type:
-    | "thinking"
-    | "tool_call"
-    | "tool_result"
-    | "response_delta"
-    | "response"
-    | "confirmation_required";
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "response_delta"
+  | "response"
+  | "confirmation_required";
   content: string;
   data?: unknown;
 }> {
@@ -2271,7 +2495,18 @@ export async function* executeAICommandStream(
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
   // Track searched entities for deterministic source metadata annotation (streaming path)
-  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }> = [];
+  // Seed with entities from previous conversation turns if available
+  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+    ...(options.initialSearchedEntities ?? []),
+  ];
+  if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
+    aiDebug("sourceTracking:seededFromHistory:stream", {
+      count: options.initialSearchedEntities.length,
+      titles: options.initialSearchedEntities.map((e) => e.title),
+    });
+  }
+  // Track which search tools were called in this execution (for search manifest)
+  const searchToolsUsedStream = new Set<string>();
 
   if (!openAIKey && !deepseekKey) {
     yield {
@@ -2423,6 +2658,28 @@ export async function* executeAICommandStream(
         : openAIKey
           ? "openai"
           : "deepseek";
+  // Helper to build search manifest for streaming path
+  const buildStreamSearchManifest = (): SearchManifest | undefined => {
+    const initialCount = options.initialSearchedEntities?.length ?? 0;
+    const newEntities = searchedEntitiesStream.slice(initialCount);
+    if (newEntities.length === 0) {
+      if (initialCount > 0) {
+        aiDebug("sourceTracking:searchManifestSkipped:stream", {
+          reason: "no new entities found this execution",
+          seededFromHistory: initialCount,
+        });
+      }
+      return undefined;
+    }
+    aiDebug("sourceTracking:searchManifestBuilt:stream", {
+      newEntities: newEntities.length,
+      seededFromHistory: initialCount,
+      searchTools: Array.from(searchToolsUsedStream),
+      titles: newEntities.map((e) => e.title),
+    });
+    return { entities: newEntities, searchTools: Array.from(searchToolsUsedStream) };
+  };
+
   let iterations = 0;
 
   while (iterations < MAX_TOOL_ITERATIONS) {
@@ -2702,6 +2959,38 @@ export async function* executeAICommandStream(
               titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "searchEntitiesByProperties" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const entity of result.data) {
+              if (entity.id && entity.title && SOURCE_SUPPORTED_TYPES.has(entity.type)) {
+                searchedEntitiesStream.push({ id: entity.id, title: entity.title, entityType: entity.type });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const item of result.data) {
+              const sourceId = item.sourceId as string;
+              const sourceType = item.sourceType as string;
+              const summary = item.summary as string;
+              if (!sourceId || !sourceType) continue;
+              if (sourceType === "task" || sourceType === "timeline_event") {
+                searchedEntitiesStream.push({ id: sourceId, title: summary || sourceId, entityType: sourceType });
+              }
+            }
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
 
           toolCallsThisRound.push({ tool: toolName, result });
           toolCallsMade.push({ tool: toolName, arguments: toolArgs, result });
@@ -2727,6 +3016,7 @@ export async function* executeAICommandStream(
                 toolCallsMade,
                 undoBatches: undoTracker.batches,
                 undoSkippedTools: undoTracker.skippedTools,
+                searchManifest: buildStreamSearchManifest(),
                 error: result.success ? undefined : result.error,
               },
             };
@@ -2791,18 +3081,34 @@ export async function* executeAICommandStream(
             data: result,
           };
 
-          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(result) : result;
+          // Inject _source metadata onto search results before serialization (streaming path)
+          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties", "unstructuredSearchWorkspace"]);
+          let streamResultForModel = result;
+          if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            streamResultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+            searchToolsUsedStream.add(toolName);
+          }
+          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(streamResultForModel) : streamResultForModel;
           let streamToolMessageContent = JSON.stringify(compactedResult);
 
-          // Inject source tracking reminder for search tools (streaming path)
-          const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks"]);
+          // Inject strict source tracking reminder for search tools (streaming path)
           if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            streamToolMessageContent += "\n\nSOURCE TRACKING REMINDER: Each result above has an `id` field. If you create a table using any of these results, you MUST include source_entity_id (the `id` from the matching result), source_entity_type, and source_sync_mode (\"snapshot\") on each row that corresponds to a result. Match rows to results by title. Do NOT add source metadata to rows with new/unrelated data.";
+            streamToolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Valid source_entity_type values: "task", "timeline_event", "table_row", "block". For task/timeline creation from table rows, use source_entity_type "table_row" and the row ID. For creation from blocks, use source_entity_type "block" and the block ID.\n3. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n4. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n5. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
             aiDebug("sourceTracking:llmReminderInjected:stream", {
               tool: toolName,
               resultCount: result.data.length,
               trackedEntities: searchedEntitiesStream.length,
             });
+          }
+
+          // Inject table source tracking reminder when getEntityById returns a table (streaming path)
+          if (toolName === "getEntityById" && toolArgs.entityType === "table" && result.success) {
+            streamToolMessageContent += `\n\n⚠️ TABLE SOURCE TRACKING ⚠️\nThis table response includes its rows with their individual row IDs.\nWhen you create data (table rows, tasks, timeline events, etc.) based on specific rows from this table, you MUST use the actual row ID (from the rows array above) as source_entity_id with source_entity_type "table_row". Do NOT use the table ID as source_entity_id — that is the container, not the source row.`;
+          }
+
+          // Inject unstructured search follow-up reminder (streaming path)
+          if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            streamToolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.\n6. SOURCE TRACKING FOR TABLE-SOURCED CHUNKS: When a chunk's sourceType is "table", the sourceId is the TABLE ID (not a row ID). After calling \`getEntityById\` to retrieve the table, you will receive the table's rows with their individual row IDs. When creating data (including tasks/timeline events) based on specific rows from that table, use the actual \`table_rows.id\` as source_entity_id with source_entity_type "table_row" — NOT the table ID.`;
           }
 
           messages.push({
@@ -2811,6 +3117,55 @@ export async function* executeAICommandStream(
             tool_call_id: toolCall.id,
             name: toolName,
           });
+        }
+
+        // Remind to search when a write was called with incomplete source metadata (streaming path)
+        const anyStreamSourceMetadataIncomplete = toolCallsThisRound.some(
+          (c) => (c.result as ToolCallResult).sourceMetadataIncomplete
+        );
+        if (anyStreamSourceMetadataIncomplete) {
+          messages.push({
+            role: "user",
+            content: `📌 SOURCE METADATA INCOMPLETE 📌\nYou called a write tool with source_entity_type or source_entity_id that could not be used (e.g. placeholder text or invalid ID).\n\nIf the item you're creating is from an existing source (e.g. a table row, task, or search result), you must search first to get the actual entity ID, then include source_entity_type, source_entity_id, and source_sync_mode on the created item.\n\nYou do NOT have to add source metadata if what you're creating isn't from any sources or isn't meant to reflect that source — in that case omit source_entity_type and source_entity_id and simply respond to the user.`,
+          });
+          aiDebug("sourceTracking:incompleteSourceMetadataReminder:stream", { toolCalls: toolCallsThisRound.map((c) => c.tool) });
+          continue;
+        }
+
+        // Post-round source data reminder (streaming path): when the LLM creates
+        // entities without calling search tools in this round, but previous turns
+        // had search results, inject a preemptive reminder about source data.
+        const streamSourceWriteTools = new Set([
+          "createTableFull", "bulkInsertRows", "createTaskItem",
+          "createTimelineEvent", "createBlock", "createRow",
+        ]);
+        const streamSourceSearchTools = new Set([
+          "searchTasks", "searchTimelineEvents", "searchSubtasks",
+          "searchEntitiesByProperties", "unstructuredSearchWorkspace",
+          "searchTableRows", "getEntityById",
+        ]);
+        const toolNamesThisRoundStream = toolCallsThisRound.map((c) => c.tool);
+        const hasStreamSourceWrite = toolNamesThisRoundStream.some((n) => streamSourceWriteTools.has(n));
+        const hasStreamSourceSearch = toolNamesThisRoundStream.some((n) => streamSourceSearchTools.has(n));
+        if (
+          hasStreamSourceWrite &&
+          !hasStreamSourceSearch &&
+          previousMessages.length > 0 &&
+          searchedEntitiesStream.length > 0
+        ) {
+          const entitySummary = searchedEntitiesStream
+            .slice(-50)
+            .map((e) => `  - "${e.title}" (${e.entityType}, id: ${e.id})`)
+            .join("\n");
+          messages.push({
+            role: "user",
+            content: `📋 SOURCE DATA VERIFICATION: You just created entities using data from previous searches. Here are the previously searched entities for reference:\n${entitySummary}\n\nIMPORTANT — Do NOT retry or recreate anything unless source data is actually missing or invalid:\n- If you already included correct source_entity_id, source_entity_type, and source_sync_mode on every row/item that corresponds to an entity above — no action needed. Just respond to the user normally.\n- If a row contains NEW content the user asked you to add (not from search results), having no source metadata is correct — no action needed.\n- ONLY if you realize you omitted source metadata on a row that directly maps to one of the entities above, or the source_entity_id you used is wrong, call the appropriate update tool to fix just that row. Do NOT recreate the entire table or any other entities.\n\nIf everything looks correct, simply proceed with your response to the user.`,
+          });
+          aiDebug("sourceTracking:postRoundReminder:stream", {
+            writeTools: toolNamesThisRoundStream.filter((n) => streamSourceWriteTools.has(n)),
+            searchedEntityCount: searchedEntitiesStream.length,
+          });
+          continue;
         }
 
         // Fix D: Early-exit after successful writes, but only for single-step commands.
@@ -2837,6 +3192,7 @@ export async function* executeAICommandStream(
               toolCallsMade,
               undoBatches: undoTracker.batches,
               undoSkippedTools: undoTracker.skippedTools,
+              searchManifest: buildStreamSearchManifest(),
             },
           };
           return;
@@ -3041,6 +3397,7 @@ export async function* executeAICommandStream(
           toolCallsMade,
           undoBatches: undoTracker.batches,
           undoSkippedTools: undoTracker.skippedTools,
+          searchManifest: buildStreamSearchManifest(),
         },
       };
       return;

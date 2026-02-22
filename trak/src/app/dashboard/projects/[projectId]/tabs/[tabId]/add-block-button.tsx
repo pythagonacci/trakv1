@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Images, Layout, Copy, AlertCircle } from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
@@ -114,12 +114,21 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
   },
 ];
 
+/** Prefetch table-view chunk so clicking "Table" feels instant. Same import path as table-block.tsx. */
+function prefetchTableViewChunk() {
+  void import("@/components/tables/table-view");
+}
+
 export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, onBlockResolved, onBlockError, getNextPosition }: AddBlockButtonProps) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [docSelectorOpen, setDocSelectorOpen] = useState(false);
   const [blockReferenceSelectorOpen, setBlockReferenceSelectorOpen] = useState(false);
   const [failedBlocks, setFailedBlocks] = useState<Map<string, OptimisticBlockState>>(new Map());
+
+  const handleDropdownOpenChange = useCallback((open: boolean) => {
+    if (open) prefetchTableViewChunk();
+  }, []);
 
   const handleCreateBlock = async (type: BlockType) => {
     // Special handling for doc_reference - open doc selector instead
@@ -357,7 +366,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={handleDropdownOpenChange}>
         <DropdownMenuTrigger asChild>
           {triggerButton}
         </DropdownMenuTrigger>

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { type TableField, type SelectFieldOption, type StatusFieldConfig } from "@/types/table";
-import { usePropertyDefinition } from "@/lib/hooks/use-property-queries";
 
 interface Props {
   field: TableField;
@@ -24,18 +23,8 @@ const randomColor = () => {
 
 export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving, onUpdateConfig }: Props) {
   const config = (field.config || {}) as StatusFieldConfig;
-
-  // Fetch property definition if field is linked to one
-  const fieldWithPropDef = field as TableField & { property_definition_id?: string };
-  const { data: propertyDefinition } = usePropertyDefinition(fieldWithPropDef.property_definition_id);
-
-  // Use property definition options if available, otherwise fall back to config
-  const options = propertyDefinition?.options
-    ? (propertyDefinition.options as SelectFieldOption[])
-    : (config.options || []);
-
-  // Disable inline option editing for canonical fields (managed at workspace level)
-  const canEditOptions = !fieldWithPropDef.property_definition_id && onUpdateConfig;
+  const options = config.options || [];
+  const canEditOptions = !!onUpdateConfig;
 
   const [draft, setDraft] = useState<string | undefined>(typeof value === "string" ? value : undefined);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -243,7 +232,6 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
         disabled={saving}
       >
         {canEditOptions && <Plus className="h-3 w-3" />}
-        <span>Empty</span>
       </button>
     );
   }

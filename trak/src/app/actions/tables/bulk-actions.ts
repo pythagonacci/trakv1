@@ -369,7 +369,7 @@ export async function bulkDuplicateRows(input: {
       order: Number(row.order) + 0.001 * (idx + 1),
       source_entity_type: sourceEntityId ? normalizeSourceEntityType(row.source_entity_type ?? null) : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: row.source_sync_mode ?? "snapshot",
+      source_sync_mode: row.source_sync_mode ?? "live",
       created_by: userId,
       updated_by: userId,
     };
@@ -385,7 +385,7 @@ export async function bulkInsertRows(input: {
   rows: Array<{
     data: Record<string, unknown>;
     order?: number | string | null;
-    source_entity_type?: "task" | "timeline_event" | null;
+    source_entity_type?: "task" | "timeline_event" | "table_row" | "block" | null;
     source_entity_id?: string | null;
     source_sync_mode?: "snapshot" | "live" | null;
   }>;
@@ -478,16 +478,15 @@ export async function bulkInsertRows(input: {
   return { data: { insertedIds } };
 }
 
-function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | null {
-  if (value === "task" || value === "timeline_event") return value;
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | "block" | null {
+  if (value === "task" || value === "timeline_event" || value === "table_row" || value === "block") return value;
   return null;
 }
 
 function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" | null {
   if (value === "live") return "live";
   if (value === "snapshot") return "snapshot";
-  // Default to snapshot when a value is provided but not explicitly "live"
-  return "snapshot";
+  return "live";
 }
 
 function normalizeSourceEntityId(value: unknown): string | null {

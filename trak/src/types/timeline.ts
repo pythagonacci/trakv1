@@ -1,8 +1,20 @@
-// Canonical IDs for status (matches workspace property_definitions)
+// Canonical status values
 export type TimelineEventStatus = "todo" | "in_progress" | "blocked" | "done";
 
-// Canonical IDs for priority (matches workspace property_definitions)
+// Canonical priority values
 export type TimelineEventPriority = "low" | "medium" | "high" | "urgent";
+export interface TimelineNamedPriority {
+  field_name: string;
+  value: TimelineEventPriority;
+}
+
+export interface TimelineNamedStatus {
+  field_name: string;
+  value: TimelineEventStatus;
+}
+
+export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
+export type TimelineSourceSyncMode = "snapshot" | "live";
 
 export type DependencyType = "finish-to-start" | "start-to-start" | "finish-to-finish" | "start-to-finish";
 export type ReferenceType = "doc" | "table_row" | "block";
@@ -15,9 +27,13 @@ export interface TimelineEvent {
   title: string;
   start_date: string;
   end_date: string;
-  status: TimelineEventStatus;
-  priority: TimelineEventPriority | null;  // NEW: Priority field using canonical IDs
+  statuses: TimelineNamedStatus[];
+  priorities: TimelineNamedPriority[];
   assignee_id: string | null;
+  assignee_team_id: string | null;
+  source_entity_type: TimelineSourceEntityType | null;
+  source_entity_id: string | null;
+  source_sync_mode: TimelineSourceSyncMode | null;
   progress: number;
   notes: string | null;
   color: string | null;
@@ -71,9 +87,13 @@ export interface TimelineItem {
   title: string;
   start_date: string;
   end_date: string;
-  status: TimelineEventStatus;
-  priority?: TimelineEventPriority | null;  // NEW: Priority field
+  statuses?: TimelineNamedStatus[];
+  priorities?: TimelineNamedPriority[];
   assignee_id: string | null;
+  assignee_team_id: string | null;
+  source_entity_type?: TimelineSourceEntityType | null;
+  source_entity_id?: string | null;
+  source_sync_mode?: TimelineSourceSyncMode | null;
   progress: number;
   color: string | null;
   is_milestone: boolean;

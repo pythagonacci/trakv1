@@ -1,16 +1,32 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWorkspaceEverything } from "@/lib/hooks/use-everything-queries";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import { useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import { applyFilters } from "@/lib/everything-filtering";
 import { getDueDateEnd } from "@/lib/due-date";
+import {
+  getSavedViews,
+  setSavedViews,
+  addSavedView,
+  updateSavedView,
+  deleteSavedView,
+} from "@/lib/everything-saved-views";
 import { EverythingHeader } from "./everything-header";
 import { EverythingTableView } from "./everything-table-view";
 import { EverythingBoardView } from "./everything-board-view";
 import { EverythingFilters } from "./everything-filters";
-import type { EverythingViewType, EverythingViewConfig, FilterConfig, SortConfig, GroupByField } from "@/types/everything";
+import { SaveViewModal } from "./save-view-modal";
+import { ManageViewsModal } from "./manage-views-modal";
+import type {
+  EverythingViewType,
+  EverythingViewConfig,
+  FilterConfig,
+  SortConfig,
+  GroupByField,
+  SavedEverythingView,
+} from "@/types/everything";
 
 interface EverythingViewProps {
   workspaceId: string;
@@ -26,7 +42,6 @@ const DEFAULT_FILTERS: FilterConfig = {};
 export function EverythingView({ workspaceId }: EverythingViewProps) {
   const { setHeaderHidden } = useDashboardHeader();
 
-  // Load view config from localStorage
   const [viewType, setViewType] = useState<EverythingViewType>("table");
   const [filters, setFilters] = useState<FilterConfig>(DEFAULT_FILTERS);
   const [sort, setSort] = useState<SortConfig>(DEFAULT_SORT);
@@ -34,11 +49,66 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
+  const [savedViews, setSavedViews] = useState<SavedEverythingView[]>([]);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [showSaveViewModal, setShowSaveViewModal] = useState(false);
+  const [showManageViewsModal, setShowManageViewsModal] = useState(false);
+
+  // Load saved views from localStorage when workspace changes
+  useEffect(() => {
+    setSavedViews(getSavedViews(workspaceId));
+  }, [workspaceId]);
+
+  // Apply saved view config when user selects a view
+  useEffect(() => {
+    if (!activeViewId) return;
+    const view = savedViews.find((v) => v.id === activeViewId);
+    if (!view) return;
+    const c = view.config;
+    setViewType(c.viewType);
+    setFilters(c.filters ?? DEFAULT_FILTERS);
+    setSort(c.sort ?? DEFAULT_SORT);
+    setGroupBy(c.groupBy ?? "status");
+    if (c.filters?.searchQuery !== undefined) setSearchQuery(c.filters.searchQuery ?? "");
+  }, [activeViewId]); // intentionally not depending on savedViews to avoid re-applying when list refreshes
+
   // Hide dashboard header on this page
   useEffect(() => {
     setHeaderHidden(true);
     return () => setHeaderHidden(false);
   }, [setHeaderHidden]);
+
+  const handleSaveCurrentView = useCallback(
+    (name: string) => {
+      const config: EverythingViewConfig = {
+        viewType,
+        filters: { ...filters, searchQuery: searchQuery || undefined },
+        sort,
+        groupBy,
+      };
+      const view = addSavedView(workspaceId, name, config);
+      setSavedViews(getSavedViews(workspaceId));
+      setActiveViewId(view.id);
+    },
+    [workspaceId, viewType, filters, searchQuery, sort, groupBy]
+  );
+
+  const handleRenameView = useCallback(
+    (id: string, newName: string) => {
+      updateSavedView(workspaceId, id, { name: newName });
+      setSavedViews(getSavedViews(workspaceId));
+    },
+    [workspaceId]
+  );
+
+  const handleDeleteView = useCallback(
+    (id: string) => {
+      deleteSavedView(workspaceId, id);
+      setSavedViews(getSavedViews(workspaceId));
+      if (activeViewId === id) setActiveViewId(null);
+    },
+    [workspaceId, activeViewId]
+  );
 
   // Fetch data
   const { data, isLoading, error } = useWorkspaceEverything(workspaceId);
@@ -165,6 +235,15 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
         onFilterClick={() => setShowFilters(!showFilters)}
         totalCount={data.items.length}
         filteredCount={filteredItems.length}
+        projects={projects}
+        members={members || []}
+        filters={filters}
+        onFiltersChange={(patch) => setFilters((prev) => ({ ...prev, ...patch }))}
+        savedViews={savedViews}
+        activeViewId={activeViewId}
+        onSelectView={setActiveViewId}
+        onSaveCurrentView={() => setShowSaveViewModal(true)}
+        onManageViews={() => setShowManageViewsModal(true)}
       />
 
       {filteredItems.length === 0 ? (
@@ -212,6 +291,19 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
         onFiltersChange={setFilters}
         projects={projects}
         members={members || []}
+      />
+
+      <SaveViewModal
+        isOpen={showSaveViewModal}
+        onClose={() => setShowSaveViewModal(false)}
+        onSave={handleSaveCurrentView}
+      />
+      <ManageViewsModal
+        isOpen={showManageViewsModal}
+        onClose={() => setShowManageViewsModal(false)}
+        views={savedViews}
+        onRename={handleRenameView}
+        onDelete={handleDeleteView}
       />
     </div>
   );

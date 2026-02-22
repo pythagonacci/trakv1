@@ -40,8 +40,8 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      // Matte overlay - no blur, solid semi-transparent
-      "fixed inset-0 bg-[#2D3236]/40 transition-opacity duration-150 ease-out",
+      // Semantic overlay token - no blur, solid semi-transparent
+      "fixed inset-0 bg-[var(--overlay)] transition-opacity duration-150 ease-out",
       "data-[state=open]:animate-in data-[state=closed]:animate-out",
       "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
       className
@@ -61,8 +61,8 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         "relative z-50 w-full max-w-lg",
-        // Sarajevo theme styling
-        "rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-6",
+        // Normalized radius and tokenized styling
+        "rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-6",
         // Diffuse shadow (exception for modals)
         "shadow-[0_4px_24px_rgba(0,0,0,0.05)]",
         "transition-all duration-150 ease-out focus:outline-none",
@@ -76,7 +76,7 @@ const DialogContent = React.forwardRef<
       {children}
       <DialogPrimitive.Close 
         className={cn(
-          "absolute right-4 top-4 rounded-[2px] p-1.5",
+          "absolute right-4 top-4 rounded-[var(--radius-sm)] p-1.5",
           "text-[var(--muted-foreground)] transition-colors",
           "hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
           "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--focus-ring)]"

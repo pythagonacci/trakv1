@@ -238,8 +238,16 @@ export class UnstructuredSearch {
        
        SOURCES: [1], [3]`;
 
+        console.log("--- [Debug Search] ---");
+        console.log("Context sent to LLM:\n", contextDocs);
+        console.log("------------------------");
+
         // Call DeepSeek
         const rawAnswer = await this.callLLM(systemPrompt, query, contextDocs);
+
+        console.log("--- [Debug Search] ---");
+        console.log("Raw LLM Answer:\n", rawAnswer);
+        console.log("------------------------");
 
         // 4. Parse SOURCES output
         let answer = rawAnswer;
@@ -268,6 +276,11 @@ export class UnstructuredSearch {
 
         // Filter sources
         const finalSources = enrichedSources.filter((_, i) => usedIndices.includes(i + 1));
+
+        console.log("--- [Debug Search] ---");
+        console.log("Final Sources Count:", finalSources.length);
+        console.log("Final Sources Details:", finalSources.map(s => ({ id: s.source_id, sim: s.similarity })));
+        console.log("------------------------");
 
         return {
             answer,
@@ -434,7 +447,10 @@ function formatBlockChunkPreview(raw: string): string {
                     const metaParts: string[] = [];
                     if (task.status) metaParts.push(String(task.status));
                     if (task.dueDate) metaParts.push(`due ${task.dueDate}`);
-                    if (task.priority) metaParts.push(String(task.priority));
+                    const taskPriorities = Array.isArray((task as any).priorities) ? (task as any).priorities : [];
+                    const firstPriority =
+                        taskPriorities[0]?.value ?? task.priority;
+                    if (firstPriority) metaParts.push(String(firstPriority));
                     const meta = metaParts.length ? ` (${metaParts.join(", ")})` : "";
                     return `- ${text}${meta}`;
                 })

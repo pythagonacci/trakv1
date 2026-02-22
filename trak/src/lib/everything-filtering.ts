@@ -15,11 +15,6 @@ export function applyFilters(
       if (!filters.entityTypes.includes(item.type)) return false;
     }
 
-    // Filter by source types
-    if (filters.sourceTypes && filters.sourceTypes.length > 0) {
-      if (!filters.sourceTypes.includes(item.source.type)) return false;
-    }
-
     // Filter by status
     if (filters.status && filters.status.length > 0) {
       if (!item.properties.status || !filters.status.includes(item.properties.status)) {

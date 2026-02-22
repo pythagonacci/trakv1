@@ -92,14 +92,23 @@ export default function MembersTable({
       </div>
 
       {/* Members Table */}
-      <div className="rounded-md border border-[var(--border)]">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Member</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              {canManage && <TableHead className="text-right">Actions</TableHead>}
+      <Table className="[&_th]:h-10 [&_th]:px-3 [&_th]:py-2.5 [&_td]:px-3 [&_td]:py-2.5">
+          <TableHeader className="bg-[var(--secondary)]/10 border-b border-[var(--secondary)]">
+            <TableRow className="border-0 hover:bg-transparent">
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+                Member
+              </TableHead>
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+                Email
+              </TableHead>
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+                Role
+              </TableHead>
+              {canManage && (
+                <TableHead className="h-10 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
+                  Actions
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -113,7 +122,7 @@ export default function MembersTable({
               members.map((member) => {
                 const isCurrentUser = member.id === currentUserId;
                 return (
-                  <TableRow key={member.id}>
+                  <TableRow key={member.id} className="transition-colors duration-150 hover:bg-[var(--primary)]/10">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--river-indigo)]/10 text-xs font-medium text-[var(--river-indigo)]">
@@ -168,7 +177,6 @@ export default function MembersTable({
             )}
           </TableBody>
         </Table>
-      </div>
 
       {/* Dialogs */}
       {inviteDialogOpen && (

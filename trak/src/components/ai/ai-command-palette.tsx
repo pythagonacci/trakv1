@@ -1220,7 +1220,7 @@ export function AICommandPalette() {
                     className={cn(
                       "max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2",
                       isUser
-                        ? "bg-[#3080a6]/20 text-black"
+                        ? "bg-[var(--primary)]/20 text-black"
                         : "bg-[var(--muted)] text-[var(--foreground)]"
                     )}
                   >
@@ -1319,7 +1319,7 @@ export function AICommandPalette() {
                         <button
                           type="button"
                           onClick={() => handleConvertToWorkflowPage(message.id)}
-                          className="text-[11px] text-[#3080a6] hover:underline"
+                          className="text-[11px] text-[var(--primary)] hover:underline"
                         >
                           Continue in a workflow page
                         </button>
@@ -1353,7 +1353,7 @@ export function AICommandPalette() {
                     className={cn(
                       "max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2",
                       isUser
-                        ? "bg-[#3080a6]/20 text-black"
+                        ? "bg-[var(--primary)]/20 text-black"
                         : "bg-[var(--muted)] text-[var(--foreground)]"
                     )}
                   >
@@ -1405,7 +1405,7 @@ export function AICommandPalette() {
               return (
                 <React.Fragment key={entry.id}>
                   <div className="flex justify-end">
-                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2 bg-[#3080a6]/20 text-black">
+                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2 bg-[var(--primary)]/20 text-black">
                       <p className="whitespace-pre-wrap">{entry.query}</p>
                     </div>
                   </div>

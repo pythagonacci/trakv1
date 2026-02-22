@@ -23,7 +23,7 @@ interface PropertyBadgesProps {
   inherited?: boolean;
   className?: string;
   onClick?: () => void;
-  memberNames?: string[]; // For displaying assignee names (multiple)
+  memberNames?: string[]; // For displaying assignee names (multiple) — used for the canonical single field fallback
 }
 
 /**
@@ -38,10 +38,19 @@ export function PropertyBadges({
 }: PropertyBadgesProps) {
   if (!properties) return null;
 
+  const hasNamedStatuses = Array.isArray(properties.statuses) && properties.statuses.length > 0;
+  const hasNamedPriorities = Array.isArray(properties.priorities) && properties.priorities.length > 0;
+  const hasNamedAssignees = Array.isArray(properties.assignees) && properties.assignees.length > 0;
+  const hasNamedDueDates = Array.isArray(properties.due_dates) && properties.due_dates.length > 0;
+
   const hasAnyProperty =
+    hasNamedStatuses ||
     properties.status ||
+    hasNamedPriorities ||
     properties.priority ||
+    hasNamedAssignees ||
     (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) ||
+    hasNamedDueDates ||
     hasDueDate(properties.due_date) ||
     (properties.tags && properties.tags.length > 0);
 
@@ -49,18 +58,55 @@ export function PropertyBadges({
 
   return (
     <div className={cn("flex flex-wrap gap-1.5", className)}>
-      {properties.status && (
-        <StatusBadge status={properties.status} inherited={inherited} onClick={onClick} />
-      )}
-      {properties.priority && (
-        <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
-      )}
-      {(properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
-        <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
-      )}
-      {hasDueDate(properties.due_date) && (
-        <DueDateBadge dueDate={properties.due_date as DueDateRange} inherited={inherited} onClick={onClick} />
-      )}
+      {/* Status */}
+      {hasNamedStatuses
+        ? properties.statuses.map((f) => (
+            <StatusBadge key={f.id} status={f.value} label={f.field_name} inherited={inherited} onClick={onClick} />
+          ))
+        : properties.status && (
+            <StatusBadge status={properties.status} inherited={inherited} onClick={onClick} />
+          )}
+
+      {/* Priority */}
+      {hasNamedPriorities
+        ? properties.priorities.map((priorityField) => (
+            <PriorityBadge
+              key={priorityField.id}
+              priority={priorityField.value}
+              label={priorityField.field_name}
+              inherited={inherited}
+              onClick={onClick}
+            />
+          ))
+        : properties.priority && (
+            <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
+          )}
+
+      {/* Assignees */}
+      {hasNamedAssignees
+        ? properties.assignees.map((f) => (
+            <AssigneeBadge
+              key={f.id}
+              label={f.field_name}
+              memberNames={f.value.length > 0 ? undefined : undefined /* resolved externally if needed */}
+              inherited={inherited}
+              onClick={onClick}
+            />
+          ))
+        : (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
+            <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
+          )}
+
+      {/* Due dates */}
+      {hasNamedDueDates
+        ? properties.due_dates.map((f) => (
+            <DueDateBadge key={f.id} dueDate={f.value} label={f.field_name} inherited={inherited} onClick={onClick} />
+          ))
+        : hasDueDate(properties.due_date) && (
+            <DueDateBadge dueDate={properties.due_date as DueDateRange} inherited={inherited} onClick={onClick} />
+          )}
+
+      {/* Tags */}
       {properties.tags &&
         properties.tags.map((tag) => (
           <TagBadge key={tag} tag={tag} inherited={inherited} onClick={onClick} />
@@ -74,15 +120,22 @@ export function PropertyBadges({
  */
 export function StatusBadge({
   status,
+  label,
   inherited = false,
   onClick,
 }: {
   status: Status;
+  label?: string;
   inherited?: boolean;
   onClick?: () => void;
 }) {
   const option = STATUS_OPTIONS.find((o) => o.value === status);
   if (!option) return null;
+  const fieldLabel = label?.trim();
+  const text =
+    fieldLabel && fieldLabel.toLowerCase() !== "status"
+      ? `${fieldLabel}: ${option.label}`
+      : option.label;
 
   return (
     <button
@@ -95,7 +148,7 @@ export function StatusBadge({
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {option.label}
+      {text}
     </button>
   );
 }
@@ -105,15 +158,22 @@ export function StatusBadge({
  */
 export function PriorityBadge({
   priority,
+  label,
   inherited = false,
   onClick,
 }: {
   priority: Priority;
+  label?: string;
   inherited?: boolean;
   onClick?: () => void;
 }) {
   const option = PRIORITY_OPTIONS.find((o) => o.value === priority);
   if (!option) return null;
+  const fieldLabel = label?.trim();
+  const text =
+    fieldLabel && fieldLabel.toLowerCase() !== "priority"
+      ? `${fieldLabel}: ${option.label}`
+      : option.label;
 
   return (
     <button
@@ -126,7 +186,7 @@ export function PriorityBadge({
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {option.label}
+      {text}
     </button>
   );
 }
@@ -136,15 +196,22 @@ export function PriorityBadge({
  */
 export function AssigneeBadge({
   memberNames,
+  label,
   inherited = false,
   onClick,
 }: {
   memberNames?: string[];
+  label?: string;
   inherited?: boolean;
   onClick?: () => void;
 }) {
-  const labels = memberNames?.length ? memberNames : undefined;
-  const label = labels?.length ? labels.join(", ") : "Assigned";
+  const names = memberNames?.length ? memberNames.join(", ") : "Assigned";
+  const fieldLabel = label?.trim();
+  const text =
+    fieldLabel && fieldLabel.toLowerCase() !== "assignee"
+      ? `${fieldLabel}: ${names}`
+      : names;
+
   return (
     <button
       type="button"
@@ -157,7 +224,7 @@ export function AssigneeBadge({
       )}
     >
       <User className="h-3 w-3 flex-shrink-0" />
-      <span className="truncate max-w-[140px]">{label}</span>
+      <span className="truncate max-w-[140px]">{text}</span>
     </button>
   );
 }
@@ -167,10 +234,12 @@ export function AssigneeBadge({
  */
 export function DueDateBadge({
   dueDate,
+  label,
   inherited = false,
   onClick,
 }: {
   dueDate: DueDateRange;
+  label?: string;
   inherited?: boolean;
   onClick?: () => void;
 }) {
@@ -178,6 +247,11 @@ export function DueDateBadge({
   if (!formatted) return null;
   const endDate = getDueDateEnd(dueDate);
   const isOverdue = endDate ? new Date(endDate) < new Date() && !isToday(endDate) : false;
+  const fieldLabel = label?.trim();
+  const text =
+    fieldLabel && fieldLabel.toLowerCase() !== "due date"
+      ? `${fieldLabel}: ${formatted}`
+      : formatted;
 
   return (
     <button
@@ -193,7 +267,7 @@ export function DueDateBadge({
       )}
     >
       <Calendar className="h-3 w-3" />
-      {formatted}
+      {text}
     </button>
   );
 }
@@ -252,7 +326,6 @@ function formatDueDateValue(dateString: string): string {
     if (diffDays === 1) return "Tomorrow";
     if (diffDays === -1) return "Yesterday";
 
-    // Otherwise show formatted date
     return date.toLocaleDateString(undefined, {
       month: "short",
       day: "numeric",

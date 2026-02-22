@@ -43,6 +43,7 @@ export const queryKeys = {
   fileUrls: (fileIds: string[]) => ['fileUrls', fileIds.sort().join(',')] as const,
   workspace: (workspaceId: string) => ['workspace', workspaceId] as const,
   table: (tableId: string) => ['table', tableId] as const,
+  tableBootstrap: (tableId: string) => ['tableBootstrap', tableId] as const,
   tableFields: (tableId: string) => ['tableFields', tableId] as const,
   tableRows: (tableId: string, viewId?: string | null) => ['tableRows', tableId, viewId ?? 'default'] as const,
   tableView: (viewId: string) => ['tableView', viewId] as const,
@@ -52,6 +53,7 @@ export const queryKeys = {
   entityProperties: (entityType: string, entityId: string) => ['entityProperties', entityType, entityId] as const,
   entityPropertiesWithInheritance: (entityType: string, entityId: string) => ['entityPropertiesInherited', entityType, entityId] as const,
   entityLinks: (entityType: string, entityId: string) => ['entityLinks', entityType, entityId] as const,
+  projectTags: (projectId: string) => ['projectTags', projectId] as const,
   // Everything view
   workspaceEverything: (workspaceId: string) => ['workspaceEverything', workspaceId] as const,
 } as const;

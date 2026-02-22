@@ -7,7 +7,6 @@ import {
   BookOpen,
   FileText,
   ChevronDown,
-  Plus,
   Check,
   LogOut,
   Loader2,
@@ -305,22 +304,22 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
         onClick={openCommandPalette}
         className={cn(
           "flex items-center rounded-md border transition-all duration-150",
-          "border-[#3080a6]/30 bg-[#3080a6]/10",
-          "hover:bg-[#3890b6]/90 hover:border-[#3890b6]/50",
-          "text-white",
+          "border-[var(--primary)]/30 bg-[var(--primary)]/10",
+          "hover:bg-[var(--primary-hover)]/90 hover:border-[var(--primary-hover)]/50",
+          "text-[var(--primary)]",
           collapsed
             ? "h-7 w-7 justify-center shrink-0"
             : "w-full gap-3 px-3 py-1.5"
         )}
         title="Ask AI (⌘K)"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--primary)]">
           <Sparkles className="h-4 w-4" />
         </span>
         {!collapsed && (
           <>
-            <span className="flex-1 text-left text-sm font-medium text-white">Ask AI</span>
-            <kbd className="text-[10px] font-mono bg-[#3080a6]/10 text-white px-1.5 py-0.5 rounded">
+            <span className="flex-1 text-left text-sm font-medium text-[var(--primary)]">Ask AI</span>
+            <kbd className="text-[10px] font-mono bg-[var(--primary)]/20 text-[var(--primary)] px-1.5 py-0.5 rounded">
               ⌘K
             </kbd>
           </>
@@ -386,8 +385,8 @@ function Sidebar({
   return (
     <aside
       className={cn(
-        // SARAJEVO SIDEBAR: Matte, structural, no glass effects
-        "flex h-full flex-col border-r border-[#3080a6]/30 bg-[#3080a6]/65 backdrop-blur-sm transition-all duration-200 ease-out flex-shrink-0 relative z-50 font-semibold",
+        // Sidebar slightly lighter than page background
+        "flex h-full flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-all duration-200 ease-out flex-shrink-0 relative z-50 font-semibold",
         collapsed ? "w-16" : "w-56"
       )}
     >
@@ -398,7 +397,7 @@ function Sidebar({
         )}
       >
         {!collapsed && (
-          <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-white/90">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-[var(--foreground)]">
             TWOD
           </span>
         )}
@@ -409,7 +408,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 text-white transition-colors duration-150 hover:bg-[#3890b6]/90 z-50 relative"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--primary)] z-50 relative"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -512,11 +511,11 @@ function Sidebar({
       </div>
 
       {/* Theme Toggle - Arts Palette accent */}
-        <div className="border-t border-[#3080a6]/30 px-3 py-2">
+        <div className="border-t border-[var(--border)] px-3 py-2">
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 text-white transition-colors duration-150 hover:bg-[#3890b6]/90"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
             title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
           >
             <Palette className="h-4 w-4" />
@@ -524,39 +523,39 @@ function Sidebar({
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex w-full items-center gap-2.5 rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 px-3 py-2 text-sm text-white transition-colors duration-150 hover:bg-[#3890b6]/90"
+              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <Palette className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium text-white">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
+            <span className="text-xs font-medium text-[var(--foreground)]">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
           </button>
         )}
       </div>
 
-      <div className="border-t border-[#3080a6]/30 px-3 py-3" ref={userDropdownRef}>
+      <div className="border-t border-[var(--border)] px-3 py-3" ref={userDropdownRef}>
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 text-white text-xs font-semibold transition-colors duration-150 hover:bg-[#3890b6]/90"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             {getUserInitials()}
           </button>
         ) : (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#3890b6]/90"
+            className="flex w-full items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#3080a6]/15 border border-[#3080a6]/30 text-white text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] text-xs font-semibold">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
-                <p className="truncate text-sm font-semibold text-white">{currentUser?.name || "User"}</p>
-                <p className="truncate text-xs text-white/70">{currentUser?.email}</p>
+                <p className="truncate text-sm font-semibold text-[var(--foreground)]">{currentUser?.name || "User"}</p>
+                <p className="truncate text-xs text-[var(--muted-foreground)]">{currentUser?.email}</p>
               </div>
             </div>
             <ChevronDown
               className={cn(
-                "h-3.5 w-3.5 text-white/70 transition-transform duration-150",
+                "h-3.5 w-3.5 text-[var(--muted-foreground)] transition-transform duration-150",
                 userDropdownOpen && "rotate-180"
               )}
             />
@@ -645,12 +644,12 @@ function NavLink({
       href={href}
       prefetch={prefetch}
       className={cn(
-        // SARAJEVO NAV with ARTS PALETTE colors
+        // Nav links with primary accent for active/hover
         "group flex w-full items-center rounded-md text-base font-medium transition-colors duration-150",
         collapsed ? "justify-center px-2 py-1.5" : "gap-3 px-3 py-1.5",
         active
-          ? "bg-black/15 text-white border-l-2 border-white/30"
-          : "bg-black/5 text-white hover:bg-black/20 hover:text-white"
+          ? "bg-[var(--primary)]/10 text-[var(--primary)] border-l-2 border-[var(--primary)]"
+          : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
       )}
       title={collapsed ? (children as string) : undefined}
     >
@@ -658,8 +657,8 @@ function NavLink({
         className={cn(
           "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-150",
           active
-            ? "bg-[#3080a6]/15 text-white"
-            : "text-white/70 group-hover:text-white"
+            ? "bg-[var(--primary)]/15 text-[var(--primary)]"
+            : "text-[var(--muted-foreground)] group-hover:text-[var(--primary)]"
         )}
       >
         {icon}
@@ -670,58 +669,7 @@ function NavLink({
 }
 
 function Header() {
-  const pathname = usePathname();
-  const { headerHidden } = useDashboardHeader();
-
-  if (headerHidden) {
-    return null;
-  }
-
-  const isDocsPage = pathname?.includes("/docs");
-  const isProjectWorkspaceView =
-    pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
-  const isProjectsPage = pathname === "/dashboard/projects";
-  const isHomePage = pathname === "/dashboard";
-  const isClientsPage = pathname?.startsWith("/dashboard/clients");
-  const isInternalPage = pathname?.startsWith("/dashboard/internal");
-  const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
-  const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
-
-  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isCalendarPage || isWorkflowPage) {
-    return null;
-  }
-
-  const getPageTitle = () => {
-    if (pathname?.includes("/projects")) return "Projects";
-    if (pathname?.includes("/internal")) return "Internal";
-    if (pathname?.includes("/docs")) return "Docs";
-    if (pathname?.includes("/clients")) return "Clients";
-    if (pathname?.includes("/payments")) return "Payments";
-    return "Dashboard";
-  };
-
-  return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--background)]">
-      <div className="flex w-full items-center justify-between px-4 py-3 md:px-5 lg:px-6">
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--tertiary-foreground)]">
-            Overview
-          </span>
-          <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">
-            {getPageTitle()}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="hidden rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] md:inline-flex">
-            Quick actions
-          </button>
-          <button className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-    </header>
-  );
+  return null;
 }
 
 function LayoutMain({ children }: { children: React.ReactNode }) {
@@ -734,15 +682,19 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
     pathname?.startsWith("/dashboard/settings") ||
     pathname?.startsWith("/dashboard/workspace/everything") ||
     pathname?.startsWith("/dashboard/shopify/products");
+  const isProjectOrClientDetail =
+    (pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects") ||
+    (pathname?.startsWith("/dashboard/clients/") && pathname !== "/dashboard/clients");
 
   return (
     <main
       id="dashboard-content"
       className={cn(
         "flex-1 min-h-0",
-        isFullBleedPage ? "px-0" : "px-3 md:px-4 lg:px-5",
+        isProjectOrClientDetail && "bg-neutral-50 dark:bg-neutral-950",
+        isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
-        headerHidden || isWorkflowPage || isCalendarPage ? "py-0" : "py-4 lg:py-5"
+        headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-4 lg:py-5"
       )}
     >
       {children}

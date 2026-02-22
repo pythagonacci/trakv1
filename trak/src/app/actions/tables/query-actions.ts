@@ -6,7 +6,7 @@
 
 import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { FilterCondition, SortCondition, TableRow, TableView } from "@/types/table";
+import type { FilterCondition, SortCondition, TableRow, TableView, Table, TableField } from "@/types/table";
 import type { PostgrestFilterBuilder, PostgrestSingleResponse } from "@supabase/postgrest-js";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -252,4 +252,70 @@ function applySorts(rows: TableRow[], sorts: SortCondition[]): TableRow[] {
     return 0;
   });
   return sorted;
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap: table + fields + default view + rows in one round trip
+// ---------------------------------------------------------------------------
+
+export type TableBootstrap = {
+  table: Table;
+  fields: TableField[];
+  view: TableView | null;
+  rows: TableRow[];
+};
+
+export async function getTableBootstrap(
+  tableId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<TableBootstrap>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase } = access;
+
+  const [tableRes, fieldsRes, viewRes] = await Promise.all([
+    supabase.from("tables").select("*").eq("id", tableId).single(),
+    supabase.from("table_fields").select("*").eq("table_id", tableId).order("order", { ascending: true }),
+    supabase.from("table_views").select("*").eq("table_id", tableId).eq("is_default", true).maybeSingle(),
+  ]);
+
+  if (tableRes.error || !tableRes.data) {
+    return { error: "Table not found" };
+  }
+  if (fieldsRes.error || !fieldsRes.data) {
+    return { error: "Failed to load fields" };
+  }
+
+  const table = tableRes.data as Table;
+  const fields = (fieldsRes.data as TableField[]) ?? [];
+  const view = (viewRes.data as TableView) || null;
+  const filters = view?.config?.filters || [];
+  const sorts = view?.config?.sorts || [];
+
+  const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
+    supabase.from("table_rows").select("*").eq("table_id", tableId),
+    filters
+  );
+  const sortedQuery = applyServerSorts(filteredQuery, sorts);
+  const { data: rows, error: rowsError } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>).order(
+    "order",
+    { ascending: true }
+  );
+
+  if (rowsError || !rows) {
+    return { error: "Failed to load rows" };
+  }
+
+  const filtered =
+    unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);
+  const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
+
+  return {
+    data: {
+      table,
+      fields,
+      view,
+      rows: sorted,
+    },
+  };
 }

@@ -164,6 +164,14 @@ export async function deleteTable(tableId: string, opts?: { authContext?: AuthCo
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  // Clean up RAG chunks before deleting the table (if any exist)
+  const { cleanupChunksForDeletedSource } = await import("../indexing");
+  await cleanupChunksForDeletedSource({
+    sourceType: "table",
+    sourceId: tableId,
+    supabase,
+  });
+
   const { error } = await supabase.from("tables").delete().eq("id", tableId);
   if (error) {
     return { error: "Failed to delete table" };

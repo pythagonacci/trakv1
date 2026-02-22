@@ -15,6 +15,13 @@ import type { TableRowSourceEntityType, TableRowSourceSyncMode } from "@/types/t
 import { updateTaskItem } from "@/app/actions/tasks/item-actions";
 import { updateTimelineEvent } from "@/app/actions/timelines/event-actions";
 import { validateEventPriority, validateEventStatus } from "@/app/actions/timelines/validators";
+import {
+  mergeTimelinePriorityField,
+  normalizeTimelinePriorities,
+} from "@/lib/timeline-priority-sync";
+import { setEntityProperties } from "@/app/actions/entity-properties";
+import type { Status, Priority } from "@/types/properties";
+import type { TimelineNamedPriority } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -43,7 +50,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
       order: input.order ?? null,
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
-      source_sync_mode: input.sourceSyncMode ?? "snapshot",
+      source_sync_mode: input.sourceSyncMode ?? "live",
       created_by: userId,
       updated_by: userId,
     })
@@ -110,7 +117,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   // Get all valid field IDs for this table to filter out deleted fields
   const { data: fields, error: fieldsError } = await supabase
     .from("table_fields")
-    .select("id, name, type, config, is_primary, property_definition_id")
+    .select("id, name, type, config, is_primary")
     .eq("table_id", row.table_id);
 
   if (fieldsError) {
@@ -128,28 +135,19 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     return { error: "This field is read-only" };
   }
 
-  // Validate canonical IDs for priority/status fields
+  // Validate canonical IDs for priority/status fields against field config options
   if ((field.type === "priority" || field.type === "status") && value) {
-    const fieldWithPropDef = field as TableField & { property_definition_id?: string };
-
-    if (fieldWithPropDef.property_definition_id) {
-      // Fetch property definition options to validate
-      const { data: propDef } = await supabase
-        .from("property_definitions")
-        .select("options")
-        .eq("id", fieldWithPropDef.property_definition_id)
-        .maybeSingle();
-
-      if (propDef) {
-        const options = (propDef.options as Array<{ id: string; label: string }>) || [];
-        const validIds = options.map(opt => opt.id);
-
-        if (!validIds.includes(String(value))) {
-          const fieldTypeName = field.type === "priority" ? "Priority" : "Status";
-          return {
-            error: `Invalid ${fieldTypeName.toLowerCase()} value "${value}". Must be one of: ${validIds.join(", ")}`
-          };
-        }
+    const fieldConfig = (field.config || {}) as Record<string, unknown>;
+    const rawOptions = (field.type === "priority"
+      ? fieldConfig.levels
+      : fieldConfig.options) as Array<{ id: string }> | undefined;
+    if (rawOptions && rawOptions.length > 0) {
+      const validIds = rawOptions.map((opt) => opt.id);
+      if (!validIds.includes(String(value))) {
+        const fieldTypeName = field.type === "priority" ? "Priority" : "Status";
+        return {
+          error: `Invalid ${fieldTypeName.toLowerCase()} value "${value}". Must be one of: ${validIds.join(", ")}`,
+        };
       }
     }
   }
@@ -287,7 +285,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   }
 
   // Sync priority/status updates to entity_properties
-  if ((field.type === "priority" || field.type === "status") && field.property_definition_id) {
+  if (field.type === "priority" || field.type === "status") {
     const { data: tableData } = await supabase
       .from("tables")
       .select("workspace_id")
@@ -303,7 +301,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
           .delete()
           .eq("entity_type", "table_row")
           .eq("entity_id", rowId)
-          .eq("property_definition_id", field.property_definition_id);
+          .eq("field_name", field.name);
       } else {
         // Insert or update entity_property
         await supabase
@@ -311,11 +309,12 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
           .upsert({
             entity_type: "table_row",
             entity_id: rowId,
-            property_definition_id: field.property_definition_id,
+            field_name: field.name,
+            field_type: field.type,
             value: value,
             workspace_id: tableData.workspace_id,
           }, {
-            onConflict: "entity_type,entity_id,property_definition_id"
+            onConflict: "entity_type,entity_id,field_name"
           });
       }
     }
@@ -422,7 +421,7 @@ export async function duplicateRow(rowId: string, opts?: { authContext?: AuthCon
       order: Number(row.order) + 0.001,
       source_entity_type: sourceEntityId ? row.source_entity_type ?? null : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: row.source_sync_mode ?? "snapshot",
+      source_sync_mode: row.source_sync_mode ?? "live",
       created_by: userId,
       updated_by: userId,
     })
@@ -462,6 +461,325 @@ export async function setTableRowsSourceSyncMode(input: {
   }
 
   return { data: { updatedCount: (data || []).length } };
+}
+
+// ---------------------------------------------------------------------------
+// Push edited snapshot rows to source
+// ---------------------------------------------------------------------------
+
+export async function pushEditedSnapshotRowsToSource(input: {
+  tableId: string;
+  authContext?: AuthContext;
+}): Promise<ActionResult<{ pushedCount: number; failedRowIds: string[] }>> {
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, userId } = access;
+
+  // Fetch all edited source-linked rows
+  const { data: editedRows, error: fetchErr } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data, source_entity_type, source_entity_id, source_sync_mode")
+    .eq("table_id", input.tableId)
+    .eq("edited", true)
+    .not("source_entity_id", "is", null);
+
+  if (fetchErr) return { error: "Failed to fetch edited rows" };
+  if (!editedRows || editedRows.length === 0) return { data: { pushedCount: 0, failedRowIds: [] } };
+
+  // Fetch table fields for mapping
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config, is_primary")
+    .eq("table_id", input.tableId);
+
+  const tableFields = (fields ?? []) as TableField[];
+  const authContext: AuthContext = input.authContext ?? { supabase, userId };
+  const timelineSourceIds = Array.from(
+    new Set(
+      (editedRows ?? [])
+        .filter((row) => row.source_entity_type === "timeline_event" && typeof row.source_entity_id === "string")
+        .map((row) => row.source_entity_id as string)
+    )
+  );
+  const sourceTimelinePriorities = new Map<string, TimelineNamedPriority[]>();
+  if (timelineSourceIds.length > 0) {
+    const { data: sourceEvents } = await supabase
+      .from("timeline_events")
+      .select("id, priorities")
+      .in("id", timelineSourceIds);
+    for (const sourceEvent of sourceEvents ?? []) {
+      sourceTimelinePriorities.set(
+        sourceEvent.id as string,
+        normalizeTimelinePriorities((sourceEvent as any)?.priorities ?? [])
+      );
+    }
+  }
+
+  const failedRowIds: string[] = [];
+  let pushedCount = 0;
+
+  for (const row of editedRows) {
+    try {
+      const rowData = (row.data ?? {}) as Record<string, unknown>;
+
+      if (row.source_entity_type === "task") {
+        const updates: Record<string, unknown> = {};
+        for (const field of tableFields) {
+          if (rowData[field.id] === undefined) continue;
+          const mapped = mapTaskUpdateFromField(field, rowData[field.id]);
+          if (mapped) Object.assign(updates, mapped);
+        }
+        if (Object.keys(updates).length > 0) {
+          const result = await updateTaskItem(row.source_entity_id!, updates as any, { authContext });
+          if ("error" in result) { failedRowIds.push(row.id); continue; }
+        }
+      } else if (row.source_entity_type === "timeline_event") {
+        const updates: Record<string, unknown> = {};
+        const sourceEventId = row.source_entity_id as string;
+        let nextPriorities = normalizeTimelinePriorities(sourceTimelinePriorities.get(sourceEventId) ?? []);
+        let hasPriorityUpdate = false;
+        for (const field of tableFields) {
+          if (rowData[field.id] === undefined) continue;
+          const mapped = mapTimelineUpdateFromField(field, rowData[field.id]);
+          if (!mapped) continue;
+
+          const priorityUpdates = (mapped as any).priorities as
+            | Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" | null }>
+            | undefined;
+          if (Array.isArray(priorityUpdates)) {
+            hasPriorityUpdate = true;
+            for (const priorityUpdate of priorityUpdates) {
+              nextPriorities = mergeTimelinePriorityField(
+                nextPriorities,
+                priorityUpdate.field_name,
+                priorityUpdate.value
+              );
+            }
+          }
+
+          const { priorities: _ignoredPriorities, ...rest } = mapped as Record<string, unknown>;
+          Object.assign(updates, rest);
+        }
+        if (hasPriorityUpdate) {
+          updates.priorities = nextPriorities;
+        }
+        if (Object.keys(updates).length > 0) {
+          const result = await updateTimelineEvent(row.source_entity_id!, updates as any, { authContext });
+          if ("error" in result) { failedRowIds.push(row.id); continue; }
+          sourceTimelinePriorities.set(sourceEventId, nextPriorities);
+        }
+      } else if (row.source_entity_type === "table_row") {
+        // Push each mapped field to source table row
+        for (const field of tableFields) {
+          if (rowData[field.id] === undefined) continue;
+          await syncTableRowEditToSourceTableRow(row.source_entity_id!, field, rowData[field.id], authContext);
+        }
+      }
+
+      // Clear edited flag on success
+      await supabase
+        .from("table_rows")
+        .update({ edited: false, updated_by: userId })
+        .eq("id", row.id);
+
+      pushedCount++;
+    } catch (err) {
+      console.error(`pushEditedSnapshotRowsToSource: failed for row ${row.id}`, err);
+      failedRowIds.push(row.id);
+    }
+  }
+
+  return { data: { pushedCount, failedRowIds } };
+}
+
+// ---------------------------------------------------------------------------
+// Refresh edited snapshot rows from source
+// ---------------------------------------------------------------------------
+
+export async function refreshEditedSnapshotRowsFromSource(input: {
+  tableId: string;
+  authContext?: AuthContext;
+}): Promise<ActionResult<{ refreshedCount: number; failedRowIds: string[] }>> {
+  const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase, userId } = access;
+
+  // Fetch all edited source-linked rows
+  const { data: editedRows, error: fetchErr } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data, source_entity_type, source_entity_id, source_sync_mode")
+    .eq("table_id", input.tableId)
+    .eq("edited", true)
+    .not("source_entity_id", "is", null);
+
+  if (fetchErr) return { error: "Failed to fetch edited rows" };
+  if (!editedRows || editedRows.length === 0) return { data: { refreshedCount: 0, failedRowIds: [] } };
+
+  // Fetch table fields for reverse mapping
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config, is_primary")
+    .eq("table_id", input.tableId);
+
+  const tableFields = (fields ?? []) as TableField[];
+  const failedRowIds: string[] = [];
+  let refreshedCount = 0;
+
+  for (const row of editedRows) {
+    try {
+      const rowData = { ...((row.data ?? {}) as Record<string, unknown>) };
+      let refreshed = false;
+
+      if (row.source_entity_type === "task") {
+        const { data: task, error: taskErr } = await supabase
+          .from("task_items")
+          .select("*")
+          .eq("id", row.source_entity_id!)
+          .maybeSingle();
+
+        if (taskErr || !task) { failedRowIds.push(row.id); continue; }
+
+        // Map task fields back into row data
+        for (const field of tableFields) {
+          const value = mapTaskFieldToRowValue(field, task);
+          if (value !== undefined) rowData[field.id] = value;
+        }
+        refreshed = true;
+      } else if (row.source_entity_type === "timeline_event") {
+        const { data: event, error: eventErr } = await supabase
+          .from("timeline_events")
+          .select("*")
+          .eq("id", row.source_entity_id!)
+          .maybeSingle();
+
+        if (eventErr || !event) { failedRowIds.push(row.id); continue; }
+
+        for (const field of tableFields) {
+          const value = mapTimelineEventFieldToRowValue(field, event);
+          if (value !== undefined) rowData[field.id] = value;
+        }
+        refreshed = true;
+      } else if (row.source_entity_type === "table_row") {
+        const { data: sourceRow, error: sourceErr } = await supabase
+          .from("table_rows")
+          .select("id, table_id, data")
+          .eq("id", row.source_entity_id!)
+          .maybeSingle();
+
+        if (sourceErr || !sourceRow) { failedRowIds.push(row.id); continue; }
+
+        // Get source table's fields and map by name
+        const { data: sourceFields } = await supabase
+          .from("table_fields")
+          .select("id, name")
+          .eq("table_id", sourceRow.table_id);
+
+        const sourceData = (sourceRow.data ?? {}) as Record<string, unknown>;
+        const sourceFieldList = sourceFields ?? [];
+
+        for (const field of tableFields) {
+          const sourceField = sourceFieldList.find((sf: any) => sf.name === field.name);
+          if (sourceField && sourceData[sourceField.id] !== undefined) {
+            rowData[field.id] = sourceData[sourceField.id];
+          }
+        }
+        refreshed = true;
+      }
+
+      if (refreshed) {
+        await supabase
+          .from("table_rows")
+          .update({ data: rowData, edited: false, updated_by: userId })
+          .eq("id", row.id);
+        refreshedCount++;
+      } else {
+        failedRowIds.push(row.id);
+      }
+    } catch (err) {
+      console.error(`refreshEditedSnapshotRowsFromSource: failed for row ${row.id}`, err);
+      failedRowIds.push(row.id);
+    }
+  }
+
+  return { data: { refreshedCount, failedRowIds } };
+}
+
+// ---------------------------------------------------------------------------
+// Reverse mapping helpers: source entity → row data value
+// ---------------------------------------------------------------------------
+
+function mapTaskFieldToRowValue(
+  field: TableField,
+  task: Record<string, unknown>
+): unknown | undefined {
+  const normalizedFieldName = normalizeFieldName(field.name);
+  const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
+  const taskPriority =
+    taskPriorities.find((entry: any) => String(entry?.field_name || "").trim().toLowerCase() === "priority")?.value ??
+    taskPriorities[0]?.value ??
+    null;
+
+  if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "task") {
+    return task.title ?? "";
+  }
+  if (field.type === "status" || normalizedFieldName === "status") {
+    const statuses = Array.isArray(task.statuses) ? task.statuses : [];
+    return statuses[0]?.value ?? null;
+  }
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    return taskPriority ?? null;
+  }
+  if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
+    return task.description ?? null;
+  }
+  if (field.type === "date" || normalizedFieldName.includes("date")) {
+    if (normalizedFieldName.includes("start")) return task.start_date ?? null;
+    if (normalizedFieldName.includes("due") || normalizedFieldName === "date") return task.due_date ?? null;
+  }
+  return undefined;
+}
+
+function mapTimelineEventFieldToRowValue(
+  field: TableField,
+  event: Record<string, unknown>
+): unknown | undefined {
+  const normalizedFieldName = normalizeFieldName(field.name);
+  const eventPriorities = normalizeTimelinePriorities(event.priorities ?? []);
+  const matchingPriority = eventPriorities.find(
+    (entry) => entry.field_name.trim().toLowerCase() === field.name.trim().toLowerCase()
+  );
+  const shouldFallbackToCanonical = Boolean(
+    (field.config as any)?.timelinePriorityFallbackToCanonical === true ||
+      (field.config as any)?.useCanonicalTimelinePriorityFallback === true
+  );
+  const firstPriority = eventPriorities[0]?.value ?? null;
+
+  if (field.is_primary || normalizedFieldName.includes("title") || normalizedFieldName === "event") {
+    return event.title ?? "";
+  }
+  if (field.type === "status" || normalizedFieldName === "status") {
+    const statuses = Array.isArray(event.statuses) ? event.statuses : [];
+    return statuses[0]?.value ?? null;
+  }
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    if (matchingPriority?.value) return matchingPriority.value;
+    if (shouldFallbackToCanonical) return firstPriority ?? null;
+    return null;
+  }
+  if (normalizedFieldName.includes("progress")) {
+    return event.progress ?? null;
+  }
+  if (normalizedFieldName.includes("milestone")) {
+    return event.is_milestone ?? null;
+  }
+  if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
+    return event.notes ?? null;
+  }
+  if (field.type === "date" || normalizedFieldName.includes("date")) {
+    if (normalizedFieldName.includes("end")) return event.end_date ?? null;
+    if (normalizedFieldName.includes("start") || normalizedFieldName === "date") return event.start_date ?? null;
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -536,11 +854,174 @@ async function syncTableRowEditToSource(params: {
     if (row.source_entity_type === "timeline_event") {
       const timelineUpdates = mapTimelineUpdateFromField(field, value);
       if (!timelineUpdates) return;
-      await updateTimelineEvent(row.source_entity_id, timelineUpdates, { authContext });
+      const priorityUpdates = (timelineUpdates as any).priorities as
+        | Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" | null }>
+        | undefined;
+      if (Array.isArray(priorityUpdates)) {
+        const { data: sourceEvent } = await authContext.supabase
+          .from("timeline_events")
+          .select("priorities")
+          .eq("id", row.source_entity_id)
+          .maybeSingle();
+        let mergedPriorities = normalizeTimelinePriorities((sourceEvent as any)?.priorities ?? []);
+        for (const priorityUpdate of priorityUpdates) {
+          mergedPriorities = mergeTimelinePriorityField(
+            mergedPriorities,
+            priorityUpdate.field_name,
+            priorityUpdate.value
+          );
+        }
+        const { priorities: _ignoredPriorities, ...rest } = timelineUpdates as Record<string, unknown>;
+        await updateTimelineEvent(
+          row.source_entity_id,
+          {
+            ...(rest as any),
+            priorities: mergedPriorities,
+          },
+          { authContext }
+        );
+        return;
+      }
+      await updateTimelineEvent(row.source_entity_id, timelineUpdates as any, { authContext });
+      return;
+    }
+
+    if (row.source_entity_type === "table_row") {
+      await syncTableRowEditToSourceTableRow(row.source_entity_id, field, value, authContext);
+      return;
+    }
+
+    if (row.source_entity_type === "block") {
+      await syncTableRowEditToBlock(row.source_entity_id, field, value, authContext);
     }
   } catch (error) {
     console.error("syncTableRowEditToSource error:", error);
   }
+}
+
+async function syncTableRowEditToBlock(
+  blockId: string,
+  field: TableField,
+  value: unknown,
+  authContext: AuthContext
+): Promise<void> {
+  const supabase = authContext.supabase;
+  const { data: blockRow } = await supabase
+    .from("blocks")
+    .select("id, tabs!inner(projects!inner(workspace_id))")
+    .eq("id", blockId)
+    .maybeSingle();
+
+  const workspaceId = (blockRow as { tabs?: { projects?: { workspace_id?: string } } } | null)?.tabs?.projects?.workspace_id;
+  if (!workspaceId) return;
+
+  const updates = mapBlockUpdateFromField(field, value);
+  if (!updates || Object.keys(updates).length === 0) return;
+
+  const result = await setEntityProperties({
+    entity_type: "block",
+    entity_id: blockId,
+    workspace_id: workspaceId,
+    updates,
+  });
+  if ("error" in result) {
+    console.error("syncTableRowEditToBlock error:", result.error);
+  }
+}
+
+function mapBlockUpdateFromField(
+  field: TableField,
+  value: unknown
+): Partial<{
+  status: Status | null;
+  priority: Priority | null;
+  assignee_id: string | null;
+  assignee_ids: string[] | null;
+  due_date: { start: string | null; end: string | null } | null;
+  tags: string[];
+}> | null {
+  const normalizedFieldName = normalizeFieldName(field.name);
+  const textValue = valueToString(value);
+
+  if (field.type === "status" || normalizedFieldName === "status") {
+    const status = normalizeTimelineStatus(resolveSelectLikeValue(field, value));
+    return status !== null ? { status } : null;
+  }
+
+  if (field.type === "priority" || normalizedFieldName === "priority") {
+    const priority = normalizeTimelinePriority(resolveSelectLikeValue(field, value));
+    return priority !== undefined && priority !== null ? { priority } : null;
+  }
+
+  if (normalizedFieldName.includes("assignee") || field.type === "person") {
+    const assigneeId = extractAssigneeIdFromValue(value);
+    if (assigneeId !== undefined) {
+      return assigneeId ? { assignee_id: assigneeId, assignee_ids: [assigneeId] } : { assignee_id: null, assignee_ids: [] };
+    }
+    return null;
+  }
+
+  if (field.type === "date" || normalizedFieldName.includes("due") || normalizedFieldName.includes("date")) {
+    const dateValue = normalizeDateTimeForTimeline(value);
+    if (!dateValue) return null;
+    const dateOnly = dateValue.slice(0, 10);
+    return { due_date: { start: dateOnly, end: dateOnly } };
+  }
+
+  if (normalizedFieldName.includes("tag")) {
+    const tags = extractTagsFromValue(value);
+    if (tags) return { tags };
+    return null;
+  }
+
+  return null;
+}
+
+function extractAssigneeIdFromValue(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "object" && value !== null && "id" in (value as object)) {
+    const id = (value as { id?: string }).id;
+    return typeof id === "string" ? id : null;
+  }
+  return undefined;
+}
+
+function extractTagsFromValue(value: unknown): string[] | null {
+  if (Array.isArray(value)) {
+    const tags = value.map((t) => (typeof t === "string" ? t.trim() : null)).filter((t): t is string => Boolean(t));
+    return tags.length ? tags : null;
+  }
+  const s = valueToString(value);
+  return s ? [s] : null;
+}
+
+async function syncTableRowEditToSourceTableRow(
+  sourceRowId: string,
+  field: TableField,
+  value: unknown,
+  authContext: AuthContext
+): Promise<void> {
+  const supabase = authContext.supabase;
+  const { data: sourceRow } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data")
+    .eq("id", sourceRowId)
+    .maybeSingle();
+  if (!sourceRow?.table_id) return;
+
+  const { data: sourceFields } = await supabase
+    .from("table_fields")
+    .select("id, name")
+    .eq("table_id", sourceRow.table_id);
+  const fieldByName = (sourceFields ?? []).find((f) => f.name === field.name);
+  if (!fieldByName) return;
+
+  const nextData = { ...(sourceRow.data as Record<string, unknown> || {}), [fieldByName.id]: value };
+  await supabase
+    .from("table_rows")
+    .update({ data: nextData, updated_by: authContext.userId })
+    .eq("id", sourceRowId);
 }
 
 function mapTaskUpdateFromField(
@@ -597,7 +1078,7 @@ function mapTimelineUpdateFromField(
   | Partial<{
       title: string;
       status: "todo" | "in_progress" | "blocked" | "done";
-      priority: "low" | "medium" | "high" | "urgent" | null;
+      priorities: Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" | null }>;
       startDate: string;
       endDate: string;
       progress: number;
@@ -619,7 +1100,7 @@ function mapTimelineUpdateFromField(
 
   if (field.type === "priority" || normalizedFieldName === "priority") {
     const priority = normalizeTimelinePriority(resolveSelectLikeValue(field, value));
-    return priority !== undefined ? { priority } : null;
+    return priority !== undefined ? { priorities: [{ field_name: field.name, value: priority }] } : null;
   }
 
   if (normalizedFieldName.includes("progress")) {

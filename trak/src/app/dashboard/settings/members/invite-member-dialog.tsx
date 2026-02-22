@@ -48,7 +48,7 @@ export default function InviteMemberDialog({
       const result = await inviteMember(workspaceId, email.toLowerCase().trim(), role);
 
       if ("error" in result) {
-        setError(result.error);
+        setError(result.error || "Failed to invite member");
         setIsSubmitting(false);
         return;
       }

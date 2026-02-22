@@ -17,14 +17,11 @@ import {
   createEntityLink,
   removeEntityLink,
   getEntityLinks,
-  setInheritedPropertyVisibility,
 } from "@/app/actions/entity-properties";
-import { getPropertyDefinition } from "@/app/actions/properties/definition-actions";
-import type { PropertyDefinition } from "@/types/properties";
+import { getProjectTags, addProjectTag } from "@/app/actions/project";
 import type {
   EntityType,
   EntityProperties,
-  EntityPropertiesWithInheritance,
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
@@ -214,6 +211,41 @@ export function useAddTag(
 }
 
 /**
+ * Fetch the tag bank for a project (for suggestions in the properties modal)
+ */
+export function useProjectTags(projectId?: string) {
+  return useQuery({
+    queryKey: queryKeys.projectTags(projectId ?? ""),
+    queryFn: async () => {
+      if (!projectId) return [];
+      const result = await getProjectTags(projectId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Add a tag to a project's tag bank (e.g. when user creates a new tag from the properties modal)
+ */
+export function useAddProjectTag(projectId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => {
+      if (!projectId) return Promise.resolve({ data: null as null });
+      return addProjectTag(projectId, name);
+    },
+    onSuccess: (_result, _name, _variables) => {
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: queryKeys.projectTags(projectId) });
+      }
+    },
+  });
+}
+
+/**
  * Remove a tag from an entity
  */
 export function useRemoveTag(entityType: EntityType, entityId: string) {
@@ -368,56 +400,3 @@ export function useRemoveEntityLink(
   });
 }
 
-// ============================================================================
-// Inherited Property Visibility
-// ============================================================================
-
-/**
- * Toggle visibility of inherited properties from a source entity
- */
-export function useSetInheritedPropertyVisibility(
-  entityType: EntityType,
-  entityId: string
-) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: {
-      sourceEntityType: EntityType;
-      sourceEntityId: string;
-      isVisible: boolean;
-    }) =>
-      setInheritedPropertyVisibility({
-        entity_type: entityType,
-        entity_id: entityId,
-        source_entity_type: args.sourceEntityType,
-        source_entity_id: args.sourceEntityId,
-        is_visible: args.isVisible,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
-      });
-    },
-  });
-}
-
-// ============================================================================
-// Property Definitions
-// ============================================================================
-
-/**
- * Fetch a property definition by ID (for table fields)
- */
-export function usePropertyDefinition(propertyDefinitionId?: string | null) {
-  return useQuery({
-    queryKey: ["propertyDefinition", propertyDefinitionId],
-    queryFn: async () => {
-      if (!propertyDefinitionId) return null;
-      const result = await getPropertyDefinition(propertyDefinitionId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: Boolean(propertyDefinitionId),
-    staleTime: 60_000, // Property definitions change rarely
-  });
-}

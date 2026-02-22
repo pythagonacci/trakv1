@@ -27,7 +27,8 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
         ref={ref}
         onClick={handleClick}
         className={cn(
-          "inline-flex h-5 w-9 items-center rounded-full border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ring-offset)]",
+          "inline-flex h-5 w-9 items-center rounded-full border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 ease-out",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ring-offset)]",
           checked && "bg-[var(--primary)] border-[var(--primary)]",
           disabled && "opacity-50 cursor-not-allowed",
           !disabled && "cursor-pointer",

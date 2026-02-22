@@ -16,6 +16,7 @@ export type Doc = {
   updated_at: string;
   last_edited_by: string | null;
   is_archived: boolean;
+  folder_id?: string | null;
 };
 
 type DocFilters = {

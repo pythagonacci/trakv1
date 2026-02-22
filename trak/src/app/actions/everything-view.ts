@@ -8,6 +8,24 @@ import type { EntityType, EntityProperties, Status, Priority } from "@/types/pro
 
 type ActionResult<T> = { data: T } | { error: string };
 
+/** Returns the first priority value when a single value is needed. Does not prefer any field name. */
+function firstPriorityFromNamed(priorities: unknown): Priority | null {
+  if (!Array.isArray(priorities) || priorities.length === 0) return null;
+  const value = (priorities[0] as any)?.value;
+  return value === "low" || value === "medium" || value === "high" || value === "urgent"
+    ? (value as Priority)
+    : null;
+}
+
+/** Returns the first status value from named statuses (statuses JSONB). Used after legacy status column was dropped. */
+function firstStatusFromNamed(statuses: unknown): Status | null {
+  if (!Array.isArray(statuses) || statuses.length === 0) return null;
+  const value = (statuses[0] as any)?.value;
+  return value === "todo" || value === "in_progress" || value === "blocked" || value === "done"
+    ? (value as Status)
+    : null;
+}
+
 /**
  * Get all items with properties across the entire workspace
  * Aggregates timeline events, task items, table rows, and blocks with properties
@@ -17,7 +35,7 @@ export async function getWorkspaceEverything(
   options?: EverythingOptions
 ): Promise<ActionResult<EverythingResult>> {
   const supabase = await createClient();
-  const limit = options?.limit ?? 500;
+  const limit = options?.limit ?? 2000;
   const offset = options?.offset ?? 0;
 
   // Execute 4-way UNION query to get all items with properties
@@ -109,15 +127,16 @@ async function getWorkspaceEverythingFallback(
     projects.map((p: any) => [p.id, p])
   );
 
-  // Query 1: Timeline Events
+  // Query 1: Timeline Events (use statuses JSONB; legacy status column was dropped)
   const { data: timelineEvents } = await supabase
     .from('timeline_events')
     .select(`
       id,
       title,
       start_date,
-      status,
-      priority,
+      end_date,
+      statuses,
+      priorities,
       created_at,
       updated_at,
       timeline_block_id,
@@ -143,14 +162,6 @@ async function getWorkspaceEverythingFallback(
       const blockContent = block.content as any || {};
       const blockName = blockContent.title || 'Timeline';
 
-      // Get assignees from entity_properties
-      const { data: props } = await supabase
-        .from('entity_properties')
-        .select('assignee_ids, tags')
-        .eq('entity_type', 'timeline_event')
-        .eq('entity_id', event.id)
-        .maybeSingle();
-
       items.push({
         id: event.id,
         type: 'timeline_event' as EntityType,
@@ -166,11 +177,11 @@ async function getWorkspaceEverythingFallback(
           url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block.id}`,
         },
         properties: {
-          status: event.status as Status,
-          priority: event.priority as Priority | null,
-          assignee_ids: props?.assignee_ids || [],
-          due_date: buildDueDateRange(event.start_date, null), // Use start_date as due_date for timeline events
-          tags: props?.tags || [],
+          status: firstStatusFromNamed((event as any).statuses),
+          priority: firstPriorityFromNamed((event as any).priorities),
+          assignee_ids: [],
+          due_date: buildDueDateRange(event.start_date, (event as any).end_date ?? null), // Range: categorization uses end date
+          tags: [],
         },
         created_at: event.created_at,
         updated_at: event.updated_at,
@@ -178,14 +189,14 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
-  // Query 2: Task Items
+  // Query 2: Task Items (use statuses JSONB; legacy status column was dropped)
   const { data: taskItems } = await supabase
     .from('task_items')
     .select(`
       id,
       title,
-      status,
-      priority,
+      statuses,
+      priorities,
       due_date,
       start_date,
       created_at,
@@ -213,14 +224,6 @@ async function getWorkspaceEverythingFallback(
       const blockContent = block.content as any || {};
       const blockName = blockContent.title || 'Task List';
 
-      // Get assignees and tags from entity_properties
-      const { data: props } = await supabase
-        .from('entity_properties')
-        .select('assignee_ids, tags')
-        .eq('entity_type', 'task')
-        .eq('entity_id', task.id)
-        .maybeSingle();
-
       items.push({
         id: task.id,
         type: 'task' as EntityType,
@@ -236,11 +239,11 @@ async function getWorkspaceEverythingFallback(
           url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block.id}`,
         },
         properties: {
-          status: task.status as Status,
-          priority: task.priority as Priority | null,
-          assignee_ids: props?.assignee_ids || [],
+          status: firstStatusFromNamed((task as any).statuses),
+          priority: firstPriorityFromNamed((task as any).priorities),
+          assignee_ids: [],
           due_date: buildDueDateRange(task.start_date ?? null, task.due_date ?? null),
-          tags: props?.tags || [],
+          tags: [],
         },
         created_at: task.created_at,
         updated_at: task.updated_at,
@@ -277,6 +280,11 @@ async function getWorkspaceEverythingFallback(
       .from('table_rows')
       .select('id, table_id, data, created_at, updated_at')
       .in('table_id', tableIds);
+    const tableRowIds = (tableRows || []).map((row: any) => row.id);
+    const tableRowPropsResult = tableRowIds.length
+      ? await getEntitiesProperties("table_row", tableRowIds, workspaceId)
+      : { data: {} as Record<string, EntityProperties> };
+    const tableRowPropsById = "error" in tableRowPropsResult ? {} : tableRowPropsResult.data;
 
     // Process table rows
     if (tableRows) {
@@ -305,13 +313,7 @@ async function getWorkspaceEverythingFallback(
           ? String(row.data[primaryField.id])
           : 'Untitled';
 
-        // Get properties from entity_properties
-        const { data: props } = await supabase
-          .from('entity_properties')
-          .select('status, priority, assignee_ids, due_date, tags')
-          .eq('entity_type', 'table_row')
-          .eq('entity_id', row.id)
-          .maybeSingle();
+        const props = tableRowPropsById[row.id];
 
         // Only include rows that have properties
         if (props && (props.status || props.priority || props.assignee_ids?.length > 0 || props.due_date || props.tags?.length > 0)) {
@@ -333,7 +335,7 @@ async function getWorkspaceEverythingFallback(
               status: props.status as Status | null,
               priority: props.priority as Priority | null,
               assignee_ids: props.assignee_ids || [],
-              due_date: normalizeDueDateRange(props.due_date),
+              due_date: normalizeDueDateRange(props.due_date ?? null),
               tags: props.tags || [],
             },
             created_at: row.created_at,
@@ -456,26 +458,32 @@ async function maybeFilterWorkflowTaskCopies(
   const tableRowIds = items
     .filter((item) => item.type === "table_row")
     .map((item) => item.id);
+  const timelineEventIds = items
+    .filter((item) => item.type === "timeline_event")
+    .map((item) => item.id);
 
-  if (taskIds.length === 0 && tableRowIds.length === 0) return items;
+  if (taskIds.length === 0 && tableRowIds.length === 0 && timelineEventIds.length === 0) return items;
 
-  const [taskResult, rowResult] = await Promise.all([
+  const [taskResult, rowResult, timelineResult] = await Promise.all([
     taskIds.length > 0
-      ? supabase.from("task_items").select("id, source_task_id").in("id", taskIds)
+      ? supabase.from("task_items").select("id, source_task_id, source_entity_id").in("id", taskIds)
       : Promise.resolve({ data: [], error: null }),
     tableRowIds.length > 0
       ? supabase.from("table_rows").select("id, source_entity_id").in("id", tableRowIds)
       : Promise.resolve({ data: [], error: null }),
+    timelineEventIds.length > 0
+      ? supabase.from("timeline_events").select("id, source_entity_id").in("id", timelineEventIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (taskResult.error || rowResult.error) {
-    console.error("maybeFilterWorkflowTaskCopies error:", taskResult.error || rowResult.error);
+  if (taskResult.error || rowResult.error || timelineResult.error) {
+    console.error("maybeFilterWorkflowTaskCopies error:", taskResult.error || rowResult.error || timelineResult.error);
     return items;
   }
 
   const copiedTaskIds = new Set(
-    ((taskResult.data || []) as Array<{ id: string; source_task_id: string | null }>)
-      .filter((task) => Boolean(task.source_task_id))
+    ((taskResult.data || []) as Array<{ id: string; source_task_id: string | null; source_entity_id: string | null }>)
+      .filter((task) => Boolean(task.source_entity_id || task.source_task_id))
       .map((task) => task.id)
   );
   const copiedRowIds = new Set(
@@ -483,10 +491,16 @@ async function maybeFilterWorkflowTaskCopies(
       .filter((row) => Boolean(row.source_entity_id))
       .map((row) => row.id)
   );
+  const copiedTimelineEventIds = new Set(
+    ((timelineResult.data || []) as Array<{ id: string; source_entity_id: string | null }>)
+      .filter((ev) => Boolean(ev.source_entity_id))
+      .map((ev) => ev.id)
+  );
 
   return items.filter((item) => {
     if (item.type === "task") return !copiedTaskIds.has(item.id);
     if (item.type === "table_row") return !copiedRowIds.has(item.id);
+    if (item.type === "timeline_event") return !copiedTimelineEventIds.has(item.id);
     return true;
   });
 }
@@ -511,7 +525,7 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
     },
     properties: {
       status: raw.status as Status | null,
-      priority: raw.priority as Priority | null,
+      priority: firstPriorityFromNamed(raw.priorities) ?? (raw.priority as Priority | null),
       assignee_ids: raw.assignee_ids || [],
       due_date: normalizeDueDateRange(raw.due_date),
       tags: raw.tags || [],

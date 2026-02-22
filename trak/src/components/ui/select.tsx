@@ -5,11 +5,10 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /*
- * SARAJEVO SELECT STYLING
- * - Clean dropdown with structural borders
- * - Coffee Patina accent for focus states
- * - Proper spacing and typography
- * - Accessible with keyboard navigation
+ * SELECT STYLING - Apollo-style operational structure
+ * - Normalized radius using CSS variables
+ * - Consistent h-10 height
+ * - Token-based focus rings
  */
 const Select = SelectPrimitive.Root
 
@@ -24,7 +23,10 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm shadow-sm ring-offset-[var(--ring-offset)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      "flex h-10 w-full items-center justify-between whitespace-nowrap rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm ring-offset-[var(--ring-offset)] placeholder:text-[var(--muted-foreground)]",
+      "hover:bg-[var(--surface-hover)]",
+      "focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-[var(--surface-muted)] [&>span]:line-clamp-1",
       className
     )}
     {...props}
@@ -80,7 +82,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
@@ -123,7 +125,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-[2px] py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex w-full cursor-default select-none items-center rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-[var(--surface-hover)] focus:text-[var(--foreground)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}

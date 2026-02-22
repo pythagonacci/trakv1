@@ -48,7 +48,7 @@ export default function EditMemberDialog({
       const result = await updateMemberRole(workspaceId, member.id, role);
 
       if ("error" in result) {
-        setError(result.error);
+        setError(result.error || "Failed to update member role");
         setIsSubmitting(false);
         return;
       }
@@ -70,7 +70,7 @@ export default function EditMemberDialog({
       const result = await removeMember(workspaceId, member.id);
 
       if ("error" in result) {
-        setError(result.error);
+        setError(result.error || "Failed to remove member");
         setIsSubmitting(false);
         setShowRemoveConfirm(false);
         return;

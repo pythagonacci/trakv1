@@ -2,15 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { X, Calendar as CalendarIcon, Clock, Folder, Layers, Flag } from "lucide-react";
+import { Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { createBlock } from "@/app/actions/block";
 import { createTaskItem } from "@/app/actions/tasks/item-actions";
@@ -204,19 +198,30 @@ export default function AddEventDialog({
     }
   };
 
+  // Format time "HH:mm" to "12:00pm"
+  const formatTime12h = (t: string) => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h < 12 ? "am" : "pm";
+    return `${h12}:${String(m).padStart(2, "0")}${ampm}`;
+  };
+
+  // Primary date/time display line
+  const dateTimeDisplayPrimary = (() => {
+    if (!date) return "Pick a date";
+    const d = new Date(date + "T12:00:00");
+    const dateStr = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    if (!time && !timeEnd) return dateStr;
+    if (time && timeEnd) return `${dateStr} ${formatTime12h(time)} – ${formatTime12h(timeEnd)}`;
+    if (time) return `${dateStr} ${formatTime12h(time)}`;
+    return `${dateStr} ${formatTime12h(timeEnd!)}`;
+  })();
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[480px] rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl p-0">
-        <DialogHeader className="px-6 pt-6 pb-4">
-          <DialogTitle className="text-xl font-semibold text-[var(--foreground)]">
-            New Event
-          </DialogTitle>
-          <DialogDescription className="text-sm text-[var(--muted-foreground)] mt-1">
-            Create a task with date and time
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
+        <form onSubmit={handleSubmit} className="px-6 pt-6 pb-6 space-y-4">
           {/* Title */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">
@@ -233,41 +238,39 @@ export default function AddEventDialog({
             />
           </div>
 
-          {/* Date and Time */}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">
-                Date
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
+          {/* Date and Time — Google-style block */}
+          <div className="flex gap-3">
+            <div className="flex-shrink-0 pt-0.5 text-[var(--muted-foreground)]">
+              <Clock className="h-4 w-4" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--muted-foreground)]">
-                  Start time
-                </label>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-[var(--foreground)]">
+                {dateTimeDisplayPrimary}
+              </div>
+              <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                Local time • Does not repeat
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] focus:border-[var(--ring)]"
+                  required
+                />
                 <input
                   type="time"
                   value={time}
                   onChange={(e) => setTime(e.target.value)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Start"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] focus:border-[var(--ring)]"
                 />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--muted-foreground)]">
-                  End time
-                </label>
                 <input
                   type="time"
                   value={timeEnd}
                   onChange={(e) => setTimeEnd(e.target.value)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="End"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] focus:border-[var(--ring)]"
                 />
               </div>
             </div>

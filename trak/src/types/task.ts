@@ -1,7 +1,26 @@
+import type { Priority } from "@/types/properties";
+
+export type TaskFilterExpr = Record<string, unknown>;
+export interface TaskRollupConfig {
+  id?: string;
+  [key: string]: unknown;
+}
+
 export type TaskStatus = "todo" | "in-progress" | "done";
 export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 export type TaskReferenceType = "doc" | "table_row" | "task" | "block" | "tab";
 export type TaskSourceSyncMode = "snapshot" | "live";
+export type TaskSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
+
+export interface TaskItemPriority {
+  field_name: string;
+  value: Priority | null;
+}
+
+export interface TaskItemStatus {
+  field_name: string;
+  value: TaskStatus | null;
+}
 
 export interface TaskItem {
   id: string;
@@ -10,11 +29,13 @@ export interface TaskItem {
   project_id: string | null;
   tab_id: string | null;
   title: string;
-  status: TaskStatus;
-  priority: TaskPriority;
+  statuses: TaskItemStatus[];
+  priorities: TaskItemPriority[];
   assignee_id: string | null;
   source_task_id: string | null;
-  source_sync_mode: TaskSourceSyncMode;
+  source_entity_type: TaskSourceEntityType | null;
+  source_entity_id: string | null;
+  source_sync_mode: TaskSourceSyncMode | null;
   description: string | null;
   due_date: string | null;
   due_time: string | null;
@@ -102,4 +123,8 @@ export interface TaskBlockContent {
   hideIcons?: boolean;
   viewMode?: "list" | "board" | "table";
   boardGroupBy?: "status" | "priority" | "assignee" | "dueDate" | "tags";
+  filters?: TaskFilterExpr;
+  search?: string;
+  showDone?: boolean;
+  rollups?: TaskRollupConfig[];
 }

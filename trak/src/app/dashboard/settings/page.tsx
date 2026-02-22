@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import { getAllTeams } from "@/app/actions/workspace-teams";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsClient } from "./settings-client";
@@ -33,14 +34,19 @@ export default async function SettingsPage() {
 
   if (!workspace) redirect("/dashboard");
 
-  // 4. Fetch members
-  const membersResult = await getWorkspaceMembers(workspaceId);
+  // 4. Fetch members and teams
+  const [membersResult, teamsResult] = await Promise.all([
+    getWorkspaceMembers(workspaceId),
+    getAllTeams(workspaceId),
+  ]);
   const members = "data" in membersResult ? membersResult.data : [];
+  const teams = "data" in teamsResult ? teamsResult.data : [];
 
   return (
     <SettingsClient
       workspace={workspace}
-      members={members}
+      members={members || []}
+      teams={teams || []}
       currentUserRole={membership.role}
       currentUserId={user.id}
     />

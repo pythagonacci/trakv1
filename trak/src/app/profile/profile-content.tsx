@@ -66,22 +66,22 @@ export default function ProfileContent({ user, initialWorkspaces }: ProfileConte
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <div className="max-w-6xl mx-auto px-4 py-8 md:py-12">
-        {/* Header */}
-        <div className="mb-8">
+    <div className="min-h-screen bg-[var(--surface)] text-[var(--foreground)]">
+      <div className="max-w-6xl mx-auto px-2 py-4 md:px-3 lg:px-4 lg:py-5">
+        {/* Header - matches dashboard/projects and workflow page */}
+        <div className="mb-4">
           <Link
             href="/dashboard"
             className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-4 inline-block"
           >
             ← Back to Dashboard
           </Link>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl md:text-4xl font-semibold text-[var(--foreground)] mb-2">
+              <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">
                 Your Workspaces
               </h1>
-              <p className="text-[var(--muted-foreground)]">
+              <p className="text-sm text-[var(--muted-foreground)]">
                 {user.email}
               </p>
             </div>
@@ -92,85 +92,86 @@ export default function ProfileContent({ user, initialWorkspaces }: ProfileConte
           </div>
         </div>
 
-        {/* Workspaces Table */}
+        {/* Workspaces Table - same UI as projects table (no card, same table styling) */}
         {workspaces.length === 0 ? (
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg p-12 text-center">
-            <Building2 className="h-12 w-12 mx-auto mb-4 text-[var(--muted-foreground)]" />
-            <h3 className="text-lg font-semibold text-[var(--foreground)] mb-2">
-              No workspaces yet
-            </h3>
-            <p className="text-[var(--muted-foreground)] mb-6">
+          <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[4px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-8 py-14 text-center">
+            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-[2px] border border-[var(--river-indigo)]/20 bg-[var(--river-indigo)]/10 text-[var(--river-indigo)]">
+              <Building2 className="h-7 w-7" />
+            </div>
+            <h3 className="mb-1.5 text-[15px] font-semibold text-[var(--foreground)]">No workspaces yet</h3>
+            <p className="mb-4 max-w-sm text-[12px] text-[var(--muted-foreground)]">
               Create your first workspace to get started.
             </p>
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
+            <button
+              onClick={() => setCreateDialogOpen(true)}
+              className="inline-flex items-center gap-2 rounded-[2px] bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)] transition-colors hover:bg-[var(--primary-hover)]"
+            >
+              <Plus className="h-4 w-4" />
               Create Workspace
-            </Button>
+            </button>
           </div>
         ) : (
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg overflow-hidden">
-            <Table className="[&_th]:px-4 [&_th]:py-3.5 [&_th]:h-12 [&_td]:px-4 [&_td]:py-4">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                    Workspace
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                    Role
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                    Status
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {workspaces.map((workspace) => (
-                  <TableRow
-                    key={workspace.id}
-                    className={cn(
-                      "cursor-pointer hover:bg-[var(--surface-hover)]",
-                      isPending && "opacity-50 pointer-events-none"
-                    )}
-                    onClick={() => handleWorkspaceClick(workspace)}
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-sm font-semibold">
-                          {getInitials(workspace.name)}
-                        </div>
-                        <span className="text-base font-semibold text-[var(--foreground)]">
-                          {workspace.name}
-                        </span>
+          <Table className="[&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Workspace
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Role
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Status
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {workspaces.map((workspace) => (
+                <TableRow
+                  key={workspace.id}
+                  className={cn(
+                    "cursor-pointer",
+                    isPending && "opacity-50 pointer-events-none"
+                  )}
+                  onClick={() => handleWorkspaceClick(workspace)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-sm font-semibold">
+                        {getInitials(workspace.name)}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-                        {workspace.role}
+                      <span className="text-sm font-medium text-[var(--foreground)]">
+                        {workspace.name}
                       </span>
-                    </TableCell>
-                    <TableCell>
-                      {workspace.role === 'owner' && (
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/20 rounded-md">
-                          <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />
-                          <span className="text-xs font-medium text-[var(--dome-teal)]">Owner</span>
-                        </div>
-                      )}
-                      {workspace.role === 'admin' && (
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/20 rounded-md">
-                          <span className="text-xs font-medium text-[var(--river-indigo)]">Admin</span>
-                        </div>
-                      )}
-                      {workspace.role === 'teammate' && (
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--muted)]/10 border border-[var(--border)] rounded-md">
-                          <span className="text-xs font-medium text-[var(--muted-foreground)]">Teammate</span>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                      {workspace.role}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {workspace.role === 'owner' && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/20 rounded-md">
+                        <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />
+                        <span className="text-xs font-medium text-[var(--dome-teal)]">Owner</span>
+                      </div>
+                    )}
+                    {workspace.role === 'admin' && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/20 rounded-md">
+                        <span className="text-xs font-medium text-[var(--river-indigo)]">Admin</span>
+                      </div>
+                    )}
+                    {workspace.role === 'teammate' && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--muted)]/10 border border-[var(--border)] rounded-md">
+                        <span className="text-xs font-medium text-[var(--muted-foreground)]">Teammate</span>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
 

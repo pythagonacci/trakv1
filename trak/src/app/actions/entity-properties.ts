@@ -6,14 +6,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import { getDueDateEnd, getDueDateStart, normalizeDueDateRange } from "@/lib/due-date";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
+import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import type {
   EntityType,
   EntityProperties,
   EntityPropertiesWithInheritance,
-  InheritedEntityProperties,
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
+  Priority,
+  FieldType,
   Status,
   WorkspaceMember,
 } from "@/types/properties";
@@ -26,114 +29,44 @@ type ActionResult<T> = { data: T } | { error: string };
 
 const FIXED_PROPERTY_DEFINITIONS = {
   status: {
-    name: "Status",
-    type: "select",
-    options: [
-      { id: "todo", label: "To Do", color: "gray" },
-      { id: "in_progress", label: "In Progress", color: "blue" },
-      { id: "blocked", label: "Blocked", color: "red" },
-      { id: "done", label: "Done", color: "green" },
-    ],
+    fieldName: "Status",
+    fieldType: "status" as FieldType,
   },
   priority: {
-    name: "Priority",
-    type: "select",
-    options: [
-      { id: "low", label: "Low", color: "gray" },
-      { id: "medium", label: "Medium", color: "yellow" },
-      { id: "high", label: "High", color: "orange" },
-      { id: "urgent", label: "Urgent", color: "red" },
-    ],
+    fieldName: "Priority",
+    fieldType: "priority" as FieldType,
   },
-  assignee_id: { name: "Assignee", type: "person", options: [] },
-  due_date: { name: "Due Date", type: "date", options: [] },
-  tags: { name: "Tags", type: "multi_select", options: [] },
+  assignee_id: { fieldName: "Assignee", fieldType: "assignee" as FieldType },
+  due_date: { fieldName: "Due Date", fieldType: "due_date" as FieldType },
+  tags: { fieldName: "Tags", fieldType: "tags" as FieldType },
 } as const;
 
 type FixedPropertyKey = keyof typeof FIXED_PROPERTY_DEFINITIONS;
 
 type FixedPropertyMaps = {
-  byKey: Record<FixedPropertyKey, string>;
-  byId: Record<string, FixedPropertyKey>;
+  byKey: Record<FixedPropertyKey, FixedPropertyKey>;
 };
 
 async function loadFixedPropertyDefinitions(
-  supabase: any,
-  workspaceId: string
+  _supabase: any,
+  _workspaceId: string
 ): Promise<FixedPropertyMaps | { error: string }> {
-  const entries = Object.entries(FIXED_PROPERTY_DEFINITIONS) as Array<
-    [FixedPropertyKey, (typeof FIXED_PROPERTY_DEFINITIONS)[FixedPropertyKey]]
-  >;
-  const names = entries.map(([, def]) => def.name);
-
-  const fetchDefinitions = async () =>
-    supabase
-      .from("property_definitions")
-      .select("id, name")
-      .eq("workspace_id", workspaceId)
-      .in("name", names);
-
-  const { data: existing, error: existingError } = await fetchDefinitions();
-  if (existingError) {
-    console.error("loadFixedPropertyDefinitions error:", existingError);
-    return { error: "Failed to load property definitions" };
-  }
-
-  const existingByName = new Map<string, string>();
-  (existing ?? []).forEach((row: any) => existingByName.set(row.name, row.id));
-
-  const missing = entries.filter(([, def]) => !existingByName.has(def.name));
-  if (missing.length > 0) {
-    const payload = missing.map(([, def]) => ({
-      workspace_id: workspaceId,
-      name: def.name,
-      type: def.type,
-      options: def.options,
-    }));
-
-    const { error: insertError } = await supabase
-      .from("property_definitions")
-      .insert(payload);
-    if (insertError) {
-      console.error("loadFixedPropertyDefinitions insert error:", insertError);
-    }
-  }
-
-  const { data: refreshed, error: refreshError } = await fetchDefinitions();
-  if (refreshError) {
-    console.error("loadFixedPropertyDefinitions refresh error:", refreshError);
-    return { error: "Failed to load property definitions" };
-  }
-
-  const keyByName = new Map<string, FixedPropertyKey>();
-  entries.forEach(([key, def]) => keyByName.set(def.name, key));
-
-  const byKey = {} as Record<FixedPropertyKey, string>;
-  const byId: Record<string, FixedPropertyKey> = {};
-  (refreshed ?? []).forEach((row: any) => {
-    const key = keyByName.get(row.name);
-    if (!key) return;
-    byKey[key] = row.id;
-    byId[row.id] = key;
-  });
-
-  const missingKeys = entries
-    .map(([key]) => key)
-    .filter((key) => !byKey[key]);
-  if (missingKeys.length > 0) {
-    console.error("Missing property definitions:", missingKeys.join(", "));
-    return { error: "Missing property definitions" };
-  }
-
-  return { byKey, byId };
+  return {
+    byKey: {
+      status: "status",
+      priority: "priority",
+      assignee_id: "assignee_id",
+      due_date: "due_date",
+      tags: "tags",
+    },
+  };
 }
 
 function buildEntityPropertiesFromRows(
   entityType: EntityType,
   entityId: string,
   workspaceId: string,
-  rows: any[],
-  byId: Record<string, FixedPropertyKey>
+  rows: any[]
 ): EntityProperties {
   let createdAt = rows[0]?.created_at ?? new Date().toISOString();
   let updatedAt = rows[0]?.updated_at ?? createdAt;
@@ -149,53 +82,141 @@ function buildEntityPropertiesFromRows(
     assignee_ids: [],
     due_date: null,
     tags: [],
+    priorities: [],
+    statuses: [],
+    assignees: [],
+    due_dates: [],
+    tag_fields: [],
     created_at: createdAt,
     updated_at: updatedAt,
   };
 
+  const toPriority = (value: unknown): Priority | null => {
+    if (value === "low" || value === "medium" || value === "high" || value === "urgent") return value;
+    return null;
+  };
+  const toStatus = (value: unknown): Status | null => {
+    if (value === "todo" || value === "in_progress" || value === "blocked" || value === "done") return value;
+    return null;
+  };
+  const getRowKey = (row: any): FixedPropertyKey | null => {
+    const fieldType = typeof row.field_type === "string" ? row.field_type : null;
+    if (fieldType === "status") return "status";
+    if (fieldType === "priority") return "priority";
+    if (fieldType === "assignee") return "assignee_id";
+    if (fieldType === "due_date") return "due_date";
+    if (fieldType === "tags") return "tags";
+    const fieldName = String(row.field_name || "").trim().toLowerCase();
+    if (fieldName === "status") return "status";
+    if (fieldName === "priority") return "priority";
+    if (fieldName === "assignee") return "assignee_id";
+    if (fieldName === "due date") return "due_date";
+    if (fieldName === "tags") return "tags";
+    return null;
+  };
+  const pickPreferred = <T,>(fields: Array<{ field_name: string; value: T }>, preferredName: string): T | null => {
+    if (fields.length === 0) return null;
+    const preferred = fields.find((field) => field.field_name.trim().toLowerCase() === preferredName.trim().toLowerCase());
+    return (preferred ?? fields[0])?.value ?? null;
+  };
+
   for (const row of rows) {
-    const key = byId[row.property_definition_id];
+    const key = getRowKey(row);
     if (!key) continue;
     if (row.created_at && row.created_at < createdAt) createdAt = row.created_at;
     if (row.updated_at && row.updated_at > updatedAt) updatedAt = row.updated_at;
 
     switch (key) {
-      case "status":
-        props.status = typeof row.value === "string" ? (row.value as any) : null;
+      case "status": {
+        const value = toStatus(row.value);
+        if (!value) break;
+        props.statuses.push({
+          id: row.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          workspace_id: workspaceId,
+          field_name: row.field_name ?? FIXED_PROPERTY_DEFINITIONS.status.fieldName,
+          field_type: "status",
+          value,
+          created_at: row.created_at ?? createdAt,
+          updated_at: row.updated_at ?? updatedAt,
+        });
         break;
-      case "priority":
-        props.priority = typeof row.value === "string" ? (row.value as any) : null;
+      }
+      case "priority": {
+        const value = toPriority(row.value);
+        if (!value) break;
+        props.priorities.push({
+          id: row.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          workspace_id: workspaceId,
+          field_name: row.field_name ?? FIXED_PROPERTY_DEFINITIONS.priority.fieldName,
+          field_type: "priority",
+          value,
+          created_at: row.created_at ?? createdAt,
+          updated_at: row.updated_at ?? updatedAt,
+        });
         break;
-      case "assignee_id":
-        // Handle array of {id, name}, single {id, name}, or legacy string ID
-        if (Array.isArray(row.value) && row.value.length > 0) {
-          const ids = (row.value as Array<{ id?: string }>)
-            .map((a) => (a && typeof a === "object" && a.id) || null)
-            .filter((id): id is string => Boolean(id));
-          props.assignee_ids = ids;
-          props.assignee_id = ids[0] ?? null;
-        } else if (row.value && typeof row.value === "object" && !Array.isArray(row.value)) {
-          const single = row.value as { id?: string };
-          props.assignee_id = single.id ?? null;
-          props.assignee_ids = props.assignee_id ? [props.assignee_id] : [];
-        } else if (typeof row.value === "string") {
-          props.assignee_id = row.value;
-          props.assignee_ids = row.value ? [row.value] : [];
-        } else {
-          props.assignee_id = null;
-          props.assignee_ids = [];
-        }
+      }
+      case "assignee_id": {
+        const ids = extractAssigneeIdsFromValue(row.value);
+        props.assignees.push({
+          id: row.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          workspace_id: workspaceId,
+          field_name: row.field_name ?? FIXED_PROPERTY_DEFINITIONS.assignee_id.fieldName,
+          field_type: "assignee",
+          value: ids,
+          created_at: row.created_at ?? createdAt,
+          updated_at: row.updated_at ?? updatedAt,
+        });
         break;
-      case "due_date":
-        props.due_date = normalizeDueDateRange(row.value);
+      }
+      case "due_date": {
+        const range = normalizeDueDateRange(row.value);
+        if (!range) break;
+        props.due_dates.push({
+          id: row.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          workspace_id: workspaceId,
+          field_name: row.field_name ?? FIXED_PROPERTY_DEFINITIONS.due_date.fieldName,
+          field_type: "due_date",
+          value: range,
+          created_at: row.created_at ?? createdAt,
+          updated_at: row.updated_at ?? updatedAt,
+        });
         break;
-      case "tags":
-        props.tags = Array.isArray(row.value)
+      }
+      case "tags": {
+        const tags = Array.isArray(row.value)
           ? row.value.filter((tag: any) => typeof tag === "string" && tag.trim() !== "")
           : [];
+        props.tag_fields.push({
+          id: row.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          workspace_id: workspaceId,
+          field_name: row.field_name ?? FIXED_PROPERTY_DEFINITIONS.tags.fieldName,
+          field_type: "tags",
+          value: tags,
+          created_at: row.created_at ?? createdAt,
+          updated_at: row.updated_at ?? updatedAt,
+        });
         break;
+      }
     }
   }
+
+  props.status = pickPreferred(props.statuses, FIXED_PROPERTY_DEFINITIONS.status.fieldName);
+  props.priority = pickPreferred(props.priorities, FIXED_PROPERTY_DEFINITIONS.priority.fieldName);
+  const preferredAssignees = pickPreferred(props.assignees, FIXED_PROPERTY_DEFINITIONS.assignee_id.fieldName) ?? [];
+  props.assignee_ids = preferredAssignees;
+  props.assignee_id = preferredAssignees[0] ?? null;
+  props.due_date = pickPreferred(props.due_dates, FIXED_PROPERTY_DEFINITIONS.due_date.fieldName);
+  props.tags = pickPreferred(props.tag_fields, FIXED_PROPERTY_DEFINITIONS.tags.fieldName) ?? [];
 
   props.created_at = createdAt;
   props.updated_at = updatedAt;
@@ -207,9 +228,14 @@ async function upsertEntityPropertyValue(
   workspaceId: string,
   entityType: EntityType,
   entityId: string,
-  propertyDefinitionId: string,
-  value: unknown
+  key: FixedPropertyKey,
+  value: unknown,
+  fieldNameOverride?: string
 ) {
+  const def = FIXED_PROPERTY_DEFINITIONS[key];
+  const field_name = fieldNameOverride ?? def.fieldName;
+  const field_type = def.fieldType;
+
   if (
     value === null ||
     value === undefined ||
@@ -220,7 +246,7 @@ async function upsertEntityPropertyValue(
       .delete()
       .eq("entity_type", entityType)
       .eq("entity_id", entityId)
-      .eq("property_definition_id", propertyDefinitionId);
+      .eq("field_name", field_name);
   }
 
   return supabase.from("entity_properties").upsert(
@@ -228,11 +254,12 @@ async function upsertEntityPropertyValue(
       entity_type: entityType,
       entity_id: entityId,
       workspace_id: workspaceId,
-      property_definition_id: propertyDefinitionId,
+      field_name,
+      field_type,
       value,
     },
     {
-      onConflict: "entity_type,entity_id,property_definition_id",
+      onConflict: "entity_type,entity_id,field_name",
     }
   );
 }
@@ -279,9 +306,9 @@ async function buildAssigneePayloadFromIds(
 
 async function computeSubtaskAggregates(
   supabase: any,
-  workspaceId: string,
+  _workspaceId: string,
   taskId: string,
-  definitions: FixedPropertyMaps
+  _definitions: FixedPropertyMaps
 ): Promise<{ status: Status; assigneeIds: string[]; assigneePayload: AssigneePayload } | null> {
   const { data: subtasks, error } = await supabase
     .from("task_subtasks")
@@ -290,24 +317,32 @@ async function computeSubtaskAggregates(
   if (error || !subtasks || subtasks.length === 0) return null;
 
   const subtaskIds = subtasks.map((subtask: any) => subtask.id);
-  const statusDefinitionId = definitions.byKey.status;
-  const assigneeDefinitionId = definitions.byKey.assignee_id;
   const { data: propertyRows } = await supabase
     .from("entity_properties")
-    .select("entity_id, property_definition_id, value")
+    .select("entity_id, field_type, field_name, value")
     .eq("entity_type", "subtask")
     .in("entity_id", subtaskIds)
-    .in("property_definition_id", [statusDefinitionId, assigneeDefinitionId]);
+    .in("field_type", ["status", "assignee"]);
 
   const statusBySubtask = new Map<string, Status>();
   const assigneesBySubtask = new Map<string, string[]>();
 
   for (const row of propertyRows || []) {
-    if (row.property_definition_id === statusDefinitionId && typeof row.value === "string") {
-      statusBySubtask.set(row.entity_id, row.value as Status);
+    if (row.field_type === "status" && typeof row.value === "string") {
+      if (row.value === "todo" || row.value === "in_progress" || row.value === "blocked" || row.value === "done") {
+        const existing = statusBySubtask.get(row.entity_id);
+        const isCanonical = String(row.field_name || "").trim().toLowerCase() === "status";
+        if (!existing || isCanonical) {
+          statusBySubtask.set(row.entity_id, row.value as Status);
+        }
+      }
     }
-    if (row.property_definition_id === assigneeDefinitionId) {
-      assigneesBySubtask.set(row.entity_id, extractAssigneeIdsFromValue(row.value));
+    if (row.field_type === "assignee") {
+      const next = extractAssigneeIdsFromValue(row.value);
+      const isCanonical = String(row.field_name || "").trim().toLowerCase() === "assignee";
+      if (!assigneesBySubtask.has(row.entity_id) || isCanonical) {
+        assigneesBySubtask.set(row.entity_id, next);
+      }
     }
   }
 
@@ -371,10 +406,10 @@ async function syncParentTaskPropertiesFromSubtasks(
     status === "done"
       ? "done"
       : status === "in_progress"
-      ? "in-progress"
-      : status === "blocked"
-      ? "todo"
-      : "todo";
+        ? "in-progress"
+        : status === "blocked"
+          ? "todo"
+          : "todo";
 
   await supabase
     .from("task_items")
@@ -551,18 +586,11 @@ export async function getEntityProperties(
   if ("error" in access) return { error: access.error };
   const { supabase, workspaceId } = access;
 
-  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
-  if ("error" in definitions) return { error: definitions.error };
-
-  const definitionIds = Object.values(definitions.byKey).filter(Boolean);
-  if (definitionIds.length === 0) return { data: null };
-
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("id, property_definition_id, value, created_at, updated_at")
+    .select("id, field_name, field_type, value, created_at, updated_at")
     .eq("entity_type", entityType)
-    .eq("entity_id", entityId)
-    .in("property_definition_id", definitionIds);
+    .eq("entity_id", entityId);
 
   if (error) {
     console.error("getEntityProperties error:", error);
@@ -575,11 +603,20 @@ export async function getEntityProperties(
     entityType,
     entityId,
     workspaceId,
-    data,
-    definitions.byId
+    data
   );
 
   return { data: props };
+}
+
+/**
+ * Get direct properties for a block (convenience wrapper for getEntityProperties).
+ * Use when creating table rows, timeline events, or tasks from blocks to read block properties.
+ */
+export async function getBlockProperties(
+  blockId: string
+): Promise<ActionResult<EntityProperties | null>> {
+  return getEntityProperties("block", blockId);
 }
 
 /**
@@ -600,19 +637,12 @@ export async function getEntitiesProperties(
   const membership = await checkWorkspaceMembership(workspaceId, user.id);
   if (!membership) return { error: "Not a member of this workspace" };
 
-  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
-  if ("error" in definitions) return { error: definitions.error };
-
-  const definitionIds = Object.values(definitions.byKey).filter(Boolean);
-  if (definitionIds.length === 0) return { data: {} };
-
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("id, entity_id, property_definition_id, value, created_at, updated_at")
+    .select("id, entity_id, field_name, field_type, value, created_at, updated_at")
     .eq("workspace_id", workspaceId)
     .eq("entity_type", entityType)
-    .in("entity_id", entityIds)
-    .in("property_definition_id", definitionIds);
+    .in("entity_id", entityIds);
 
   if (error) {
     console.error("getEntitiesProperties error:", error);
@@ -633,8 +663,7 @@ export async function getEntitiesProperties(
       entityType,
       id,
       workspaceId,
-      rows,
-      definitions.byId
+      rows
     );
   }
 
@@ -642,99 +671,18 @@ export async function getEntitiesProperties(
 }
 
 /**
- * Get properties with inheritance (direct + inherited from linked entities)
+ * Get properties (direct only; inheritance removed).
  */
 export async function getEntityPropertiesWithInheritance(
   entityType: EntityType,
   entityId: string
 ): Promise<ActionResult<EntityPropertiesWithInheritance>> {
-  const access = await requireEntityAccess(entityType, entityId);
-  if ("error" in access) return { error: access.error };
-  const { supabase, workspaceId } = access;
-
-  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
-  if ("error" in definitions) return { error: definitions.error };
-
-  // Get direct properties
-  const definitionIds = Object.values(definitions.byKey).filter(Boolean);
-  const { data: directRows, error: directError } = await supabase
-    .from("entity_properties")
-    .select("id, property_definition_id, value, created_at, updated_at")
-    .eq("entity_type", entityType)
-    .eq("entity_id", entityId)
-    .in("property_definition_id", definitionIds);
-  if (directError) {
-    console.error("getEntityPropertiesWithInheritance error:", directError);
-    return { error: "Failed to fetch entity properties" };
-  }
-  const direct =
-    directRows && directRows.length > 0
-      ? buildEntityPropertiesFromRows(
-          entityType,
-          entityId,
-          workspaceId,
-          directRows,
-          definitions.byId
-        )
-      : null;
-
-  // Get entities that link TO this entity (they pass their properties down)
-  const { data: incomingLinks } = await supabase
-    .from("entity_links")
-    .select("source_entity_type, source_entity_id")
-    .eq("target_entity_type", entityType)
-    .eq("target_entity_id", entityId);
-
-  const inherited: InheritedEntityProperties[] = [];
-
-  // For each linking entity, get their properties
-  for (const link of incomingLinks ?? []) {
-    const { data: sourceRows } = await supabase
-      .from("entity_properties")
-      .select("id, property_definition_id, value, created_at, updated_at")
-      .eq("entity_type", link.source_entity_type)
-      .eq("entity_id", link.source_entity_id)
-      .in("property_definition_id", definitionIds);
-
-    if (!sourceRows || sourceRows.length === 0) continue;
-
-    // Check visibility preference
-    const { data: displayPref } = await supabase
-      .from("entity_inherited_display")
-      .select("is_visible")
-      .eq("entity_type", entityType)
-      .eq("entity_id", entityId)
-      .eq("source_entity_type", link.source_entity_type)
-      .eq("source_entity_id", link.source_entity_id)
-      .maybeSingle();
-
-    const isVisible = displayPref?.is_visible ?? true;
-
-    // Get source entity title
-    const sourceTitle = await getEntityTitle(
-      link.source_entity_type as EntityType,
-      link.source_entity_id
-    );
-
-    inherited.push({
-      source_entity_type: link.source_entity_type as EntityType,
-      source_entity_id: link.source_entity_id,
-      source_title: sourceTitle,
-      properties: buildEntityPropertiesFromRows(
-        link.source_entity_type as EntityType,
-        link.source_entity_id,
-        workspaceId,
-        sourceRows,
-        definitions.byId
-      ),
-      visible: isVisible,
-    });
-  }
-
+  const directResult = await getEntityProperties(entityType, entityId);
+  if ("error" in directResult) return directResult;
   return {
     data: {
-      direct: direct || null,
-      inherited,
+      direct: directResult.data ?? null,
+      inherited: [],
     },
   };
 }
@@ -779,6 +727,131 @@ export async function setEntityProperties(
       )
     );
   }
+  if (updates.priorities !== undefined) {
+    const normalizedNamedPriorities = (updates.priorities ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: entry.value,
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "priority");
+
+    for (const entry of normalizedNamedPriorities) {
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.priority,
+          entry.value,
+          entry.field_name
+        )
+      );
+    }
+  }
+  if (updates.statuses !== undefined) {
+    const normalizedNamedStatuses = (updates.statuses ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: entry.value,
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "status");
+
+    for (const entry of normalizedNamedStatuses) {
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.status,
+          entry.value,
+          entry.field_name
+        )
+      );
+    }
+  }
+
+  if (updates.assignees !== undefined) {
+    const normalizedNamedAssignees = (updates.assignees ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: entry.value ?? [],
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "assignee");
+
+    for (const entry of normalizedNamedAssignees) {
+      const payload = await buildAssigneePayloadFromIds(supabase, entry.value);
+      const value = payload.length > 0 ? payload : null;
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.assignee_id,
+          value,
+          entry.field_name
+        )
+      );
+    }
+  }
+
+  if (updates.due_dates !== undefined) {
+    const normalizedNamedDueDates = (updates.due_dates ?? [])
+      .filter((entry) => entry && typeof entry.field_name === "string")
+      .map((entry) => ({
+        field_name: entry.field_name.trim(),
+        value: normalizeDueDateRange(entry.value),
+      }))
+      .filter((entry) => entry.field_name.length > 0);
+
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_type", "due_date");
+
+    for (const entry of normalizedNamedDueDates) {
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.due_date,
+          entry.value,
+          entry.field_name
+        )
+      );
+    }
+  }
+
   // Assignees: support assignee_ids (array) or legacy assignee_id (single)
   const assigneeIdsToSet =
     updates.assignee_ids !== undefined
@@ -865,30 +938,26 @@ export async function setEntityProperties(
   // Keep legacy task fields and task_assignees in sync. Universal properties are source of truth.
   if (input.entity_type === "task") {
     const status = (data as any).status as string | null;
-    const priority = (data as any).priority as string | null;
     const dueDateRange = (data as any).due_date as EntityProperties["due_date"];
     const dueDate = getDueDateEnd(dueDateRange);
     const startDate = getDueDateStart(dueDateRange);
-    const assigneeIds = (data as any).assignee_ids as string[] | undefined;
     const assigneeId = (data as any).assignee_id as string | null;
+    const priorities = Array.isArray((data as any).priorities) ? (data as any).priorities : [];
 
-    const legacyStatus =
-      status === "done"
-        ? "done"
-        : status === "in_progress"
-        ? "in-progress"
-        : status === "blocked"
-        ? "todo"
-        : "todo";
-
-    const legacyPriority =
-      priority === "low" || priority === "medium" || priority === "high" || priority === "urgent"
-        ? priority
-        : "none";
+    const taskStatuses = (data as any).statuses ?? [];
+    const taskPriorities = priorities
+      .map((field: any) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value:
+          field?.value === "low" || field?.value === "medium" || field?.value === "high" || field?.value === "urgent"
+            ? field.value
+            : null,
+      }))
+      .filter((field: any) => field.field_name.length > 0 && field.value);
 
     const taskItemUpdates: Record<string, any> = {
-      status: legacyStatus,
-      priority: legacyPriority,
+      statuses: taskStatuses,
+      priorities: taskPriorities,
       assignee_id: assigneeId ?? null,
     };
     if (updates.due_date !== undefined) {
@@ -938,6 +1007,22 @@ export async function setEntityProperties(
     }
   }
 
+  if (
+    input.entity_type === "timeline_event" &&
+    (updates.priority !== undefined || updates.priorities !== undefined ||
+      updates.status !== undefined || updates.statuses !== undefined)
+  ) {
+    const timelinePriorities = normalizeTimelinePriorities((data as any).priorities ?? []);
+    const timelineUpdate: Record<string, unknown> = { priorities: timelinePriorities };
+    if (updates.status !== undefined || updates.statuses !== undefined) {
+      timelineUpdate.statuses = normalizeTimelineStatuses((data as any).statuses ?? []);
+    }
+    await supabase
+      .from("timeline_events")
+      .update(timelineUpdate)
+      .eq("id", input.entity_id);
+  }
+
   return { data };
 }
 
@@ -980,7 +1065,7 @@ export async function addTag(input: AddTagInput): Promise<ActionResult<EntityPro
   if ("error" in current) return current;
 
   const currentTags = current.data?.tags || [];
-  
+
   // Check for duplicate (case-insensitive)
   if (currentTags.some((t: string) => t.toLowerCase() === normalizedTag)) {
     return { error: "Tag already exists" };
@@ -1082,7 +1167,7 @@ export async function clearEntityProperties(
       .from("task_items")
       .update({
         status: "todo",
-        priority: "none",
+        priorities: [],
         due_date: null,
       })
       .eq("id", entityId);
@@ -1313,45 +1398,4 @@ export async function getEntityLinks(
       incoming: incoming || [],
     },
   };
-}
-
-// ============================================================================
-// Inherited Property Visibility
-// ============================================================================
-
-/**
- * Set visibility preference for an inherited property
- */
-export async function setInheritedPropertyVisibility(
-  input: {
-    entity_type: EntityType;
-    entity_id: string;
-    source_entity_type: EntityType;
-    source_entity_id: string;
-    is_visible: boolean;
-  }
-): Promise<ActionResult<null>> {
-  const access = await requireEntityAccess(input.entity_type, input.entity_id);
-  if ("error" in access) return { error: access.error };
-  const { supabase } = access;
-
-  const { error } = await supabase.from("entity_inherited_display").upsert(
-    {
-      entity_type: input.entity_type,
-      entity_id: input.entity_id,
-      source_entity_type: input.source_entity_type,
-      source_entity_id: input.source_entity_id,
-      is_visible: input.is_visible,
-    },
-    {
-      onConflict: "entity_type,entity_id,source_entity_type,source_entity_id",
-    }
-  );
-
-  if (error) {
-    console.error("setInheritedPropertyVisibility error:", error);
-    return { error: "Failed to update visibility preference" };
-  }
-
-  return { data: null };
 }

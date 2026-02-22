@@ -21,7 +21,6 @@ const ALLOWED_UNDO_TABLES = new Set([
   "table_comments",
   "timeline_events",
   "timeline_dependencies",
-  "property_definitions",
   "entity_properties",
   "clients",
   "docs",

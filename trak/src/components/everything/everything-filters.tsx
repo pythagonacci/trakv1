@@ -31,15 +31,6 @@ export function EverythingFilters({
     onFiltersChange({ ...filters, [key]: value });
   };
 
-  const clearFilters = () => {
-    onFiltersChange({});
-  };
-
-  const hasActiveFilters = Object.keys(filters).some((key) => {
-    const value = filters[key as keyof FilterConfig];
-    return Array.isArray(value) ? value.length > 0 : Boolean(value);
-  });
-
   return (
     <>
       {/* Backdrop */}
@@ -63,20 +54,16 @@ export function EverythingFilters({
               <X className="h-5 w-5 text-neutral-500" />
             </button>
           </div>
-          {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              Clear all filters
-            </button>
-          )}
         </div>
 
         {/* Filter Sections */}
         <div className="p-6 space-y-6">
           {/* Entity Types */}
-          <FilterSection title="Item Type">
+          <FilterSection
+            title="Item Type"
+            hasActive={(filters.entityTypes?.length ?? 0) > 0}
+            onClear={() => updateFilter("entityTypes", undefined)}
+          >
             <CheckboxGroup
               options={[
                 { value: "timeline_event", label: "Timeline Events" },
@@ -92,22 +79,12 @@ export function EverythingFilters({
             />
           </FilterSection>
 
-          {/* Source Types */}
-          <FilterSection title="Source Type">
-            <CheckboxGroup
-              options={[
-                { value: "timeline", label: "Timelines" },
-                { value: "task_list", label: "Task Lists" },
-                { value: "table", label: "Tables" },
-                { value: "block", label: "Blocks" },
-              ]}
-              selected={filters.sourceTypes || []}
-              onChange={(values) => updateFilter("sourceTypes", values as any)}
-            />
-          </FilterSection>
-
           {/* Status */}
-          <FilterSection title="Status">
+          <FilterSection
+            title="Status"
+            hasActive={(filters.status?.length ?? 0) > 0}
+            onClear={() => updateFilter("status", undefined)}
+          >
             <CheckboxGroup
               options={STATUS_OPTIONS.map((s) => ({
                 value: s.value,
@@ -120,7 +97,11 @@ export function EverythingFilters({
           </FilterSection>
 
           {/* Priority */}
-          <FilterSection title="Priority">
+          <FilterSection
+            title="Priority"
+            hasActive={(filters.priority?.length ?? 0) > 0}
+            onClear={() => updateFilter("priority", undefined)}
+          >
             <CheckboxGroup
               options={PRIORITY_OPTIONS.map((p) => ({
                 value: p.value,
@@ -135,7 +116,11 @@ export function EverythingFilters({
           </FilterSection>
 
           {/* Assignees */}
-          <FilterSection title="Assignee">
+          <FilterSection
+            title="Assignee"
+            hasActive={(filters.assigneeIds?.length ?? 0) > 0}
+            onClear={() => updateFilter("assigneeIds", undefined)}
+          >
             <CheckboxGroup
               options={members.map((m) => ({
                 value: m.user_id ?? m.id,
@@ -147,7 +132,11 @@ export function EverythingFilters({
           </FilterSection>
 
           {/* Due Date Presets */}
-          <FilterSection title="Due Date">
+          <FilterSection
+            title="Due Date"
+            hasActive={Boolean(filters.dueDatePreset)}
+            onClear={() => updateFilter("dueDatePreset", undefined)}
+          >
             <RadioGroup
               options={[
                 { value: "", label: "Any" },
@@ -171,8 +160,12 @@ export function EverythingFilters({
           </FilterSection>
 
           {/* Projects */}
-          {projects.length > 1 && (
-            <FilterSection title="Project">
+          {projects.length >= 1 && (
+            <FilterSection
+              title="Project"
+              hasActive={(filters.projectIds?.length ?? 0) > 0}
+              onClear={() => updateFilter("projectIds", undefined)}
+            >
               <CheckboxGroup
                 options={projects.map((p) => ({
                   value: p.id,
@@ -191,16 +184,32 @@ export function EverythingFilters({
 
 function FilterSection({
   title,
+  onClear,
+  hasActive,
   children,
 }: {
   title: string;
+  onClear?: () => void;
+  hasActive?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
-        {title}
-      </h3>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          {title}
+        </h3>
+        {hasActive && onClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-700"
+            aria-label={`Clear ${title} filter`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );

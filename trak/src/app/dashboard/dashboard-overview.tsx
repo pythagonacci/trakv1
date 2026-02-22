@@ -46,6 +46,8 @@ interface Task {
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   dueDate?: string;
   dueTime?: string;
+  /** When set, navigate to this URL instead of project/tab?taskId= */
+  sourceUrl?: string;
 }
 
 interface RecentlyCompletedItem {
@@ -62,6 +64,19 @@ interface DashboardOverviewProps {
   projects: Project[];
   docs: Doc[];
   tasks: Task[];
+  /** Items with due dates from everything (tasks, timeline, table rows, blocks) for Due today / Upcoming / Past due blocks */
+  dueAwareItems?: Array<{
+    id: string;
+    text: string;
+    projectName: string;
+    tabName: string;
+    projectId: string | null;
+    tabId: string | null;
+    priority: string | null;
+    dueDate: string;
+    sourceUrl: string;
+    type: string;
+  }>;
   workspaceId: string;
   clientFeedback: ClientFeedback[];
   teamUpdates: ClientFeedback[];
@@ -87,6 +102,7 @@ export default function DashboardOverview({
   projects,
   docs,
   tasks,
+  dueAwareItems = [],
   clientFeedback,
   teamUpdates,
   recentlyCompleted,
@@ -109,25 +125,45 @@ export default function DashboardOverview({
   const recentlyCompletedItems = recentlyCompleted.slice(0, 6);
   const feedbackCount = clientFeedback.length;
 
-  const { pastDueTasks, dueTodayTasks, upcomingTasks } = useMemo(() => {
+  const { pastDueTasks, dueTodayTasks, upcomingTasks } = useMemo((): {
+    pastDueTasks: Task[];
+    dueTodayTasks: Task[];
+    upcomingTasks: Task[];
+  } => {
     const today = new Date();
     const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
     const todayStr = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const pastDue: Task[] = [];
     const dueToday: Task[] = [];
     const upcoming: Task[] = [];
-    for (const task of tasks) {
-      if (!task.dueDate) {
+
+    const itemsToBucket = dueAwareItems.length > 0
+      ? dueAwareItems.map((item) => ({
+          id: item.id,
+          text: item.text,
+          projectName: item.projectName,
+          tabName: item.tabName,
+          projectId: item.projectId,
+          tabId: item.tabId,
+          priority: (item.priority as Task["priority"]) ?? undefined,
+          dueDate: item.dueDate,
+          dueTime: undefined,
+          sourceUrl: item.sourceUrl,
+        }))
+      : tasks.map((t) => ({ ...t, sourceUrl: undefined }));
+
+    for (const task of itemsToBucket) {
+      const due = task.dueDate?.slice(0, 10);
+      if (!due) {
         upcoming.push(task);
         continue;
       }
-      const due = task.dueDate.slice(0, 10);
       if (due < todayStr) pastDue.push(task);
       else if (due === todayStr) dueToday.push(task);
       else upcoming.push(task);
     }
     return { pastDueTasks: pastDue, dueTodayTasks: dueToday, upcomingTasks: upcoming };
-  }, [tasks]);
+  }, [tasks, dueAwareItems]);
   const formatRelativeTime = (value?: string) => {
     if (!value) return "";
     const date = new Date(value);
@@ -352,7 +388,7 @@ export default function DashboardOverview({
                     getPriorityColor={getPriorityColor}
                     getPriorityLabel={getPriorityLabel}
                     formatDueDate={formatDueDate}
-                    onNavigate={() => task.projectId && task.tabId && router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
+                    onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
                   />
                 ))}
               </div>
@@ -380,7 +416,7 @@ export default function DashboardOverview({
                     getPriorityColor={getPriorityColor}
                     getPriorityLabel={getPriorityLabel}
                     formatDueDate={formatDueDate}
-                    onNavigate={() => task.projectId && task.tabId && router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
+                    onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
                   />
                 ))}
               </div>
@@ -408,7 +444,7 @@ export default function DashboardOverview({
                     getPriorityColor={getPriorityColor}
                     getPriorityLabel={getPriorityLabel}
                     formatDueDate={formatDueDate}
-                    onNavigate={() => task.projectId && task.tabId && router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`)}
+                    onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
                   />
                 ))}
               </div>

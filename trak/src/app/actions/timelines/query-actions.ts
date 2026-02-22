@@ -1,6 +1,8 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
+import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent, TimelineItem } from "@/types/timeline";
 
@@ -21,7 +23,17 @@ export async function getTimelineItems(timelineBlockId: string, opts?: { authCon
 
   if (eventError) return { error: "Failed to load timeline events" };
 
-  return { data: { events: (events || []) as TimelineEvent[] } };
+  const normalizedEvents = ((events || []) as any[]).map((event) => {
+    const priorities = normalizeTimelinePriorities(event?.priorities);
+    const statuses = normalizeTimelineStatuses(event?.statuses);
+    return {
+      ...(event as TimelineEvent),
+      priorities,
+      statuses,
+    } as TimelineEvent;
+  });
+
+  return { data: { events: normalizedEvents } };
 }
 
 export async function getResolvedTimelineItems(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineItem[]>> {
@@ -38,8 +50,10 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     title: event.title,
     start_date: event.start_date,
     end_date: event.end_date,
-    status: event.status,
+    statuses: normalizeTimelineStatuses(event.statuses),
+    priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
+    assignee_team_id: (event as any).assignee_team_id ?? null,
     progress: event.progress,
     color: event.color,
     is_milestone: event.is_milestone,
@@ -47,6 +61,9 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     baseline_start: event.baseline_start,
     baseline_end: event.baseline_end,
     display_order: event.display_order,
+    source_entity_type: event.source_entity_type ?? null,
+    source_entity_id: event.source_entity_id ?? null,
+    source_sync_mode: event.source_sync_mode ?? null,
   }));
 
   const combined = [...eventItems];

@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
-import { executeAICommand, executeAICommandStream, type AIMessage, type ExecutionResult } from "@/lib/ai/executor";
+import { executeAICommand, executeAICommandStream, type AIMessage, type ExecutionResult, type SearchManifest } from "@/lib/ai/executor";
+import { aiDebug } from "@/lib/ai/debug";
 import { createUndoTracker, type UndoBatch } from "@/lib/ai/undo";
-import { getOrCreateWorkflowSession, addWorkflowMessage, getWorkflowSessionMessages } from "@/app/actions/workflow-session";
+import { getOrCreateWorkflowSession, addWorkflowMessage, getWorkflowSessionMessages, type WorkflowMessageRecord } from "@/app/actions/workflow-session";
 import { createBlock, deleteBlock } from "@/app/actions/block";
 import { executeTool } from "@/lib/ai/tool-executor";
 import { searchTasks } from "@/app/actions/ai-search";
@@ -31,6 +32,118 @@ function safeTextFromContent(content: unknown): string {
   } catch {
     return String(content);
   }
+}
+
+/**
+ * Extract a compact search history context from recent workflow messages.
+ * Walks backward through history and collects searchManifest data from the
+ * last 5 assistant messages that had search results, paired with their
+ * preceding user message for context.
+ */
+function buildSearchHistoryContext(
+  history: WorkflowMessageRecord[]
+): { searchHistory: string; hasSearchHistory: boolean } {
+  const manifests: Array<{
+    userQuery: string;
+    manifest: SearchManifest;
+  }> = [];
+
+  // Walk backward through history to find assistant messages with search manifests
+  for (let i = history.length - 1; i >= 0 && manifests.length < 5; i--) {
+    const msg = history[i];
+    if (msg.role !== "assistant") continue;
+
+    const content = msg.content as Record<string, unknown> | null;
+    if (!content?.searchManifest) continue;
+
+    const manifest = content.searchManifest as SearchManifest;
+    if (!manifest.entities || manifest.entities.length === 0) continue;
+
+    // Find the preceding user message
+    let userQuery = "(unknown query)";
+    for (let j = i - 1; j >= 0; j--) {
+      if (history[j].role === "user") {
+        userQuery = safeTextFromContent(history[j].content);
+        break;
+      }
+    }
+
+    manifests.push({ userQuery, manifest });
+  }
+
+  if (manifests.length === 0) {
+    aiDebug("sourceTracking:searchHistoryContext", {
+      result: "none",
+      historyLength: history.length,
+      assistantMessagesScanned: history.filter((m) => m.role === "assistant").length,
+    });
+    return { searchHistory: "", hasSearchHistory: false };
+  }
+
+  // Build compact text — reverse so oldest is first
+  manifests.reverse();
+  const totalEntities = manifests.reduce((sum, m) => sum + m.manifest.entities.length, 0);
+  aiDebug("sourceTracking:searchHistoryContext", {
+    result: "found",
+    manifestCount: manifests.length,
+    totalEntities,
+    turns: manifests.map((m) => ({
+      query: m.userQuery.slice(0, 80),
+      tools: m.manifest.searchTools,
+      entityCount: m.manifest.entities.length,
+    })),
+  });
+  const sections = manifests.map((m, idx) => {
+    const entityLines = m.manifest.entities.map(
+      (e) => `  - "${e.title}" (${e.entityType}, id: ${e.id})`
+    );
+    return `--- Search ${idx + 1} (user asked: "${m.userQuery.slice(0, 120)}") ---\nSearched via: ${m.manifest.searchTools.join(", ")}\nEntities found:\n${entityLines.join("\n")}`;
+  });
+
+  const searchHistory = `\n\n📋 SEARCH HISTORY — PREVIOUSLY SEARCHED ENTITIES\nThe following entities were found in your recent search tool calls. If you are about to create or render something that uses this data, you MUST include the correct source_entity_id, source_entity_type ("task" | "timeline_event" | "table_row" | "block"), and source_sync_mode ("live") for each entity that corresponds to a row/item you create.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
+
+  return { searchHistory, hasSearchHistory: true };
+}
+
+/**
+ * Extract all searched entities from recent workflow messages to seed
+ * the executor's searchedEntities array for deterministic title matching.
+ */
+function extractInitialSearchedEntities(
+  history: WorkflowMessageRecord[]
+): SearchManifest["entities"] {
+  const entities: SearchManifest["entities"] = [];
+  const seenIds = new Set<string>();
+
+  // Collect from last 5 assistant messages with manifests (same window as buildSearchHistoryContext)
+  let count = 0;
+  for (let i = history.length - 1; i >= 0 && count < 5; i--) {
+    const msg = history[i];
+    if (msg.role !== "assistant") continue;
+
+    const content = msg.content as Record<string, unknown> | null;
+    if (!content?.searchManifest) continue;
+
+    const manifest = content.searchManifest as SearchManifest;
+    if (!manifest.entities || manifest.entities.length === 0) continue;
+
+    count++;
+    for (const entity of manifest.entities) {
+      if (!seenIds.has(entity.id)) {
+        seenIds.add(entity.id);
+        entities.push(entity);
+      }
+    }
+  }
+
+  if (entities.length > 0) {
+    aiDebug("sourceTracking:initialSearchedEntities", {
+      count: entities.length,
+      titles: entities.map((e) => e.title),
+    });
+  }
+
+  return entities;
 }
 
 function extractCreatedBlockIds(toolCallsMade: ExecutionResult["toolCallsMade"]): string[] {
@@ -255,15 +368,23 @@ function extractAssigneeIds(task: Record<string, unknown>): string[] | null {
   return ids.length > 0 ? ids : null;
 }
 
+function extractFirstTaskPriority(task: Record<string, unknown>): unknown {
+  const priorities = task.priorities;
+  if (Array.isArray(priorities) && priorities.length > 0) {
+    return (priorities[0] as Record<string, unknown> | undefined)?.value ?? task.priority;
+  }
+  return task.priority;
+}
+
 function coerceTaskRows(tasks: Array<Record<string, unknown>>) {
   return tasks.map((task) => ({
     source_entity_type: "task",
     source_entity_id: typeof task.id === "string" ? task.id : undefined,
-    source_sync_mode: "snapshot",
+    source_sync_mode: "live",
     data: {
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
-      Priority: normalizeTaskPriorityForTable(task.priority),
+      Priority: normalizeTaskPriorityForTable(extractFirstTaskPriority(task)),
       "Due Date": toDateOnly(task.due_date),
       Assignee: extractAssigneeIds(task),
       Project: String(task.project_name || ""),
@@ -306,11 +427,11 @@ function coerceTaskRowsForWorkflowFallback(tasks: Array<Record<string, unknown>>
   return tasks.map((task) => ({
     source_entity_type: "task",
     source_entity_id: typeof task.id === "string" ? task.id : undefined,
-    source_sync_mode: "snapshot",
+    source_sync_mode: "live",
     data: {
       "Task Title": String(task.title || ""),
       Status: normalizeTaskStatusForTable(task.status),
-      Priority: normalizeTaskPriorityForTable(task.priority),
+      Priority: normalizeTaskPriorityForTable(extractFirstTaskPriority(task)),
       "Due Date": toDateOnly(task.due_date),
       Assignee: extractAssigneeIds(task),
       Project: String(task.project_name || ""),
@@ -642,6 +763,10 @@ export async function executeWorkflowAICommand(params: {
 
   const recentHistoryText = conversationHistory.slice(-6).map((m) => m.content ?? "").join(" ");
 
+  // Build search history context from previous turns for source data propagation
+  const { searchHistory, hasSearchHistory } = buildSearchHistoryContext(history);
+  const initialSearchedEntities = hasSearchHistory ? extractInitialSearchedEntities(history) : [];
+
   // Record user message
   await addWorkflowMessage({
     sessionId: session.id,
@@ -709,11 +834,12 @@ BLOCK CREATION:
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
 
-🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, subtasks, etc.):
+🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, table rows, subtasks, etc.):
 - You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
-- Format: { data: {...}, source_entity_type: "task", source_entity_id: "<task-uuid>", source_sync_mode: "snapshot" }
+- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row" | "block", source_entity_id: "<entity-uuid>", source_sync_mode: "live" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
-- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, searchBlocks, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row". For blocks use source_entity_type "block".
+- When creating tasks or timeline events from table rows/results, you MUST pass source_entity_type "table_row", source_entity_id as the row id, and source_sync_mode "snapshot" in createTaskItem/createTimelineEvent calls.
 - These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
 - Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
 
@@ -724,6 +850,13 @@ BLOCK CREATION:
 - Date fields → type: "date". Value must be YYYY-MM-DD format
 - INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
+
+🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
+- Add a "Subtask" field with type "subtask" or "checkbox" to the table schema.
+- Each subtask is a SEPARATE ROW: parent task row has Subtask=false, each subtask has its own row with Subtask=true placed directly under the parent.
+- Row order: Parent → subtask1 → subtask2 → next parent → its subtasks...
+- Each subtask row fills ALL columns (Title, Status, Priority, etc.) with the subtask's own values — treat it like a regular row.
+- NEVER create a text/long_text "Subtasks" column that lists names in one cell.
 
 CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
 - When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information
@@ -764,7 +897,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.`,
+   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? searchHistory : ""}`,
     },
   ];
 
@@ -799,6 +932,7 @@ RESPONSE PATTERN:
       readOnly: !(allowTaskMutations || allowEntityMutations),
       allowedWriteTools,
       enforceBatchUpdateCompletion: allowTaskMutations,
+      initialSearchedEntities: initialSearchedEntities.length > 0 ? initialSearchedEntities : undefined,
       // Workflow pages require unified multi-tool access and should not short-circuit
       // via deterministic parsing (we want the LLM to create blocks/artifacts).
       forcedToolGroups: [
@@ -1019,9 +1153,17 @@ RESPONSE PATTERN:
       toolCallsMade: result.toolCallsMade,
       undoBatches: mergedUndoBatches,
       undoSkippedTools: mergedSkipped,
+      searchManifest: result.searchManifest ?? null,
     },
     createdBlockIds,
   });
+  if (result.searchManifest) {
+    aiDebug("sourceTracking:manifestPersisted", {
+      sessionId: session.id,
+      entityCount: result.searchManifest.entities.length,
+      searchTools: result.searchManifest.searchTools,
+    });
+  }
 
   return {
     success: result.success,
@@ -1073,6 +1215,10 @@ export async function* executeWorkflowAICommandStream(params: {
     content: safeTextFromContent(message.content),
   }));
   const recentHistoryText = conversationHistory.slice(-6).map((m) => m.content ?? "").join(" ");
+
+  // Build search history context from previous turns for source data propagation (streaming path)
+  const { searchHistory: streamSearchHistory, hasSearchHistory: streamHasSearchHistory } = buildSearchHistoryContext(history);
+  const streamInitialSearchedEntities = streamHasSearchHistory ? extractInitialSearchedEntities(history) : [];
 
   if (!params.resumeFromConfirmation) {
     await addWorkflowMessage({
@@ -1142,11 +1288,12 @@ BLOCK CREATION:
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
 
-🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, subtasks, etc.):
+🚨 SOURCE TRACKING (NON-NEGOTIABLE) - When creating table rows from existing workspace data (tasks, timeline events, table rows, subtasks, etc.):
 - You MUST include source_entity_type, source_entity_id, and source_sync_mode on EVERY row that represents an existing entity.
-- Format: { data: {...}, source_entity_type: "task", source_entity_id: "<task-uuid>", source_sync_mode: "snapshot" }
+- Format: { data: {...}, source_entity_type: "task" | "timeline_event" | "table_row" | "block", source_entity_id: "<entity-uuid>", source_sync_mode: "live" }
 - This applies to ALL table creation from existing data, whether via createTableFull or bulkInsertRows.
-- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, or similar search results.
+- NEVER omit source tracking when the data comes from searchTasks, searchSubtasks, searchTimelineEvents, searchBlocks, getEntityById (table rows), or similar search results. For rows from another table use source_entity_type "table_row". For blocks use source_entity_type "block".
+- When creating tasks or timeline events from table rows/results, you MUST pass source_entity_type "table_row", source_entity_id as the row id, and source_sync_mode "snapshot" in createTaskItem/createTimelineEvent calls.
 - These fields enable the sync header and snapshot tracking. Without them, the table has no connection to source data.
 - Never add source_entity_type/source_entity_id/source_sync_mode as visible table columns - they go on the row object, not in the data.
 
@@ -1157,6 +1304,13 @@ BLOCK CREATION:
 - Date fields → type: "date". Value must be YYYY-MM-DD format
 - INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
+
+🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
+- Add a "Subtask" field with type "subtask" or "checkbox" to the table schema.
+- Each subtask is a SEPARATE ROW: parent task row has Subtask=false, each subtask has its own row with Subtask=true placed directly under the parent.
+- Row order: Parent → subtask1 → subtask2 → next parent → its subtasks...
+- Each subtask row fills ALL columns (Title, Status, Priority, etc.) with the subtask's own values — treat it like a regular row.
+- NEVER create a text/long_text "Subtasks" column that lists names in one cell.
 
 CRITICAL - TEXT BLOCK CONTENT REQUIREMENT:
 - When creating text blocks (reports, summaries, documentation, etc.), you MUST search the workspace FIRST to gather relevant information
@@ -1193,7 +1347,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.`,
+   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? streamSearchHistory : ""}`,
     },
   ];
 
@@ -1248,6 +1402,7 @@ RESPONSE PATTERN:
       disableOptimisticEarlyExit: true,
       requireWriteConfirmation: true,
       approvedWriteAction: params.confirmation,
+      initialSearchedEntities: streamInitialSearchedEntities.length > 0 ? streamInitialSearchedEntities : undefined,
     }
   );
 
@@ -1275,6 +1430,7 @@ RESPONSE PATTERN:
         toolCallsMade?: unknown;
         undoBatches?: unknown;
         undoSkippedTools?: unknown;
+        searchManifest?: unknown;
       })
     : {};
   const toolCallsMade = Array.isArray(payload.toolCallsMade)
@@ -1286,6 +1442,9 @@ RESPONSE PATTERN:
   const mergedSkipped: string[] = Array.isArray(payload.undoSkippedTools)
     ? [...(payload.undoSkippedTools as string[])]
     : [];
+  const streamSearchManifest = payload.searchManifest && typeof payload.searchManifest === "object"
+    ? (payload.searchManifest as SearchManifest)
+    : undefined;
 
   const allowTextBlockArtifacts = shouldPersistAssistantAsTextBlock(params.command);
   const createdTextBlockIds = extractCreatedTextBlockIds(toolCallsMade);
@@ -1480,9 +1639,17 @@ RESPONSE PATTERN:
       toolCallsMade,
       undoBatches: mergedUndoBatches,
       undoSkippedTools: mergedSkipped,
+      searchManifest: streamSearchManifest ?? null,
     },
     createdBlockIds,
   });
+  if (streamSearchManifest) {
+    aiDebug("sourceTracking:manifestPersisted:stream", {
+      sessionId: session.id,
+      entityCount: streamSearchManifest.entities.length,
+      searchTools: streamSearchManifest.searchTools,
+    });
+  }
 
   yield {
     type: "response",

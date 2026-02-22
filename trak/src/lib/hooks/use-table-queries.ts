@@ -17,10 +17,12 @@ import {
   reorderRows,
   duplicateRow,
   setTableRowsSourceSyncMode,
+  pushEditedSnapshotRowsToSource,
+  refreshEditedSnapshotRowsFromSource,
 } from "@/app/actions/tables/row-actions";
 import { createView, getView, updateView, deleteView, setDefaultView, listViews } from "@/app/actions/tables/view-actions";
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
-import { getTableData, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
+import { getTableData, getTableBootstrap, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
 import { getRelatedRows, configureRelationField } from "@/app/actions/tables/relation-actions";
 import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows, bulkInsertRows } from "@/app/actions/tables/bulk-actions";
 import type { Table, TableField, TableRow, TableView, TableComment, FilterCondition } from "@/types/table";
@@ -38,6 +40,20 @@ export function useTable(tableId: string, initialData?: { table: Table; fields: 
       return result.data;
     },
     initialData,
+    staleTime: 30_000,
+    enabled: Boolean(tableId),
+  });
+}
+
+/** Single round-trip load for table + fields + default view + rows. Use for initial render to avoid 3 parallel requests. */
+export function useTableBootstrap(tableId: string) {
+  return useQuery({
+    queryKey: queryKeys.tableBootstrap(tableId),
+    queryFn: async () => {
+      const result = await getTableBootstrap(tableId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     staleTime: 30_000,
     enabled: Boolean(tableId),
   });
@@ -75,6 +91,7 @@ export function useUpdateTable(tableId: string) {
     mutationFn: (updates: Partial<Table>) => updateTable(tableId, updates),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: ["workspaceTables"] });
     },
   });
@@ -112,6 +129,7 @@ export function useCreateField(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -123,6 +141,7 @@ export function useUpdateField(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
@@ -134,6 +153,7 @@ export function useDeleteField(tableId: string) {
     mutationFn: (fieldId: string) => deleteField(fieldId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
     },
   });
@@ -244,6 +264,7 @@ export function useCreateRow(tableId: string, viewId?: string | null) {
         queryKey: ['tableRows', tableId],
         refetchType: 'active' // Only refetch active queries
       });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -323,6 +344,7 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
         queryKey: queryKeys.tableRows(tableId, viewId),
         refetchType: 'active'
       });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       // Rollups/formulas can affect related tables; refresh any visible table rows.
       qc.invalidateQueries({ queryKey: ['tableRows'] });
     },
@@ -333,8 +355,25 @@ export function useDeleteRow(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowId: string) => deleteRow(rowId),
+    onMutate: async (rowId) => {
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((r) => r.id !== rowId) };
+        }
+      );
+      return { previous };
+    },
+    onError: (_err, _rowId, context) => {
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }
@@ -343,8 +382,27 @@ export function useDeleteRows(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowIds: string[]) => deleteRows(rowIds),
+    onMutate: async (rowIds) => {
+      const ids = new Set(rowIds);
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((r) => !ids.has(r.id)) };
+        }
+      );
+      return { previous };
+    },
+    onError: (_err, _rowIds, context) => {
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -369,7 +427,11 @@ export function useDuplicateRow(tableId: string, viewId?: string | null) {
   });
 }
 
-export function useTableRows(tableId: string, viewId?: string | null) {
+export function useTableRows(
+  tableId: string,
+  viewId?: string | null,
+  opts?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: queryKeys.tableRows(tableId, viewId),
     queryFn: async () => {
@@ -378,6 +440,7 @@ export function useTableRows(tableId: string, viewId?: string | null) {
       return result.data;
     },
     staleTime: 10_000,
+    enabled: opts?.enabled !== false && Boolean(tableId),
   });
 }
 
@@ -525,8 +588,26 @@ export function useBulkDeleteRows(tableId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (rowIds: string[]) => bulkDeleteRows({ tableId, rowIds }),
+    onMutate: async (rowIds) => {
+      const ids = new Set(rowIds);
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((r) => !ids.has(r.id)) };
+        }
+      );
+      return { previous };
+    },
+    onError: (_err, _rowIds, context) => {
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }
@@ -548,7 +629,7 @@ export function useBulkInsertRows(tableId: string) {
       rows: Array<{
         data: Record<string, unknown>;
         order?: number | string | null;
-        source_entity_type?: "task" | "timeline_event" | null;
+        source_entity_type?: "task" | "timeline_event" | "table_row" | null;
         source_entity_id?: string | null;
         source_sync_mode?: "snapshot" | "live" | null;
       }>
@@ -565,13 +646,33 @@ export function useSetTableRowsSourceSyncMode(tableId: string) {
   return useMutation({
     mutationFn: (input: {
       mode: "snapshot" | "live";
-      sourceEntityType?: "task" | "timeline_event";
+      sourceEntityType?: "task" | "timeline_event" | "table_row";
     }) =>
       setTableRowsSourceSyncMode({
         tableId,
         mode: input.mode,
         sourceEntityType: input.sourceEntityType,
       }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function usePushEditedSnapshotRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => pushEditedSnapshotRowsToSource({ tableId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+    },
+  });
+}
+
+export function useRefreshEditedSnapshotRows(tableId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => refreshEditedSnapshotRowsFromSource({ tableId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
     },

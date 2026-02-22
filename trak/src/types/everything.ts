@@ -115,8 +115,6 @@ export type DueDatePreset =
 export interface FilterConfig {
   /** Filter by entity types */
   entityTypes?: EntityType[];
-  /** Filter by source types */
-  sourceTypes?: SourceType[];
   /** Filter by status values */
   status?: Status[];
   /** Filter by priority values */
@@ -171,6 +169,14 @@ export interface EverythingViewConfig {
   groupBy: GroupByField;
   /** Column widths (for table view) - keyed by column name */
   columnWidths?: Record<string, number>;
+}
+
+/** A named saved view for the Everything table */
+export interface SavedEverythingView {
+  id: string;
+  name: string;
+  config: EverythingViewConfig;
+  updatedAt: string;
 }
 
 // ============================================================================

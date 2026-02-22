@@ -87,6 +87,7 @@ interface FormData {
   client_name?: string;
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
+  tags?: string[];
 }
 
 interface TabPreviewBlock {
@@ -322,6 +323,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
       status: formData.status,
       due_date_date,
       due_date_text,
+      tags: formData.tags,
     });
 
     if (result.error) {

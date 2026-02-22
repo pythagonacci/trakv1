@@ -2,7 +2,7 @@
 
 import type { AuthContext } from "@/lib/auth-context";
 import { aiDebug } from "@/lib/ai/debug";
-import type { TaskItem } from "@/types/task";
+import type { TaskItem, TaskItemPriority, TaskPriority } from "@/types/task";
 import { requireTaskBlockAccess, requireTaskItemAccess } from "./context";
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -21,17 +21,43 @@ function unwrapRpcData<T>(data: T | T[] | null): T | null {
   return Array.isArray(data) ? (data[0] ?? null) : data;
 }
 
+function toPriorities(priority?: string | null): TaskItemPriority[] {
+  if (!priority || priority === "none") return [];
+  if (priority !== "low" && priority !== "medium" && priority !== "high" && priority !== "urgent") return [];
+  return [{ field_name: "Priority", value: priority }];
+}
+
+function toStatuses(status?: string | null): any {
+  if (!status) return [];
+  if (status !== "todo" && status !== "in-progress" && status !== "blocked" && status !== "done") return [];
+  const validStatus = status === "in-progress" ? "in_progress" : status;
+  return [{ field_name: "Status", value: validStatus }];
+}
+
+function normalizeTaskRow(row: any): TaskItem {
+  const priorities = Array.isArray(row?.priorities) ? row.priorities : toPriorities(row?.priority);
+  return {
+    ...(row as TaskItem),
+    priorities: priorities as TaskItemPriority[],
+  };
+}
+
 export async function createTaskFullRpc(input: {
   taskBlockId: string;
   title: string;
   status?: string;
+  statuses?: any[];
   priority?: string;
+  priorities?: TaskItemPriority[];
   description?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
   startDate?: string | null;
   hideIcons?: boolean;
   recurring?: { enabled: boolean; frequency?: "daily" | "weekly" | "monthly"; interval?: number };
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
+  sourceEntityId?: string | null;
+  sourceSyncMode?: "snapshot" | "live";
   assignees?: Array<{ id?: string | null; name?: string | null }>;
   tags?: string[];
   authContext?: AuthContext;
@@ -51,7 +77,8 @@ export async function createTaskFullRpc(input: {
     p_task_block_id: input.taskBlockId,
     p_title: input.title,
     p_status: input.status ?? null,
-    p_priority: input.priority ?? null,
+    p_statuses: input.statuses && input.statuses.length > 0 ? input.statuses : toStatuses(input.status ?? null),
+    p_priorities: input.priorities && input.priorities.length > 0 ? input.priorities : toPriorities(input.priority ?? null),
     p_description: input.description ?? null,
     p_due_date: input.dueDate ?? null,
     p_due_time: input.dueTime ?? null,
@@ -60,6 +87,9 @@ export async function createTaskFullRpc(input: {
     p_recurring_enabled: input.recurring?.enabled ?? false,
     p_recurring_frequency: input.recurring?.frequency ?? null,
     p_recurring_interval: input.recurring?.interval ?? null,
+    p_source_entity_type: input.sourceEntityType ?? null,
+    p_source_entity_id: input.sourceEntityId ?? null,
+    p_source_sync_mode: input.sourceSyncMode ?? null,
     p_assignees: input.assignees ?? [],
     p_tags: input.tags ?? [],
     p_created_by: userId,
@@ -71,7 +101,7 @@ export async function createTaskFullRpc(input: {
   const payload = unwrapRpcData<Record<string, unknown>>(data as any);
   if (!payload) return { error: "RPC create_task_full returned empty payload" };
 
-  const task = (payload.task ?? payload) as TaskItem;
+  const task = normalizeTaskRow(payload.task ?? payload);
   return { data: task };
 }
 
@@ -93,11 +123,23 @@ export async function updateTaskFullRpc(input: {
     return { error: "RPC disabled" };
   }
 
+  const rpcUpdates = { ...(input.updates || {}) } as Record<string, unknown>;
+
+  if (!("priorities" in rpcUpdates) && typeof rpcUpdates.priority === "string") {
+    rpcUpdates.priorities = toPriorities(rpcUpdates.priority);
+  }
+  delete (rpcUpdates as any).priority;
+
+  if (!("statuses" in rpcUpdates) && typeof rpcUpdates.status === "string") {
+    rpcUpdates.statuses = toStatuses(rpcUpdates.status);
+  }
+  delete (rpcUpdates as any).status;
+
   const t0 = performance.now();
   aiDebug("rpc:start", { name: RPC_UPDATE_TASK_FULL, table: "task_items" });
   const { data, error } = await supabase.rpc(RPC_UPDATE_TASK_FULL, {
     p_task_id: input.taskId,
-    p_updates: input.updates,
+    p_updates: rpcUpdates,
     p_assignees: input.assignees ?? [],
     p_assignees_set: input.assigneesSet ?? false,
     p_tags: input.tags ?? [],
@@ -111,7 +153,7 @@ export async function updateTaskFullRpc(input: {
   const payload = unwrapRpcData<Record<string, unknown>>(data as any);
   if (!payload) return { error: "RPC update_task_full returned empty payload" };
 
-  const task = (payload.task ?? payload) as TaskItem;
+  const task = normalizeTaskRow(payload.task ?? payload);
   return { data: task };
 }
 
@@ -131,11 +173,23 @@ export async function bulkUpdateTaskItemsRpc(input: {
     return { error: "RPC disabled" };
   }
 
+  const rpcUpdates = { ...(input.updates || {}) } as Record<string, unknown>;
+
+  if (!("priorities" in rpcUpdates) && typeof rpcUpdates.priority === "string") {
+    rpcUpdates.priorities = toPriorities(rpcUpdates.priority);
+  }
+  delete (rpcUpdates as any).priority;
+
+  if (!("statuses" in rpcUpdates) && typeof rpcUpdates.status === "string") {
+    rpcUpdates.statuses = toStatuses(rpcUpdates.status);
+  }
+  delete (rpcUpdates as any).status;
+
   const t0 = performance.now();
   aiDebug("rpc:start", { name: RPC_BULK_UPDATE_TASK_ITEMS, table: "task_items" });
   const { data, error } = await supabase.rpc(RPC_BULK_UPDATE_TASK_ITEMS, {
     p_task_ids: input.taskIds,
-    p_updates: input.updates,
+    p_updates: rpcUpdates,
     p_updated_by: userId,
   });
   aiDebug("rpc:result", { name: RPC_BULK_UPDATE_TASK_ITEMS, ok: !error, ms: Math.round(performance.now() - t0) });
@@ -256,7 +310,7 @@ export async function duplicateTasksToBlockRpc(input: {
     p_include_tags: input.includeTags ?? true,
     p_created_by: userId,
   });
-  aiDebug("rpc:result", { name: RPC_DUPLICATE_TASKS_TO_BLOCK, ok: !error, ms: Math.round(performance.now() - t0) });
+  aiDebug("rpc:result", { name: RPC_DUPLICATE_TASKS_TO_BLOCK, ok: !error, ms: Math.round(performance.now() - t0), error: error?.message ?? null, blockWorkspaceId: block.workspace_id, taskIdCount: input.taskIds.length });
 
   if (error) return { error: error.message || "RPC duplicate_tasks_to_block failed" };
 

@@ -141,3 +141,41 @@ export async function addWorkflowMessage(params: {
 
   return { data: message as WorkflowMessageRecord };
 }
+
+export async function clearWorkflowSession(params: {
+  sessionId: string;
+}): Promise<ActionResult<null>> {
+  const supabase = await createClient();
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: session, error: sessionError } = await supabase
+    .from("workflow_sessions")
+    .select("id, user_id")
+    .eq("id", params.sessionId)
+    .maybeSingle();
+
+  if (sessionError || !session) {
+    return { error: "Session not found" };
+  }
+
+  if (session.user_id !== user.id) {
+    return { error: "Not allowed to clear this session" };
+  }
+
+  const { error: messagesError } = await supabase
+    .from("workflow_messages")
+    .delete()
+    .eq("session_id", params.sessionId);
+
+  if (messagesError) {
+    return { error: "Failed to clear chat messages" };
+  }
+
+  await supabase
+    .from("workflow_sessions")
+    .update({ last_message_at: null })
+    .eq("id", params.sessionId);
+
+  return { data: null };
+}

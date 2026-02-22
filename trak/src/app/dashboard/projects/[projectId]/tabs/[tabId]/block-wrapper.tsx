@@ -90,7 +90,6 @@ export default function BlockWrapper({
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -106,12 +105,7 @@ export default function BlockWrapper({
     return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
   };
 
-  const directCount = countEntityProperties(direct);
-  const inheritedCount = inherited.reduce(
-    (sum, inh) => sum + countEntityProperties(inh.properties),
-    0
-  );
-  const totalPropertiesCount = directCount + inheritedCount;
+  const totalPropertiesCount = countEntityProperties(direct);
   const hasProperties = totalPropertiesCount > 0;
 
   // Check if block has comments
@@ -209,12 +203,12 @@ export default function BlockWrapper({
 
       <div
         className={cn(
-          "relative flex min-w-0 flex-col w-full rounded-lg transition-all duration-150 ease-out",
+          "relative flex min-w-0 flex-col w-full rounded-[var(--radius-sm)] transition-all duration-150 ease-out",
           borderless
             ? "border-none bg-transparent px-0 py-0 shadow-none"
             : isTextBlock
-              ? "border-y border-[#3080a6]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
-              : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--secondary)]/20"
+              ? "border-y border-[var(--primary)]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
+              : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--primary)]/20"
         )}
         onDoubleClick={() => {
           if (block.type === "chart" && !readOnly) {
@@ -782,15 +776,6 @@ export default function BlockWrapper({
                     memberNames={getMemberNames(direct)}
                   />
                 )}
-                {inherited.map((inh) => (
-                  <PropertyBadges
-                    key={`inherited-${inh.source_entity_id}`}
-                    properties={inh.properties}
-                    inherited
-                    onClick={() => setPropertiesOpen(true)}
-                    memberNames={getMemberNames(inh.properties)}
-                  />
-                ))}
               </div>
             )}
 
@@ -832,6 +817,7 @@ export default function BlockWrapper({
           entityId={block.id}
           workspaceId={workspaceId}
           entityTitle={getBlockTitle(block)}
+          projectId={projectId}
         />
       )}
     </div>

@@ -138,6 +138,8 @@ import {
   updateTimelineEvent,
   deleteTimelineEvent,
 } from "@/app/actions/timelines/event-actions";
+import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import {
   createTimelineDependency,
   deleteTimelineDependency,
@@ -147,11 +149,6 @@ import type { TimelineEventStatus, TimelineEventPriority } from "@/types/timelin
 // ============================================================================
 // IMPORTS - Property Actions
 // ============================================================================
-import {
-  createPropertyDefinition,
-  updatePropertyDefinition,
-  deletePropertyDefinition,
-} from "@/app/actions/properties/definition-actions";
 import type { PropertyValue } from "@/types/properties";
 import {
   setEntityProperty,
@@ -218,6 +215,8 @@ export interface ToolCallResult {
   error?: string;
   warnings?: string[];
   hint?: string;
+  /** Set when a write tool was called with source_entity_type/source_entity_id that could not be used (e.g. placeholder or invalid ID). */
+  sourceMetadataIncomplete?: boolean;
 }
 
 export interface ToolCall {
@@ -234,7 +233,7 @@ export interface ToolExecutionContext {
   currentProjectId?: string;
   undoTracker?: UndoTracker;
   authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
 }
 
 const shouldUseTestContext =
@@ -485,8 +484,6 @@ async function captureUndoStepsBefore(params: {
     updateTimelineEvent: { table: "timeline_events", idArg: "eventId" },
     deleteTimelineEvent: { table: "timeline_events", idArg: "eventId" },
     deleteTimelineDependency: { table: "timeline_dependencies", idArg: "dependencyId" },
-    updatePropertyDefinition: { table: "property_definitions", idArg: "definitionId" },
-    deletePropertyDefinition: { table: "property_definitions", idArg: "definitionId" },
     updateClient: { table: "clients", idArg: "clientId" },
     deleteClient: { table: "clients", idArg: "clientId" },
     updateDoc: { table: "docs", idArg: "docId" },
@@ -602,43 +599,33 @@ async function captureUndoStepsBefore(params: {
     }
 
     if (workspaceId) {
-      const { data: def } = await supabase
-        .from("property_definitions")
-        .select("id")
+      const { data: props } = await supabase
+        .from("entity_properties")
+        .select("*")
         .eq("workspace_id", workspaceId)
-        .eq("name", "Assignee")
-        .eq("type", "person")
-        .maybeSingle();
-      const defId = def?.id as string | undefined;
-      if (defId) {
-        const { data: props } = await supabase
-          .from("entity_properties")
-          .select("*")
-          .eq("workspace_id", workspaceId)
-          .eq("entity_type", "task")
-          .eq("property_definition_id", defId)
-          .in("entity_id", ids);
+        .eq("entity_type", "task")
+        .eq("field_type", "assignee")
+        .in("entity_id", ids);
 
+      steps.push({
+        action: "delete",
+        table: "entity_properties",
+        ids,
+        idColumn: "entity_id",
+        where: {
+          workspace_id: workspaceId,
+          entity_type: "task",
+          field_type: "assignee",
+        },
+      });
+
+      if (Array.isArray(props) && props.length > 0) {
         steps.push({
-          action: "delete",
+          action: "upsert",
           table: "entity_properties",
-          ids,
-          idColumn: "entity_id",
-          where: {
-            workspace_id: workspaceId,
-            entity_type: "task",
-            property_definition_id: defId,
-          },
+          rows: props as Record<string, unknown>[],
+          onConflict: "entity_type,entity_id,field_name",
         });
-
-        if (Array.isArray(props) && props.length > 0) {
-          steps.push({
-            action: "upsert",
-            table: "entity_properties",
-            rows: props as Record<string, unknown>[],
-            onConflict: "entity_type,entity_id,property_definition_id",
-          });
-        }
       }
     }
 
@@ -675,15 +662,15 @@ async function captureUndoStepsBefore(params: {
   if (toolName === "setEntityProperty" || toolName === "removeEntityProperty") {
     const entityType = String(toolArgs.entityType ?? "");
     const entityId = String(toolArgs.entityId ?? "");
-    const propertyDefinitionId = String(toolArgs.propertyDefinitionId ?? "");
-    if (!entityType || !entityId || !propertyDefinitionId || !workspaceId) return [];
+    const fieldName = String(toolArgs.fieldName ?? "");
+    if (!entityType || !entityId || !fieldName || !workspaceId) return [];
     const { data } = await supabase
       .from("entity_properties")
       .select("*")
       .eq("workspace_id", workspaceId)
       .eq("entity_type", entityType)
       .eq("entity_id", entityId)
-      .eq("property_definition_id", propertyDefinitionId);
+      .eq("field_name", fieldName);
     const rows = (data as Record<string, unknown>[] | null) ?? [];
     if (rows.length > 0) {
       return [
@@ -691,7 +678,7 @@ async function captureUndoStepsBefore(params: {
           action: "upsert",
           table: "entity_properties",
           rows,
-          onConflict: "entity_type,entity_id,property_definition_id",
+          onConflict: "entity_type,entity_id,field_name",
         },
       ];
     }
@@ -703,7 +690,7 @@ async function captureUndoStepsBefore(params: {
           workspace_id: workspaceId,
           entity_type: entityType,
           entity_id: entityId,
-          property_definition_id: propertyDefinitionId,
+          field_name: fieldName,
         },
       },
     ];
@@ -758,8 +745,6 @@ function buildUndoStepsAfter(
       return deleteById("timeline_events", data?.id);
     case "createTimelineDependency":
       return deleteById("timeline_dependencies", data?.id);
-    case "createPropertyDefinition":
-      return deleteById("property_definitions", data?.id);
     case "createRow":
       return deleteById("table_rows", data?.id);
     case "createField":
@@ -1036,6 +1021,19 @@ export async function executeTool(
             ...result,
             chunks: Array.isArray(result.chunks) ? result.chunks.slice(0, Math.max(1, limitChunks)) : [],
           }));
+
+          console.log("--- [Debug Search] ---");
+          console.log("Returning unstructured search results to Workflow LLM:");
+          // Log a sample of invalid JSON to avoid massive logs if possible, or just log length and IDs
+          console.log(`Count: ${trimmed.length}`);
+          trimmed.forEach((r, i) => {
+            console.log(`[${i}] ParentID: ${r.parentId}, SourceID: ${r.sourceId} (${r.sourceType}), Score: ${r.score}`);
+            r.chunks.forEach((c, j) => {
+              console.log(`    Chunk[${j}]: "${c.content.substring(0, 100)}..." (Score: ${c.score})`);
+            });
+          });
+          console.log("------------------------");
+
           return { success: true, data: trimmed };
         }
 
@@ -1052,6 +1050,7 @@ export async function executeTool(
           return await wrapResult(resolveEntityByName({ ...args as any, authContext }));
 
         case "getEntityById":
+          console.log(`[getEntityById] entityType=${(args as any)?.entityType}, id=${(args as any)?.id}`);
           return await wrapResult(getEntityById(args as any));
 
         case "getEntityContext":
@@ -1136,15 +1135,30 @@ export async function executeTool(
               return { success: false, error: "Missing taskBlockId and could not auto-resolve from context. Please provide a task block ID." };
             }
 
+            const sourceEntityType = normalizeSourceEntityType(args.source_entity_type);
+            const sourceEntityId = normalizeSourceEntityId(args.source_entity_id);
+            const hasSourceMetadata = Boolean(sourceEntityType && sourceEntityId);
+            const taskHadSourceHints = Boolean(
+              (args as Record<string, unknown>).source_entity_type !== undefined ||
+              (args as Record<string, unknown>).source_entity_id !== undefined ||
+              (args as Record<string, unknown>).sourceEntityType !== undefined ||
+              (args as Record<string, unknown>).sourceEntityId !== undefined
+            );
+            const taskSourceMetadataIncomplete = taskHadSourceHints && !hasSourceMetadata;
             const payload = {
               taskBlockId,
               title: args.title as string,
               status: args.status as any,
+              statuses: args.statuses as any,
               priority: args.priority as any,
+              priorities: args.priorities as any,
               description: args.description as string | undefined,
               dueDate: args.dueDate as string | undefined,
               dueTime: args.dueTime as string | undefined,
               startDate: args.startDate as string | undefined,
+              sourceEntityType: hasSourceMetadata ? sourceEntityType! : undefined,
+              sourceEntityId: hasSourceMetadata ? sourceEntityId! : undefined,
+              sourceSyncMode: hasSourceMetadata ? normalizeSourceSyncMode(args.source_sync_mode) : undefined,
             };
 
             // ------------------------------------------------------------------
@@ -1158,7 +1172,9 @@ export async function executeTool(
               authContext: authContext ?? undefined,
             });
             if (!("error" in rpcResult)) {
-              return { success: true, data: rpcResult.data };
+              const out: ToolCallResult = { success: true, data: rpcResult.data };
+              if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+              return out;
             }
 
             const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
@@ -1182,7 +1198,9 @@ export async function executeTool(
                 t_insert_assignees_ms: timing.t_insert_assignees_ms,
                 t_fetch_return_ms: timing.t_fetch_return_ms,
               });
-              return { success: true, data: directResult.data };
+              const out: ToolCallResult = { success: true, data: directResult.data };
+              if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+              return out;
             }
 
             if (directResult.error === "Task block not found") {
@@ -1217,7 +1235,9 @@ export async function executeTool(
                   });
 
                   if (!("error" in retryResult)) {
-                    return { success: true, data: retryResult.data };
+                    const out: ToolCallResult = { success: true, data: retryResult.data };
+                    if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+                    return out;
                   }
 
                   return { success: false, error: retryResult.error ?? "Failed to create task" };
@@ -1229,7 +1249,9 @@ export async function executeTool(
                 }, { authContext: authContext ?? undefined });
 
                 if (!("error" in retryResult)) {
-                  return { success: true, data: retryResult.data };
+                  const out: ToolCallResult = { success: true, data: retryResult.data };
+                  if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+                  return out;
                 }
 
                 return { success: false, error: retryResult.error ?? "Failed to create task" };
@@ -1271,7 +1293,9 @@ export async function executeTool(
                     taskBlockId: taskBlockIdToUse,
                   }, { authContext: authContext ?? undefined });
                   if (!("error" in retryResult)) {
-                    return { success: true, data: retryResult.data };
+                    const out: ToolCallResult = { success: true, data: retryResult.data };
+                    if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
+                    return out;
                   }
                   return { success: false, error: retryResult.error ?? "Failed to create task" };
                 }
@@ -1322,7 +1346,9 @@ export async function executeTool(
             const baseUpdates: Record<string, unknown> = {};
             if (args.title !== undefined) baseUpdates.title = args.title as string | undefined;
             if (args.status !== undefined) baseUpdates.status = args.status as any;
+            if (args.statuses !== undefined) baseUpdates.statuses = args.statuses as any;
             if (args.priority !== undefined) baseUpdates.priority = args.priority as any;
+            if (args.priorities !== undefined) baseUpdates.priorities = args.priorities as any;
             if (args.description !== undefined) baseUpdates.description = args.description as string | null | undefined;
             if (args.dueDate !== undefined) baseUpdates.dueDate = args.dueDate as string | null | undefined;
             if (args.dueTime !== undefined) baseUpdates.dueTime = args.dueTime as string | null | undefined;
@@ -1377,7 +1403,9 @@ export async function executeTool(
               updateTaskItem(taskId, {
                 title: args.title as string | undefined,
                 status: args.status as any,
+                statuses: args.statuses as any,
                 priority: args.priority as any,
+                priorities: args.priorities as any,
                 description: args.description as string | null | undefined,
                 dueDate: args.dueDate as string | null | undefined,
                 dueTime: args.dueTime as string | null | undefined,
@@ -1439,7 +1467,9 @@ export async function executeTool(
               updates: {
                 title: updatesArg?.title as string | undefined,
                 status: updatesArg?.status as any,
+                statuses: updatesArg?.statuses as any,
                 priority: updatesArg?.priority as any,
+                priorities: updatesArg?.priorities as any,
                 description: updatesArg?.description as string | null | undefined,
                 dueDate: updatesArg?.dueDate as string | null | undefined,
                 dueTime: updatesArg?.dueTime as string | null | undefined,
@@ -1510,11 +1540,22 @@ export async function executeTool(
                     taskBlockId,
                     title: task.title as string,
                     status: task.status as any,
+                    statuses: task.statuses as any,
                     priority: task.priority as any,
+                    priorities: task.priorities as any,
                     description: task.description as string | undefined,
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
+                    sourceEntityType:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined,
+                    sourceEntityId:
+                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
+                    sourceSyncMode:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
+                        normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                        ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
+                        : undefined,
                     assignees: resolvedAssignees,
                     tags: Array.isArray(task.tags) ? (task.tags as string[]) : [],
                     authContext: authContext ?? undefined,
@@ -1534,6 +1575,15 @@ export async function executeTool(
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
+                    sourceEntityType:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined,
+                    sourceEntityId:
+                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
+                    sourceSyncMode:
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
+                        normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                        ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
+                        : undefined,
                   }, { authContext: authContext ?? undefined });
 
                   if (!("error" in directResult)) {
@@ -1636,14 +1686,15 @@ export async function executeTool(
               return { success: false, error: "No tasks found for createTaskBoardFromTasks." };
             }
 
-            const blockTitle = (args.title as string | undefined) || "Task Board";
-            const viewMode = (args.viewMode as string | undefined) || "board";
+            const blockTitle = (args.title as string | undefined) || "Tasks";
+            const viewMode = (args.viewMode as string | undefined) || "list";
             const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
 
             const createBlockResult = await createBlock({
               tabId,
               type: "task",
               content: { title: blockTitle, hideIcons: false, viewMode, boardGroupBy },
+              authContext: authContext ?? undefined,
             });
 
             if ("error" in createBlockResult) {
@@ -1655,13 +1706,23 @@ export async function executeTool(
               return { success: false, error: "Failed to create task block." };
             }
 
-            const dupResult = await duplicateTasksToBlock({
+            const rpcDupResult = await duplicateTasksToBlockRpc({
               targetBlockId: taskBlockId,
               taskIds,
               authContext: authContext ?? undefined,
               includeAssignees: args.includeAssignees as boolean | undefined,
               includeTags: args.includeTags as boolean | undefined,
             });
+
+            const dupResult = "error" in rpcDupResult
+              ? await duplicateTasksToBlock({
+                targetBlockId: taskBlockId,
+                taskIds,
+                authContext: authContext ?? undefined,
+                includeAssignees: args.includeAssignees as boolean | undefined,
+                includeTags: args.includeTags as boolean | undefined,
+              })
+              : rpcDupResult;
 
             if ("error" in dupResult) {
               return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
@@ -2208,34 +2269,91 @@ export async function executeTool(
 
             // Execute all writes in parallel — each targets a distinct field
             const results = await Promise.all(
-              plans.map(async (plan) => {
-                if (plan.kind === "existing") {
-                  return { success: true, data: plan.data };
+              plans.map(async (plan, index) => {
+                try {
+                  if (plan.kind === "existing") {
+                    return { success: true, data: plan.data };
+                  }
+                  if (plan.kind === "reuse") {
+                    const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
+                    const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
+                    if (nextConfig !== undefined) payload.config = nextConfig;
+                    const result = await wrapResult(updateField(plan.candidateId, payload));
+                    if (!result.success) {
+                      aiDebug("bulkCreateFields:reuseFailed", {
+                        fieldIndex: index,
+                        fieldName: plan.name,
+                        candidateId: plan.candidateId,
+                        error: result.error,
+                      });
+                    }
+                    return result;
+                  }
+                  // kind === "create"
+                  const result = await wrapResult(
+                    createField({
+                      tableId,
+                      name: plan.name,
+                      type: plan.type as any,
+                      config: plan.config as any,
+                      isPrimary: plan.isPrimary,
+                    })
+                  );
+                  if (!result.success) {
+                    aiDebug("bulkCreateFields:createFailed", {
+                      fieldIndex: index,
+                      fieldName: plan.name,
+                      fieldType: plan.type,
+                      error: result.error,
+                    });
+                  }
+                  return result;
+                } catch (error) {
+                  const fieldName = plan.kind === "create" ? plan.name : plan.kind === "reuse" ? plan.name : "unknown";
+                  aiDebug("bulkCreateFields:exception", {
+                    fieldIndex: index,
+                    fieldName,
+                    planKind: plan.kind,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
+                  return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                  };
                 }
-                if (plan.kind === "reuse") {
-                  const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
-                  const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
-                  if (nextConfig !== undefined) payload.config = nextConfig;
-                  return await wrapResult(updateField(plan.candidateId, payload));
-                }
-                // kind === "create"
-                return await wrapResult(
-                  createField({
-                    tableId,
-                    name: plan.name,
-                    type: plan.type as any,
-                    config: plan.config as any,
-                    isPrimary: plan.isPrimary,
-                  })
-                );
               })
             );
 
             const allSuccessful = results.every((r) => r.success);
+            const failures = results
+              .map((r, i) => ({ index: i, result: r, plan: plans[i] }))
+              .filter(({ result }) => !result.success);
+
+            if (!allSuccessful && failures.length > 0) {
+              const errorMessages = failures.map(({ plan, result }) => {
+                const fieldName = plan.kind === "create" ? plan.name : plan.kind === "reuse" ? plan.name : "unknown";
+                return `Field "${fieldName}" (${plan.kind}): ${result.error ?? "Unknown error"}`;
+              });
+              const errorSummary = `Failed to create ${failures.length} of ${fields.length} fields:\n${errorMessages.join("\n")}`;
+              aiDebug("bulkCreateFields:summary", {
+                totalFields: fields.length,
+                successful: results.filter((r) => r.success).length,
+                failed: failures.length,
+                failures: failures.map((f) => ({
+                  fieldName: f.plan.kind === "create" ? f.plan.name : f.plan.kind === "reuse" ? f.plan.name : "unknown",
+                  error: f.result.error,
+                })),
+              });
+              return {
+                success: false,
+                data: results.map((r) => r.data),
+                error: errorSummary,
+              };
+            }
+
             return {
-              success: allSuccessful,
+              success: true,
               data: results.map((r) => r.data),
-              error: allSuccessful ? undefined : results.find((r) => !r.success)?.error,
             };
           }
 
@@ -2349,6 +2467,19 @@ export async function executeTool(
                 error: "Missing rows for bulkInsertRows. Expected { rows: [{ data: {...} }] }.",
               };
             }
+
+            // Log the exact source values the LLM passed per row (before deterministic backfill)
+            aiDebug("sourceTracking:llmRawInput", {
+              tool: "bulkInsertRows",
+              rowCount: normalizedRows.length,
+              rows: normalizedRows.map((row: any, i: number) => ({
+                index: i,
+                title: row.data?.Title ?? row.data?.Name ?? row.data?.title ?? Object.values(row.data ?? {})[0],
+                source_entity_id: row.source_entity_id ?? null,
+                source_entity_type: row.source_entity_type ?? null,
+                source_sync_mode: row.source_sync_mode ?? null,
+              })),
+            });
 
             const rowsWithSourceMetadata = await annotateRowsWithSourceMetadataForTable({
               tableId: resolvedTableId,
@@ -2794,6 +2925,19 @@ export async function executeTool(
               };
             }
 
+            // Log the exact source values the LLM passed per row (before deterministic backfill)
+            aiDebug("sourceTracking:llmRawInput", {
+              tool: "createTableFull",
+              rowCount: rows.length,
+              rows: rows.map((row, i) => ({
+                index: i,
+                title: (row.data as Record<string, unknown>)?.Title ?? (row.data as Record<string, unknown>)?.Name ?? (row.data as Record<string, unknown>)?.title ?? Object.values((row.data as Record<string, unknown>) ?? {})[0],
+                source_entity_id: row.source_entity_id ?? null,
+                source_entity_type: row.source_entity_type ?? null,
+                source_sync_mode: row.source_sync_mode ?? null,
+              })),
+            });
+
             rows = await annotateRowsWithSourceMetadata({
               rows,
               workspaceId,
@@ -2908,21 +3052,21 @@ export async function executeTool(
                 { name: "bulkInsertRows", arguments: { tableId, rows } },
                 context
               );
-            if (!rowsResult.success) {
-              if (blockId) {
-                await deleteBlock(blockId, { authContext: authContext ?? undefined });
+              if (!rowsResult.success) {
+                if (blockId) {
+                  await deleteBlock(blockId, { authContext: authContext ?? undefined });
+                }
+                await deleteTable(tableId, { authContext: authContext ?? undefined });
+                return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
               }
-              await deleteTable(tableId, { authContext: authContext ?? undefined });
-              return { success: false, error: rowsResult.error ?? "Failed to insert rows." };
-            }
-            insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
-              ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
-              : [];
+              insertedRows = Array.isArray((rowsResult.data as Record<string, unknown>)?.insertedIds)
+                ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
+                : [];
 
-            if (insertedRows.length > 0) {
-              await syncPriorityStatusToEntityProperties(tableId, insertedRows as string[], authContext ?? undefined);
+              if (insertedRows.length > 0) {
+                await syncPriorityStatusToEntityProperties(tableId, insertedRows as string[], authContext ?? undefined);
+              }
             }
-          }
 
             return {
               success: true,
@@ -3209,23 +3353,68 @@ export async function executeTool(
               assigneeId = assigneeResult.resolved[0].id ?? undefined;
             }
           }
+          const sourceMetadata = extractSourceMetadataFromArgs(args as Record<string, unknown>);
+          const hadSourceHints = Boolean(
+            (args as Record<string, unknown>).source_entity_type !== undefined ||
+            (args as Record<string, unknown>).source_entity_id !== undefined ||
+            (args as Record<string, unknown>).sourceEntityType !== undefined ||
+            (args as Record<string, unknown>).sourceEntityId !== undefined ||
+            ((args as Record<string, unknown>)._source && typeof (args as Record<string, unknown>)._source === "object")
+          );
+          const sourceMetadataIncomplete = hadSourceHints && (!sourceMetadata.sourceEntityType || !sourceMetadata.sourceEntityId);
+          if (sourceMetadataIncomplete) {
+            aiDebug("createTimelineEvent:sourceMetadataInvalid", {
+              source_entity_type: (args as Record<string, unknown>).source_entity_type,
+              source_entity_id: (args as Record<string, unknown>).source_entity_id,
+              sourceEntityType: (args as Record<string, unknown>).sourceEntityType,
+              sourceEntityId: (args as Record<string, unknown>).sourceEntityId,
+              normalizedSourceEntityType: sourceMetadata.sourceEntityType ?? null,
+              normalizedSourceEntityId: sourceMetadata.sourceEntityId ?? null,
+            });
+          }
+          const timelinePrioritiesInput =
+            (args as Record<string, unknown>).priorities ??
+            (args as Record<string, unknown>).priorityFields ??
+            (args as Record<string, unknown>).priority_fields;
 
-          return await wrapResult(
+          const timelineResult = await wrapResult(
             createTimelineEvent({
               timelineBlockId,
               title: args.title as string,
               startDate: args.startDate as string,
               endDate: args.endDate as string,
               status: args.status as TimelineEventStatus | undefined,
+              statuses:
+                ((args as Record<string, unknown>).statuses ??
+                  (args as Record<string, unknown>).statusFields ??
+                  (args as Record<string, unknown>).status_fields) !== undefined
+                  ? normalizeTimelineStatuses(
+                    (args as Record<string, unknown>).statuses ??
+                    (args as Record<string, unknown>).statusFields ??
+                    (args as Record<string, unknown>).status_fields
+                  )
+                  : undefined,
               priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
+              priorities:
+                timelinePrioritiesInput !== undefined
+                  ? normalizeTimelinePriorities(timelinePrioritiesInput)
+                  : undefined,
               progress: args.progress as number | undefined,
               notes: args.notes as string | undefined,
               color: args.color as string | undefined,
               isMilestone: args.isMilestone as boolean | undefined,
               assigneeId,
+              sourceEntityType: sourceMetadata.sourceEntityType,
+              sourceEntityId: sourceMetadata.sourceEntityId,
+              sourceSyncMode:
+                sourceMetadata.sourceEntityType && sourceMetadata.sourceEntityId
+                  ? sourceMetadata.sourceSyncMode
+                  : undefined,
               authContext: authContext ?? undefined,
             })
           );
+          if (sourceMetadataIncomplete) return { ...timelineResult, sourceMetadataIncomplete: true };
+          return timelineResult;
         }
         case "updateTimelineEvent":
           {
@@ -3248,7 +3437,27 @@ export async function executeTool(
                 startDate: args.startDate as string | undefined,
                 endDate: args.endDate as string | undefined,
                 status: args.status as TimelineEventStatus | undefined,
+                statuses:
+                  ((args as Record<string, unknown>).statuses ??
+                    (args as Record<string, unknown>).statusFields ??
+                    (args as Record<string, unknown>).status_fields) !== undefined
+                    ? normalizeTimelineStatuses(
+                      (args as Record<string, unknown>).statuses ??
+                      (args as Record<string, unknown>).statusFields ??
+                      (args as Record<string, unknown>).status_fields
+                    )
+                    : undefined,
                 priority: args.priority as TimelineEventPriority | undefined,  // NEW: Priority parameter
+                priorities:
+                  ((args as Record<string, unknown>).priorities ??
+                    (args as Record<string, unknown>).priorityFields ??
+                    (args as Record<string, unknown>).priority_fields) !== undefined
+                    ? normalizeTimelinePriorities(
+                      (args as Record<string, unknown>).priorities ??
+                      (args as Record<string, unknown>).priorityFields ??
+                      (args as Record<string, unknown>).priority_fields
+                    )
+                    : undefined,
                 progress: args.progress as number | undefined,
                 notes: (args.notes as string | null | undefined) ?? undefined,
                 color: (args.color as string | null | undefined) ?? undefined,
@@ -3280,78 +3489,25 @@ export async function executeTool(
         // ==================================================================
         // PROPERTY ACTIONS
         // ==================================================================
-        case "createPropertyDefinition":
-          if (!workspaceId) {
-            return { success: false, error: "No workspace selected" };
-          }
-          return await wrapResult(
-            createPropertyDefinition({
-              workspace_id: workspaceId,
-              name: args.name as string,
-              type: args.type as any,
-              options: args.options as any,
-            })
-          );
-
-        case "updatePropertyDefinition":
-          return await wrapResult(
-            updatePropertyDefinition(args.definitionId as string, {
-              name: args.name as string | undefined,
-              options: args.options as any,
-            })
-          );
-
-        case "deletePropertyDefinition":
-          return await wrapResult(
-            deletePropertyDefinition(args.definitionId as string)
-          );
-
         case "setEntityProperty":
           {
             const entityType = args.entityType as any;
             const entityId = args.entityId as string;
-            const propertyNameRaw = (args as any).propertyName ?? (args as any).propertyKey;
-            const normalizedName = normalizePropertyName(propertyNameRaw);
-            const propertyValue = (args as any).propertyValue ?? (args as any).value;
+            const fieldType = (args as any).fieldType as string | undefined;
+            const fieldName = (args as any).fieldName as string | undefined;
+            const value = (args as any).value;
 
-            if (normalizedName) {
-              if (!workspaceId) {
-                return { success: false, error: "No workspace selected" };
-              }
-              const fixedKey = FIXED_PROPERTY_NAME_MAP[normalizedName];
-              const updates: Record<string, unknown> = {};
-
-              if (fixedKey === "status") updates.status = propertyValue;
-              if (fixedKey === "priority") updates.priority = propertyValue;
-              if (fixedKey === "due_date") updates.due_date = propertyValue;
-              if (fixedKey === "tags") {
-                updates.tags = Array.isArray(propertyValue)
-                  ? propertyValue
-                  : propertyValue
-                    ? [String(propertyValue)]
-                    : [];
-              }
-              if (fixedKey === "assignee_ids") {
-                const assigneeIds = await resolveAssigneeIdsFromValue(propertyValue, authContext);
-                updates.assignee_ids = assigneeIds;
-              }
-
-              return await wrapResult(
-                setEntityProperties({
-                  entity_type: entityType,
-                  entity_id: entityId,
-                  workspace_id: workspaceId,
-                  updates,
-                })
-              );
+            if (!fieldType || !fieldName) {
+              return { success: false, error: "fieldType and fieldName are required" };
             }
 
             return await wrapResult(
               setEntityProperty({
                 entity_type: entityType,
                 entity_id: entityId,
-                property_definition_id: args.propertyDefinitionId as string,
-                value: args.value as PropertyValue,
+                field_type: fieldType as any,
+                field_name: fieldName,
+                value: value as PropertyValue,
               })
             );
           }
@@ -3361,7 +3517,7 @@ export async function executeTool(
             removeEntityProperty(
               args.entityType as any,
               args.entityId as string,
-              args.propertyDefinitionId as string
+              args.fieldName as string
             )
           );
 
@@ -4474,9 +4630,20 @@ function normalizeRowsForSelectFields(
       const field = fieldByName.get(normalizeFieldName(key));
       if (!field) continue;
       const fieldType = String(field.type ?? "");
+
+      // Normalize checkbox/subtask to boolean
+      if ((fieldType === "checkbox" || fieldType === "subtask") && (typeof rawValue === "string" || typeof rawValue === "number")) {
+        const boolVal = typeof rawValue === "number" ? rawValue === 1 : ["true", "yes", "y", "1", "checked", "x"].includes(String(rawValue).toLowerCase().trim());
+        if (nextData[key] !== boolVal) {
+          nextData[key] = boolVal;
+          changed = true;
+        }
+        continue;
+      }
+
       if (!isSelectLike(fieldType)) continue;
 
-      // Status/Priority are universal properties backed by workspace property_definitions.
+      // Status/Priority are universal properties with fixed canonical values.
       // Do not remap them using temporary field config options, or canonical values
       // like "todo"/"high" get converted into transient option IDs.
       if (fieldType === "status" || fieldType === "priority") continue;
@@ -4897,7 +5064,7 @@ async function annotateRowsWithSourceMetadataForTable(params: {
   tableId: string;
   rows: Array<Record<string, unknown>>;
   authContext?: AuthContext;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>;
 }): Promise<Array<Record<string, unknown>>> {
   if (!params.rows.length) return params.rows;
   const tableResult = await getTable(params.tableId, { authContext: params.authContext });
@@ -4914,7 +5081,7 @@ async function annotateRowsWithSourceMetadata(params: {
   rows: Array<Record<string, unknown>>;
   workspaceId: string;
   supabase: SupabaseClient;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>;
 }): Promise<Array<Record<string, unknown>>> {
   const normalizedRows = params.rows.map((row) => normalizeSourceMetadataOnRow(row as SourceLinkedInsertRow));
   const candidateIds = new Set<string>();
@@ -4959,7 +5126,7 @@ async function annotateRowsWithSourceMetadata(params: {
   }
 
   const ids = Array.from(candidateIds);
-  const [taskResult, timelineResult] = await Promise.all([
+  const [taskResult, timelineResult, tableRowResult, blockResult] = await Promise.all([
     params.supabase
       .from("task_items")
       .select("id")
@@ -4970,6 +5137,16 @@ async function annotateRowsWithSourceMetadata(params: {
       .select("id")
       .eq("workspace_id", params.workspaceId)
       .in("id", ids),
+    params.supabase
+      .from("table_rows")
+      .select("id, tables!inner(workspace_id)")
+      .eq("tables.workspace_id", params.workspaceId)
+      .in("id", ids),
+    params.supabase
+      .from("blocks")
+      .select("id, tabs!inner(projects!inner(workspace_id))")
+      .eq("tabs.projects.workspace_id", params.workspaceId)
+      .in("id", ids),
   ]);
 
   const taskIds = new Set(
@@ -4978,13 +5155,19 @@ async function annotateRowsWithSourceMetadata(params: {
   const timelineIds = new Set(
     ((timelineResult.data || []) as Array<{ id: string }>).map((item) => item.id)
   );
+  const tableRowIds = new Set(
+    ((tableRowResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
+  const blockIds = new Set(
+    ((blockResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
 
   // Build a title-to-entity map for title matching (case-insensitive)
-  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" }>();
+  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>();
   if (params.searchedEntities) {
     for (const entity of params.searchedEntities) {
       // Only include entities that are validated (exist in DB)
-      if (taskIds.has(entity.id) || timelineIds.has(entity.id)) {
+      if (taskIds.has(entity.id) || timelineIds.has(entity.id) || tableRowIds.has(entity.id) || blockIds.has(entity.id)) {
         titleToEntity.set(entity.title.toLowerCase(), { id: entity.id, entityType: entity.entityType });
       }
     }
@@ -4994,13 +5177,15 @@ async function annotateRowsWithSourceMetadata(params: {
   const llmValidated = normalizedRows.filter((row) => {
     if (!hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) return false;
     const id = row.source_entity_id as string;
-    return taskIds.has(id) || timelineIds.has(id);
+    return taskIds.has(id) || timelineIds.has(id) || tableRowIds.has(id) || blockIds.has(id);
   });
   const llmInvalid = llmProvidedCount - llmValidated.length;
 
   aiDebug("sourceTracking:dbValidation", {
     validTaskIds: taskIds.size,
     validTimelineIds: timelineIds.size,
+    validTableRowIds: tableRowIds.size,
+    validBlockIds: blockIds.size,
     titleMapEntries: titleToEntity.size,
   });
   aiDebug("sourceTracking:llmAnnotation", {
@@ -5020,7 +5205,7 @@ async function annotateRowsWithSourceMetadata(params: {
     // Pass 1: Key-name and UUID candidate extraction
     const candidate = extractSourceCandidateIdFromRow(row);
     if (candidate) {
-      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds);
+      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds, tableRowIds, blockIds);
       if (inferredType) {
         keyMatchCount++;
         aiDebug("sourceTracking:deterministicMatch", {
@@ -5032,7 +5217,7 @@ async function annotateRowsWithSourceMetadata(params: {
           ...row,
           source_entity_type: inferredType,
           source_entity_id: candidate.id,
-          source_sync_mode: "snapshot",
+          source_sync_mode: "live",
         };
       }
     }
@@ -5055,7 +5240,7 @@ async function annotateRowsWithSourceMetadata(params: {
               ...row,
               source_entity_type: matched.entityType,
               source_entity_id: matched.id,
-              source_sync_mode: "snapshot",
+              source_sync_mode: "live",
             };
           }
         }
@@ -5089,9 +5274,7 @@ async function syncPriorityStatusToEntityProperties(
   const workspaceId = tableResult.data.table.workspace_id as string | undefined;
   const fields = tableResult.data.fields || [];
   const relevantFields = fields.filter(
-    (field) =>
-      (field.type === "priority" || field.type === "status") &&
-      field.property_definition_id
+    (field) => field.type === "priority" || field.type === "status"
   );
 
   if (!workspaceId || relevantFields.length === 0) return;
@@ -5121,11 +5304,12 @@ async function syncPriorityStatusToEntityProperties(
           {
             entity_type: "table_row",
             entity_id: rowId,
-            property_definition_id: field.property_definition_id,
+            field_type: field.type,
+            field_name: field.name,
             value: fieldValue,
             workspace_id: workspaceId,
           },
-          { onConflict: "entity_type,entity_id,property_definition_id" }
+          { onConflict: "entity_type,entity_id,field_name" }
         );
     }
   }
@@ -5154,30 +5338,96 @@ function hasValidRowSourceMetadata(sourceType: unknown, sourceId: unknown): bool
   return Boolean(normalizeSourceEntityType(sourceType) && normalizeSourceEntityId(sourceId));
 }
 
-function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | null {
-  if (value === "task" || value === "timeline_event") return value;
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | "block" | null {
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    return normalizeSourceEntityType(
+      source.source_entity_type ?? source.sourceEntityType ?? source.entity_type ?? source.entityType ?? null
+    );
+  }
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "task" || normalized === "task_item" || normalized === "taskitem") return "task";
+  if (normalized === "timeline_event" || normalized === "timelineevent" || normalized === "event") return "timeline_event";
+  if (normalized === "table_row" || normalized === "tablerow" || normalized === "row") return "table_row";
+  if (normalized === "block" || normalized === "blocks") return "block";
   return null;
 }
 
 function normalizeSourceEntityId(value: unknown): string | null {
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    return normalizeSourceEntityId(
+      source.source_entity_id ?? source.sourceEntityId ?? source.entity_id ?? source.entityId ?? source.id ?? null
+    );
+  }
   if (typeof value !== "string") return null;
-  return isUuid(value) ? value : null;
+  const normalized = value.trim();
+  return isUuid(normalized) ? normalized : null;
 }
 
 function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
-  return value === "live" ? "live" : "snapshot";
+  if (typeof value === "string" && value.trim().toLowerCase() === "snapshot") return "snapshot";
+  return "live";
+}
+
+function extractSourceMetadataFromArgs(args: Record<string, unknown>): {
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
+  sourceEntityId?: string;
+  sourceSyncMode: "snapshot" | "live";
+} {
+  const sourceObject =
+    args._source && typeof args._source === "object"
+      ? (args._source as Record<string, unknown>)
+      : {};
+
+  const sourceTypeRaw =
+    args.source_entity_type ??
+    args.sourceEntityType ??
+    sourceObject.source_entity_type ??
+    sourceObject.sourceEntityType ??
+    sourceObject.entity_type ??
+    sourceObject.entityType;
+  const sourceIdRaw =
+    args.source_entity_id ??
+    args.sourceEntityId ??
+    sourceObject.source_entity_id ??
+    sourceObject.sourceEntityId ??
+    sourceObject.entity_id ??
+    sourceObject.entityId ??
+    sourceObject.id;
+  const sourceModeRaw =
+    args.source_sync_mode ??
+    args.sourceSyncMode ??
+    sourceObject.source_sync_mode ??
+    sourceObject.sourceSyncMode ??
+    sourceObject.sync_mode ??
+    sourceObject.syncMode;
+
+  const sourceEntityType = normalizeSourceEntityType(sourceTypeRaw) ?? undefined;
+  const sourceEntityId = normalizeSourceEntityId(sourceIdRaw) ?? undefined;
+  const sourceSyncMode = normalizeSourceSyncMode(sourceModeRaw);
+
+  return {
+    sourceEntityType,
+    sourceEntityId,
+    sourceSyncMode,
+  };
 }
 
 function extractSourceCandidateIdFromRow(
   row: SourceLinkedInsertRow
-): { id: string; hintedType?: "task" | "timeline_event" } | null {
+): { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" } | null {
   const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
   const normalizedEntries = Object.entries(data).map(([key, value]) => [normalizeSourceKey(key), value] as const);
   const normalizedMap = new Map(normalizedEntries);
 
-  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" }> = [
+  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" | "table_row" | "block" }> = [
     { keys: ["task_id", "taskid"], hintedType: "task" },
     { keys: ["timeline_event_id", "timelineeventid", "event_id", "eventid"], hintedType: "timeline_event" },
+    { keys: ["table_row_id", "tablerowid", "row_id", "rowid"], hintedType: "table_row" },
+    { keys: ["block_id", "blockid"], hintedType: "block" },
     { keys: ["source_id", "entity_id", "id"] },
   ];
 
@@ -5203,17 +5453,25 @@ function normalizeSourceKey(value: string): string {
 }
 
 function inferSourceEntityTypeForCandidate(
-  candidate: { id: string; hintedType?: "task" | "timeline_event" },
+  candidate: { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" },
   taskIds: Set<string>,
-  timelineIds: Set<string>
-): "task" | "timeline_event" | null {
+  timelineIds: Set<string>,
+  tableRowIds: Set<string> = new Set(),
+  blockIds: Set<string> = new Set()
+): "task" | "timeline_event" | "table_row" | "block" | null {
+  if (candidate.hintedType === "block" && blockIds.has(candidate.id)) return "block";
   if (candidate.hintedType === "task" && taskIds.has(candidate.id)) return "task";
   if (candidate.hintedType === "timeline_event" && timelineIds.has(candidate.id)) return "timeline_event";
+  if (candidate.hintedType === "table_row" && tableRowIds.has(candidate.id)) return "table_row";
 
   const inTasks = taskIds.has(candidate.id);
   const inTimeline = timelineIds.has(candidate.id);
-  if (inTasks && !inTimeline) return "task";
-  if (!inTasks && inTimeline) return "timeline_event";
+  const inTableRows = tableRowIds.has(candidate.id);
+  const inBlocks = blockIds.has(candidate.id);
+  if (inBlocks && !inTasks && !inTimeline && !inTableRows) return "block";
+  if (inTasks && !inTimeline && !inTableRows && !inBlocks) return "task";
+  if (!inTasks && inTimeline && !inTableRows && !inBlocks) return "timeline_event";
+  if (!inTasks && !inTimeline && inTableRows && !inBlocks) return "table_row";
   return null;
 }
 
@@ -5249,71 +5507,15 @@ function generateOptionId(): string {
 }
 
 function resolveSelectValues(
-  field: { type: string; config: Record<string, unknown>; property_definition_id?: string },
+  field: { type: string; config: Record<string, unknown> },
   rawValue: unknown,
-  allowCreate: boolean,
-  propertyDefinitionOptions?: Array<{ id: string; label: string; color?: string }>
+  allowCreate: boolean
 ): { ids: string[]; updatedConfig?: Record<string, unknown>; missing: boolean } {
   if (rawValue === null || rawValue === undefined) {
     return { ids: [], missing: false };
   }
 
-  // Priority/Status fields: use property definition options (canonical IDs)
-  if ((field.type === "priority" || field.type === "status") && propertyDefinitionOptions) {
-    const inputValues = Array.isArray(rawValue) ? rawValue : [rawValue];
-    const normalizedOptions = new Map(
-      propertyDefinitionOptions.map(opt => [normalizeFieldKey(opt.label), opt])
-    );
-
-    const resolvedIds: string[] = [];
-
-    for (const value of inputValues) {
-      // Handle {id} object format
-      if (value && typeof value === "object") {
-        const asObj = value as Record<string, unknown>;
-        const id = typeof asObj.id === "string" ? asObj.id : undefined;
-        if (id) {
-          // Verify it's a valid canonical ID
-          const exists = propertyDefinitionOptions.some(opt => opt.id === id);
-          if (exists) {
-            resolvedIds.push(id);
-            continue;
-          }
-        }
-      }
-
-      const str = String(value ?? "").trim();
-      if (!str) continue;
-
-      // Check if value is already a canonical ID (case-insensitive)
-      const matchedById = propertyDefinitionOptions.find(
-        opt => opt.id.toLowerCase() === str.toLowerCase()
-      );
-
-      if (matchedById) {
-        resolvedIds.push(matchedById.id);
-        continue;
-      }
-
-      // Try label match (case-insensitive)
-      const normalized = normalizeFieldKey(str);
-      const matchedByLabel = normalizedOptions.get(normalized);
-
-      if (matchedByLabel) {
-        resolvedIds.push(matchedByLabel.id);
-      } else {
-        // Value not found in property definition options
-        const fieldType = field.type === "priority" ? "Priority" : "Status";
-        const validValues = propertyDefinitionOptions.map(opt => `"${opt.id}" (${opt.label})`).join(", ");
-        console.warn(`[resolveSelectValues] Invalid ${fieldType} value: "${str}". Valid options: ${validValues}`);
-        return { ids: [], missing: true };
-      }
-    }
-
-    return { ids: resolvedIds, missing: false };
-  }
-
-  // Regular select fields: use field config options
+  // All select-like fields: use field config options
   const { kind, options } = getOptionEntries(field);
   if (!kind) {
     return { ids: [], missing: true };
@@ -5370,16 +5572,15 @@ function resolveSelectValues(
 }
 
 function resolveUpdateValue(
-  field: { id: string; type: string; config: Record<string, unknown>; property_definition_id?: string },
+  field: { id: string; type: string; config: Record<string, unknown> },
   rawValue: unknown,
-  allowCreateOptions: boolean,
-  propertyDefinitionOptions?: Array<{ id: string; label: string; color?: string }>
+  allowCreateOptions: boolean
 ): { value: unknown; updatedConfig?: Record<string, unknown> } {
   if (isSelectLike(field.type)) {
     if (rawValue === null || rawValue === undefined) {
       return { value: null };
     }
-    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions, propertyDefinitionOptions);
+    const resolved = resolveSelectValues(field, rawValue, allowCreateOptions);
     if (resolved.missing) {
       return { value: null };
     }
@@ -5387,10 +5588,11 @@ function resolveUpdateValue(
     return { value, updatedConfig: resolved.updatedConfig };
   }
 
-  if (field.type === "checkbox" && typeof rawValue === "string") {
-    const normalized = rawValue.toLowerCase().trim();
-    if (normalized === "true") return { value: true };
-    if (normalized === "false") return { value: false };
+  if ((field.type === "checkbox" || field.type === "subtask") && (typeof rawValue === "string" || typeof rawValue === "number")) {
+    if (typeof rawValue === "number") return { value: rawValue === 1 };
+    const normalized = String(rawValue).toLowerCase().trim();
+    if (["true", "yes", "y", "1", "checked", "x"].includes(normalized)) return { value: true };
+    if (["false", "no", "n", "0", "unchecked"].includes(normalized)) return { value: false };
   }
 
   return { value: rawValue };
@@ -5407,27 +5609,6 @@ async function enhanceFieldsAndNormalizeSelectValues(
 
   const fields = tableResult.data.fields;
 
-  // Fetch property definitions for priority/status fields
-  const propertyDefIds = fields
-    .filter(f => f.property_definition_id)
-    .map(f => f.property_definition_id as string);
-
-  const propertyDefsMap = new Map<string, Array<{ id: string; label: string; color?: string }>>();
-
-  if (propertyDefIds.length > 0) {
-    const supabase = await createSupabaseClient();
-    const { data: propDefs } = await supabase
-      .from("property_definitions")
-      .select("id, options")
-      .in("id", [...new Set(propertyDefIds)]);
-
-    if (propDefs) {
-      for (const pd of propDefs) {
-        propertyDefsMap.set(pd.id, pd.options as Array<{ id: string; label: string; color?: string }>);
-      }
-    }
-  }
-
   // Extract all values for each field from the rows
   const fieldValues = new Map<string, unknown[]>();
   rows.forEach((row) => {
@@ -5441,16 +5622,10 @@ async function enhanceFieldsAndNormalizeSelectValues(
   });
 
   // Enhance select fields that have no options configured
-  // SKIP priority/status fields (they get options from property_definitions)
   const fieldsToUpdate: Array<{ fieldId: string; config: Record<string, unknown> }> = [];
 
   for (const field of fields) {
     if (!isSelectLike(field.type)) continue;
-
-    // Skip priority/status fields - they use property_definitions
-    if ((field.type === "priority" || field.type === "status") && field.property_definition_id) {
-      continue;
-    }
 
     const config = (field.config || {}) as Record<string, unknown>;
     const { options } = getOptionEntries({ type: field.type, config });
@@ -5495,18 +5670,12 @@ async function enhanceFieldsAndNormalizeSelectValues(
         continue;
       }
 
-      // Get property definition options if available
-      const propDefOptions = field.property_definition_id
-        ? propertyDefsMap.get(field.property_definition_id)
-        : undefined;
-
       // Field is a select-like field - normalize the value to option ID
       const config = (field.config || {}) as Record<string, unknown>;
       const { ids, missing } = resolveSelectValues(
-        { type: field.type, config, property_definition_id: field.property_definition_id ?? undefined },
+        { type: field.type, config },
         rawValue,
-        false,
-        propDefOptions
+        false
       );
 
       if (ids.length > 0) {

@@ -52,7 +52,7 @@ export default async function CalendarPage() {
       due_date,
       due_time,
       due_time_end,
-      priority,
+      priorities,
       task_block_id,
       tab:tabs!task_items_tab_id_fkey(
         id,
@@ -79,6 +79,8 @@ export default async function CalendarPage() {
   const taskEvents: CalendarEvent[] = [];
   taskItems?.forEach((task: any) => {
     if (task.due_date) {
+      const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
+      const firstPriority = taskPriorities[0]?.value ?? null;
       const dueTime = task.due_time ? String(task.due_time).slice(0, 5) : undefined;
       const dueTimeEnd = task.due_time_end ? String(task.due_time_end).slice(0, 5) : undefined;
       taskEvents.push({
@@ -91,7 +93,7 @@ export default async function CalendarPage() {
         projectId: task.tab?.project?.id,
         tabId: task.tab?.id,
         taskId: String(task.id),
-        priority: task.priority,
+        priority: firstPriority,
         projectName: task.tab?.project?.name || "Unknown",
         tabName: task.tab?.name || "Unknown",
       });

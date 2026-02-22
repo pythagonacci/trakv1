@@ -22,7 +22,6 @@ import {
   searchTaskComments,
   searchPayments,
   searchTags,
-  searchPropertyDefinitions,
   searchEntityLinks,
   searchEntityProperties,
   getEntityById,
@@ -55,7 +54,6 @@ type TestFunction =
   | "searchTaskComments"
   | "searchPayments"
   | "searchTags"
-  | "searchPropertyDefinitions"
   | "searchEntityLinks"
   | "searchEntityProperties"
   | "resolveEntityByName"
@@ -262,13 +260,6 @@ export default function TestSearchPage() {
           });
           break;
 
-        case "searchPropertyDefinitions":
-          result = await searchPropertyDefinitions({
-            ...baseParams,
-            ...parsedExtra,
-          });
-          break;
-
         case "searchEntityLinks":
           result = await searchEntityLinks({
             limit,
@@ -447,7 +438,6 @@ export default function TestSearchPage() {
                 <option value="searchTaskComments">searchTaskComments</option>
                 <option value="searchPayments">searchPayments</option>
                 <option value="searchTags">searchTags</option>
-                <option value="searchPropertyDefinitions">searchPropertyDefinitions</option>
                 <option value="searchEntityLinks">searchEntityLinks</option>
                 <option value="searchEntityProperties">searchEntityProperties</option>
               </optgroup>
@@ -489,7 +479,6 @@ export default function TestSearchPage() {
               "searchTaskComments",
               "searchPayments",
               "searchTags",
-              "searchPropertyDefinitions",
               "searchEntityLinks",
               "searchEntityProperties",
               "resolveEntityByName",

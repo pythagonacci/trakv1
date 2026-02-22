@@ -39,7 +39,7 @@ export default function ConfirmDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D3236]/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
       <div className="w-full max-w-lg overflow-hidden rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.05)]">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-[var(--border)] px-6 py-5">
@@ -80,7 +80,7 @@ export default function ConfirmDialog({
             onClick={handleConfirm}
             className={`flex-1 px-4 py-2.5 text-sm font-medium text-white rounded-[2px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               confirmButtonVariant === "danger"
-                ? "bg-[var(--error)] hover:bg-[#A54F4F]"
+                ? "bg-[var(--error)] hover:opacity-90"
                 : "bg-[var(--primary)] hover:bg-[var(--primary-hover)]"
             }`}
             disabled={isLoading}

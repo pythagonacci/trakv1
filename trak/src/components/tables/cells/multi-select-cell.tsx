@@ -220,7 +220,6 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
         disabled={saving}
       >
         {onUpdateConfig && <Plus className="h-3 w-3" />}
-        <span>Empty</span>
       </button>
     );
   }

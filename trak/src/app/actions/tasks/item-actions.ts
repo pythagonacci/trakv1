@@ -2,16 +2,67 @@
 
 import { requireTaskBlockAccess, requireTaskItemAccess, type TaskTimingSink } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { TaskItem, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
+import type { TaskItem, TaskItemPriority, TaskItemStatus, TaskPriority, TaskSourceSyncMode, TaskStatus } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+function normalizeTaskPriorities(input: unknown): TaskItemPriority[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((entry) => {
+      const fieldName = String((entry as any)?.field_name ?? "").trim();
+      const value = (entry as any)?.value;
+      if (!fieldName) return null;
+      if (value !== "low" && value !== "medium" && value !== "high" && value !== "urgent") return null;
+      return { field_name: fieldName, value } as TaskItemPriority;
+    })
+    .filter((entry): entry is TaskItemPriority => Boolean(entry));
+}
+
+function prioritiesFromSingle(priority?: TaskPriority | null): TaskItemPriority[] {
+  if (!priority || priority === "none") return [];
+  if (priority !== "low" && priority !== "medium" && priority !== "high" && priority !== "urgent") return [];
+  return [{ field_name: "Priority", value: priority }];
+}
+
+function normalizeTaskStatuses(input: unknown): TaskItemStatus[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((entry) => {
+      const fieldName = String((entry as any)?.field_name ?? "").trim();
+      let value = (entry as any)?.value;
+      if (!fieldName) return null;
+      if (value === "in-progress" || value === "in progress") value = "in_progress";
+      if (value !== "todo" && value !== "in_progress" && value !== "blocked" && value !== "done") return null;
+      return { field_name: fieldName, value } as TaskItemStatus;
+    })
+    .filter((entry): entry is TaskItemStatus => Boolean(entry));
+}
+
+function statusesFromSingle(status?: TaskStatus | null): TaskItemStatus[] {
+  if (!status) return [];
+  let value = status as string;
+  if (value === "in-progress" || value === "in progress") value = "in_progress";
+  if (value !== "todo" && value !== "in_progress" && value !== "blocked" && value !== "done") return [];
+  return [{ field_name: "Status", value: value as any }];
+}
+
+function normalizeTaskRow(row: any): TaskItem {
+  const priorities = normalizeTaskPriorities(row?.priorities ?? prioritiesFromSingle(row?.priority));
+  return {
+    ...(row as TaskItem),
+    priorities,
+  };
+}
 
 export async function createTaskItem(
   input: {
     taskBlockId: string;
     title: string;
     status?: TaskStatus;
+    statuses?: TaskItemStatus[];
     priority?: TaskPriority;
+    priorities?: TaskItemPriority[];
     description?: string | null;
     dueDate?: string | null;
     dueTime?: string | null;
@@ -23,12 +74,24 @@ export async function createTaskItem(
       frequency?: "daily" | "weekly" | "monthly";
       interval?: number;
     };
+    sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
+    sourceEntityId?: string | null;
+    sourceSyncMode?: TaskSourceSyncMode;
   },
   opts?: { timing?: TaskTimingSink; authContext?: AuthContext }
 ): Promise<ActionResult<TaskItem>> {
   const access = await requireTaskBlockAccess(input.taskBlockId, { timing: opts?.timing, authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, block } = access;
+  const hasSourceMetadata = Boolean(input.sourceEntityType && input.sourceEntityId);
+  const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
+  const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
+  const sourceSyncMode = hasSourceMetadata
+    ? (input.sourceSyncMode ?? "live")
+    : null;
+  const sourceTaskId = sourceEntityType === "task" ? sourceEntityId : null;
+  const priorities = input.priorities !== undefined ? normalizeTaskPriorities(input.priorities) : prioritiesFromSingle(input.priority);
+  const statuses = input.statuses !== undefined ? normalizeTaskStatuses(input.statuses) : statusesFromSingle(input.status);
 
   // display_order is set by DB trigger set_task_item_display_order (saves one round-trip)
   const tInsert0 = performance.now();
@@ -40,8 +103,8 @@ export async function createTaskItem(
       project_id: block.project_id,
       tab_id: block.tab_id,
       title: input.title,
-      status: input.status ?? "todo",
-      priority: input.priority ?? "none",
+      statuses: statuses,
+      priorities,
       description: input.description ?? null,
       due_date: input.dueDate ?? null,
       due_time: input.dueTime ?? null,
@@ -52,6 +115,10 @@ export async function createTaskItem(
       recurring_enabled: input.recurring?.enabled ?? false,
       recurring_frequency: input.recurring?.frequency ?? null,
       recurring_interval: input.recurring?.interval ?? null,
+      source_task_id: sourceTaskId,
+      source_entity_type: sourceEntityType,
+      source_entity_id: sourceEntityId,
+      source_sync_mode: sourceSyncMode,
       created_by: userId,
       updated_by: userId,
     })
@@ -63,7 +130,7 @@ export async function createTaskItem(
   }
 
   if (error || !data) return { error: "Failed to create task" };
-  return { data: data as TaskItem };
+  return { data: normalizeTaskRow(data) };
 }
 
 export async function updateTaskItem(
@@ -71,7 +138,9 @@ export async function updateTaskItem(
   updates: Partial<{
     title: string;
     status: TaskStatus;
+    statuses: TaskItemStatus[];
     priority: TaskPriority;
+    priorities: TaskItemPriority[];
     description: string | null;
     dueDate: string | null;
     dueTime: string | null;
@@ -93,8 +162,14 @@ export async function updateTaskItem(
   };
 
   if (updates.title !== undefined) payload.title = updates.title;
-  if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.priority !== undefined) payload.priority = updates.priority;
+  if (updates.statuses !== undefined) payload.statuses = normalizeTaskStatuses(updates.statuses);
+  if (updates.status !== undefined && updates.statuses === undefined) {
+    payload.statuses = statusesFromSingle(updates.status);
+  }
+  if (updates.priorities !== undefined) payload.priorities = normalizeTaskPriorities(updates.priorities);
+  if (updates.priority !== undefined && updates.priorities === undefined) {
+    payload.priorities = prioritiesFromSingle(updates.priority);
+  }
   if (updates.description !== undefined) payload.description = updates.description;
   if (updates.dueDate !== undefined) payload.due_date = updates.dueDate;
   if (updates.dueTime !== undefined) payload.due_time = updates.dueTime;
@@ -118,6 +193,7 @@ export async function updateTaskItem(
     .single();
 
   if (error || !data) return { error: "Failed to update task" };
+  const normalizedTask = normalizeTaskRow(data);
 
   // Update entity_properties to keep status, priority, and due date in sync
   const { setEntityProperties } = await import("@/app/actions/entity-properties");
@@ -132,10 +208,22 @@ export async function updateTaskItem(
     };
     entityPropertyUpdates.status = statusMap[updates.status] || "todo";
   }
+  if (updates.statuses !== undefined) {
+    entityPropertyUpdates.statuses = normalizeTaskStatuses(updates.statuses).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
+  }
 
   // Map task priority to entity property priority
   if (updates.priority !== undefined) {
     entityPropertyUpdates.priority = updates.priority === "none" ? null : updates.priority;
+  }
+  if (updates.priorities !== undefined) {
+    entityPropertyUpdates.priorities = normalizeTaskPriorities(updates.priorities).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
   }
 
   // Update due date if provided
@@ -164,7 +252,7 @@ export async function updateTaskItem(
     });
   }
 
-  return { data: data as TaskItem };
+  return { data: normalizedTask };
 }
 
 export async function bulkUpdateTaskItems(input: {
@@ -172,7 +260,9 @@ export async function bulkUpdateTaskItems(input: {
   updates: Partial<{
     title: string;
     status: TaskStatus;
+    statuses: TaskItemStatus[];
     priority: TaskPriority;
+    priorities: TaskItemPriority[];
     description: string | null;
     dueDate: string | null;
     dueTime: string | null;
@@ -214,8 +304,14 @@ export async function bulkUpdateTaskItems(input: {
   };
 
   if (input.updates.title !== undefined) payload.title = input.updates.title;
-  if (input.updates.status !== undefined) payload.status = input.updates.status;
-  if (input.updates.priority !== undefined) payload.priority = input.updates.priority;
+  if (input.updates.statuses !== undefined) payload.statuses = normalizeTaskStatuses(input.updates.statuses);
+  if (input.updates.status !== undefined && input.updates.statuses === undefined) {
+    payload.statuses = statusesFromSingle(input.updates.status);
+  }
+  if (input.updates.priorities !== undefined) payload.priorities = normalizeTaskPriorities(input.updates.priorities);
+  if (input.updates.priority !== undefined && input.updates.priorities === undefined) {
+    payload.priorities = prioritiesFromSingle(input.updates.priority);
+  }
   if (input.updates.description !== undefined) payload.description = input.updates.description;
   if (input.updates.dueDate !== undefined) payload.due_date = input.updates.dueDate;
   if (input.updates.dueTime !== undefined) payload.due_time = input.updates.dueTime;
@@ -248,10 +344,22 @@ export async function bulkUpdateTaskItems(input: {
     };
     entityPropertyUpdates.status = statusMap[input.updates.status] || "todo";
   }
+  if (input.updates.statuses !== undefined) {
+    entityPropertyUpdates.statuses = normalizeTaskStatuses(input.updates.statuses).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
+  }
 
   // Map task priority to entity property priority
   if (input.updates.priority !== undefined) {
     entityPropertyUpdates.priority = input.updates.priority === "none" ? null : input.updates.priority;
+  }
+  if (input.updates.priorities !== undefined) {
+    entityPropertyUpdates.priorities = normalizeTaskPriorities(input.updates.priorities).map((entry) => ({
+      field_name: entry.field_name,
+      value: entry.value,
+    }));
   }
 
   // Update entity_properties for each task
@@ -365,7 +473,7 @@ export async function duplicateTasksToBlock(input: {
   const { data: tasks, error: tasksError } = await supabase
     .from("task_items")
     .select(
-      "id, title, status, priority, description, due_date, due_time, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval"
+      "id, title, status, priorities, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
     )
     .in("id", taskIds)
     .eq("workspace_id", block.workspace_id);
@@ -380,6 +488,15 @@ export async function duplicateTasksToBlock(input: {
     .filter(Boolean);
   const skipped = taskIds.filter((id) => !taskMap.has(id));
 
+  console.log("[duplicateTasksToBlock]", {
+    inputTaskIds: taskIds.length,
+    blockWorkspaceId: block.workspace_id,
+    tasksFoundInDb: (tasks || []).length,
+    orderedTasks: orderedTasks.length,
+    skipped: skipped.length,
+    skippedIds: skipped,
+  });
+
   if (orderedTasks.length === 0) {
     return { data: { createdCount: 0, createdTaskIds: [], skipped } };
   }
@@ -388,7 +505,6 @@ export async function duplicateTasksToBlock(input: {
   const includeTags = input.includeTags !== false;
 
   let assigneeMap = new Map<string, Array<{ assignee_id: string | null; assignee_name: string | null }>>();
-  let assigneePropertyId: string | null = null;
 
   if (includeAssignees) {
     const { data: assignees } = await supabase
@@ -402,42 +518,47 @@ export async function duplicateTasksToBlock(input: {
       assigneeMap.set(row.task_id, list);
     });
 
-    const { data: assigneeDef } = await supabase
-      .from("property_definitions")
-      .select("id")
-      .eq("workspace_id", block.workspace_id)
-      .eq("name", "Assignee")
-      .eq("type", "person")
-      .maybeSingle();
+    const missingAssigneeTaskIds = orderedTasks
+      .map((t: any) => t.id)
+      .filter((taskId: string) => !assigneeMap.has(taskId));
 
-    assigneePropertyId = assigneeDef?.id ?? null;
+    if (missingAssigneeTaskIds.length > 0) {
+      const { data: assigneeProps } = await supabase
+        .from("entity_properties")
+        .select("entity_id, value")
+        .eq("workspace_id", block.workspace_id)
+        .eq("entity_type", "task")
+        .eq("field_type", "assignee")
+        .in("entity_id", missingAssigneeTaskIds);
 
-    if (assigneePropertyId) {
-      const missingAssigneeTaskIds = orderedTasks
-        .map((t: any) => t.id)
-        .filter((taskId: string) => !assigneeMap.has(taskId));
-
-      if (missingAssigneeTaskIds.length > 0) {
-        const { data: assigneeProps } = await supabase
-          .from("entity_properties")
-          .select("entity_id, value")
-          .eq("workspace_id", block.workspace_id)
-          .eq("entity_type", "task")
-          .eq("property_definition_id", assigneePropertyId)
-          .in("entity_id", missingAssigneeTaskIds);
-
-        (assigneeProps || []).forEach((row: any) => {
-          const value = row.value as { id?: string | null; name?: string | null } | null;
-          if (value?.id || value?.name) {
-            assigneeMap.set(row.entity_id, [
-              {
-                assignee_id: value?.id ?? null,
-                assignee_name: value?.name ?? value?.id ?? null,
-              },
-            ]);
-          }
-        });
-      }
+      (assigneeProps || []).forEach((row: any) => {
+        const value = row.value;
+        const values = Array.isArray(value) ? value : [value];
+        const parsed: Array<{ assignee_id: string | null; assignee_name: string | null }> = values
+          .map((entry: any) => {
+            if (entry && typeof entry === "object") {
+              return {
+                assignee_id: typeof entry.id === "string" ? entry.id : null,
+                assignee_name:
+                  typeof entry.name === "string"
+                    ? entry.name
+                    : typeof entry.id === "string"
+                      ? entry.id
+                      : null,
+              };
+            }
+            if (typeof entry === "string") {
+              return { assignee_id: entry, assignee_name: entry };
+            }
+            return null;
+          })
+          .filter((entry): entry is { assignee_id: string | null; assignee_name: string | null } => {
+            return Boolean(entry && (entry.assignee_id || entry.assignee_name));
+          });
+        if (parsed.length > 0) {
+          assigneeMap.set(row.entity_id, parsed);
+        }
+      });
     }
   }
 
@@ -474,8 +595,8 @@ export async function duplicateTasksToBlock(input: {
       project_id: block.project_id,
       tab_id: block.tab_id,
       title: task.title,
-      status: task.status ?? "todo",
-      priority: task.priority ?? "none",
+      statuses: Array.isArray(task.statuses) ? normalizeTaskStatuses(task.statuses) : statusesFromSingle(task.status ?? "todo"),
+      priorities: normalizeTaskPriorities(task.priorities),
       description: task.description ?? null,
       due_date: task.due_date ?? null,
       due_time: task.due_time ?? null,
@@ -494,13 +615,24 @@ export async function duplicateTasksToBlock(input: {
       .from("task_items")
       .insert({
         ...baseInsert,
-        source_task_id: task.id,
-        source_sync_mode: "snapshot",
+        source_task_id:
+          task.source_entity_type === "table_row" && task.source_entity_id
+            ? null
+            : task.id,
+        source_entity_type:
+          task.source_entity_type === "table_row" && task.source_entity_id
+            ? "table_row"
+            : "task",
+        source_entity_id:
+          task.source_entity_type === "table_row" && task.source_entity_id
+            ? task.source_entity_id
+            : task.id,
+        source_sync_mode: "live",
       })
       .select("id")
       .single();
 
-    if (createResult.error && /source_task_id|source_sync_mode/i.test(createResult.error.message || "")) {
+    if (createResult.error && /source_task_id|source_sync_mode|source_entity/i.test(createResult.error.message || "")) {
       createResult = await supabase
         .from("task_items")
         .insert(baseInsert)
@@ -528,19 +660,22 @@ export async function duplicateTasksToBlock(input: {
         const { error: assigneeError } = await supabase.from("task_assignees").insert(payload);
         if (assigneeError) return { error: "Failed to copy assignees" };
 
-        if (assigneePropertyId) {
-          const primary = assignees[0];
-          await supabase.from("entity_properties").insert({
+        await supabase.from("entity_properties").upsert(
+          {
             workspace_id: block.workspace_id,
             entity_type: "task",
             entity_id: created.id,
-            property_definition_id: assigneePropertyId,
-            value: {
-              id: primary.assignee_id,
-              name: primary.assignee_name || primary.assignee_id || "Unknown",
-            },
-          });
-        }
+            field_name: "Assignee",
+            field_type: "assignee",
+            value: assignees
+              .filter((assignee) => assignee.assignee_id)
+              .map((assignee) => ({
+                id: assignee.assignee_id,
+                name: assignee.assignee_name || assignee.assignee_id || "Unknown",
+              })),
+          },
+          { onConflict: "entity_type,entity_id,field_name" }
+        );
       }
     }
 
@@ -566,11 +701,37 @@ export async function setTaskSyncModeForBlock(input: {
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  const { data: sourceCandidates, error: sourceCandidatesError } = await supabase
+    .from("task_items")
+    .select("id, source_task_id, source_entity_type, source_entity_id")
+    .eq("task_block_id", input.taskBlockId)
+    .or("source_entity_id.not.is.null,source_task_id.not.is.null");
+
+  if (sourceCandidatesError) return { error: "Failed to load source-linked tasks" };
+
+  const idsToUpdate = (sourceCandidates || [])
+    .filter((task: any) => {
+      const hasUniversalSource = Boolean(task.source_entity_id);
+      const hasLegacyTaskSource = Boolean(task.source_task_id);
+      if (!hasUniversalSource && !hasLegacyTaskSource) return false;
+
+      if (input.mode === "snapshot") return true;
+
+      // Live sync is supported for task-sourced copies only.
+      if (task.source_entity_type === "task" && task.source_entity_id) return true;
+      if (!task.source_entity_type && task.source_task_id) return true;
+      return false;
+    })
+    .map((task: any) => task.id as string);
+
+  if (idsToUpdate.length === 0) {
+    return { data: { updatedCount: 0 } };
+  }
+
   const { data, error } = await supabase
     .from("task_items")
     .update({ source_sync_mode: input.mode })
-    .eq("task_block_id", input.taskBlockId)
-    .not("source_task_id", "is", null)
+    .in("id", idsToUpdate)
     .select("id");
 
   if (error) return { error: "Failed to update task sync mode" };

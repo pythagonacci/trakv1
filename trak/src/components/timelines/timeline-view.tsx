@@ -4,11 +4,13 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import { getAllTeams } from "@/app/actions/workspace-teams";
+import type { WorkspaceTeam } from "@/app/actions/workspace-teams";
 import { PropertyBadges, PropertyMenu } from "@/components/properties";
 import {
   useEntitiesProperties,
@@ -32,11 +34,13 @@ import type {
   TimelineBlockContent,
   TimelineEventStatus,
   TimelineEventPriority,
+  TimelineNamedPriority,
   TimelineItem,
   ReferenceType,
 } from "@/types/timeline";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +49,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,20 +69,24 @@ interface TimelineEvent {
   start: string; // ISO date
   end: string; // ISO date
   color?: string;
-  status?: TimelineEventStatus;
-  priority?: TimelineEventPriority | null;
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: TimelineNamedPriority[];
   assignee?: string;
   assigneeId?: string | null;
+  assigneeTeamId?: string | null;
   notes?: string;
   progress?: number; // 0-100
   isMilestone?: boolean;
   baselineStart?: string;
   baselineEnd?: string;
+  source_entity_type?: string | null;
+  source_entity_id?: string | null;
+  sourceSyncMode?: "snapshot" | "live" | null;
 }
 
 type TimelineEventPatch = Partial<TimelineEvent> & {
-  status?: TimelineEventStatus | null;
-  priority?: TimelineEventPriority | null;
+  statuses?: Array<{ field_name: string; value: string }>;
+  priorities?: TimelineNamedPriority[];
   notes?: string | null;
   color?: string | null;
 };
@@ -117,6 +126,52 @@ const DEFAULT_COLORS = [
   "bg-cyan-500/50",
 ];
 
+const PRIORITY_LABELS: Record<TimelineEventPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+const PRIORITY_PILL_COLORS: Record<TimelineEventPriority, string> = {
+  low: "bg-[var(--surface-muted)] text-[var(--muted-foreground)] border-[var(--border)]",
+  medium: "bg-amber-500/12 text-amber-700 border-amber-200",
+  high: "bg-orange-500/12 text-orange-700 border-orange-200",
+  urgent: "bg-red-500/12 text-red-700 border-red-200",
+};
+
+const PRIORITY_BUTTON_COLORS: Record<TimelineEventPriority, string> = {
+  low: "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+  medium: "border border-amber-200 bg-amber-500/12 text-amber-700 hover:bg-amber-500/18",
+  high: "border border-orange-200 bg-orange-500/12 text-orange-700 hover:bg-orange-500/18",
+  urgent: "border border-red-200 bg-red-500/12 text-red-700 hover:bg-red-500/18",
+};
+
+function normalizeTimelinePrioritiesClient(input: unknown): TimelineNamedPriority[] {
+  if (!Array.isArray(input)) return [];
+
+  const normalized: TimelineNamedPriority[] = [];
+  const seen = new Set<string>();
+  for (const rawEntry of input) {
+    const fieldName = String((rawEntry as any)?.field_name ?? "").trim();
+    const rawValue = String((rawEntry as any)?.value ?? "").trim().toLowerCase();
+    if (!fieldName) continue;
+    if (!["low", "medium", "high", "urgent"].includes(rawValue)) continue;
+    const key = fieldName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ field_name: fieldName, value: rawValue as TimelineEventPriority });
+  }
+
+  return normalized.sort((a, b) =>
+    a.field_name.localeCompare(b.field_name, undefined, { sensitivity: "base" })
+  );
+}
+
+function getTimelinePriorityDisplayLabel(priorityField: TimelineNamedPriority): string {
+  return `${PRIORITY_LABELS[priorityField.value]} · ${priorityField.field_name}`;
+}
+
 function findWorkspaceMember(members: WorkspaceMember[], memberId?: string | null) {
   if (!memberId) return undefined;
   return members.find((m) => m.id === memberId) || members.find((m) => m.user_id === memberId);
@@ -132,7 +187,7 @@ function daysBetween(a: Date, b: Date) {
 
 function buildGrid(start: Date, end: Date, zoomLevel: ZoomLevel = "day") {
   const cells: { key: string; date: Date; dayLabel: string; monthLabel?: string; weekLabel?: string }[] = [];
-  
+
   if (zoomLevel === "day") {
     const total = daysBetween(start, end);
     for (let i = 0; i <= total; i++) {
@@ -176,7 +231,7 @@ function buildGrid(start: Date, end: Date, zoomLevel: ZoomLevel = "day") {
       current = addDays(endOfYear(current), 1);
     }
   }
-  
+
   return cells;
 }
 
@@ -194,7 +249,7 @@ function getColumnWidth(zoomLevel: ZoomLevel): number {
 function dateToColumn(date: Date, rangeStart: Date, zoomLevel: ZoomLevel): number {
   const clamped = clampDate(date);
   const start = clampDate(rangeStart);
-  
+
   if (zoomLevel === "day") {
     return differenceInCalendarDays(clamped, start);
   } else if (zoomLevel === "week") {
@@ -209,7 +264,7 @@ function dateToColumn(date: Date, rangeStart: Date, zoomLevel: ZoomLevel): numbe
   } else if (zoomLevel === "quarter") {
     const startQuarter = startOfQuarter(start);
     const dateQuarter = startOfQuarter(clamped);
-    const quartersDiff = ((dateQuarter.getFullYear() - startQuarter.getFullYear()) * 4) + 
+    const quartersDiff = ((dateQuarter.getFullYear() - startQuarter.getFullYear()) * 4) +
       (Math.floor(dateQuarter.getMonth() / 3) - Math.floor(startQuarter.getMonth() / 3));
     return quartersDiff;
   } else if (zoomLevel === "year") {
@@ -255,7 +310,7 @@ function monthColumnOffset(date: Date, rangeStart: Date): number {
 
 function columnToDate(column: number, rangeStart: Date, zoomLevel: ZoomLevel): Date {
   const start = clampDate(rangeStart);
-  
+
   if (zoomLevel === "day") {
     return addDays(start, column);
   } else if (zoomLevel === "week") {
@@ -339,8 +394,8 @@ function DraggableEvent({
       typeof barStyle.width === "string"
         ? parseFloat(barStyle.width)
         : typeof barStyle.width === "number"
-        ? barStyle.width
-        : 0;
+          ? barStyle.width
+          : 0;
     const needsTitleLabel =
       !event.isMilestone &&
       barWidth > 0 &&
@@ -399,8 +454,13 @@ function DraggableEvent({
               )}
               <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
               <span className="flex-1 truncate relative z-10">{event.title}</span>
-              {event.status && (
-                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.status}`} />
+              {event.source_entity_id && (
+                <span className="shrink-0 relative z-10" title="Linked from another item">
+                  <Link2 className="h-3 w-3 opacity-90" aria-hidden />
+                </span>
+              )}
+              {(event.statuses?.[0]?.value) && (
+                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />
               )}
               {progress > 0 && (
                 <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
@@ -416,12 +476,12 @@ function DraggableEvent({
     id: `event-${event.id}`,
     disabled: false,
   });
-  
+
   const { attributes: resizeStartAttrs, listeners: resizeStartListeners, setNodeRef: resizeStartRef } = useDraggable({
     id: `resize-start-${event.id}`,
     disabled: event.isMilestone,
   });
-  
+
   const { attributes: resizeEndAttrs, listeners: resizeEndListeners, setNodeRef: resizeEndRef } = useDraggable({
     id: `resize-end-${event.id}`,
     disabled: event.isMilestone,
@@ -429,14 +489,14 @@ function DraggableEvent({
 
   const style = transform
     ? {
-        ...barStyle,
-        transform: CSS.Translate.toString(transform),
-        opacity: isDragging ? 0.5 : 1,
-      }
-    : { 
-        ...barStyle, 
-        opacity: isDragging ? 0.5 : 1 
-      };
+      ...barStyle,
+      transform: CSS.Translate.toString(transform),
+      opacity: isDragging ? 0.5 : 1,
+    }
+    : {
+      ...barStyle,
+      opacity: isDragging ? 0.5 : 1
+    };
 
   const progress = event.progress ?? 0;
   const hasBaseline = event.baselineStart && event.baselineEnd;
@@ -444,8 +504,8 @@ function DraggableEvent({
     typeof barStyle.width === "string"
       ? parseFloat(barStyle.width)
       : typeof barStyle.width === "number"
-      ? barStyle.width
-      : 0;
+        ? barStyle.width
+        : 0;
   const needsTitleLabel =
     !event.isMilestone &&
     barWidth > 0 &&
@@ -512,15 +572,20 @@ function DraggableEvent({
                 style={{ width: `${progress}%` }}
               />
             )}
-            
+
             <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
             <span className="flex-1 truncate relative z-10">{event.title}</span>
-            {event.status && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.status}`} />}
+            {event.source_entity_id && (
+              <span className="shrink-0 relative z-10" title="Linked from another item">
+                <Link2 className="h-3 w-3 opacity-90" aria-hidden />
+              </span>
+            )}
+            {(event.statuses?.[0]?.value) && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />}
             {progress > 0 && (
               <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
             )}
           </div>
-          
+
           {/* Resize handles */}
           <div
             ref={resizeStartRef}
@@ -589,8 +654,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isReferenceDialogOpen, setIsReferenceDialogOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const addEventButtonRef = useRef<HTMLButtonElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-  
+
   // New state for Phase 1 & 2 features
   const [filters, setFilters] = useState(viewConfig.filters || {});
   const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee">(viewConfig.groupBy || "none");
@@ -771,20 +837,29 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return timelineItems.map((item) => {
       const props = timelinePropertiesById[item.id];
       const assigneeId = props?.assignee_id ?? item.assignee_id ?? null;
+      const assigneeTeamId = item.assignee_team_id ?? null;
+      const propertyPriorities = normalizeTimelinePrioritiesClient(props?.priorities ?? []);
+      const itemPriorities = normalizeTimelinePrioritiesClient(item.priorities ?? []);
+      const priorities = propertyPriorities.length > 0 ? propertyPriorities : itemPriorities;
       return {
-      id: item.id,
-      title: item.title,
-      start: item.start_date,
-      end: item.end_date,
-      color: item.color || undefined,
-      status: item.status,
-      assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
-      assigneeId,
-      progress: item.progress,
-      notes: item.notes ?? undefined,
-      isMilestone: item.is_milestone,
-      baselineStart: item.baseline_start ?? undefined,
-      baselineEnd: item.baseline_end ?? undefined,
+        id: item.id,
+        title: item.title,
+        start: item.start_date,
+        end: item.end_date,
+        color: item.color || undefined,
+        statuses: item.statuses ?? [],
+        priorities,
+        assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+        assigneeId,
+        assigneeTeamId,
+        progress: item.progress,
+        notes: item.notes ?? undefined,
+        isMilestone: item.is_milestone,
+        baselineStart: item.baseline_start ?? undefined,
+        baselineEnd: item.baseline_end ?? undefined,
+        source_entity_type: item.source_entity_type ?? undefined,
+        source_entity_id: item.source_entity_id ?? undefined,
+        sourceSyncMode: item.source_sync_mode ?? null,
       };
     });
   }, [timelineItems, timelinePropertiesById, memberMap]);
@@ -795,15 +870,18 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
     const statusFilters = filters?.status ?? [];
     const assigneeFilters = filters?.assignee ?? [];
-    
+
     if (statusFilters.length > 0) {
-      filtered = filtered.filter(e => e.status && statusFilters.includes(e.status));
+      filtered = filtered.filter(e => {
+        const s = e.statuses?.[0]?.value ?? "todo";
+        return s && statusFilters.includes(s);
+      });
     }
-    
+
     if (assigneeFilters.length > 0) {
       filtered = filtered.filter(e => e.assignee && assigneeFilters.includes(e.assignee));
     }
-    
+
     return filtered;
   }, [events, filters]);
 
@@ -814,7 +892,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     } else if (groupBy === "status") {
       const groups: Record<string, TimelineEvent[]> = {};
       filteredEvents.forEach(event => {
-        const key = event.status || "todo";  // Changed from "planned" to "todo"
+        const key = event.statuses?.[0]?.value ?? "todo";
         if (!groups[key]) groups[key] = [];
         groups[key].push(event);
       });
@@ -914,8 +992,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       title: eventData.title,
       startDate: eventData.start,
       endDate: eventData.end,
-      status: eventData.status,
-      priority: eventData.priority ?? null,  // NEW: Pass priority field
+      statuses: (eventData.statuses ?? []).map((s) => ({ field_name: s.field_name, value: s.value as TimelineEventStatus })),
+      priorities: eventData.priorities ?? [],
       notes: eventData.notes ?? null,
       progress: eventData.progress ?? 0,
       color: eventData.color ?? null,
@@ -960,8 +1038,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     if (patch.title !== undefined) updates.title = patch.title;
     if (patch.start !== undefined) updates.startDate = patch.start;
     if (patch.end !== undefined) updates.endDate = patch.end;
-    if (patch.status !== undefined) updates.status = patch.status;
-    if (patch.priority !== undefined) updates.priority = patch.priority;  // NEW: Handle priority updates
+    if (patch.statuses !== undefined) updates.statuses = patch.statuses;
+    if (patch.priorities !== undefined) updates.priorities = patch.priorities;
     if (patch.assigneeId !== undefined) {
       const member = findWorkspaceMember(members, patch.assigneeId ?? null);
       const propertyAssigneeId = member?.user_id ?? patch.assigneeId ?? null;
@@ -976,12 +1054,14 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         }
       }
     }
+    if (patch.assigneeTeamId !== undefined) updates.assigneeTeamId = patch.assigneeTeamId;
     if (patch.notes !== undefined) updates.notes = patch.notes;
     if (patch.progress !== undefined) updates.progress = patch.progress;
     if (patch.color !== undefined) updates.color = patch.color;
     if (patch.isMilestone !== undefined) updates.isMilestone = patch.isMilestone;
     if (patch.baselineStart !== undefined) updates.baselineStart = patch.baselineStart ?? null;
     if (patch.baselineEnd !== undefined) updates.baselineEnd = patch.baselineEnd ?? null;
+    if (patch.sourceSyncMode !== undefined) updates.sourceSyncMode = patch.sourceSyncMode;
 
     const result = await updateEventMutation.mutateAsync({
       eventId: id,
@@ -1083,7 +1163,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const handleDragEnd = async (event: DragEndEvent) => {
     const eventId = draggingEventId;
     const edge = dragResizeEdge;
-    
+
     if (!eventId) {
       setDraggingEventId(null);
       setDragResizeEdge(null);
@@ -1218,7 +1298,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         onClick={closePanel}
       />
       <div
-        className="fixed z-[99999] w-96 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl overflow-hidden flex flex-col"
+        className="fixed z-[99999] w-[calc(100vw-24px)] max-w-md rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl overflow-hidden flex flex-col"
         style={{
           top: modalPosition.top,
           left: modalPosition.left,
@@ -1248,67 +1328,89 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const tooltipEl =
     hoveredEventId && tooltipPosition
       ? (() => {
-          const event = sortedEvents.find((e) => e.id === hoveredEventId);
-          if (!event) return null;
-          return (
-            <div
-              id="timeline-tooltip"
-              className="fixed z-[99999] min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg pointer-events-auto"
-              style={{
-                top: `${tooltipPosition.top}px`,
-                left: `${tooltipPosition.left}px`,
-                transform: "translateY(calc(-100% - 8px))",
-              }}
-              onMouseEnter={() => {
-                clearHideTimer();
-              }}
-              onMouseLeave={(e) => {
-                const rt = e.relatedTarget as HTMLElement | null;
-                if (rt && rt.closest("[data-event-id]")) return; // going back to a bar
-                scheduleHide();
-              }}
-            >
-              <div className="flex items-start gap-2">
-                <div className={cn("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", event.color || "bg-[var(--foreground)]")} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-[var(--foreground)]">{event.title}</div>
-                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
-                    {format(new Date(event.start), "MMM d")} – {format(new Date(event.end), "MMM d, yyyy")}
-                  </div>
-                  {event.assignee && (
-                    <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
-                      Assignee: {event.assignee}
-                    </div>
-                  )}
-                  {event.notes && (
-                    <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
-                      {event.notes}
-                    </div>
-                  )}
-                  {hoveredReferences.length > 0 && (
-                    <div className="mt-1.5 flex items-start gap-1.5">
-                      <Paperclip className="h-3 w-3 shrink-0 mt-0.5 text-[var(--muted-foreground)]" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
-                          {hoveredReferences.length} attachment{hoveredReferences.length !== 1 ? 's' : ''}
-                        </div>
-                        {hoveredReferences.slice(0, 3).map((ref) => (
-                          <div key={ref.id} className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-                            • {ref.title}
-                          </div>
-                        ))}
-                        {hoveredReferences.length > 3 && (
-                          <div className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
-                            +{hoveredReferences.length - 3} more
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+        const event = sortedEvents.find((e) => e.id === hoveredEventId);
+        if (!event) return null;
+        return (
+          <div
+            id="timeline-tooltip"
+            className="fixed z-[99999] min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg pointer-events-auto"
+            style={{
+              top: `${tooltipPosition.top}px`,
+              left: `${tooltipPosition.left}px`,
+              transform: "translateY(calc(-100% - 8px))",
+            }}
+            onMouseEnter={() => {
+              clearHideTimer();
+            }}
+            onMouseLeave={(e) => {
+              const rt = e.relatedTarget as HTMLElement | null;
+              if (rt && rt.closest("[data-event-id]")) return; // going back to a bar
+              scheduleHide();
+            }}
+          >
+            <div className="flex items-start gap-2">
+              <div className={cn("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", event.color || "bg-[var(--foreground)]")} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-[var(--foreground)]">{event.title}</div>
+                <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                  {format(new Date(event.start), "MMM d")} – {format(new Date(event.end), "MMM d, yyyy")}
                 </div>
+                {event.source_entity_id && (
+                  <div className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
+                    <Link2 className="h-3 w-3 shrink-0" />
+                    <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+                  </div>
+                )}
+                {event.assignee && (
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                    Assignee: {event.assignee}
+                  </div>
+                )}
+                {Array.isArray(event.priorities) && event.priorities.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {event.priorities.map((priorityField) => (
+                      <span
+                        key={`${event.id}-tooltip-priority-${priorityField.field_name.toLowerCase()}`}
+                        className={cn(
+                          "inline-flex max-w-[260px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                          PRIORITY_PILL_COLORS[priorityField.value]
+                        )}
+                        title={getTimelinePriorityDisplayLabel(priorityField)}
+                      >
+                        <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {event.notes && (
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                    {event.notes}
+                  </div>
+                )}
+                {hoveredReferences.length > 0 && (
+                  <div className="mt-1.5 flex items-start gap-1.5">
+                    <Paperclip className="h-3 w-3 shrink-0 mt-0.5 text-[var(--muted-foreground)]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
+                        {hoveredReferences.length} attachment{hoveredReferences.length !== 1 ? 's' : ''}
+                      </div>
+                      {hoveredReferences.slice(0, 3).map((ref) => (
+                        <div key={ref.id} className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+                          • {ref.title}
+                        </div>
+                      ))}
+                      {hoveredReferences.length > 3 && (
+                        <div className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
+                          +{hoveredReferences.length - 3} more
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
+            </div>
             {!readOnly && (
-            <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex items-center gap-2">
                 <button
                   className="rounded-[4px] border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
                   onClick={(e) => {
@@ -1333,100 +1435,100 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 </button>
               </div>
             )}
-            </div>
-          );
-        })()
+          </div>
+        );
+      })()
       : null;
 
   const timelineContent = (
-      <div className="space-y-3 w-full">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
-            <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-              {format(displayRange.start, "MMM d")} – {format(displayRange.end, "MMM d, yyyy")}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {/* Zoom controls */}
-            <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
-              {(["day", "week", "month", "quarter"] as ZoomLevel[]).map((level) => (
-                <button
-                  key={level}
-                  onClick={() => handleZoomChange(level)}
-                  className={cn(
-                    "px-2 py-1 text-[10px] font-medium rounded-[2px] transition-colors",
-                    zoomLevel === level
-                      ? "bg-[var(--foreground)] text-[var(--background)]"
-                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                  )}
-                >
-                  {level[0].toUpperCase()}
-                </button>
-              ))}
-            </div>
-            
-            {/* Filter/Group controls */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
-                  <Filter className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[200px]">
-                <DropdownMenuLabel>Group By</DropdownMenuLabel>
-                {(["none", "status", "assignee"] as const).map((option) => (
-                  <DropdownMenuItem
-                    key={option}
-                    onClick={() => handleGroupByChange(option)}
-                    className={groupBy === option ? "bg-[var(--surface-hover)]" : ""}
-                  >
-                    {option === "none" ? "No Grouping" : option.charAt(0).toUpperCase() + option.slice(1)}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
-                {(["todo", "in_progress", "blocked", "done"] as const).map((status) => {
-                  const isSelected = filters.status?.includes(status);
-                  return (
-                    <DropdownMenuItem
-                      key={status}
-                      onClick={() => {
-                        const newStatusFilters = filters.status || [];
-                        const updated = isSelected
-                          ? newStatusFilters.filter((s: typeof status) => s !== status)
-                          : [...newStatusFilters, status];
-                        handleFilterChange({ ...filters, status: updated });
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={cn("h-2 w-2 rounded-full", isSelected ? "bg-[var(--foreground)]" : "border border-[var(--border)]")} />
-                        {status}
-                      </div>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
-            {/* Save baseline */}
-            {!readOnly && (
-              <button
-                onClick={saveBaseline}
-                className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-                title="Save baseline"
-              >
-                <Target className="h-3.5 w-3.5" />
-              </button>
-            )}
-            
-            {!readOnly && (
-              <Button size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
-                <Plus className="h-3.5 w-3.5" /> Add event
-              </Button>
-            )}
+    <div className="space-y-3 w-full">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
+          <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+            {format(displayRange.start, "MMM d")} – {format(displayRange.end, "MMM d, yyyy")}
           </div>
         </div>
+        <div className="flex items-center gap-1.5">
+          {/* Zoom controls */}
+          <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
+            {(["day", "week", "month", "quarter"] as ZoomLevel[]).map((level) => (
+              <button
+                key={level}
+                onClick={() => handleZoomChange(level)}
+                className={cn(
+                  "px-2 py-1 text-[10px] font-medium rounded-[2px] transition-colors",
+                  zoomLevel === level
+                    ? "bg-[var(--foreground)] text-[var(--background)]"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                )}
+              >
+                {level[0].toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          {/* Filter/Group controls */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                <Filter className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[200px]">
+              <DropdownMenuLabel>Group By</DropdownMenuLabel>
+              {(["none", "status", "assignee"] as const).map((option) => (
+                <DropdownMenuItem
+                  key={option}
+                  onClick={() => handleGroupByChange(option)}
+                  className={groupBy === option ? "bg-[var(--surface-hover)]" : ""}
+                >
+                  {option === "none" ? "No Grouping" : option.charAt(0).toUpperCase() + option.slice(1)}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+              {(["todo", "in_progress", "blocked", "done"] as const).map((status) => {
+                const isSelected = filters.status?.includes(status);
+                return (
+                  <DropdownMenuItem
+                    key={status}
+                    onClick={() => {
+                      const newStatusFilters = filters.status || [];
+                      const updated = isSelected
+                        ? newStatusFilters.filter((s: typeof status) => s !== status)
+                        : [...newStatusFilters, status];
+                      handleFilterChange({ ...filters, status: updated });
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={cn("h-2 w-2 rounded-full", isSelected ? "bg-[var(--foreground)]" : "border border-[var(--border)]")} />
+                      {status}
+                    </div>
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Save baseline */}
+          {!readOnly && (
+            <button
+              onClick={saveBaseline}
+              className="p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+              title="Save baseline"
+            >
+              <Target className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {!readOnly && (
+            <Button ref={addEventButtonRef} size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
+              <Plus className="h-3.5 w-3.5" /> Add event
+            </Button>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-[320px_1fr] border border-[var(--border)] bg-[var(--surface)] w-full">
         {/* Left rail: event list aligned 1:1 with timeline rows */}
@@ -1447,8 +1549,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="truncate text-sm text-[var(--foreground)] font-medium">
-                      {event.title || "Untitled"}
+                    <div className="flex items-center gap-1.5 truncate text-sm text-[var(--foreground)] font-medium">
+                      <span className="truncate">{event.title || "Untitled"}</span>
+                      {event.source_entity_id && (
+                        <span className="shrink-0 text-[var(--muted-foreground)]" title="Linked from another item">
+                          <Link2 className="h-3 w-3" aria-hidden />
+                        </span>
+                      )}
                     </div>
                     {event.assignee && (
                       <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
@@ -1630,7 +1737,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           </div>
         </div>
       </div>
-      
+
       {!readOnly && (
         <DragOverlay>
           {draggingEventId ? (
@@ -1654,9 +1761,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       {/* Hover Tooltip */}
       {mounted && tooltipEl && createPortal(tooltipEl, document.body)}
 
-      {/* Add Event Dialog */}
+      {/* Add Event Popover */}
       {!readOnly && (
-        <AddEventDialog
+        <AddEventPopover
           isOpen={isAddDialogOpen}
           onClose={() => setIsAddDialogOpen(false)}
           onSave={saveNewEvent}
@@ -1664,6 +1771,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           defaultEnd={addDays(displayRange.start, 3)}
           members={members}
           workspaceId={workspaceId}
+          anchorRef={addEventButtonRef}
         />
       )}
       {!readOnly && projectId && workspaceId && (
@@ -1690,8 +1798,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         />
       )}
 
-      </div>
-    );
+    </div>
+  );
 
   if (readOnly) {
     return (
@@ -1716,8 +1824,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   );
 }
 
-// Add Event Dialog Component
-function AddEventDialog({
+// Add Event Popover – compact popup above Add event button
+function AddEventPopover({
   isOpen,
   onClose,
   onSave,
@@ -1725,6 +1833,7 @@ function AddEventDialog({
   defaultEnd,
   members,
   workspaceId,
+  anchorRef,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -1733,25 +1842,10 @@ function AddEventDialog({
   defaultEnd: Date;
   members: WorkspaceMember[];
   workspaceId?: string;
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }) {
-  // Fetch property definitions for Status and Priority
-  const supabase = createClient();
-  const { data: propertyDefs } = useQuery({
-    queryKey: ["propertyDefinitions", workspaceId],
-    queryFn: async () => {
-      if (!workspaceId) return null;
-      const { data } = await supabase
-        .from("property_definitions")
-        .select("*")
-        .eq("workspace_id", workspaceId)
-        .in("name", ["Status", "Priority"]);
-      return data;
-    },
-    enabled: !!workspaceId,
-  });
-
-  const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
-  const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
+  const statusOptions = STATUS_OPTIONS.map(o => ({ id: o.value, label: o.label, color: o.color }));
+  const priorityOptions = PRIORITY_OPTIONS.map(o => ({ id: o.value, label: o.label, color: o.color }));
 
   const getInitialState = React.useCallback(
     () => ({
@@ -1759,8 +1853,8 @@ function AddEventDialog({
       start: defaultStart.toISOString(),
       end: defaultEnd.toISOString(),
       color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
-      status: "todo" as const,  // Changed from "planned" to "todo"
-      priority: null as TimelineEventPriority | null,  // NEW: Priority field
+      statuses: [{ field_name: "Status", value: "todo" }],
+      priorities: [],
       progress: 0,
       isMilestone: false,
       assigneeId: null as string | null,
@@ -1770,8 +1864,8 @@ function AddEventDialog({
 
   const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
   const [showColors, setShowColors] = useState(false);
-
-  const dialogKey = isOpen ? `${defaultStart.toISOString()}-${defaultEnd.toISOString()}` : null;
+  const [popoverRect, setPopoverRect] = useState<{ top: number; left: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const handleSave = () => {
     if (!local.title.trim()) return;
@@ -1784,14 +1878,1063 @@ function AddEventDialog({
     }
   }, [isOpen, getInitialState]);
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md" key={dialogKey || undefined}>
-        <DialogHeader>
-          <DialogTitle>Add Event</DialogTitle>
-        </DialogHeader>
+  // Position popover above the Add event button; update on resize/scroll
+  const updatePosition = React.useCallback(() => {
+    if (!anchorRef?.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    const margin = 8;
+    const maxW = Math.min(300, Math.max(260, window.innerWidth - 24));
+    const left = Math.max(margin, Math.min(rect.left + rect.width / 2 - maxW / 2, window.innerWidth - maxW - margin));
+    const top = Math.max(margin, rect.top - 360 - margin);
+    setPopoverRect({ top, left });
+  }, [anchorRef]);
 
-        <div className="space-y-4 py-4">
+  React.useLayoutEffect(() => {
+    if (!isOpen || !anchorRef?.current) {
+      setPopoverRect(null);
+      return;
+    }
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, anchorRef, updatePosition]);
+
+  // Click outside to close
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (popoverRef.current && !popoverRef.current.contains(target) && anchorRef?.current && !anchorRef.current.contains(target)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [isOpen, onClose, anchorRef]);
+
+  // Escape to close
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !popoverRect) return null;
+
+  const maxW = Math.min(300, Math.max(260, window.innerWidth - 24));
+
+  const popoverContent = (
+    <div
+      ref={popoverRef}
+      role="dialog"
+      aria-label="Add event"
+      className="fixed z-[100] flex flex-col rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
+      style={{
+        top: popoverRect?.top ?? -9999,
+        left: popoverRect?.left ?? -9999,
+        width: maxW,
+        maxHeight: Math.min(window.innerHeight * 0.85, 360),
+      }}
+    >
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+        <span className="text-sm font-medium text-[var(--foreground)]">Add event</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          aria-label="Close"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 min-h-0 px-3 py-2 space-y-2.5">
+        {/* Title */}
+        <div>
+          <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Title</label>
+          <input
+            type="text"
+            value={local.title}
+            onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
+            className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            placeholder="Event title"
+            autoFocus
+          />
+        </div>
+
+        {/* Color & Status */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Color</label>
+            <div className="relative">
+              <button
+                type="button"
+                className={cn(
+                  "w-full h-8 rounded-[4px] border border-[var(--border)] flex items-center gap-1.5 px-2",
+                  local.color || "bg-neutral-900"
+                )}
+                onClick={() => setShowColors((v) => !v)}
+              >
+                <div className={cn("h-3.5 w-3.5 rounded-full", local.color || "bg-neutral-900")} />
+                <span className="text-[11px] text-[var(--muted-foreground)]">Change</span>
+              </button>
+              {showColors && (
+                <div className="absolute z-10 mt-1 grid grid-cols-6 gap-1.5 p-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] shadow-lg">
+                  {DEFAULT_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={cn("h-6 w-6 rounded-full", c)}
+                      onClick={() => {
+                        setLocal((s) => ({ ...s, color: c }));
+                        setShowColors(false);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Status</label>
+            <select
+              value={local.statuses?.[0]?.value ?? "todo"}
+              onChange={(e) => setLocal((s) => ({ ...s, statuses: [{ field_name: "Status", value: e.target.value }] }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            >
+              {statusOptions.length > 0 ? (
+                statusOptions.map((opt: any) => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))
+              ) : (
+                <>
+                  <option value="todo">To Do</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="done">Done</option>
+                </>
+              )}
+            </select>
+          </div>
+        </div>
+
+        {/* Dates */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Start</label>
+            <input
+              type="date"
+              value={format(new Date(local.start), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
+              disabled={local.isMilestone}
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">End</label>
+            <input
+              type="date"
+              value={format(new Date(local.end), "yyyy-MM-dd")}
+              onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] disabled:opacity-50"
+              disabled={local.isMilestone}
+            />
+          </div>
+        </div>
+
+        {/* Progress & Milestone */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Progress %</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={local.progress ?? 0}
+              onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            />
+          </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-1.5 cursor-pointer py-1.5">
+              <input
+                type="checkbox"
+                checked={local.isMilestone ?? false}
+                onChange={(e) => {
+                  setLocal((s) => ({
+                    ...s,
+                    isMilestone: e.target.checked,
+                    end: e.target.checked ? s.start : s.end,
+                  }));
+                }}
+                className="w-3.5 h-3.5 rounded border-[var(--border)]"
+              />
+              <span className="text-[11px] text-[var(--foreground)]">Milestone</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Priority & Assignee - compact row */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Priority</label>
+            <select
+              value={local.priorities?.[0]?.value ?? ""}
+              onChange={(e) => setLocal((s) => ({
+                ...s,
+                priorities: e.target.value ? [{ field_name: "Priority", value: e.target.value as TimelineEventPriority }] : [],
+              }))}
+              className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            >
+              <option value="">None</option>
+              {priorityOptions.length > 0 ? (
+                priorityOptions.map((opt: any) => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))
+              ) : (
+                <>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </>
+              )}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Assignee</label>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-full h-8 px-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-[11px] text-left flex items-center gap-1.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]">
+                  <User className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
+                  <span className={cn("truncate", local.assigneeId ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]")}>
+                    {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-[var(--muted-foreground)] shrink-0 ml-auto" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48 max-h-48 overflow-y-auto z-[110]">
+                <DropdownMenuItem
+                  onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
+                  className="text-[11px] text-[var(--muted-foreground)]"
+                >
+                  Unassigned
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {members.length > 0 ? (
+                  members.map((member) => (
+                    <DropdownMenuItem
+                      key={member.id}
+                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
+                      className="text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-[var(--surface-hover)] flex items-center justify-center text-[10px] font-medium shrink-0">
+                          {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
+                        </div>
+                        <span className="truncate">{member.name ?? member.email ?? "Unknown"}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled className="text-[11px] text-[var(--muted-foreground)]">
+                    Loading...
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Notes - compact */}
+        <div>
+          <label className="text-[11px] font-medium text-[var(--muted-foreground)] mb-0.5 block">Notes</label>
+          <textarea
+            value={local.notes ?? ""}
+            onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+            className="w-full px-2 py-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] text-xs min-h-[48px] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)] resize-none"
+            placeholder="Optional..."
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-1.5 px-3 py-2 border-t border-[var(--border)]">
+        <Button variant="outline" size="sm" onClick={onClose} className="h-7 px-2 text-xs">
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSave} disabled={!local.title.trim()} className="h-7 px-2 text-xs">
+          Add
+        </Button>
+      </div>
+    </div>
+  );
+
+  return createPortal(popoverContent, document.body);
+}
+
+function EventDetailsPanel({
+  event,
+  isOpen,
+  onClose,
+  onUpdate,
+  references,
+  workspaceId,
+  onAddReference,
+  onNavigateToReference,
+  variant = "sidebar",
+}: {
+  event: TimelineEvent;
+  isOpen: boolean;
+  onClose: () => void;
+  onUpdate: (patch: TimelineEventPatch) => void;
+  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }>;
+  workspaceId?: string;
+  onAddReference: () => void;
+  onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
+  variant?: "sidebar" | "modal";
+}) {
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
+  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const { data: teams = [] } = useQuery({
+    queryKey: ["workspaceTeams", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return [];
+      const r = await getAllTeams(workspaceId);
+      if ("error" in r) return [];
+      return r.data;
+    },
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  });
+  const direct = propertiesResult?.direct;
+  const eventPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
+    [event.priorities]
+  );
+  const directPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
+    [direct?.priorities]
+  );
+  const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
+
+  const [local, setLocal] = useState<{
+    status: string | null;
+    assigneeId: string | null;
+    assigneeTeamId: string | null;
+    progress: number;
+    notes: string;
+    start: string;
+    end: string;
+    isMilestone: boolean;
+    color: string | null;
+  }>({
+    status: event.statuses?.[0]?.value ?? null,
+    assigneeId: event.assigneeId ?? null,
+    assigneeTeamId: event.assigneeTeamId ?? null,
+    progress: event.progress ?? 0,
+    notes: event.notes ?? "",
+    start: event.start,
+    end: event.end,
+    isMilestone: event.isMilestone ?? false,
+    color: event.color ?? null,
+  });
+  const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
+  const [assigneeSearchOpen, setAssigneeSearchOpen] = useState(false);
+  const [assigneeSearchQuery, setAssigneeSearchQuery] = useState("");
+  const assigneeSearchInputRef = useRef<HTMLInputElement>(null);
+  const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+
+  const resizeNotesTextarea = React.useCallback(() => {
+    const el = notesTextareaRef.current;
+    if (!el || variant !== "modal") return;
+    el.style.height = "auto";
+    const lineHeight = 20;
+    const minH = lineHeight + 8;
+    const maxH = 200;
+    const h = Math.max(minH, Math.min(el.scrollHeight, maxH));
+    el.style.height = `${h}px`;
+    el.style.overflowY = h >= maxH ? "auto" : "hidden";
+  }, [variant]);
+
+  React.useEffect(() => {
+    resizeNotesTextarea();
+  }, [local.notes, resizeNotesTextarea]);
+
+  // Scroll content to top when panel opens or event changes so the event details are visible
+  React.useEffect(() => {
+    if (isOpen && contentScrollRef.current) {
+      contentScrollRef.current.scrollTop = 0;
+    }
+  }, [isOpen, event.id]);
+
+  React.useEffect(() => {
+    setLocal({
+      status: event.statuses?.[0]?.value ?? null,
+      assigneeId: event.assigneeId ?? null,
+      assigneeTeamId: event.assigneeTeamId ?? null,
+      progress: event.progress ?? 0,
+      notes: event.notes ?? "",
+      start: event.start,
+      end: event.end,
+      isMilestone: event.isMilestone ?? false,
+      color: event.color ?? null,
+    });
+    setIsColorDialogOpen(false);
+    setAssigneeSearchQuery("");
+    setAssigneeSearchOpen(false);
+  }, [event]);
+
+  const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
+  const selectedTeam = local.assigneeTeamId ? (teams as WorkspaceTeam[]).find((t) => t.id === local.assigneeTeamId) : undefined;
+  const assigneeLabel = selectedTeam
+    ? selectedTeam.name
+    : selectedMember
+      ? (selectedMember?.name ?? selectedMember?.email ?? "Unassigned")
+      : "Unassigned";
+  const assigneeSearchLower = assigneeSearchQuery.trim().toLowerCase();
+  const filteredTeamsForSearch = useMemo(
+    () =>
+      assigneeSearchLower
+        ? (teams as WorkspaceTeam[]).filter((t) => t.name.toLowerCase().includes(assigneeSearchLower))
+        : (teams as WorkspaceTeam[]),
+    [teams, assigneeSearchLower]
+  );
+  const filteredMembersForSearch = useMemo(
+    () =>
+      assigneeSearchLower
+        ? workspaceMembers.filter(
+            (m) =>
+              (m.name ?? "").toLowerCase().includes(assigneeSearchLower) ||
+              (m.email ?? "").toLowerCase().includes(assigneeSearchLower)
+          )
+        : workspaceMembers,
+    [workspaceMembers, assigneeSearchLower]
+  );
+
+  const handleStartChange = (value: string) => {
+    if (!value) return;
+    const nextStart = clampDate(new Date(value));
+    let nextEnd = clampDate(new Date(local.end));
+    if (nextStart > nextEnd) {
+      nextEnd = nextStart;
+    }
+    const nextStartIso = nextStart.toISOString();
+    const nextEndIso = nextEnd.toISOString();
+    setLocal((s) => ({ ...s, start: nextStartIso, end: nextEndIso }));
+    if (nextStartIso !== event.start || nextEndIso !== event.end) {
+      onUpdate({ start: nextStartIso, end: nextEndIso });
+    }
+  };
+
+  const handleEndChange = (value: string) => {
+    if (!value) return;
+    let nextEnd = clampDate(new Date(value));
+    let nextStart = clampDate(new Date(local.start));
+    if (nextEnd < nextStart) {
+      nextStart = nextEnd;
+    }
+    const nextStartIso = nextStart.toISOString();
+    const nextEndIso = nextEnd.toISOString();
+    setLocal((s) => ({ ...s, start: nextStartIso, end: nextEndIso }));
+    if (nextStartIso !== event.start || nextEndIso !== event.end) {
+      onUpdate({ start: nextStartIso, end: nextEndIso });
+    }
+  };
+
+  const handleStatusChange = (value: string) => {
+    const nextStatus = value === "none" ? null : value;
+    setLocal((s) => ({ ...s, status: nextStatus }));
+    const nextStatuses = nextStatus ? [{ field_name: "Status", value: nextStatus }] : [];
+    if ((event.statuses?.[0]?.value ?? null) !== nextStatus) {
+      onUpdate({ statuses: nextStatuses });
+    }
+  };
+
+  const handleAddPriority = (value: TimelineEventPriority) => {
+    const current = event.priorities ?? [];
+    const next = [...current.filter((p) => p.field_name.toLowerCase() !== "priority"), { field_name: "Priority", value }];
+    onUpdate({ priorities: next });
+  };
+
+  const handleAssigneeChange = (assigneeId: string | null) => {
+    setLocal((s) => ({ ...s, assigneeId, assigneeTeamId: null }));
+    if ((event.assigneeId ?? null) !== assigneeId || (event.assigneeTeamId ?? null) !== null) {
+      onUpdate({ assigneeId, assigneeTeamId: null });
+    }
+  };
+
+  const handleAssigneeTeamChange = (assigneeTeamId: string | null) => {
+    setLocal((s) => ({ ...s, assigneeTeamId, assigneeId: null }));
+    if ((event.assigneeTeamId ?? null) !== assigneeTeamId || (event.assigneeId ?? null) !== null) {
+      onUpdate({ assigneeTeamId, assigneeId: null });
+    }
+  };
+
+  const handleAssigneeClear = () => {
+    setLocal((s) => ({ ...s, assigneeId: null, assigneeTeamId: null }));
+    if ((event.assigneeId ?? null) !== null || (event.assigneeTeamId ?? null) !== null) {
+      onUpdate({ assigneeId: null, assigneeTeamId: null });
+    }
+  };
+
+  const handleColorChange = (color: string | null) => {
+    setLocal((s) => ({ ...s, color }));
+    if ((event.color ?? null) !== color) {
+      onUpdate({ color } as TimelineEventPatch);
+    }
+  };
+
+  const handleProgressBlur = () => {
+    const nextProgress = Math.min(100, Math.max(0, Number(local.progress) || 0));
+    setLocal((s) => ({ ...s, progress: nextProgress }));
+    if ((event.progress ?? 0) !== nextProgress) {
+      onUpdate({ progress: nextProgress });
+    }
+  };
+
+  const handleNotesBlur = () => {
+    const nextNotes = local.notes.trim();
+    const prevNotes = (event.notes ?? "").trim();
+    if (nextNotes !== prevNotes) {
+      onUpdate({ notes: nextNotes.length > 0 ? nextNotes : null } as TimelineEventPatch);
+    }
+  };
+
+  const colorChoices = [
+    { value: null as string | null, className: "bg-[var(--foreground)]", label: "Default" },
+    ...DEFAULT_COLORS.map((color) => ({ value: color, className: color, label: color })),
+  ];
+  const currentColorClass = local.color ?? "bg-[var(--foreground)]";
+
+  if (!isOpen) return null;
+
+  const isModal = variant === "modal";
+  return (
+    <div
+      className={cn(
+        "flex flex-col min-h-0 overflow-hidden",
+        isModal
+          ? "h-full w-full bg-[var(--surface)]"
+          : "h-full w-full shrink-0 border-t border-[var(--border)] bg-[var(--surface)] shadow-popover lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl"
+      )}
+      role={isModal ? undefined : "complementary"}
+      aria-label={isModal ? undefined : `Event details: ${event.title}`}
+    >
+      <div className={cn(
+        "flex items-center justify-between bg-[var(--surface)]",
+        isModal ? "border-0 px-3 py-2" : "border-b border-[var(--border)] px-6 py-4"
+      )}>
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
+          <div className={cn(
+            "font-semibold text-[var(--foreground)] truncate",
+            isModal ? "text-sm" : "text-lg"
+          )}>
+            {event.title || "Event details"}
+          </div>
+          {event.source_entity_id && (
+            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+              <Link2 className="h-3 w-3 shrink-0" />
+              <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+            </div>
+          )}
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose} className={isModal ? "h-7 w-7" : "h-8 w-8"}>
+          <X className={isModal ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        </Button>
+      </div>
+
+      <div
+        ref={contentScrollRef}
+        className={cn(
+          "flex-1 overflow-y-auto min-h-0",
+          isModal ? "px-3 py-2.5" : "px-6 py-5"
+        )}
+        data-event-details-modal={isModal ? "true" : undefined}
+      >
+        <div className={cn("space-y-3", isModal && "space-y-2")}>
+          <div className={cn(
+            "rounded-md",
+            isModal ? "border-0 bg-transparent px-0 py-1.5" : "border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5"
+          )}>
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
+            <div className={cn("grid grid-cols-2 gap-2", isModal && "mt-1")}>
+              <input
+                type="date"
+                value={format(new Date(local.start), "yyyy-MM-dd")}
+                onChange={(e) => handleStartChange(e.target.value)}
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
+              />
+              <input
+                type="date"
+                value={format(new Date(local.end), "yyyy-MM-dd")}
+                onChange={(e) => handleEndChange(e.target.value)}
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
+                disabled={local.isMilestone}
+              />
+            </div>
+          </div>
+
+          {event.source_entity_id && (
+            <div className={cn(
+              "flex items-center justify-between gap-2",
+              isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+            )}>
+              <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sync with source</span>
+              <Switch
+                checked={event.sourceSyncMode === "live"}
+                onCheckedChange={(checked) => onUpdate({ sourceSyncMode: checked ? "live" : "snapshot" })}
+              />
+            </div>
+          )}
+
+          <div className={cn(
+            "flex items-center gap-2",
+            isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+          )}>
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] shrink-0">Color</div>
+            <button
+              type="button"
+              onClick={() => setIsColorDialogOpen(true)}
+              className={cn(
+                "rounded-full ring-offset-1 ring-offset-[var(--surface)]",
+                currentColorClass,
+                isModal ? "h-5 w-5 border-0" : "mt-2 h-6 w-6 border border-[var(--border)]"
+              )}
+              title="Change color"
+            />
+          </div>
+
+          <div className={cn("grid grid-cols-2 gap-2", !isModal && "gap-3")}>
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+            )}>
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
+              <select
+                value={local.status ?? "none"}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "mt-0.5 border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0 shadow-none ring-0 appearance-none" : "mt-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
+              >
+                <option value="none">None</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
+            )}>
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className={cn(
+                      "w-full text-left text-xs text-[var(--foreground)] focus:outline-none",
+                      isModal ? "assignee-trigger-btn mt-0.5 rounded-none border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 shadow-none ring-0 focus:shadow-none focus:ring-0" : "mt-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+                    )}
+                  >
+                    {assigneeLabel}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-44 max-h-56 overflow-y-auto z-[100000] py-1 text-xs" sideOffset={4}>
+                  <DropdownMenuItem
+                    onClick={handleAssigneeClear}
+                    className="text-[11px] text-neutral-500 py-1.5 px-2"
+                  >
+                    Unassigned
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1" />
+                  {teams.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 py-1 px-2">
+                        Teams
+                      </DropdownMenuLabel>
+                      {filteredTeamsForSearch.map((team) => (
+                        <DropdownMenuItem
+                          key={team.id}
+                          onClick={() => handleAssigneeTeamChange(team.id)}
+                          className="py-1 px-2 gap-1.5"
+                        >
+                          <span className="truncate text-[11px]">{team.name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                      {assigneeSearchLower && filteredTeamsForSearch.length === 0 && (
+                        <div className="py-1 px-2 text-[11px] text-neutral-400">No teams match</div>
+                      )}
+                      <DropdownMenuSeparator className="my-1" />
+                    </>
+                  )}
+                  <div className="flex items-center justify-between gap-1 py-1 px-2">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 p-0">
+                      {teams.length > 0 ? "Members" : "Members"}
+                    </DropdownMenuLabel>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setAssigneeSearchOpen((v) => !v);
+                        if (!assigneeSearchOpen) setTimeout(() => assigneeSearchInputRef.current?.focus(), 0);
+                      }}
+                      className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600"
+                      title="Search assignees"
+                    >
+                      <Search className="h-3 w-3" />
+                    </button>
+                  </div>
+                  {assigneeSearchOpen && (
+                    <div className="px-2 pb-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        ref={assigneeSearchInputRef}
+                        type="text"
+                        value={assigneeSearchQuery}
+                        onChange={(e) => setAssigneeSearchQuery(e.target.value)}
+                        placeholder="Search..."
+                        className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+                  {workspaceMembers.length > 0 ? (
+                    filteredMembersForSearch.length > 0 ? (
+                      filteredMembersForSearch.map((member) => (
+                        <DropdownMenuItem
+                          key={member.id}
+                          onClick={() => handleAssigneeChange(member.user_id ?? member.id)}
+                          className="py-1 px-2 gap-1.5"
+                        >
+                          <div className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-[9px] font-medium shrink-0">
+                            {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
+                          </div>
+                          <span className="truncate text-[11px]">{member.name ?? member.email ?? "Unknown"}</span>
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <div className="py-1 px-2 text-[11px] text-neutral-400">No members match</div>
+                    )
+                  ) : (
+                    <DropdownMenuItem disabled className="text-[11px] text-neutral-400 py-1 px-2">
+                      Loading members...
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
+            )}>
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={local.progress}
+                onChange={(e) => setLocal((s) => ({ ...s, progress: Number(e.target.value) }))}
+                onBlur={handleProgressBlur}
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "mt-0.5 w-full border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "mt-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
+              />
+            </div>
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
+            )}>
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
+              {effectivePriorities.length > 0 ? (
+                <div className={cn("flex flex-wrap gap-1", isModal ? "mt-0.5" : "mt-1")}>
+                  {effectivePriorities.map((priorityField) => (
+                    <span
+                      key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`}
+                      className={cn(
+                        "inline-flex max-w-[180px] items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                        isModal && "border-0 shadow-none",
+                        !isModal && "border",
+                        PRIORITY_PILL_COLORS[priorityField.value]
+                      )}
+                      title={getTimelinePriorityDisplayLabel(priorityField)}
+                    >
+                      <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className={cn("flex items-center gap-2", isModal ? "mt-0.5" : "mt-1")}>
+                  <span className="text-[10px] text-[var(--muted-foreground)]">None</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "text-[10px] text-blue-600 hover:underline focus:outline-none",
+                          isModal && "shadow-none ring-0 focus:shadow-none focus:ring-0"
+                        )}
+                      >
+                        Add priority
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="z-[100000]" sideOffset={4}>
+                      <DropdownMenuItem onClick={() => handleAddPriority("low")}>Low</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("medium")}>Medium</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("high")}>High</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddPriority("urgent")}>Urgent</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={cn("space-y-1", !isModal && "space-y-2")}>
+            <div className={cn(
+              "font-medium text-neutral-700 dark:text-neutral-300",
+              isModal ? "text-xs" : "text-sm"
+            )}>Notes</div>
+            <textarea
+              ref={notesTextareaRef}
+              value={local.notes}
+              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+              onInput={isModal ? resizeNotesTextarea : undefined}
+              onBlur={handleNotesBlur}
+              className={cn(
+                "w-full bg-transparent text-[var(--foreground)] focus:outline-none resize-none overflow-hidden",
+                isModal
+                  ? "text-xs border-0 border-b border-[var(--border)] py-1 px-0 min-h-[28px] focus:border-[var(--foreground)]/30"
+                  : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
+              )}
+              placeholder="Add notes..."
+              rows={isModal ? 1 : 2}
+            />
+          </div>
+
+          {workspaceId && direct && (
+            <div className={cn("space-y-1", !isModal && "space-y-2")}>
+              <div className={cn(
+                "font-medium text-neutral-700 dark:text-neutral-300",
+                isModal ? "text-xs" : "text-sm"
+              )}>Properties</div>
+              <div className="flex flex-wrap gap-1.5">
+                <PropertyBadges properties={direct} />
+              </div>
+            </div>
+          )}
+
+          <div className={cn("space-y-1", !isModal && "space-y-2")}>
+            <div className="flex items-center justify-between">
+              <div className={cn(
+                "font-medium text-neutral-700 dark:text-neutral-300",
+                isModal ? "text-xs" : "text-sm"
+              )}>Attachments</div>
+              <Button variant="outline" size="icon" className={isModal ? "h-6 w-6" : "h-7 w-7"} onClick={onAddReference}>
+                <Plus className={isModal ? "h-3 w-3" : "h-3.5 w-3.5"} />
+              </Button>
+            </div>
+            {references.length > 0 && (
+              <div className={cn("space-y-1", !isModal && "space-y-2")}>
+                {references.map((ref) => (
+                  <button
+                    key={ref.id}
+                    onClick={() => onNavigateToReference?.(ref)}
+                    className={cn(
+                      "w-full rounded text-left text-xs transition-colors cursor-pointer",
+                      isModal
+                        ? "border-0 bg-transparent px-0 py-1.5 hover:bg-[var(--surface-hover)]"
+                        : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-3 py-2"
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
+                          {ref.title}
+                        </div>
+                        <div className="text-[10px] uppercase tracking-wide text-neutral-400">
+                          {ref.type_label || ref.reference_type}
+                        </div>
+                      </div>
+                      <ExternalLink className="h-3 w-3 text-neutral-400 flex-shrink-0" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Pick a color</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-6 gap-2">
+            {colorChoices.map((choice) => (
+              <button
+                key={choice.label}
+                type="button"
+                onClick={() => {
+                  handleColorChange(choice.value);
+                  setIsColorDialogOpen(false);
+                }}
+                className={cn(
+                  "h-8 w-8 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]",
+                  choice.className,
+                  (local.color ?? null) === choice.value && "ring-2 ring-[var(--foreground)]"
+                )}
+                title={choice.label}
+              />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Edit Event Dialog Component
+function EditEventDialog({
+  event,
+  isOpen,
+  onClose,
+  onUpdate,
+  onDelete,
+  onDuplicate,
+  references,
+  onAddReference,
+  onDeleteReference,
+  members,
+  workspaceId,
+}: {
+  event: TimelineEvent;
+  isOpen: boolean;
+  onClose: () => void;
+  onUpdate: (patch: Partial<TimelineEvent>) => void;
+  onDelete: () => void;
+  onDuplicate: () => void;
+  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string }>;
+  onAddReference: () => void;
+  onDeleteReference: (id: string) => void;
+  members: WorkspaceMember[];
+  workspaceId?: string;
+}) {
+  const statusOptions = STATUS_OPTIONS.map(o => ({ id: o.value, label: o.label, color: o.color }));
+  const eventPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
+    [event.priorities]
+  );
+  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
+  const direct = propertiesResult?.direct;
+  const directPriorities = useMemo(
+    () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
+    [direct?.priorities]
+  );
+  const effectivePriorities = directPriorities.length > 0 ? directPriorities : eventPriorities;
+
+  const getInitialState = React.useCallback(
+    () => ({
+      title: event.title,
+      start: event.start,
+      end: event.end,
+      color: event.color || DEFAULT_COLORS[0],
+      statuses: event.statuses?.length ? event.statuses : [{ field_name: "Status", value: "todo" }],
+      priorities: effectivePriorities,
+      assigneeId: event.assigneeId ?? null,
+      notes: event.notes ?? "",
+      progress: event.progress ?? 0,
+      isMilestone: event.isMilestone ?? false,
+    }),
+    [event, effectivePriorities]
+  );
+
+  const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
+  const [showColors, setShowColors] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+
+  const getMemberName = (assigneeId: string | null) => {
+    if (!assigneeId) return undefined;
+    const member = findWorkspaceMember(workspaceMembers, assigneeId);
+    return member?.name ?? member?.email ?? undefined;
+  };
+  const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
+    const ids: Array<string | null> = props.assignee_ids?.length
+      ? props.assignee_ids
+      : props.assignee_id
+        ? [props.assignee_id]
+        : [];
+    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
+  };
+
+  React.useEffect(() => {
+    if (isOpen) setLocal(getInitialState());
+  }, [isOpen, getInitialState]);
+
+  React.useEffect(() => {
+    setPropertiesOpen(false);
+  }, [event.id]);
+
+  const closePanel = React.useCallback(() => {
+    setPropertiesOpen(false);
+    onClose();
+  }, [onClose]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closePanel();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closePanel, isOpen]);
+
+  const handleSave = () => {
+    if (!local.title.trim()) return;
+    onUpdate(local);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0"
+      role="complementary"
+      aria-label={`Event details: ${event.title}`}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
+          <div className="text-lg font-semibold text-[var(--foreground)] truncate">
+            {event.title || "Event details"}
+          </div>
+          {event.source_entity_id && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+              <Link2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+            </div>
+          )}
+        </div>
+        <Button variant="ghost" size="icon" onClick={closePanel} className="h-8 w-8">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
+        <div className="space-y-4">
           {/* Title */}
           <div>
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
@@ -1842,8 +2985,8 @@ function AddEventDialog({
             <div>
               <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
               <select
-                value={local.status ?? "todo"}
-                onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
+                value={local.statuses?.[0]?.value ?? "todo"}
+                onChange={(e) => setLocal((s) => ({ ...s, statuses: [{ field_name: "Status", value: e.target.value }] }))}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {statusOptions.length > 0 ? (
@@ -1867,27 +3010,60 @@ function AddEventDialog({
           {/* Priority */}
           <div>
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
-            <select
-              value={local.priority ?? ""}
-              onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
-              className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">None</option>
-              {priorityOptions.length > 0 ? (
-                priorityOptions.map((opt: any) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))
-              ) : (
-                <>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </>
-              )}
-            </select>
+            {(local.priorities ?? effectivePriorities).length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {(local.priorities ?? effectivePriorities).map((priorityField) => (
+                  <span
+                    key={`${event.id}-edit-priority-${priorityField.field_name.toLowerCase()}`}
+                    className={cn(
+                      "inline-flex max-w-[220px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                      PRIORITY_PILL_COLORS[priorityField.value]
+                    )}
+                    title={getTimelinePriorityDisplayLabel(priorityField)}
+                  >
+                    <span className="truncate">{getTimelinePriorityDisplayLabel(priorityField)}</span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-sm text-neutral-500">None</span>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-blue-600 hover:underline"
+                >
+                  Add priority
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "low" }],
+                }))}>
+                  Low
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "medium" }],
+                }))}>
+                  Medium
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "high" }],
+                }))}>
+                  High
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocal((s) => ({
+                  ...s,
+                  priorities: [...(s.priorities ?? []), { field_name: "Priority", value: "urgent" }],
+                }))}>
+                  Urgent
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* Progress & Milestone */}
@@ -1996,6 +3172,67 @@ function AddEventDialog({
             </DropdownMenu>
           </div>
 
+          {/* Properties */}
+          {workspaceId && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
+                <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
+                  Manage properties
+                </Button>
+              </div>
+              {direct ? (
+                <div className="flex flex-wrap gap-2">
+                  <PropertyBadges
+                    properties={direct}
+                    onClick={() => setPropertiesOpen(true)}
+                    memberNames={getMemberNames(direct)}
+                  />
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500">No properties yet.</p>
+              )}
+            </div>
+          )}
+
+          {/* Attachments */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</label>
+              <Button variant="outline" size="sm" onClick={onAddReference}>
+                Add attachment
+              </Button>
+            </div>
+            {references.length === 0 ? (
+              <p className="text-xs text-neutral-500">No attachments yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {references.map((ref) => (
+                  <div
+                    key={ref.id}
+                    className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium text-neutral-800 dark:text-neutral-200">
+                        {ref.title}
+                      </div>
+                      <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+                        {ref.type_label || ref.reference_type}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onDeleteReference(ref.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Notes */}
           <div>
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
@@ -2007,822 +3244,7 @@ function AddEventDialog({
             />
           </div>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={!local.title.trim()}>
-            Add Event
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function EventDetailsPanel({
-  event,
-  isOpen,
-  onClose,
-  onUpdate,
-  references,
-  workspaceId,
-  onAddReference,
-  onNavigateToReference,
-  variant = "sidebar",
-}: {
-  event: TimelineEvent;
-  isOpen: boolean;
-  onClose: () => void;
-  onUpdate: (patch: TimelineEventPatch) => void;
-  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }>;
-  workspaceId?: string;
-  onAddReference: () => void;
-  onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
-  variant?: "sidebar" | "modal";
-}) {
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
-  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
-  const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
-
-  const [local, setLocal] = useState({
-    status: event.status ?? null,
-    priority: event.priority ?? null,
-    assigneeId: event.assigneeId ?? null,
-    progress: event.progress ?? 0,
-    notes: event.notes ?? "",
-    start: event.start,
-    end: event.end,
-    isMilestone: event.isMilestone ?? false,
-    color: event.color ?? null,
-  });
-  const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
-  const contentScrollRef = useRef<HTMLDivElement>(null);
-
-  // Scroll content to top when panel opens or event changes so the event details are visible
-  React.useEffect(() => {
-    if (isOpen && contentScrollRef.current) {
-      contentScrollRef.current.scrollTop = 0;
-    }
-  }, [isOpen, event.id]);
-
-  React.useEffect(() => {
-    setLocal({
-      status: event.status ?? null,
-      priority: event.priority ?? null,
-      assigneeId: event.assigneeId ?? null,
-      progress: event.progress ?? 0,
-      notes: event.notes ?? "",
-      start: event.start,
-      end: event.end,
-      isMilestone: event.isMilestone ?? false,
-      color: event.color ?? null,
-    });
-    setIsColorDialogOpen(false);
-  }, [event]);
-
-  const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
-  const assigneeLabel = selectedMember?.name ?? selectedMember?.email ?? "Unassigned";
-
-  const handleStartChange = (value: string) => {
-    if (!value) return;
-    const nextStart = clampDate(new Date(value));
-    let nextEnd = clampDate(new Date(local.end));
-    if (nextStart > nextEnd) {
-      nextEnd = nextStart;
-    }
-    const nextStartIso = nextStart.toISOString();
-    const nextEndIso = nextEnd.toISOString();
-    setLocal((s) => ({ ...s, start: nextStartIso, end: nextEndIso }));
-    if (nextStartIso !== event.start || nextEndIso !== event.end) {
-      onUpdate({ start: nextStartIso, end: nextEndIso });
-    }
-  };
-
-  const handleEndChange = (value: string) => {
-    if (!value) return;
-    let nextEnd = clampDate(new Date(value));
-    let nextStart = clampDate(new Date(local.start));
-    if (nextEnd < nextStart) {
-      nextStart = nextEnd;
-    }
-    const nextStartIso = nextStart.toISOString();
-    const nextEndIso = nextEnd.toISOString();
-    setLocal((s) => ({ ...s, start: nextStartIso, end: nextEndIso }));
-    if (nextStartIso !== event.start || nextEndIso !== event.end) {
-      onUpdate({ start: nextStartIso, end: nextEndIso });
-    }
-  };
-
-  const handleStatusChange = (value: string) => {
-    const nextStatus = value === "none" ? null : (value as TimelineEventStatus);
-    setLocal((s) => ({ ...s, status: nextStatus }));
-    if ((event.status ?? null) !== nextStatus) {
-      onUpdate({ status: nextStatus } as TimelineEventPatch);
-    }
-  };
-
-  const handlePriorityChange = (value: string) => {
-    const nextPriority = value === "none" ? null : (value as TimelineEventPriority);
-    setLocal((s) => ({ ...s, priority: nextPriority }));
-    if ((event.priority ?? null) !== nextPriority) {
-      onUpdate({ priority: nextPriority } as TimelineEventPatch);
-    }
-  };
-
-  const handleAssigneeChange = (assigneeId: string | null) => {
-    setLocal((s) => ({ ...s, assigneeId }));
-    if ((event.assigneeId ?? null) !== assigneeId) {
-      onUpdate({ assigneeId });
-    }
-  };
-
-  const handleColorChange = (color: string | null) => {
-    setLocal((s) => ({ ...s, color }));
-    if ((event.color ?? null) !== color) {
-      onUpdate({ color } as TimelineEventPatch);
-    }
-  };
-
-  const handleProgressBlur = () => {
-    const nextProgress = Math.min(100, Math.max(0, Number(local.progress) || 0));
-    setLocal((s) => ({ ...s, progress: nextProgress }));
-    if ((event.progress ?? 0) !== nextProgress) {
-      onUpdate({ progress: nextProgress });
-    }
-  };
-
-  const handleNotesBlur = () => {
-    const nextNotes = local.notes.trim();
-    const prevNotes = (event.notes ?? "").trim();
-    if (nextNotes !== prevNotes) {
-      onUpdate({ notes: nextNotes.length > 0 ? nextNotes : null } as TimelineEventPatch);
-    }
-  };
-
-  const colorChoices = [
-    { value: null as string | null, className: "bg-[var(--foreground)]", label: "Default" },
-    ...DEFAULT_COLORS.map((color) => ({ value: color, className: color, label: color })),
-  ];
-  const currentColorClass = local.color ?? "bg-[var(--foreground)]";
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className={cn(
-        "flex flex-col min-h-0 overflow-hidden",
-        variant === "modal"
-          ? "h-full w-full bg-[var(--surface)]"
-          : "h-full w-full shrink-0 border-t border-[var(--border)] bg-[var(--surface)] shadow-popover lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl"
-      )}
-      role={variant === "modal" ? undefined : "complementary"}
-      aria-label={variant === "modal" ? undefined : `Event details: ${event.title}`}
-    >
-      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
-          <div className="text-lg font-semibold text-[var(--foreground)] truncate">
-            {event.title || "Event details"}
-          </div>
-        </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-          <X className="h-4 w-4" />
-        </Button>
       </div>
-
-      <div ref={contentScrollRef} className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                value={format(new Date(local.start), "yyyy-MM-dd")}
-                onChange={(e) => handleStartChange(e.target.value)}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="date"
-                value={format(new Date(local.end), "yyyy-MM-dd")}
-                onChange={(e) => handleEndChange(e.target.value)}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={local.isMilestone}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Color</div>
-            <button
-              type="button"
-              onClick={() => setIsColorDialogOpen(true)}
-              className={cn(
-                "mt-2 h-6 w-6 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]",
-                currentColorClass
-              )}
-              title="Change color"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
-              <select
-                value={local.status ?? "none"}
-                onChange={(e) => handleStatusChange(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="none">None</option>
-                <option value="todo">To Do</option>
-                <option value="in_progress">In Progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
-            </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)]">
-                    {assigneeLabel}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
-                  <DropdownMenuItem
-                    onClick={() => handleAssigneeChange(null)}
-                    className="text-neutral-500"
-                  >
-                    Unassigned
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {workspaceMembers.length > 0 ? (
-                    workspaceMembers.map((member) => (
-                      <DropdownMenuItem
-                        key={member.id}
-                        onClick={() => handleAssigneeChange(member.user_id ?? member.id)}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                            {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
-                            <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  ) : (
-                    <DropdownMenuItem disabled className="text-neutral-400">
-                      Loading members...
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={local.progress}
-                onChange={(e) => setLocal((s) => ({ ...s, progress: Number(e.target.value) }))}
-                onBlur={handleProgressBlur}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
-              <select
-                value={local.priority ?? "none"}
-                onChange={(e) => handlePriorityChange(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="none">None</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Notes</div>
-            <textarea
-              value={local.notes}
-              onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-              onBlur={handleNotesBlur}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Add notes..."
-              rows={2}
-            />
-          </div>
-
-          {workspaceId && (direct || inherited.length > 0) && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</div>
-              <div className="flex flex-wrap gap-2">
-                {direct && <PropertyBadges properties={direct} />}
-                {inherited.map((inh) => (
-                  <PropertyBadges
-                    key={`inherited-${inh.source_entity_id}`}
-                    properties={inh.properties}
-                    inherited
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</div>
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={onAddReference}>
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            {references.length > 0 && (
-              <div className="space-y-2">
-                {references.map((ref) => (
-                  <button
-                    key={ref.id}
-                    onClick={() => onNavigateToReference?.(ref)}
-                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs text-left hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                          {ref.title}
-                        </div>
-                        <div className="text-[11px] uppercase tracking-wide text-neutral-400">
-                          {ref.type_label || ref.reference_type}
-                        </div>
-                      </div>
-                      <ExternalLink className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Pick a color</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-6 gap-2">
-            {colorChoices.map((choice) => (
-              <button
-                key={choice.label}
-                type="button"
-                onClick={() => {
-                  handleColorChange(choice.value);
-                  setIsColorDialogOpen(false);
-                }}
-                className={cn(
-                  "h-8 w-8 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]",
-                  choice.className,
-                  (local.color ?? null) === choice.value && "ring-2 ring-[var(--foreground)]"
-                )}
-                title={choice.label}
-              />
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-// Edit Event Dialog Component
-function EditEventDialog({
-  event,
-  isOpen,
-  onClose,
-  onUpdate,
-  onDelete,
-  onDuplicate,
-  references,
-  onAddReference,
-  onDeleteReference,
-  members,
-  workspaceId,
-}: {
-  event: TimelineEvent;
-  isOpen: boolean;
-  onClose: () => void;
-  onUpdate: (patch: Partial<TimelineEvent>) => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string }>;
-  onAddReference: () => void;
-  onDeleteReference: (id: string) => void;
-  members: WorkspaceMember[];
-  workspaceId?: string;
-}) {
-  // Fetch property definitions for Status and Priority
-  const supabase = createClient();
-  const { data: propertyDefs } = useQuery({
-    queryKey: ["propertyDefinitions", workspaceId],
-    queryFn: async () => {
-      if (!workspaceId) return null;
-      const { data } = await supabase
-        .from("property_definitions")
-        .select("*")
-        .eq("workspace_id", workspaceId)
-        .in("name", ["Status", "Priority"]);
-      return data;
-    },
-    enabled: !!workspaceId,
-  });
-
-  const statusOptions = propertyDefs?.find(p => p.name === "Status")?.options || [];
-  const priorityOptions = propertyDefs?.find(p => p.name === "Priority")?.options || [];
-
-  const getInitialState = React.useCallback(
-    () => ({
-      title: event.title,
-      start: event.start,
-      end: event.end,
-      color: event.color || DEFAULT_COLORS[0],
-      status: (event.status || "todo") as TimelineEventStatus,  // Changed from "planned" to "todo"
-      priority: event.priority ?? null,  // NEW: Priority field
-      assigneeId: event.assigneeId ?? null,
-      notes: event.notes || "",
-      progress: event.progress ?? 0,
-      isMilestone: event.isMilestone ?? false,
-    }),
-    [event]
-  );
-
-  const [local, setLocal] = useState<Omit<TimelineEvent, "id">>(getInitialState);
-  const [showColors, setShowColors] = useState(false);
-  const [propertiesOpen, setPropertiesOpen] = useState(false);
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
-  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
-  const direct = propertiesResult?.direct;
-  const inherited = propertiesResult?.inherited?.filter((inh) => inh.visible) ?? [];
-  
-  const getMemberName = (assigneeId: string | null) => {
-    if (!assigneeId) return undefined;
-    const member = findWorkspaceMember(workspaceMembers, assigneeId);
-    return member?.name ?? member?.email ?? undefined;
-  };
-  const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
-    const ids: Array<string | null> = props.assignee_ids?.length
-      ? props.assignee_ids
-      : props.assignee_id
-        ? [props.assignee_id]
-        : [];
-    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
-  };
-
-  React.useEffect(() => {
-    if (isOpen) setLocal(getInitialState());
-  }, [isOpen, getInitialState]);
-
-  React.useEffect(() => {
-    setPropertiesOpen(false);
-  }, [event.id]);
-
-  const closePanel = React.useCallback(() => {
-    setPropertiesOpen(false);
-    onClose();
-  }, [onClose]);
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        closePanel();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [closePanel, isOpen]);
-
-  const handleSave = () => {
-    if (!local.title.trim()) return;
-    onUpdate(local);
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="flex h-full w-full shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface)] shadow-popover min-h-0 lg:w-96 lg:border-l lg:border-t-0"
-      role="complementary"
-      aria-label={`Event details: ${event.title}`}
-    >
-      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
-          <div className="text-lg font-semibold text-[var(--foreground)] truncate">
-            {event.title || "Event details"}
-          </div>
-        </div>
-        <Button variant="ghost" size="icon" onClick={closePanel} className="h-8 w-8">
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
-        <div className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Title</label>
-                <input
-                  type="text"
-                  value={local.title}
-                  onChange={(e) => setLocal((s) => ({ ...s, title: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Event title"
-                  autoFocus
-                />
-              </div>
-
-              {/* Color & Status */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Color</label>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className={cn(
-                        "w-full h-10 rounded-lg border border-neutral-200 dark:border-neutral-800 flex items-center gap-2 px-3",
-                        local.color || "bg-neutral-900"
-                      )}
-                      onClick={() => setShowColors((v) => !v)}
-                    >
-                      <div className={cn("h-5 w-5 rounded-full", local.color || "bg-neutral-900")} />
-                      <span className="text-sm text-neutral-600 dark:text-neutral-400">Change</span>
-                    </button>
-                    {showColors && (
-                      <div className="absolute z-10 mt-2 grid grid-cols-6 gap-2 p-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg">
-                        {DEFAULT_COLORS.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            className={cn("h-8 w-8 rounded-full", c)}
-                            onClick={() => {
-                              setLocal((s) => ({ ...s, color: c }));
-                              setShowColors(false);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Status</label>
-                  <select
-                    value={local.status ?? "todo"}
-                    onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {statusOptions.length > 0 ? (
-                      statusOptions.map((opt: any) => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.label}
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="todo">To Do</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="blocked">Blocked</option>
-                        <option value="done">Done</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-              </div>
-
-              {/* Priority */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Priority (optional)</label>
-                <select
-                  value={local.priority ?? ""}
-                  onChange={(e) => setLocal((s) => ({ ...s, priority: e.target.value ? (e.target.value as TimelineEventPriority) : null }))}
-                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">None</option>
-                  {priorityOptions.length > 0 ? (
-                    priorityOptions.map((opt: any) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="urgent">Urgent</option>
-                    </>
-                  )}
-                </select>
-              </div>
-
-              {/* Progress & Milestone */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Progress (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={local.progress ?? 0}
-                    onChange={(e) => setLocal((s) => ({ ...s, progress: parseInt(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={local.isMilestone ?? false}
-                      onChange={(e) => {
-                        setLocal((s) => ({
-                          ...s,
-                          isMilestone: e.target.checked,
-                          end: e.target.checked ? s.start : s.end,
-                        }));
-                      }}
-                      className="w-4 h-4 rounded border-neutral-300"
-                    />
-                    <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Milestone</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Dates */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Start Date</label>
-                  <input
-                    type="date"
-                    value={format(new Date(local.start), "yyyy-MM-dd")}
-                    onChange={(e) => setLocal((s) => ({ ...s, start: new Date(e.target.value).toISOString() }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={local.isMilestone}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">End Date</label>
-                  <input
-                    type="date"
-                    value={format(new Date(local.end), "yyyy-MM-dd")}
-                    onChange={(e) => setLocal((s) => ({ ...s, end: new Date(e.target.value).toISOString() }))}
-                    className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={local.isMilestone}
-                  />
-                </div>
-              </div>
-
-              {/* Assignee */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Assignee (optional)</label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm text-left flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-neutral-500" />
-                        <span className={cn(local.assigneeId ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                          {findWorkspaceMember(members, local.assigneeId)?.name || "Unassigned"}
-                        </span>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-neutral-400" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
-                    <DropdownMenuItem
-                      onClick={() => setLocal((s) => ({ ...s, assigneeId: null }))}
-                      className="text-neutral-500"
-                    >
-                      Unassigned
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {members.length > 0 ? (
-                  members.map((member) => (
-                    <DropdownMenuItem
-                      key={member.id}
-                      onClick={() => setLocal((s) => ({ ...s, assigneeId: member.user_id ?? member.id }))}
-                    >
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
-                              {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
-                              <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
-                            </div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <DropdownMenuItem disabled className="text-neutral-400">
-                        Loading members...
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-
-              {/* Properties */}
-              {workspaceId && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</label>
-                    <Button variant="outline" size="sm" onClick={() => setPropertiesOpen(true)}>
-                      Manage properties
-                    </Button>
-                  </div>
-                  {(direct || inherited.length > 0) ? (
-                    <div className="flex flex-wrap gap-2">
-                      {direct && (
-                        <PropertyBadges
-                          properties={direct}
-                          onClick={() => setPropertiesOpen(true)}
-                          memberNames={getMemberNames(direct)}
-                        />
-                      )}
-                      {inherited.map((inh) => (
-                        <PropertyBadges
-                          key={`inherited-${inh.source_entity_id}`}
-                          properties={inh.properties}
-                          inherited
-                          onClick={() => setPropertiesOpen(true)}
-                          memberNames={getMemberNames(inh.properties)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-neutral-500">No properties yet.</p>
-                  )}
-                </div>
-              )}
-
-              {/* Attachments */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</label>
-                  <Button variant="outline" size="sm" onClick={onAddReference}>
-                    Add attachment
-                  </Button>
-                </div>
-                {references.length === 0 ? (
-                  <p className="text-xs text-neutral-500">No attachments yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {references.map((ref) => (
-                      <div
-                        key={ref.id}
-                        className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <div className="font-medium text-neutral-800 dark:text-neutral-200">
-                            {ref.title}
-                          </div>
-                          <div className="text-[11px] uppercase tracking-wide text-neutral-400">
-                            {ref.type_label || ref.reference_type}
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onDeleteReference(ref.id)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5 block">Notes (optional)</label>
-                <textarea
-                  value={local.notes ?? ""}
-                  onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  placeholder="Additional details..."
-                />
-              </div>
-            </div>
-          </div>
 
       <div className="border-t border-[var(--border)] bg-[var(--surface)] px-6 py-4">
         <div className="flex items-center justify-between gap-4">
@@ -2962,8 +3384,8 @@ function EventDrawer({
             Status
             <select
               className="mt-1 w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={local.status ?? "todo"}
-              onChange={(e) => setLocal((s) => ({ ...s, status: e.target.value as TimelineEventStatus }))}
+              value={local.statuses?.[0]?.value ?? "todo"}
+              onChange={(e) => setLocal((s) => ({ ...s, statuses: [{ field_name: "Status", value: e.target.value }] }))}
             >
               <option value="todo">To Do</option>
               <option value="in_progress">In Progress</option>

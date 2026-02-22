@@ -12,10 +12,21 @@ import type {
   PropertyFilter,
   EntityReference,
   GroupedEntitiesResult,
-  PropertyOption,
 } from "@/types/properties";
+import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+function normalizePropertyFieldType(propertyName: string | null | undefined): string | null {
+  const lower = String(propertyName ?? "").trim().toLowerCase();
+  if (!lower) return null;
+  if (lower === "priority") return "priority";
+  if (lower === "status") return "status";
+  if (lower === "assignee") return "assignee";
+  if (lower === "due date") return "due_date";
+  if (lower === "tags") return "tags";
+  return null;
+}
 
 /**
  * Query entities matching property criteria.
@@ -55,129 +66,126 @@ export async function queryEntities(
  */
 export async function queryEntitiesGroupedBy(
   params: QueryEntitiesParams,
-  groupByPropertyId: string,
+  groupByFieldType: string,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<GroupedEntitiesResult[]>> {
   const access = await requireWorkspaceAccessForProperties(params.workspace_id, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
-  // Get the property definition for grouping
-  const { data: propDef, error: defError } = await supabase
-    .from("property_definitions")
-    .select("*")
-    .eq("id", groupByPropertyId)
-    .single();
-
-  if (defError || !propDef) {
-    return { error: "Property definition not found" };
-  }
-
-  // Get all entities matching the base query (without property filters for grouping)
+  // Get all entities matching the base query
   const entitiesResult = await queryEntities({
     ...params,
-    properties: params.properties?.filter(
-      (p) => p.property_definition_id !== groupByPropertyId
-    ),
     authContext: opts?.authContext,
   });
 
   if ("error" in entitiesResult) return entitiesResult;
   const allEntities = entitiesResult.data;
 
-  // Get property values for all entities
+  // Get property values for all entities by field_type
   const entityIds = allEntities.map((e) => e.id);
-  const { data: entityProps } = await supabase
-    .from("entity_properties")
-    .select("entity_type, entity_id, value")
-    .eq("property_definition_id", groupByPropertyId)
-    .in("entity_id", entityIds);
+  const { data: entityProps } = entityIds.length > 0
+    ? await supabase
+        .from("entity_properties")
+        .select("id, entity_type, entity_id, value")
+        .eq("field_type", groupByFieldType)
+        .in("entity_id", entityIds)
+    : { data: [] };
 
-  // Create a map of entity -> property value
-  const valueMap = new Map<string, unknown>();
+  // Create a map of entity -> list of property values
+  const valueMap = new Map<string, unknown[]>();
   for (const prop of entityProps ?? []) {
     const key = `${prop.entity_type}:${prop.entity_id}`;
-    valueMap.set(key, prop.value);
+    const list = valueMap.get(key) ?? [];
+    list.push(prop.value);
+    valueMap.set(key, list);
   }
 
   // Group entities by property value
   const groups = new Map<string, EntityReference[]>();
 
-  // Initialize groups based on property type
-  if (propDef.type === "select" || propDef.type === "multi_select") {
-    const options = (propDef.options as PropertyOption[]) ?? [];
-    // Initialize groups for each option
-    for (const option of options) {
-      groups.set(option.id, []);
-    }
+  // Initialize groups from fixed options for status/priority
+  const options = groupByFieldType === "status"
+    ? STATUS_OPTIONS.map(o => ({ id: o.value, label: o.label }))
+    : groupByFieldType === "priority"
+    ? PRIORITY_OPTIONS.map(o => ({ id: o.value, label: o.label }))
+    : [];
+
+  for (const option of options) {
+    groups.set(option.id, []);
   }
-  // Always have a "no value" group
   groups.set("__no_value__", []);
 
-  // Assign entities to groups
+  const addToGroup = (groupKey: string, entity: EntityReference) => {
+    const group = groups.get(groupKey) ?? [];
+    const exists = group.some((item) => item.type === entity.type && item.id === entity.id);
+    if (!exists) group.push(entity);
+    groups.set(groupKey, group);
+  };
+
   for (const entity of allEntities) {
     const key = `${entity.type}:${entity.id}`;
-    const value = valueMap.get(key);
+    const values = valueMap.get(key) ?? [];
 
-    if (value === null || value === undefined) {
-      // Entity doesn't have this property
-      const noValue = groups.get("__no_value__") ?? [];
-      noValue.push(entity);
-      groups.set("__no_value__", noValue);
-    } else if (propDef.type === "multi_select" && Array.isArray(value)) {
-      // Multi-select: entity can be in multiple groups
-      for (const val of value) {
-        const group = groups.get(val) ?? [];
-        group.push(entity);
-        groups.set(val, group);
-      }
-      // If no values in array, put in no value group
-      if (value.length === 0) {
-        const noValue = groups.get("__no_value__") ?? [];
-        noValue.push(entity);
-        groups.set("__no_value__", noValue);
-      }
+    if (values.length === 0) {
+      addToGroup("__no_value__", entity);
     } else {
-      // Single value (select, text, etc.)
-      const groupKey = String(value);
-      const group = groups.get(groupKey) ?? [];
-      group.push(entity);
-      groups.set(groupKey, group);
+      const groupKeys = new Set<string>();
+      for (const value of values) {
+        if (value === null || value === undefined || value === "") continue;
+        if (Array.isArray(value)) {
+          for (const entry of value) {
+            if (entry !== null && entry !== undefined && entry !== "") {
+              groupKeys.add(String(entry));
+            }
+          }
+        } else {
+          groupKeys.add(String(value));
+        }
+      }
+      if (groupKeys.size === 0) {
+        addToGroup("__no_value__", entity);
+      } else {
+        for (const groupKey of groupKeys) {
+          addToGroup(groupKey, entity);
+        }
+      }
     }
   }
 
   // Convert to result format with labels
   const results: GroupedEntitiesResult[] = [];
 
-  // Add option groups first (in order)
-  if (propDef.type === "select" || propDef.type === "multi_select") {
-    const options = (propDef.options as PropertyOption[]) ?? [];
-    for (const option of options) {
-      const entities = groups.get(option.id) ?? [];
+  for (const option of options) {
+    const entities = groups.get(option.id) ?? [];
+    results.push({
+      group_key: option.id,
+      group_label: option.label,
+      entities,
+    });
+  }
+
+  // Add any groups for values not in fixed options
+  for (const [key, entities] of groups.entries()) {
+    if (key !== "__no_value__" && !options.some(o => o.id === key) && entities.length > 0) {
       results.push({
-        group_key: option.id,
-        group_label: option.label,
+        group_key: key,
+        group_label: key,
         entities,
       });
-    }
-  } else {
-    // For other types, create groups from actual values
-    for (const [key, entities] of groups.entries()) {
-      if (key !== "__no_value__" && entities.length > 0) {
-        results.push({
-          group_key: key,
-          group_label: key,
-          entities,
-        });
-      }
     }
   }
 
   // Always add "No Value" group at the end
   const noValueEntities = groups.get("__no_value__") ?? [];
+  const fieldLabel = groupByFieldType === "status" ? "Status"
+    : groupByFieldType === "priority" ? "Priority"
+    : groupByFieldType === "assignee" ? "Assignee"
+    : groupByFieldType === "due_date" ? "Due Date"
+    : groupByFieldType;
   results.push({
     group_key: "__no_value__",
-    group_label: getNoValueLabel(propDef.name),
+    group_label: getNoValueLabel(fieldLabel),
     entities: noValueEntities,
   });
 
@@ -272,8 +280,7 @@ async function queryEntitiesByType(
         supabase,
         "block",
         typedBlocks,
-        params.properties,
-        params.include_inherited
+        params.properties
       );
 
       for (const block of filteredBlocks) {
@@ -290,11 +297,13 @@ async function queryEntitiesByType(
     case "task": {
       let query = supabase
         .from("task_items")
-        .select("id, title, tab_id, project_id, source_task_id, tabs(name, project_id)")
+        .select("id, title, tab_id, project_id, source_task_id, source_entity_type, source_entity_id, tabs(name, project_id)")
         .eq("workspace_id", params.workspace_id);
 
       if (!params.include_workflow_representations) {
-        query = query.is("source_task_id", null);
+        query = query
+          .is("source_entity_id", null)
+          .is("source_task_id", null);
       }
 
       // Apply scope filters
@@ -325,8 +334,7 @@ async function queryEntitiesByType(
         supabase,
         "task",
         typedTasks,
-        params.properties,
-        params.include_inherited
+        params.properties
       );
 
       for (const task of filteredTasks) {
@@ -363,8 +371,7 @@ async function queryEntitiesByType(
         supabase,
         "subtask",
         typedSubtasks,
-        params.properties,
-        params.include_inherited
+        params.properties
       );
 
       for (const subtask of filteredSubtasks) {
@@ -416,8 +423,7 @@ async function queryEntitiesByType(
         supabase,
         "timeline_event",
         typedEvents,
-        params.properties,
-        params.include_inherited
+        params.properties
       );
 
       for (const event of filteredEvents) {
@@ -528,8 +534,7 @@ async function queryEntitiesByType(
         supabase,
         "table_row",
         typedRows,
-        params.properties,
-        params.include_inherited
+        params.properties
       );
 
       for (const row of filteredRows) {
@@ -555,8 +560,7 @@ async function filterByProperties<T extends { id: string }>(
   supabase: any,
   entityType: EntityType,
   entities: T[],
-  filters?: PropertyFilter[],
-  includeInherited?: boolean
+  filters?: PropertyFilter[]
 ): Promise<T[]> {
   if (!filters || filters.length === 0) {
     return entities;
@@ -567,99 +571,28 @@ async function filterByProperties<T extends { id: string }>(
     return [];
   }
 
-  // Get all relevant property values
+  // Get unique field_types from filters
+  const filterFieldTypes = Array.from(new Set(filters.map((f) => f.field_type)));
+
   const { data: props } = await supabase
     .from("entity_properties")
-    .select("entity_id, property_definition_id, value")
+    .select("id, entity_id, field_type, field_name, value")
     .eq("entity_type", entityType)
     .in("entity_id", entityIds)
-    .in(
-      "property_definition_id",
-      filters.map((f) => f.property_definition_id)
-    );
+    .in("field_type", filterFieldTypes);
 
-  // Create a map of entity -> property definition -> value
-  const propMap = new Map<string, Map<string, unknown>>();
-  const directPropIds = new Map<string, Set<string>>();
+  // Build map: entityId -> fieldType -> values[]
+  const propMap = new Map<string, Map<string, unknown[]>>();
   for (const prop of props ?? []) {
     let entityMap = propMap.get(prop.entity_id);
     if (!entityMap) {
       entityMap = new Map();
       propMap.set(prop.entity_id, entityMap);
     }
-    entityMap.set(prop.property_definition_id, prop.value);
-    const directSet = directPropIds.get(prop.entity_id) ?? new Set<string>();
-    directSet.add(prop.property_definition_id);
-    directPropIds.set(prop.entity_id, directSet);
-  }
 
-  if (includeInherited) {
-    const { data: links } = await supabase
-      .from("entity_links")
-      .select("target_entity_id, source_entity_type, source_entity_id")
-      .eq("target_entity_type", entityType)
-      .in("target_entity_id", entityIds);
-
-    const linksByTarget = new Map<string, Array<{ sourceType: EntityType; sourceId: string }>>();
-    const sourceIdsByType = new Map<EntityType, Set<string>>();
-    for (const link of links ?? []) {
-      const targetList = linksByTarget.get(link.target_entity_id) ?? [];
-      targetList.push({
-        sourceType: link.source_entity_type as EntityType,
-        sourceId: link.source_entity_id,
-      });
-      linksByTarget.set(link.target_entity_id, targetList);
-
-      const typeSet = sourceIdsByType.get(link.source_entity_type as EntityType) ?? new Set<string>();
-      typeSet.add(link.source_entity_id);
-      sourceIdsByType.set(link.source_entity_type as EntityType, typeSet);
-    }
-
-    const sourcePropsByType = new Map<EntityType, Map<string, Array<{ property_definition_id: string; value: unknown }>>>();
-    for (const [sourceType, ids] of sourceIdsByType.entries()) {
-      const idsArray = Array.from(ids);
-      if (idsArray.length === 0) continue;
-      const { data: sourceProps } = await supabase
-        .from("entity_properties")
-        .select("entity_id, property_definition_id, value")
-        .eq("entity_type", sourceType)
-        .in("entity_id", idsArray)
-        .in(
-          "property_definition_id",
-          filters.map((f) => f.property_definition_id)
-        );
-
-      const propsByEntity = new Map<string, Array<{ property_definition_id: string; value: unknown }>>();
-      for (const prop of sourceProps ?? []) {
-        const list = propsByEntity.get(prop.entity_id) ?? [];
-        list.push({ property_definition_id: prop.property_definition_id, value: prop.value });
-        propsByEntity.set(prop.entity_id, list);
-      }
-      sourcePropsByType.set(sourceType, propsByEntity);
-    }
-
-    for (const [targetId, linksForTarget] of linksByTarget.entries()) {
-      const entityMap = propMap.get(targetId) ?? new Map<string, unknown>();
-      const directSet = directPropIds.get(targetId) ?? new Set<string>();
-      for (const link of linksForTarget) {
-        const propsByEntity = sourcePropsByType.get(link.sourceType);
-        const propsForSource = propsByEntity?.get(link.sourceId) ?? [];
-        for (const prop of propsForSource) {
-          if (directSet.has(prop.property_definition_id)) continue;
-          const existing = entityMap.get(prop.property_definition_id);
-          if (existing === undefined) {
-            entityMap.set(prop.property_definition_id, prop.value);
-          } else if (Array.isArray(existing)) {
-            entityMap.set(prop.property_definition_id, [...existing, prop.value]);
-          } else {
-            entityMap.set(prop.property_definition_id, [existing, prop.value]);
-          }
-        }
-      }
-      if (entityMap.size > 0) {
-        propMap.set(targetId, entityMap);
-      }
-    }
+    const values = entityMap.get(prop.field_type) ?? [];
+    values.push(prop.value);
+    entityMap.set(prop.field_type, values);
   }
 
   // Filter entities
@@ -667,9 +600,9 @@ async function filterByProperties<T extends { id: string }>(
     const entityProps = propMap.get(entity.id) ?? new Map();
 
     for (const filter of filters) {
-      const value = entityProps.get(filter.property_definition_id);
+      const values = entityProps.get(filter.field_type) ?? [];
 
-      if (!matchesFilter(value, filter)) {
+      if (!matchesFilterAny(values, filter)) {
         return false;
       }
     }
@@ -750,6 +683,23 @@ function matchesFilter(value: unknown, filter: PropertyFilter): boolean {
 
     default:
       return true;
+  }
+}
+
+function matchesFilterAny(values: unknown[], filter: PropertyFilter): boolean {
+  if (!values || values.length === 0) {
+    return matchesFilter(undefined, filter);
+  }
+
+  switch (filter.operator) {
+    case "is_empty":
+      return values.every((value) => matchesFilter(value, filter));
+    case "is_not_empty":
+      return values.some((value) => matchesFilter(value, filter));
+    case "not_equals":
+      return values.every((value) => matchesFilter(value, filter));
+    default:
+      return values.some((value) => matchesFilter(value, filter));
   }
 }
 

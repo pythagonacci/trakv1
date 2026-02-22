@@ -330,7 +330,7 @@ export default function CreateTabDialog({
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-[2px] bg-[#3080a6]/50 px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-[#3080a6]/65 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex-1 rounded-[var(--radius-sm)] bg-[var(--primary)]/50 px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-[var(--primary)]/65 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isSubmitting}
             >
               {isSubmitting ? "Creating…" : isWorkflowPage ? "Create" : "Create Tab"}

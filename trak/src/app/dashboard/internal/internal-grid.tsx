@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, File, Folder, Download } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, File, Folder, Download, ChevronDown, ChevronRight } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getFileUrl, deleteFile } from "@/app/actions/file";
+import { moveSpaceToGroup, deleteInternalGroup } from "@/app/actions/internal-group";
+import type { InternalSpaceGroup } from "@/app/actions/internal-group";
 import InternalDialog from "./internal-dialog";
+import CreateInternalGroupDialog from "./create-internal-group-dialog";
 import ConfirmDialog from "../projects/confirm-dialog";
 import Toast from "../projects/toast";
 import EmptyState from "./internal-empty-state";
@@ -17,6 +20,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +29,7 @@ interface Space {
   name: string;
   status: "not_started" | "in_progress" | "complete";
   created_at: string;
+  internal_group_id?: string | null;
 }
 
 interface File {
@@ -39,6 +44,7 @@ interface InternalGridProps {
   spaces: Space[];
   files: File[];
   workspaceId: string;
+  groups: InternalSpaceGroup[];
 }
 
 interface FormData {
@@ -46,17 +52,58 @@ interface FormData {
   status: "not_started" | "in_progress" | "complete";
 }
 
-export default function InternalGrid({ spaces: initialSpaces, files: initialFiles, workspaceId }: InternalGridProps) {
+export default function InternalGrid({ spaces: initialSpaces, files: initialFiles, workspaceId, groups: initialGroups }: InternalGridProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [spaces, setSpaces] = useState(initialSpaces);
   const [files, setFiles] = useState(initialFiles);
+  const [localGroups, setLocalGroups] = useState(initialGroups);
   useEffect(() => {
     setSpaces(initialSpaces);
     setFiles(initialFiles);
   }, [initialSpaces, initialFiles]);
+  useEffect(() => {
+    setLocalGroups(initialGroups);
+  }, [initialGroups]);
 
+  const spacesByGroup = useMemo(() => {
+    const out: Record<string, Space[]> = {};
+    spaces.forEach((s) => {
+      const key = s.internal_group_id ?? "ungrouped";
+      if (!out[key]) out[key] = [];
+      out[key].push(s);
+    });
+    return out;
+  }, [spaces]);
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    const initial = new Set<string>(["ungrouped"]);
+    initialGroups.forEach((g) => initial.add(g.id));
+    return initial;
+  });
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    const result = await deleteInternalGroup(groupId);
+    if (result.error) setToast({ message: result.error, type: "error" });
+    else {
+      setLocalGroups((prev) => prev.filter((g) => g.id !== groupId));
+      setSpaces((prev) => prev.map((s) => (s.internal_group_id === groupId ? { ...s, internal_group_id: null } : s)));
+      setToast({ message: "Group deleted", type: "success" });
+      startTransition(() => router.refresh());
+    }
+    setOpenMenuId(null);
+  };
+  const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
@@ -65,6 +112,17 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
   const [deletingFile, setDeletingFile] = useState<File | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const handleMoveToGroup = async (space: Space, groupId: string | null) => {
+    const result = await moveSpaceToGroup(space.id, groupId);
+    if (result.error) setToast({ message: result.error, type: "error" });
+    else {
+      setSpaces((prev) => prev.map((s) => (s.id === space.id ? { ...s, internal_group_id: groupId } : s)));
+      setToast({ message: groupId ? "Space moved to group" : "Space removed from group", type: "success" });
+      startTransition(() => router.refresh());
+    }
+    setOpenMenuId(null);
+  };
 
   const handleOpenCreate = () => {
     setDialogMode("create");
@@ -222,11 +280,136 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
   };
 
-  // Combine spaces and files
-  const allItems = [
-    ...spaces.map(s => ({ type: 'space' as const, data: s, created_at: s.created_at })),
-    ...files.map(f => ({ type: 'file' as const, data: f, created_at: f.created_at }))
-  ];
+  function renderSpaceCard(space: Space) {
+    const isTemp = space.id.startsWith("temp-");
+    const createdDate = new Date(space.created_at).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return (
+      <div
+        key={`space-${space.id}`}
+        onClick={() => handleSpaceClick(space.id)}
+        className={cn(
+          "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
+          isTemp && "pointer-events-none opacity-70"
+        )}
+      >
+        <div className="flex flex-1 flex-col p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Folder className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                <h3 className="truncate text-sm font-semibold text-[var(--foreground)]">
+                  {space.name}
+                </h3>
+              </div>
+            </div>
+
+            {!isTemp && (
+              <DropdownMenu
+                open={openMenuId === `space-${space.id}`}
+                onOpenChange={(open) => setOpenMenuId(open ? `space-${space.id}` : null)}
+              >
+                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <button className="rounded-[2px] p-1 opacity-0 transition-opacity hover:bg-[var(--surface-hover)] group-hover:opacity-100">
+                    <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenEdit(space); }}>
+                    <Edit className="h-4 w-4" /> Edit
+                  </DropdownMenuItem>
+                  {localGroups.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <div className="px-2 py-1.5 text-xs font-semibold text-[var(--muted-foreground)] uppercase">Move to Group</div>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleMoveToGroup(space, null); }}>No group</DropdownMenuItem>
+                      {localGroups.map((g) => (
+                        <DropdownMenuItem key={g.id} onClick={(e) => { e.stopPropagation(); handleMoveToGroup(space, g.id); }}>{g.name}</DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e) => { e.stopPropagation(); handleOpenDeleteConfirm(space); }}
+                    className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+
+          <div className="mb-3">
+            <StatusBadge status={space.status} />
+          </div>
+
+          <div className="text-xs text-[var(--muted-foreground)]">
+            Created {createdDate}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderFileCard(file: File) {
+    const createdDate = new Date(file.created_at).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return (
+      <div
+        key={`file-${file.id}`}
+        className="group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]"
+      >
+        <div className="flex flex-1 flex-col p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <File className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                <h3 className="truncate text-sm font-semibold text-[var(--foreground)]">
+                  {file.file_name}
+                </h3>
+              </div>
+              <div className="text-xs text-[var(--muted-foreground)]">
+                {formatFileSize(file.file_size)}
+              </div>
+            </div>
+
+            <DropdownMenu
+              open={openMenuId === `file-${file.id}`}
+              onOpenChange={(open) => setOpenMenuId(open ? `file-${file.id}` : null)}
+            >
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <button className="rounded-[2px] p-1 opacity-0 transition-opacity hover:bg-[var(--surface-hover)] group-hover:opacity-100">
+                  <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFileDownload(file); }}>
+                  <Download className="h-4 w-4" /> Download
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => { e.stopPropagation(); handleFileDelete(file); }}
+                  className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="text-xs text-[var(--muted-foreground)]">
+            Created {createdDate}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (spaces.length === 0 && files.length === 0 && dialogMode === null) {
     return (
@@ -238,6 +421,7 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
           </div>
           <div className="flex items-center gap-2">
             <QuickUpload workspaceId={workspaceId} />
+            <Button variant="outline" size="sm" onClick={() => setCreateGroupDialogOpen(true)}>New group</Button>
             <Button onClick={handleOpenCreate} size="sm">New space</Button>
           </div>
         </div>
@@ -250,6 +434,12 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
   function renderDialogs() {
     return (
       <>
+        <CreateInternalGroupDialog
+          isOpen={createGroupDialogOpen}
+          onClose={() => setCreateGroupDialogOpen(false)}
+          workspaceId={workspaceId}
+          onGroupCreated={() => startTransition(() => router.refresh())}
+        />
         <InternalDialog
           mode={dialogMode || "create"}
           isOpen={dialogMode !== null}
@@ -290,133 +480,99 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
         </div>
         <div className="flex items-center gap-2">
           <QuickUpload workspaceId={workspaceId} />
+          <Button variant="outline" size="sm" onClick={() => setCreateGroupDialogOpen(true)}>New group</Button>
           <Button onClick={handleOpenCreate} size="sm">New space</Button>
         </div>
       </div>
 
-      {allItems.length === 0 ? (
+      {spaces.length === 0 && files.length === 0 ? (
         <EmptyState onCreateClick={handleOpenCreate} />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {allItems.map((item) => {
-            const createdDate = new Date(item.created_at).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            });
-
-            if (item.type === 'space') {
-              const space = item.data as Space;
-              const isTemp = space.id.startsWith("temp-");
-
-              return (
-                <div
-                  key={`space-${space.id}`}
-                  onClick={() => handleSpaceClick(space.id)}
-                  className={cn(
-                    "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
-                    isTemp && "pointer-events-none opacity-70"
-                  )}
-                >
-                  <div className="flex flex-1 flex-col p-4">
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Folder className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
-                          <h3 className="truncate text-sm font-semibold text-[var(--foreground)]">
-                            {space.name}
-                          </h3>
-                        </div>
-                      </div>
-
-                      {!isTemp && (
-                        <DropdownMenu
-                          open={openMenuId === `space-${space.id}`}
-                          onOpenChange={(open) => setOpenMenuId(open ? `space-${space.id}` : null)}
-                        >
-                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <button className="rounded-[2px] p-1 opacity-0 transition-opacity hover:bg-[var(--surface-hover)] group-hover:opacity-100">
-                              <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenEdit(space); }}>
-                              <Edit className="h-4 w-4" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => { e.stopPropagation(); handleOpenDeleteConfirm(space); }}
-                              className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
-                            >
-                              <Trash2 className="h-4 w-4" /> Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
-
-                    <div className="mb-3">
-                      <StatusBadge status={space.status} />
-                    </div>
-
-                    <div className="text-xs text-[var(--muted-foreground)]">
-                      Created {createdDate}
-                    </div>
-                  </div>
-                </div>
-              );
-            } else {
-              const file = item.data as File;
-
-              return (
-                <div
-                  key={`file-${file.id}`}
-                  className="group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]"
-                >
-                  <div className="flex flex-1 flex-col p-4">
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <File className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
-                          <h3 className="truncate text-sm font-semibold text-[var(--foreground)]">
-                            {file.file_name}
-                          </h3>
-                        </div>
-                        <div className="text-xs text-[var(--muted-foreground)]">
-                          {formatFileSize(file.file_size)}
-                        </div>
-                      </div>
-
-                      <DropdownMenu
-                        open={openMenuId === `file-${file.id}`}
-                        onOpenChange={(open) => setOpenMenuId(open ? `file-${file.id}` : null)}
+        <div className="space-y-8">
+          {localGroups.map((group) => {
+            const groupSpaces = spacesByGroup[group.id] || [];
+            const isExpanded = expandedGroups.has(group.id);
+            return (
+              <section key={group.id}>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.id)}
+                    className="flex items-center gap-2 min-w-0 rounded-[4px] py-1.5 px-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-left"
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                    )}
+                    <Folder className="h-4 w-4 text-[var(--secondary)] flex-shrink-0" />
+                    <span className="text-sm font-semibold text-[var(--foreground)] truncate">{group.name}</span>
+                    <span className="text-xs text-[var(--tertiary-foreground)] flex-shrink-0">({groupSpaces.length})</span>
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] flex-shrink-0">
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Delete group "${group.name}"? Spaces will be moved out of the group.`)) handleDeleteGroup(group.id);
+                        }}
+                        className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
                       >
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <button className="rounded-[2px] p-1 opacity-0 transition-opacity hover:bg-[var(--surface-hover)] group-hover:opacity-100">
-                            <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFileDownload(file); }}>
-                            <Download className="h-4 w-4" /> Download
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => { e.stopPropagation(); handleFileDelete(file); }}
-                            className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
-                          >
-                            <Trash2 className="h-4 w-4" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-
-                    <div className="text-xs text-[var(--muted-foreground)]">
-                      Created {createdDate}
-                    </div>
-                  </div>
+                        <Trash2 className="h-4 w-4" /> Delete group
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              );
-            }
+                {isExpanded && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {groupSpaces.map((space) => renderSpaceCard(space))}
+                  </div>
+                )}
+              </section>
+            );
           })}
+
+          {(spacesByGroup.ungrouped?.length ?? 0) > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup("ungrouped")}
+                  className="flex items-center gap-2 min-w-0 rounded-[4px] py-1.5 px-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-left"
+                >
+                  {expandedGroups.has("ungrouped") ? (
+                    <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-semibold text-[var(--foreground)]">No group</span>
+                  <span className="text-xs text-[var(--tertiary-foreground)]">({spacesByGroup.ungrouped!.length})</span>
+                </button>
+              </div>
+              {expandedGroups.has("ungrouped") && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {spacesByGroup.ungrouped!.map((space) => renderSpaceCard(space))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {files.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-semibold text-[var(--foreground)]">Files</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">({files.length})</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {files.map((file) => renderFileCard(file))}
+              </div>
+            </section>
+          )}
         </div>
       )}
 

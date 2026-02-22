@@ -223,7 +223,7 @@ export default function ClientPageToggle({
               />
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1.5 rounded-md border border-[#3080a6]/30 bg-[#3080a6]/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-[#3080a6]/15 transition-colors"
+                className="flex items-center gap-1.5 rounded-md border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary)]/15 transition-colors"
               >
                 {copied ? (
                   <>
@@ -281,7 +281,7 @@ export default function ClientPageToggle({
                         className={cn(
                           "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors",
                           tab.is_client_visible
-                            ? "border border-[#3080a6]/30 bg-[#3080a6]/10 text-white hover:bg-[#3080a6]/15"
+                            ? "border border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15"
                             : "bg-[var(--surface)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] border border-[var(--border)]"
                         )}
                       >

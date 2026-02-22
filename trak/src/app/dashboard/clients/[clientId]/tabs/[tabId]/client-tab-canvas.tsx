@@ -845,7 +845,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
       ) : (
         <div 
           className={cn(
-            "p-6 transition-all duration-300 relative border border-[var(--foreground)]/15 min-h-[calc(100vh-200px)]",
+            "p-6 transition-all duration-300 relative min-h-[calc(100vh-200px)]",
             !currentTheme.containerBg && "bg-[var(--surface)]/40"
           )}
           style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { Plus, EyeOff } from "lucide-react";
 import {
   useTable,
+  useTableBootstrap,
   useTableRows,
   useCreateRow,
   useUpdateCell,
@@ -27,6 +28,8 @@ import {
   useBulkUpdateRows,
   useBulkInsertRows,
   useSetTableRowsSourceSyncMode,
+  usePushEditedSnapshotRows,
+  useRefreshEditedSnapshotRows,
 } from "@/lib/hooks/use-table-queries";
 import { TableHeaderRow } from "./table-header-row";
 import { TableRow } from "./table-row";
@@ -37,6 +40,7 @@ import { TableContextMenu } from "./table-context-menu";
 import { PropertyMenu } from "@/components/properties";
 import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 import { BulkDeleteDialog } from "./bulk-delete-dialog";
+import { SyncEditedRowsDialog, type SyncResolution } from "./sync-edited-rows-dialog";
 import { RelationConfigModal } from "./relation-config-modal";
 import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
@@ -167,7 +171,8 @@ interface Props {
 
 export function TableView({ tableId }: Props) {
   const queryClient = useQueryClient();
-  const { data: tableData, isLoading: metaLoading } = useTable(tableId);
+  const { data: bootstrap, isLoading: bootstrapLoading } = useTableBootstrap(tableId);
+  const { data: tableDataFallback } = useTable(tableId);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [commentsRowId, setCommentsRowId] = useState<string | null>(null);
   const [detailColumnId, setDetailColumnId] = useState<string | null>(null);
@@ -197,8 +202,34 @@ export function TableView({ tableId }: Props) {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [collapsedSubtasks, setCollapsedSubtasks] = useState<Set<string>>(new Set());
+  const hasInitializedSubtaskCollapse = useRef(false);
 
-  // Fetch workspace members for person fields
+  const tableData = bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : tableDataFallback ?? undefined;
+  const defaultViewId = bootstrap?.view?.id ?? null;
+  const isDefaultView = activeViewId === null || activeViewId === defaultViewId;
+  const rowDataFromQuery = useTableRows(
+    tableId,
+    !isDefaultView && activeViewId ? activeViewId : undefined,
+    { enabled: !isDefaultView && Boolean(activeViewId) }
+  );
+  const rowData = isDefaultView && bootstrap
+    ? { rows: bootstrap.rows, view: bootstrap.view }
+    : rowDataFromQuery.data;
+  const view = rowData?.view;
+  const effectiveViewId = activeViewId || view?.id || undefined;
+  const viewType = view?.type || "table";
+  const metaLoading = bootstrapLoading && !bootstrap;
+  const rowsLoading = !isDefaultView && rowDataFromQuery.isLoading;
+
+  useEffect(() => {
+    if (defaultViewId != null && activeViewId === null) {
+      setActiveViewId(defaultViewId);
+    }
+  }, [defaultViewId, activeViewId]);
+
+  // Fetch workspace members only when table has person/assignee fields (defer for new tables)
+  const allFieldsForMembers = tableData?.fields ?? [];
+  const hasPersonField = allFieldsForMembers.some((f) => f.type === "person");
   const { data: workspaceMembers } = useQuery({
     queryKey: ['workspaceMembers', tableData?.table.workspace_id],
     queryFn: async () => {
@@ -207,16 +238,10 @@ export function TableView({ tableId }: Props) {
       if ('error' in result) return [];
       return result.data || [];
     },
-    enabled: !!tableData?.table.workspace_id,
-    staleTime: 5 * 60 * 1000, // 5 minutes - workspace members don't change often
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    enabled: Boolean(tableData?.table.workspace_id && hasPersonField),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
-
-  // Always use a single source of truth for view id to keep query keys aligned
-  const { data: rowData, isLoading: rowsLoading } = useTableRows(tableId, activeViewId || undefined);
-  const view = rowData?.view;
-  const effectiveViewId = activeViewId || view?.id || undefined;
-  const viewType = view?.type || "table";
 
   const createRow = useCreateRow(tableId, effectiveViewId);
   const updateCell = useUpdateCell(tableId, effectiveViewId);
@@ -237,6 +262,10 @@ export function TableView({ tableId }: Props) {
   const bulkUpdateRows = useBulkUpdateRows(tableId);
   const bulkInsertRows = useBulkInsertRows(tableId);
   const setSourceSyncMode = useSetTableRowsSourceSyncMode(tableId);
+  const pushEditedRows = usePushEditedSnapshotRows(tableId);
+  const refreshEditedRows = useRefreshEditedSnapshotRows(tableId);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncDialogResolving, setSyncDialogResolving] = useState(false);
 
   const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
   const subtaskField = useMemo(() => {
@@ -378,18 +407,34 @@ export function TableView({ tableId }: Props) {
     () => buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, collapsedSubtasks),
     [sortedRows, subtaskField?.id, collapsedSubtasks]
   );
+  // Parent row IDs that have subtasks (for default-collapsed init)
+  const parentIdsWithSubtasks = useMemo(() => {
+    const res = buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, new Set());
+    return res.parentIds;
+  }, [sortedRows, subtaskField?.id]);
+  useEffect(() => {
+    if (parentIdsWithSubtasks.size > 0 && !hasInitializedSubtaskCollapse.current) {
+      hasInitializedSubtaskCollapse.current = true;
+      setCollapsedSubtasks(new Set(parentIdsWithSubtasks));
+    }
+  }, [parentIdsWithSubtasks]);
   const sourceLinkedRows = useMemo(
     () => (rowData?.rows ?? []).filter((row) => Boolean(row.source_entity_id && row.source_entity_type)),
     [rowData?.rows]
   );
   const hasSourceLinkedRows = sourceLinkedRows.length > 0;
+  const editedSnapshotRows = useMemo(
+    () => sourceLinkedRows.filter((row) => row.edited === true),
+    [sourceLinkedRows]
+  );
+  const hasEditedSnapshots = editedSnapshotRows.length > 0;
   const sourceEntityTypes = useMemo(
     () =>
       Array.from(
         new Set(
           sourceLinkedRows
             .map((row) => row.source_entity_type)
-            .filter((type): type is "task" | "timeline_event" => Boolean(type))
+            .filter((type): type is "task" | "timeline_event" | "table_row" => Boolean(type))
         )
       ),
     [sourceLinkedRows]
@@ -1420,7 +1465,9 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
   }
 
   const sourceTypeLabel = sourceEntityTypes
-    .map((type) => (type === "timeline_event" ? "timeline events" : "tasks"))
+    .map((type) =>
+      type === "timeline_event" ? "timeline events" : type === "table_row" ? "table rows" : "tasks"
+    )
     .join(" and ");
 
   return (
@@ -1493,8 +1540,13 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             <span className="text-[10px] font-medium text-[var(--muted-foreground)]">Sync edits to source</span>
             <Switch
               checked={liveSourceSyncEnabled}
-              disabled={setSourceSyncMode.isPending}
+              disabled={setSourceSyncMode.isPending || syncDialogResolving}
               onCheckedChange={(checked) => {
+                // When turning on live sync and there are edited snapshots, show dialog
+                if (checked && hasEditedSnapshots) {
+                  setSyncDialogOpen(true);
+                  return;
+                }
                 setSourceSyncMode.mutate(
                   { mode: checked ? "live" : "snapshot" },
                   {
@@ -1543,6 +1595,75 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         </div>
       )}
 
+      <SyncEditedRowsDialog
+        open={syncDialogOpen}
+        editedRowCount={editedSnapshotRows.length}
+        resolving={syncDialogResolving}
+        onResolve={async (resolution: SyncResolution) => {
+          if (resolution === "cancel") {
+            setSyncDialogOpen(false);
+            return;
+          }
+
+          setSyncDialogResolving(true);
+          try {
+            const action = resolution === "push" ? pushEditedRows : refreshEditedRows;
+            const result = await action.mutateAsync();
+
+            if ("error" in result) {
+              setToast({ message: result.error || "Failed to resolve edited rows.", type: "error" });
+              setSyncDialogResolving(false);
+              return;
+            }
+
+            const data = result.data;
+            const failedCount = data.failedRowIds?.length ?? 0;
+            if (failedCount > 0) {
+              setToast({
+                message: `${failedCount} row${failedCount === 1 ? "" : "s"} failed to ${resolution === "push" ? "push" : "refresh"}. Sync mode was not changed for failed rows.`,
+                type: "error",
+              });
+              // If some rows failed, still try to switch sync mode for the ones that succeeded
+            }
+
+            // Now apply the sync mode change
+            setSourceSyncMode.mutate(
+              { mode: "live" },
+              {
+                onSuccess: (res) => {
+                  setSyncDialogResolving(false);
+                  setSyncDialogOpen(false);
+                  if ("error" in res) {
+                    setToast({ message: res.error || "Failed to update source sync mode.", type: "error" });
+                    return;
+                  }
+                  const resolvedCount = resolution === "push"
+                    ? (data as any).pushedCount
+                    : (data as any).refreshedCount;
+                  setToast({
+                    message: `${resolution === "push" ? "Pushed" : "Discarded"} edits for ${resolvedCount} row${resolvedCount === 1 ? "" : "s"}. Live sync enabled.`,
+                    type: "success",
+                  });
+                },
+                onError: (error) => {
+                  setSyncDialogResolving(false);
+                  setSyncDialogOpen(false);
+                  setToast({
+                    message: error instanceof Error ? error.message : "Failed to update source sync mode.",
+                    type: "error",
+                  });
+                },
+              }
+            );
+          } catch (err) {
+            setSyncDialogResolving(false);
+            setToast({
+              message: err instanceof Error ? err.message : "An error occurred while resolving edited rows.",
+              type: "error",
+            });
+          }
+        }}
+      />
       <BulkDeleteDialog
         open={deleteDialogOpen}
         rowCount={selectedRows.size}
@@ -1782,7 +1903,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
       )}
 
       {["list", "gallery", "calendar"].includes(viewType) && (
-        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-gray-500">
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-[var(--tertiary-foreground)]">
           This view type is coming soon.
         </div>
       )}

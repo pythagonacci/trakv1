@@ -3,6 +3,8 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import DashboardOverview from "./dashboard-overview";
 import { getServerUser } from "@/lib/auth/get-server-user";
 import { BlockComment } from "@/types/block-comment";
+import { getWorkspaceEverything } from "@/app/actions/everything-view";
+import { getDueDateEnd } from "@/lib/due-date";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -46,14 +48,14 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(5),
 
-    // Get open tasks from task items
+    // Get open tasks from task items — order by due_date so overdue/today/upcoming show in overview blocks
     supabase
       .from("task_items")
       .select(`
         id,
         title,
         status,
-        priority,
+        priorities,
         due_date,
         due_time,
         task_block_id,
@@ -69,8 +71,9 @@ export default async function DashboardPage() {
         )
       `)
       .eq("workspace_id", workspaceId)
+      .order("due_date", { ascending: true, nullsFirst: false })
       .order("updated_at", { ascending: false })
-      .limit(20),
+      .limit(100),
 
     // Get recently completed tasks (status = done, ordered by updated_at)
     supabase
@@ -152,6 +155,50 @@ export default async function DashboardPage() {
     ? aiInsightsResult.value.data
     : null;
 
+  // Items with due dates from entire workspace (tasks, timeline events, table rows, blocks) for Today/Upcoming/Past due blocks
+  let dueAwareItems: Array<{
+    id: string;
+    text: string;
+    projectName: string;
+    tabName: string;
+    projectId: string | null;
+    tabId: string | null;
+    priority: string | null;
+    dueDate: string;
+    sourceUrl: string;
+    type: string;
+  }> = [];
+  const everythingResult = await getWorkspaceEverything(workspaceId, { limit: 500 });
+  if (!("error" in everythingResult) && everythingResult.data.items.length > 0) {
+    const doneStatuses = new Set(["done", "complete", "completed"]);
+    for (const item of everythingResult.data.items) {
+      // Use end of range for bucketing (e.g. 10th–20th → categorize by 20th, not 10th)
+      const dueDateStr = getDueDateEnd(item.properties.due_date ?? null);
+      const status = (item.properties.status ?? "").toString().toLowerCase();
+      if (doneStatuses.has(status)) continue;
+      if (!dueDateStr) continue;
+      const dateOnly = dueDateStr.slice(0, 10);
+      if (!dateOnly || dateOnly.length < 10) continue;
+      dueAwareItems.push({
+        id: item.type === "task" ? `task-${item.id}` : item.id,
+        text: item.name,
+        projectName: item.source.projectName,
+        tabName: item.source.tabName,
+        projectId: item.source.projectId,
+        tabId: item.source.tabId,
+        priority: item.properties.priority ?? null,
+        dueDate: dateOnly,
+        sourceUrl: item.source.url,
+        type: item.type,
+      });
+    }
+    // Sort by due date then by updated
+    dueAwareItems.sort((a, b) => {
+      const c = a.dueDate.localeCompare(b.dueDate);
+      return c !== 0 ? c : 0;
+    });
+  }
+
   // Team updates: internal comments left by other teammates (exclude current user)
   const teamUpdates = commentBlocks
     .flatMap((block: any) => {
@@ -179,26 +226,29 @@ export default async function DashboardPage() {
     })
     .slice(0, 6);
 
-  // Extract uncompleted tasks from project blocks
+  // Extract uncompleted tasks from project blocks (no slice — pass all so today/overdue/upcoming blocks have data)
   const tasks = taskItems
     .filter((task: any) => {
       const status = typeof task.status === "string" ? task.status.toLowerCase() : "";
       const isDoneStatus = status === "done" || status === "complete" || status === "completed";
       return !isDoneStatus;
     })
-    .map((task: any) => ({
+    .map((task: any) => {
+      const taskPriorities = Array.isArray(task.priorities) ? task.priorities : [];
+      const firstPriority = taskPriorities[0]?.value ?? null;
+      return {
       id: `${task.task_block_id}-${task.id}`,
       text: task.title,
       projectName: task.tab?.project?.name || "Unknown",
       tabName: task.tab?.name || "Unknown",
       projectId: task.tab?.project?.id,
       tabId: task.tab?.id,
-      priority: task.priority,
-      dueDate: task.due_date,
-      dueTime: task.due_time,
+      priority: firstPriority,
+      dueDate: task.due_date ?? undefined,
+      dueTime: task.due_time ?? undefined,
       status: task.status ?? "todo",
-    }))
-    .slice(0, 10);
+      };
+    });
 
   const clientFeedback = commentBlocks
     .flatMap((block: any) => {
@@ -242,6 +292,7 @@ export default async function DashboardPage() {
       projects={projects}
       docs={docs}
       tasks={tasks}
+      dueAwareItems={dueAwareItems}
       workspaceId={workspaceId}
       clientFeedback={clientFeedback}
       teamUpdates={teamUpdates}

@@ -16,15 +16,6 @@ export interface WorkspaceAccessContext {
   workspaceId: string;
 }
 
-export interface PropertyDefinitionAccessContext {
-  supabase: SupabaseClient;
-  userId: string;
-  definition: {
-    id: string;
-    workspace_id: string;
-  };
-}
-
 /**
  * Ensures a user can act within a workspace (used for create/read flows).
  */
@@ -51,44 +42,6 @@ export async function requireWorkspaceAccessForProperties(
   }
 
   return { supabase, userId, workspaceId };
-}
-
-/**
- * Fetches property definition and ensures the requesting user belongs to its workspace.
- */
-export async function requirePropertyDefinitionAccess(
-  definitionId: string,
-  opts?: { authContext?: AuthContext }
-): Promise<PropertyDefinitionAccessContext | { error: string }> {
-  let supabase: SupabaseClient;
-  let userId: string;
-  if (opts?.authContext) {
-    supabase = opts.authContext.supabase;
-    userId = opts.authContext.userId;
-  } else {
-    const client = await createClient();
-    const user = await getAuthenticatedUser();
-    if (!user) return { error: "Unauthorized" };
-    supabase = client;
-    userId = user.id;
-  }
-
-  const { data: definition, error: defError } = await supabase
-    .from("property_definitions")
-    .select("id, workspace_id")
-    .eq("id", definitionId)
-    .maybeSingle();
-
-  if (defError || !definition) {
-    return { error: "Property definition not found" };
-  }
-
-  const membership = await checkWorkspaceMembership(definition.workspace_id, userId);
-  if (!membership) {
-    return { error: "Not a member of this workspace" };
-  }
-
-  return { supabase, userId, definition };
 }
 
 /**

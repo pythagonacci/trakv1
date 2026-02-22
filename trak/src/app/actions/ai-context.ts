@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import type { TaskItem } from "@/types/task";
 import type { Table, TableRow, TableField } from "@/types/table";
 import type { TimelineEvent } from "@/types/timeline";
@@ -13,6 +14,10 @@ import type { Doc } from "@/app/actions/doc";
 interface ContextResponse<T> {
   data: T | null;
   error: string | null;
+}
+
+function normalizeTimelinePrioritiesForContext(input: unknown): TimelineEvent["priorities"] {
+  return normalizeTimelinePriorities(input);
 }
 
 interface TaskWithContext {
@@ -100,7 +105,8 @@ interface ProjectWithContext {
     title: string;
     start_date: string;
     end_date: string;
-    status: string | null;
+    statuses: TimelineEvent["statuses"];
+    priorities: TimelineEvent["priorities"];
   }>;
 }
 
@@ -164,8 +170,12 @@ interface TimelineEventWithContext {
     | "title"
     | "start_date"
     | "end_date"
-    | "status"
+    | "statuses"
+    | "priorities"
     | "assignee_id"
+    | "source_entity_type"
+    | "source_entity_id"
+    | "source_sync_mode"
     | "progress"
     | "notes"
     | "color"
@@ -362,7 +372,7 @@ export async function getTaskWithContext(params: {
     const { data: task, error: taskError } = await supabase
       .from("task_items")
       .select(
-        "id, task_block_id, workspace_id, project_id, tab_id, title, status, priority, assignee_id, source_task_id, source_sync_mode, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
+        "id, task_block_id, workspace_id, project_id, tab_id, title, statuses, priorities, assignee_id, source_task_id, source_entity_type, source_entity_id, source_sync_mode, description, due_date, due_time, due_time_end, start_date, hide_icons, display_order, recurring_enabled, recurring_frequency, recurring_interval, created_by, updated_by, created_at, updated_at, task_assignees(assignee_id, assignee_name), task_tag_links(task_tags(id, name, color)), blocks(id, type, tab_id), tabs(id, name, project_id, projects(id, name, status, client_id, clients(id, name, company)))"
       )
       .eq("id", params.taskId)
       .eq("workspace_id", workspaceId)
@@ -379,20 +389,20 @@ export async function getTaskWithContext(params: {
 
     const assignees = Array.isArray(task.task_assignees)
       ? task.task_assignees.map((assignee: any) => ({
-          id: assignee.assignee_id,
-          name: assignee.assignee_name,
-        }))
+        id: assignee.assignee_id,
+        name: assignee.assignee_name,
+      }))
       : [];
 
     const tags = Array.isArray(task.task_tag_links)
       ? task.task_tag_links
-          .map((link: any) => link.task_tags)
-          .filter((tag: any) => Boolean(tag))
-          .map((tag: any) => ({
-            id: tag.id,
-            name: tag.name,
-            color: tag.color ?? null,
-          }))
+        .map((link: any) => link.task_tags)
+        .filter((tag: any) => Boolean(tag))
+        .map((tag: any) => ({
+          id: tag.id,
+          name: tag.name,
+          color: tag.color ?? null,
+        }))
       : [];
 
     const { data: references, error: referencesError } = await supabase
@@ -444,10 +454,10 @@ export async function getTaskWithContext(params: {
     const taskClient = firstOrNull(taskProject?.clients);
     const client = taskClient
       ? {
-          id: taskClient.id,
-          name: taskClient.name,
-          company: taskClient.company ?? null,
-        }
+        id: taskClient.id,
+        name: taskClient.name,
+        company: taskClient.company ?? null,
+      }
       : undefined;
 
     return {
@@ -459,11 +469,13 @@ export async function getTaskWithContext(params: {
           project_id: task.project_id,
           tab_id: task.tab_id,
           title: task.title,
-          status: task.status,
-          priority: task.priority,
+          statuses: Array.isArray(task.statuses) ? task.statuses : [],
+          priorities: Array.isArray(task.priorities) ? task.priorities : [],
           assignee_id: task.assignee_id ?? null,
           source_task_id: task.source_task_id ?? null,
-          source_sync_mode: task.source_sync_mode ?? "snapshot",
+          source_entity_type: task.source_entity_type ?? null,
+          source_entity_id: task.source_entity_id ?? null,
+          source_sync_mode: task.source_sync_mode ?? "live",
           description: task.description,
           due_date: task.due_date,
           due_time: task.due_time,
@@ -573,7 +585,7 @@ export async function getProjectWithContext(params: {
 
     const { data: taskRows, error: tasksError } = await supabase
       .from("task_items")
-      .select("status, due_date")
+      .select("statuses, due_date")
       .eq("workspace_id", workspaceId)
       .eq("project_id", params.projectId);
 
@@ -582,7 +594,12 @@ export async function getProjectWithContext(params: {
       return { data: null, error: tasksError.message };
     }
 
-    const taskSummary = buildTaskSummary(taskRows ?? []);
+    const taskSummary = buildTaskSummary(
+      (taskRows ?? []).map((row: any) => ({
+        status: Array.isArray(row.statuses) && row.statuses[0]?.value ? row.statuses[0].value : "todo",
+        due_date: row.due_date ?? null,
+      }))
+    );
 
     const { data: files, error: filesError } = await supabase
       .from("files")
@@ -599,7 +616,7 @@ export async function getProjectWithContext(params: {
 
     const { data: timelineEvents, error: timelineError } = await supabase
       .from("timeline_events")
-      .select("id, title, start_date, end_date, status, blocks!inner(tab_id, tabs!inner(project_id))")
+      .select("id, title, start_date, end_date, statuses, priorities, blocks!inner(tab_id, tabs!inner(project_id))")
       .eq("blocks.tabs.project_id", params.projectId)
       .limit(100);
 
@@ -642,7 +659,8 @@ export async function getProjectWithContext(params: {
           title: event.title,
           start_date: event.start_date,
           end_date: event.end_date,
-          status: event.status,
+          statuses: Array.isArray(event.statuses) ? event.statuses : [],
+          priorities: normalizeTimelinePrioritiesForContext(event.priorities),
         })),
       },
       error: null,
@@ -997,7 +1015,7 @@ export async function getTimelineEventWithContext(params: {
     const { data: event, error: eventError } = await supabase
       .from("timeline_events")
       .select(
-        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, assignee_id, progress, notes, color, is_milestone, created_at"
+        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, priorities, assignee_id, source_entity_type, source_entity_id, source_sync_mode, progress, notes, color, is_milestone, created_at"
       )
       .eq("id", params.eventId)
       .eq("workspace_id", workspaceId)
@@ -1061,6 +1079,8 @@ export async function getTimelineEventWithContext(params: {
       return { data: null, error: "Timeline block not found" };
     }
 
+    const priorities = normalizeTimelinePrioritiesForContext((event as any).priorities);
+
     return {
       data: {
         event: {
@@ -1070,8 +1090,12 @@ export async function getTimelineEventWithContext(params: {
           title: event.title,
           start_date: event.start_date,
           end_date: event.end_date,
-          status: event.status,
+          statuses: Array.isArray((event as any).statuses) ? (event as any).statuses : [],
+          priorities,
           assignee_id: event.assignee_id,
+          source_entity_type: event.source_entity_type ?? null,
+          source_entity_id: event.source_entity_id ?? null,
+          source_sync_mode: event.source_sync_mode ?? null,
           progress: event.progress,
           notes: event.notes,
           color: event.color,

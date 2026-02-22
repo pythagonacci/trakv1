@@ -14,7 +14,20 @@ export interface ToolParameter {
   description: string;
   required?: boolean;
   enum?: string[];
-  items?: { type: string; enum?: string[] };
+  items?: {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string;
+    enum?: string[];
+    items?: {
+      type: "string" | "number" | "boolean" | "object" | "array";
+      description?: string;
+      enum?: string[];
+      properties?: Record<string, ToolParameter>;
+      required?: string[];
+    };
+    properties?: Record<string, ToolParameter>;
+    required?: string[];
+  };
   properties?: Record<string, ToolParameter>;
 }
 
@@ -377,7 +390,6 @@ const searchTools: ToolDefinition[] = [
       tagId: { type: "string", description: "Filter by tag ID" },
       assigneeName: { type: "string", description: "Filter by assignee name" },
       assigneeId: { type: "string", description: "Filter by assignee ID" },
-      includeInherited: { type: "boolean", description: "Include inherited properties via entity links" },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],
@@ -488,12 +500,47 @@ const taskActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Task title" },
       assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). Do NOT look up IDs. System resolves names automatically.", items: { type: "string" } },
       tags: { type: "array", description: "List of tag names.", items: { type: "string" } },
-      status: { type: "string", description: "Task status", enum: ["todo", "in-progress", "blocked", "done"] },
-      priority: { type: "string", description: "Task priority", enum: ["low", "medium", "high", "urgent"] },
+      status: { type: "string", description: "Task status using canonical IDs. Use this only when there is one status field.", enum: ["todo", "in-progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+      priority: { type: "string", description: "Single task priority (use only when adding one priority with default field name 'Priority').", enum: ["low", "medium", "high", "urgent"] },
+      priorities: {
+        type: "array",
+        description: "Named priorities array for multi-priority tasks. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+            value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       description: { type: "string", description: "Task description" },
       dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
       dueTime: { type: "string", description: "Due time (HH:MM)" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
+      source_entity_type: {
+        type: "string",
+        description: "Optional source entity type when creating from an existing entity.",
+        enum: ["task", "timeline_event", "table_row", "block"],
+      },
+      source_entity_id: { type: "string", description: "Optional source entity UUID when creating from an existing entity." },
+      source_sync_mode: {
+        type: "string",
+        description: "Optional source sync mode for source-linked tasks (defaults to snapshot).",
+        enum: ["snapshot", "live"],
+      },
     },
     requiredParams: ["title"],
   },
@@ -509,7 +556,31 @@ const taskActionTools: ToolDefinition[] = [
       lookupName: { type: "string", description: "Find task by title to update (use this if you don't have the ID yet)" },
       title: { type: "string", description: "New title" },
       status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
+      priorities: {
+        type: "array",
+        description: "Named priorities array for multi-priority tasks. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+            value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       description: { type: "string", description: "New description (set to null to clear)" },
       dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
       dueTime: { type: "string", description: "New due time (HH:MM)" },
@@ -531,7 +602,31 @@ const taskActionTools: ToolDefinition[] = [
         properties: {
           title: { type: "string", description: "New title" },
           status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
+          statuses: {
+            type: "array",
+            description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+            items: {
+              type: "object",
+              properties: {
+                field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+                value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+              },
+              required: ["field_name", "value"],
+            },
+          },
           priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
+          priorities: {
+            type: "array",
+            description: "Named priorities array for multi-priority tasks. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+            items: {
+              type: "object",
+              properties: {
+                field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+                value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+              },
+              required: ["field_name", "value"],
+            },
+          },
           description: { type: "string", description: "New description (set to null to clear)" },
           dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
           dueTime: { type: "string", description: "New due time (HH:MM)" },
@@ -574,10 +669,10 @@ const taskActionTools: ToolDefinition[] = [
   {
     name: "createTaskBoardFromTasks",
     description:
-      "CREATE a new TASK BOARD from existing tasks. This creates a NEW task block in a tab, duplicates the provided tasks into it (leaving originals untouched), and sets the block to board view.\n\n" +
-      "Default behavior: duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
-      "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.\n\n" +
-      "Defaults: viewMode=board, boardGroupBy=status.",
+      "CREATE a new TASK BLOCK from existing tasks. This creates a NEW task block in a tab and duplicates the provided tasks into it (leaving originals untouched).\n\n" +
+      "Default behavior: renders as a LIST. Duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
+      "⚠️ Do NOT pass viewMode unless the user explicitly asks for a board or grouped view. Default is list view.\n\n" +
+      "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.",
     category: "task",
     parameters: {
       tabId: { type: "string", description: "Tab to create the task board in (defaults to current tab if omitted)" },
@@ -588,7 +683,7 @@ const taskActionTools: ToolDefinition[] = [
       sourceProjectId: { type: "string", description: "Optional project scope for source tasks" },
       sourceTabId: { type: "string", description: "Optional tab scope for source tasks" },
       limit: { type: "number", description: "Max tasks to include when using assignee filters (default 500)" },
-      viewMode: { type: "string", enum: ["board", "list"], description: "Task block view mode (default board)" },
+      viewMode: { type: "string", enum: ["board", "list"], description: "OMIT for list view (default). Only pass 'board' if user explicitly requests a board or grouped view." },
       boardGroupBy: {
         type: "string",
         enum: ["status", "priority", "assignee", "dueDate", "tags"],
@@ -623,8 +718,68 @@ const taskActionTools: ToolDefinition[] = [
       taskBlockName: { type: "string", description: "Optional: Target block name (e.g. 'Sprint Board'). ONLY use if the user explicitly specifies a different task block. By default, tasks are created in the current tab/project." },
       tasks: {
         type: "array",
-        description: "Array of task objects to create. Each must have 'title' (required). Optional: assignees (array of names), tags, status, priority, description, dueDate, dueTime, startDate.",
-        items: { type: "object" },
+        description: "Array of task objects to create. Each task object supports title, assignees, tags, status, priority, description, dueDate, dueTime, startDate, and optional source metadata.",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Task title" },
+            assignees: {
+              type: "array",
+              description: "Optional list of assignee NAMES (e.g. ['Amna']).",
+              items: { type: "string" },
+            },
+            tags: {
+              type: "array",
+              description: "Optional list of tag names.",
+              items: { type: "string" },
+            },
+            status: { type: "string", description: "Optional single task status", enum: ["todo", "in-progress", "blocked", "done"] },
+            statuses: {
+              type: "array",
+              description: "Optional named statuses array for multi-status tasks. Each entry must be { field_name, value }. If this is provided, it should be used instead of `status`.",
+              items: {
+                type: "object",
+                properties: {
+                  field_name: { type: "string", description: "Status field display name (e.g., Status)." },
+                  value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+                },
+                required: ["field_name", "value"],
+              },
+            },
+            priority: { type: "string", description: "Optional single task priority", enum: ["low", "medium", "high", "urgent"] },
+            priorities: {
+              type: "array",
+              description: "Optional named priorities array for multi-priority tasks. Each entry must be { field_name, value }. If this is provided, it should be used instead of `priority`.",
+              items: {
+                type: "object",
+                properties: {
+                  field_name: { type: "string", description: "Priority field display name (e.g., Priority)." },
+                  value: { type: "string", description: "Priority value.", enum: ["low", "medium", "high", "urgent"] },
+                },
+                required: ["field_name", "value"],
+              },
+            },
+            description: { type: "string", description: "Optional task description" },
+            dueDate: { type: "string", description: "Optional due date (YYYY-MM-DD)" },
+            dueTime: { type: "string", description: "Optional due time (HH:MM)" },
+            startDate: { type: "string", description: "Optional start date (YYYY-MM-DD)" },
+            source_entity_type: {
+              type: "string",
+              description: "Optional source entity type when creating from an existing entity.",
+              enum: ["task", "timeline_event", "table_row", "block"],
+            },
+            source_entity_id: {
+              type: "string",
+              description: "Optional source entity UUID when creating from an existing entity.",
+            },
+            source_sync_mode: {
+              type: "string",
+              description: "Optional source sync mode for source-linked tasks (defaults to snapshot).",
+              enum: ["snapshot", "live"],
+            },
+          },
+          required: ["title"],
+        },
       },
     },
     requiredParams: ["tasks"],
@@ -1055,9 +1210,10 @@ const tableActionTools: ToolDefinition[] = [
       "- Status: 'todo', 'in_progress', 'done', 'blocked'\n" +
       "- Use these canonical IDs or display labels ('Low', 'Medium', 'High', 'Urgent', etc.)\n\n" +
       "Optional per-row source metadata for workflow copies:\n" +
-      "- source_entity_type: 'task' | 'timeline_event'\n" +
+      "- source_entity_type: 'task' | 'timeline_event' | 'table_row' | 'block'\n" +
       "- source_entity_id: source UUID\n" +
       "- source_sync_mode: 'snapshot' | 'live'\n\n" +
+      "SUBTASKS: When inserting tasks that have subtasks, each subtask must be its OWN row with Subtask=true. Parent row has Subtask=false. Place subtask rows immediately after their parent. Do NOT put multiple subtask names in one cell.\n\n" +
       "Example: [{ data: { 'Task': 'Fix bug', 'Priority': 'high', 'Status': 'todo' } }, { data: { 'Task': 'Write docs', 'Priority': 'medium', 'Status': 'in_progress' } }]\n\n" +
       "Returns: Array of created row objects with rowIds.",
     category: "table",
@@ -1066,7 +1222,7 @@ const tableActionTools: ToolDefinition[] = [
       tableName: { type: "string", description: "Target Table Name (e.g. 'Q1 Goals'). System finds fuzzy match." },
       rows: {
         type: "array",
-        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },
@@ -1155,26 +1311,33 @@ const tableActionTools: ToolDefinition[] = [
     name: "createTableFull",
     description:
       "🚨 PRIMARY TABLE CREATION TOOL - ALWAYS USE THIS FOR ANY TABLE CREATION 🚨\n\n" +
-      "★ CREATE TABLE with schema + data in ONE call ★\n\n" +
+      "★ CREATE TABLE with schema (+ optional initial rows) ★\n\n" +
       "THIS IS THE ONLY TOOL YOU SHOULD USE FOR TABLE CREATION. Do NOT use createTable.\n\n" +
       "Use this for:\n" +
-      "- Creating a table with columns AND initial rows\n" +
+      "- Creating a table implementation (schema first)\n" +
       "- Creating a table with just columns (no rows)\n" +
       "- Creating a table with just a title (no columns or rows)\n" +
-      "- ANY table creation scenario\n\n" +
-      "Example: 'Create a table with columns Name, Email, Status and add 3 rows'\n" +
-      "Example: 'Create a table called Q1 Targets'\n\n" +
-      "⚠️ SUPER TOOL: This is 3-5x faster than createTable + bulkCreateFields + bulkInsertRows sequence.\n\n" +
+      "- Creating a table with a VERY SMALL number of initial rows (1-2 max)\n\n" +
+      "Example: 'Create a table with columns Name, Email'\n" +
+      "Example: 'Create a table of 50 states' -> Call createTableFull (schema) then bulkInsertRows (data)\n\n" +
+      "⚠️ RELIABILITY WARNING: Do NOT put many rows in this call. It will fail.\n" +
+      "1. Use createTableFull to create the table definition (columns)\n" +
+      "2. Use bulkInsertRows to add the actual data rows in subsequent calls\n\n" +
       "🚨 CRITICAL: When creating tables FROM EXISTING DATA (tasks, timeline events, etc.):\n" +
       "- Status → type: 'status' (NOT text). Priority → type: 'priority' (NOT text)\n" +
       "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
       "- Include ALL source fields (title, status, priority, due date, assignee) - do not omit any\n" +
       "- PRESERVE field types - DO NOT convert to text!\n\n" +
-      "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
-      "For large datasets, keep arguments compact:\n" +
-      "- Put schema + initial rows in createTableFull\n" +
-      "- Then use bulkInsertRows for remaining rows in batches (~20-25 rows per call)\n\n" +
-      "Auto-creates table → creates fields → inserts rows in one atomic operation.",
+      "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, searchBlocks, getEntityById table rows, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result or row), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Valid source_entity_type: \"task\", \"timeline_event\", \"table_row\", \"block\". For rows from another table use source_entity_type \"table_row\". For blocks use \"block\". Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
+      "🚨 TABLE SUBTASKS (when tasks have subtasks): DO NOT put subtask names in a text/long_text column! Tables have native subtask support:\n" +
+      "- Add a field { name: \"Subtask\", type: \"subtask\" } (or type \"checkbox\") to the schema.\n" +
+      "- Each subtask is a SEPARATE ROW. Parent task = one row with Subtask=false. Each subtask = its own row with Subtask=true, placed directly under the parent.\n" +
+      "- Order matters: Parent row first, then its subtask rows (Subtask=true), then next parent, etc.\n" +
+      "- Each subtask row has the same columns (Title, Status, Priority, etc.) with the subtask's own values — fill all fields as for a regular row.\n" +
+      "- Example: Task \"Build feature\" with subtasks \"Design\" and \"Implement\" → 3 rows: row1 {Title:\"Build feature\", Subtask:false}, row2 {Title:\"Design\", Subtask:true}, row3 {Title:\"Implement\", Subtask:true}.\n" +
+      "- NEVER create a \"Subtasks\" or \"Subtask\" text column that lists names in one cell.\n\n" +
+      "Auto-creates table → creates fields → (optionally) inserts initial rows.\n\n" +
+      "⚠️ IMPORTANT: This tool CREATES ALL FIELDS AUTOMATICALLY. Do NOT call bulkCreateFields after createTableFull - the fields are already created!",
     category: "table",
     parameters: {
       workspaceId: { type: "string", description: "The workspace ID. Get from current context." },
@@ -1189,7 +1352,7 @@ const tableActionTools: ToolDefinition[] = [
       },
       rows: {
         type: "array",
-        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },
@@ -1268,7 +1431,8 @@ const timelineActionTools: ToolDefinition[] = [
     name: "createTimelineEvent",
     description: "CREATE a new event in a timeline block. ⚠️ SMART TOOL: Do NOT search for timeline block IDs. Just pass names directly.\n\n" +
       "Auto-Context: Defaults to current view. Provide 'timelineBlockName' (e.g. 'Project Timeline') to target specific blocks.\n" +
-      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
+      "Priority: use `priorities` with { field_name, value }. Default field_name is 'Priority'. Use the field name the user specifies (e.g. 'Execution Priority', 'Refactor').",
     category: "timeline",
     parameters: {
       timelineBlockId: { type: "string", description: "Optional: timeline block ID. PREFER 'timelineBlockName' for natural language." },
@@ -1276,29 +1440,128 @@ const timelineActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Event title" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
-      status: { type: "string", description: "Event status using canonical IDs", enum: ["todo", "in_progress", "blocked", "done"] },
-      priority: { type: "string", description: "Event priority using canonical IDs (optional)", enum: ["low", "medium", "high", "urgent"] },
+      status: { type: "string", description: "Event status using canonical IDs. Use this only when there is one status field.", enum: ["todo", "in_progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description:
+          "Named statuses array for multi-status timeline events. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: {
+              type: "string",
+              description: "Status value.",
+              enum: ["todo", "in_progress", "blocked", "done"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+      priority: {
+        type: "string",
+        description: "Single event priority (use when adding one priority with default field name 'Priority').",
+        enum: ["low", "medium", "high", "urgent"],
+      },
+      priorities: {
+        type: "array",
+        description:
+          "Named priorities array for multi-priority timeline events. Each entry must be { field_name, value } where value is low|medium|high|urgent. If this is provided, it should be used instead of `priority`.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+            value: {
+              type: "string",
+              description: "Priority value.",
+              enum: ["low", "medium", "high", "urgent"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       progress: { type: "number", description: "Progress percentage (0-100)" },
       notes: { type: "string", description: "Event notes" },
       color: { type: "string", description: "Event color (hex)" },
       isMilestone: { type: "boolean", description: "Whether this is a milestone" },
       assigneeId: { type: "string", description: "Assignee user ID. PREFER 'assigneeName'." },
       assigneeName: { type: "string", description: "Assignee Name (e.g. 'Amna'). System resolves to ID." },
+      source_entity_type: {
+        type: "string",
+        description: "Optional source entity type when creating from an existing entity.",
+        enum: ["task", "timeline_event", "table_row", "block"],
+      },
+      source_entity_id: { type: "string", description: "Optional source entity UUID when creating from an existing entity." },
+      source_sync_mode: {
+        type: "string",
+        description: "Optional source sync mode for source-linked events (defaults to snapshot).",
+        enum: ["snapshot", "live"],
+      },
+      sourceEntityType: {
+        type: "string",
+        description: "CamelCase alias for source_entity_type.",
+        enum: ["task", "timeline_event", "table_row", "block"],
+      },
+      sourceEntityId: { type: "string", description: "CamelCase alias for source_entity_id." },
+      sourceSyncMode: {
+        type: "string",
+        description: "CamelCase alias for source_sync_mode.",
+        enum: ["snapshot", "live"],
+      },
     },
     requiredParams: ["title", "startDate", "endDate"],
   },
   {
     name: "updateTimelineEvent",
     description: "UPDATE a timeline event. ⚠️ SUPER TOOL: Use this when updating multiple properties on the same event (e.g., 'change dates, status, and assignee'). For single-property edits, atomic tools may be faster.\n\n" +
-      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.",
+      "Assignees: Pass NAMES (e.g. 'Amna') directly. The server resolves them instantly. Do NOT call searchWorkspaceMembers first.\n" +
+      "Priority: use `priorities` with { field_name, value }. Default field_name is 'Priority'. Use the field name the user specifies.",
     category: "timeline",
     parameters: {
       eventId: { type: "string", description: "The event ID" },
       title: { type: "string", description: "New title" },
       startDate: { type: "string", description: "New start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "New end date (YYYY-MM-DD)" },
-      status: { type: "string", description: "New status using canonical IDs", enum: ["todo", "in_progress", "blocked", "done"] },
-      priority: { type: "string", description: "New priority using canonical IDs (optional)", enum: ["low", "medium", "high", "urgent"] },
+      status: { type: "string", description: "New status using canonical IDs. Use only when updating one status field.", enum: ["todo", "in_progress", "blocked", "done"] },
+      statuses: {
+        type: "array",
+        description:
+          "Named statuses array for multi-status updates. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
+            value: {
+              type: "string",
+              description: "Status value.",
+              enum: ["todo", "in_progress", "blocked", "done"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+      priority: {
+        type: "string",
+        description: "New priority value for default 'Priority' field (use when updating one priority with default name).",
+        enum: ["low", "medium", "high", "urgent"],
+      },
+      priorities: {
+        type: "array",
+        description:
+          "Named priorities array for multi-priority updates. Each entry must be { field_name, value } where value is low|medium|high|urgent.",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Priority field display name. Default is 'Priority' when user says 'add priority'. Use user's explicit name when specified (e.g. 'Execution Priority', 'Refactor')." },
+            value: {
+              type: "string",
+              description: "Priority value.",
+              enum: ["low", "medium", "high", "urgent"],
+            },
+          },
+          required: ["field_name", "value"],
+        },
+      },
       progress: { type: "number", description: "New progress (0-100)" },
       notes: { type: "string", description: "New notes" },
       color: { type: "string", description: "New color (hex)" },
@@ -1346,70 +1609,30 @@ const timelineActionTools: ToolDefinition[] = [
 
 const propertyActionTools: ToolDefinition[] = [
   {
-    name: "createPropertyDefinition",
-    description: "Create a new property definition for the workspace. Properties can be used on tasks, blocks, timeline events, and table rows.",
-    category: "property",
-    parameters: {
-      name: { type: "string", description: "Property name" },
-      type: {
-        type: "string",
-        description: "Property type",
-        enum: ["text", "number", "date", "select", "multi_select", "person", "checkbox", "subtask", "url", "email"],
-      },
-      options: {
-        type: "array",
-        description: "For select/multi_select: array of option objects with id, label, and optional color",
-        items: { type: "object" },
-      },
-    },
-    requiredParams: ["name", "type"],
-  },
-  {
-    name: "updatePropertyDefinition",
-    description: "Update a property definition's name or options.",
-    category: "property",
-    parameters: {
-      definitionId: { type: "string", description: "The property definition ID" },
-      name: { type: "string", description: "New name" },
-      options: { type: "array", description: "New options (for select types)", items: { type: "object" } },
-    },
-    requiredParams: ["definitionId"],
-  },
-  {
-    name: "deletePropertyDefinition",
-    description: "Delete a property definition. This removes the property from all entities.",
-    category: "property",
-    parameters: {
-      definitionId: { type: "string", description: "The property definition ID to delete" },
-    },
-    requiredParams: ["definitionId"],
-  },
-  {
     name: "setEntityProperty",
     description:
       "Set a property value on an entity (task, subtask, block, timeline_event, table_row). " +
-      "Provide EITHER propertyDefinitionId+value (for custom properties) OR propertyName+propertyValue (for fixed properties like status/priority/assignees/due_date/tags).",
+      "Provide fieldType (status/priority/assignee/due_date/tags) and fieldName (the display name) plus value.",
     category: "property",
     parameters: {
       entityType: { type: "string", description: "Entity type", enum: ["task", "subtask", "block", "timeline_event", "table_row"] },
       entityId: { type: "string", description: "The entity ID" },
-      propertyDefinitionId: { type: "string", description: "The property definition ID" },
+      fieldType: { type: "string", description: "Property type: status, priority, assignee, due_date, or tags", enum: ["status", "priority", "assignee", "due_date", "tags"] },
+      fieldName: { type: "string", description: "Display name for the property (e.g. 'Status', 'Priority', 'Assignee')" },
       value: { type: "object", description: "The value to set (format depends on property type)" },
-      propertyName: { type: "string", description: "Fixed property name (status, priority, assignee, due_date, tags)" },
-      propertyValue: { type: "object", description: "Fixed property value (format depends on property)" },
     },
-    requiredParams: ["entityType", "entityId"],
+    requiredParams: ["entityType", "entityId", "fieldType", "fieldName", "value"],
   },
   {
     name: "removeEntityProperty",
-    description: "Remove a property from an entity.",
+    description: "Remove a property from an entity by field name.",
     category: "property",
     parameters: {
       entityType: { type: "string", description: "Entity type" },
       entityId: { type: "string", description: "The entity ID" },
-      propertyDefinitionId: { type: "string", description: "The property definition ID to remove" },
+      fieldName: { type: "string", description: "The field name to remove" },
     },
-    requiredParams: ["entityType", "entityId", "propertyDefinitionId"],
+    requiredParams: ["entityType", "entityId", "fieldName"],
   },
 ];
 
@@ -1818,9 +2041,6 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   doc: pickTools(["searchDocs", "searchDocContent", "createDoc", "updateDoc", "archiveDoc", "deleteDoc"]),
   client: pickTools(["searchClients", "createClient", "updateClient", "deleteClient"]),
   property: pickTools([
-    "createPropertyDefinition",
-    "updatePropertyDefinition",
-    "deletePropertyDefinition",
     "setEntityProperty",
     "removeEntityProperty",
   ]),

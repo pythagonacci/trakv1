@@ -2,16 +2,18 @@
 
 import { requireTaskBlockAccess, requireWorkspaceAccessForTasks } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { TaskItem } from "@/types/task";
+import type { TaskItem, TaskItemPriority } from "@/types/task";
 
 type ActionResult<T> = { data: T } | { error: string };
 
 export interface TaskItemView {
   id: string;
   text: string;
-  status: "todo" | "in-progress" | "done";
-  priority?: "urgent" | "high" | "medium" | "low" | "none";
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: TaskItemPriority[];
   sourceTaskId?: string | null;
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
+  sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   assignees?: string[];
   dueDate?: string;
@@ -149,29 +151,39 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     assigneesByTask.set(assignee.task_id, list);
   }
 
-  const result = (items as TaskItem[]).map((item) => ({
-    id: item.id,
-    text: item.title,
-    status: item.status,
-    priority: item.priority,
-    sourceTaskId: item.source_task_id ?? null,
-    sourceSyncMode: item.source_sync_mode ?? "snapshot",
-    assignees: assigneesByTask.get(item.id) || [],
-    dueDate: item.due_date || undefined,
-    dueTime: item.due_time ? item.due_time.slice(0, 5) : undefined,
-    dueTimeEnd: item.due_time_end ? item.due_time_end.slice(0, 5) : undefined,
-    startDate: item.start_date || undefined,
-    tags: tagsByTask.get(item.id) || [],
-    description: item.description || undefined,
-    subtasks: subtasksByTask.get(item.id) || [],
-    comments: commentsByTask.get(item.id) || [],
-    recurring: {
-      enabled: item.recurring_enabled,
-      frequency: item.recurring_frequency,
-      interval: item.recurring_interval,
-    },
-    hideIcons: item.hide_icons,
-  }));
+  const result = (items as TaskItem[]).map((item) => {
+    const priorities = Array.isArray((item as any).priorities)
+      ? ((item as any).priorities as TaskItemPriority[])
+      : [];
+    const statuses = Array.isArray((item as any).statuses)
+      ? ((item as any).statuses as any[])
+      : [];
+    return {
+      id: item.id,
+      text: item.title,
+      statuses,
+      priorities,
+      sourceTaskId: item.source_task_id ?? null,
+      sourceEntityType: (item.source_entity_type as "task" | "timeline_event" | "table_row" | null) ?? null,
+      sourceEntityId: item.source_entity_id ?? null,
+      sourceSyncMode: item.source_sync_mode ?? "live",
+      assignees: assigneesByTask.get(item.id) || [],
+      dueDate: item.due_date || undefined,
+      dueTime: item.due_time ? item.due_time.slice(0, 5) : undefined,
+      dueTimeEnd: item.due_time_end ? item.due_time_end.slice(0, 5) : undefined,
+      startDate: item.start_date || undefined,
+      tags: tagsByTask.get(item.id) || [],
+      description: item.description || undefined,
+      subtasks: subtasksByTask.get(item.id) || [],
+      comments: commentsByTask.get(item.id) || [],
+      recurring: {
+        enabled: item.recurring_enabled,
+        frequency: item.recurring_frequency,
+        interval: item.recurring_interval,
+      },
+      hideIcons: item.hide_icons,
+    };
+  });
 
   return { data: result };
 }
@@ -185,6 +197,7 @@ export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: 
     .from("task_items")
     .select("*")
     .eq("workspace_id", workspaceId)
+    .is("source_entity_id", null)
     .is("source_task_id", null)
     .not("due_date", "is", null)
     .order("updated_at", { ascending: false });

@@ -5,6 +5,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import type { AuthContext } from "@/lib/auth-context";
 import { queryEntities } from "@/app/actions/properties/query-actions";
+import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import type { QueryEntitiesParams, PropertyFilter, EntityReference } from "@/types/properties";
 
 // ============================================================================
@@ -94,7 +95,7 @@ function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function normalizeStatusValue(value: string | null): string | null {
+function normalizeStatusValue(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = value.toLowerCase().trim();
   if (normalized === "in-progress" || normalized === "in progress" || normalized === "in_progress") return "in_progress";
@@ -104,11 +105,33 @@ function normalizeStatusValue(value: string | null): string | null {
   return value;
 }
 
-function normalizePriorityValue(value: string | null): string | null {
+function normalizePriorityValue(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = value.toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (["low", "medium", "high", "urgent"].includes(normalized)) return normalized;
   return value;
+}
+
+function normalizeTaskStatusesArray(value: unknown): Array<{ field_name: string; value: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((e): e is { field_name?: string; value?: string } => e && typeof e === "object" && "field_name" in e && "value" in e)
+    .map((e) => ({ field_name: String(e.field_name ?? "Status"), value: normalizeStatusValue(e.value as string) ?? String(e.value ?? "") }))
+    .filter((e) => e.value.length > 0);
+}
+
+function normalizeTaskPrioritiesArray(value: unknown): Array<{ field_name: string; value: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((e): e is { field_name?: string; value?: string } => e && typeof e === "object" && "field_name" in e && "value" in e)
+    .map((e) => ({ field_name: String(e.field_name ?? "Priority"), value: normalizePriorityValue(e.value as string) ?? String(e.value ?? "") }))
+    .filter((e) => e.value.length > 0);
+}
+
+function normalizeNamedTimelinePriorities(
+  priorities: unknown
+): Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }> {
+  return normalizeTimelinePriorities(priorities);
 }
 
 function normalizeDateValue(value: unknown): string | null {
@@ -163,8 +186,8 @@ function normalizeTagsValue(value: unknown): Array<{ id: string; name: string; c
 interface TaskResult {
   id: string;
   title: string;
-  status: string;
-  priority: string | null;
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: Array<{ field_name: string; value: string }>;
   description: string | null;
   due_date: string | null;
   start_date: string | null;
@@ -342,7 +365,8 @@ interface TimelineEventResult {
   title: string;
   start_date: string;
   end_date: string;
-  status: string | null;
+  statuses: Array<{ field_name: string; value: string }>;
+  priorities: Array<{ field_name: string; value: string }>;
   progress: number;
   notes: string | null;
   color: string | null;
@@ -420,15 +444,6 @@ interface TagResult {
   created_at: string | null;
 }
 
-interface PropertyDefinitionResult {
-  id: string;
-  name: string;
-  type: string;
-  options: unknown;
-  workspace_id: string;
-  created_at: string;
-}
-
 interface EntityLinkResult {
   id: string;
   source_entity_type: string;
@@ -443,9 +458,8 @@ interface EntityPropertyResult {
   id: string;
   entity_type: string;
   entity_id: string;
-  property_definition_id: string;
-  property_name: string;
-  property_type: string;
+  field_name: string;
+  field_type: string;
   value: unknown;
   workspace_id: string;
   created_at: string;
@@ -576,11 +590,62 @@ function escapePostgrestOrValue(value: string): string {
 }
 
 /**
+ * Common stop words to exclude when tokenizing search text.
+ * These are too generic to produce meaningful matches individually.
+ */
+const SEARCH_STOP_WORDS = new Set([
+  "the", "a", "an", "in", "on", "at", "to", "for", "of", "is", "are",
+  "was", "were", "be", "been", "we", "our", "my", "it", "its", "and",
+  "or", "but", "not", "no", "do", "did", "has", "have", "had", "will",
+  "would", "could", "should", "can", "may", "might", "what", "which",
+  "who", "how", "when", "where", "why", "this", "that", "these", "those",
+  "with", "from", "about", "into", "through", "during", "before", "after",
+  "above", "below", "between", "up", "down", "out", "off", "over", "under",
+  "any", "all", "each", "every", "some", "such", "than",
+]);
+
+/**
+ * Tokenizes a search string into meaningful individual words.
+ * Filters out stop words and very short tokens (< 2 chars).
+ * Returns the original text plus individual words for multi-word input.
+ */
+function tokenizeSearchText(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const words = trimmed.split(/\s+/).filter(
+    (w) => w.length >= 2 && !SEARCH_STOP_WORDS.has(w.toLowerCase())
+  );
+
+  // Single word or no meaningful words after filtering: return original text
+  if (words.length <= 1) return [trimmed];
+
+  // Multi-word: include the full phrase (for exact matches) plus individual words
+  return [trimmed, ...words];
+}
+
+/**
  * Builds a safe OR expression for ilike across multiple columns.
+ * For multi-word text, tokenizes into individual words so that any
+ * single word match is sufficient (e.g. "mountain climbing" matches
+ * a title containing just "mountain").
  */
 function buildOrIlikeFilter(columns: string[], text: string): string {
-  const pattern = escapePostgrestOrValue(`%${text}%`);
-  return columns.map((column) => `${column}.ilike.${pattern}`).join(",");
+  const patterns = tokenizeSearchText(text);
+  if (patterns.length === 0) {
+    // Fallback: use original text as-is
+    const pattern = escapePostgrestOrValue(`%${text}%`);
+    return columns.map((column) => `${column}.ilike.${pattern}`).join(",");
+  }
+
+  const conditions: string[] = [];
+  for (const p of patterns) {
+    const escaped = escapePostgrestOrValue(`%${p}%`);
+    for (const column of columns) {
+      conditions.push(`${column}.ilike.${escaped}`);
+    }
+  }
+  return conditions.join(",");
 }
 
 /**
@@ -627,14 +692,6 @@ function applyDateFilter<T extends { gte: (col: string, val: string) => T; lte: 
 // ============================================================================
 
 /**
- * Property definition info with ID and type.
- */
-interface PropertyDefInfo {
-  id: string;
-  type: string;
-}
-
-/**
  * Enriched property data for an entity.
  */
 interface EnrichedProperty {
@@ -645,42 +702,11 @@ interface EnrichedProperty {
 }
 
 /**
- * Gets property definition IDs for common task properties in the workspace.
- * Returns a Map of property name → { id, type }.
- */
-async function getPropertyDefinitionIds(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  workspaceId: string
-): Promise<Map<string, PropertyDefInfo>> {
-  // Query ALL property definitions to find matching names (case-insensitive)
-  const { data, error } = await supabase
-    .from("property_definitions")
-    .select("id, name, type")
-    .eq("workspace_id", workspaceId);
-
-  if (error) {
-    console.error("[getPropertyDefinitionIds] Error:", error);
-    return new Map();
-  }
-
-  // Map by lowercase name for case-insensitive matching
-  const result = new Map<string, PropertyDefInfo>();
-  for (const p of data ?? []) {
-    // Store by original name
-    result.set(p.name, { id: p.id, type: p.type });
-    // Also store by lowercase for flexible lookup
-    result.set(p.name.toLowerCase(), { id: p.id, type: p.type });
-  }
-
-  return result;
-}
-
-/**
  * Fetches entity IDs that match a property filter.
  * Uses fetch-and-filter approach for reliability with JSONB data.
  *
  * @param entityType - The entity type to filter (task, block, timeline_event)
- * @param propertyDefId - The property definition ID to filter on
+ * @param fieldType - The property field type to filter on (e.g. "status", "priority", "assignee")
  * @param filterType - The type of filter: 'id' for exact ID match, 'name' for fuzzy name match
  * @param filterValue - The value to filter by (ID or name string)
  */
@@ -688,17 +714,17 @@ async function getEntitiesWithPropertyFilter(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
   entityType: "task" | "subtask" | "block" | "timeline_event",
-  propertyDefId: string,
+  fieldType: string,
   filterType: "id" | "name",
   filterValue: string | string[]
 ): Promise<string[]> {
-  // Fetch all entity_properties with this property definition
+  // Fetch all entity_properties with this field type
   const { data, error } = await supabase
     .from("entity_properties")
     .select("entity_id, value")
     .eq("workspace_id", workspaceId)
     .eq("entity_type", entityType)
-    .eq("property_definition_id", propertyDefId);
+    .eq("field_type", fieldType);
 
   if (error) {
     console.error("[getEntitiesWithPropertyFilter] Error:", error);
@@ -810,7 +836,7 @@ async function getEntitiesWithDatePropertyFilter(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
   entityType: "task" | "block" | "timeline_event",
-  propertyDefId: string,
+  fieldType: string,
   filter: DateFilter
 ): Promise<string[]> {
   const { data, error } = await supabase
@@ -818,7 +844,7 @@ async function getEntitiesWithDatePropertyFilter(
     .select("entity_id, value")
     .eq("workspace_id", workspaceId)
     .eq("entity_type", entityType)
-    .eq("property_definition_id", propertyDefId);
+    .eq("field_type", fieldType);
 
   if (error) {
     console.error("[getEntitiesWithDatePropertyFilter] Error:", error);
@@ -869,7 +895,7 @@ async function enrichEntitiesWithProperties(
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("entity_id, property_definition_id, value, property_definitions(name, type)")
+    .select("entity_id, id, field_name, field_type, value")
     .eq("workspace_id", workspaceId)
     .eq("entity_type", entityType)
     .in("entity_id", entityIds);
@@ -883,15 +909,10 @@ async function enrichEntitiesWithProperties(
   const result = new Map<string, EnrichedProperty[]>();
 
   for (const row of data ?? []) {
-    const rawDef = row.property_definitions as
-      | { name: string; type: string }
-      | Array<{ name: string; type: string }>
-      | null;
-    const def = Array.isArray(rawDef) ? rawDef[0] ?? null : rawDef;
     const prop: EnrichedProperty = {
-      id: row.property_definition_id,
-      name: def?.name ?? "Unknown",
-      type: def?.type ?? "unknown",
+      id: row.id,
+      name: row.field_name ?? "Unknown",
+      type: row.field_type ?? "unknown",
       value: row.value,
     };
 
@@ -1028,144 +1049,123 @@ export async function searchTasks(params: {
 
     // Pre-filter by entity_properties if property filters are specified
     if (hasPropertyFilters) {
-      const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
-
-      // Helper to find property definition case-insensitively
-      const findPropDef = (name: string) =>
-        propDefs.get(name) || propDefs.get(name.toLowerCase()) || propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
-
-      // Filter by assignee (via entity_properties)
+      // Filter by assignee (via entity_properties field_type="assignee")
       if (params.assigneeName || params.assigneeId) {
-        const assigneePropDef = findPropDef("Assignee");
-        if (assigneePropDef) {
-          const getTaskIdsFromAssignedSubtasks = async (
-            filterType: "id" | "name",
-            filterValues: string | string[]
-          ) => {
-            if (!includeSubtasks) return [];
-            const subtaskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "subtask",
-              assigneePropDef.id,
-              filterType,
-              filterValues
-            );
-            if (subtaskIds.length === 0) return [];
-            const { data: subtaskRows, error: subtaskError } = await supabase
-              .from("task_subtasks")
-              .select("task_id")
-              .in("id", subtaskIds);
-            if (subtaskError) {
-              console.error("searchTasks subtask assignee error:", subtaskError);
-              return [];
-            }
-            return Array.from(
-              new Set((subtaskRows ?? []).map((row: any) => row.task_id).filter(Boolean))
-            ) as string[];
-          };
+        const getTaskIdsFromAssignedSubtasks = async (
+          filterType: "id" | "name",
+          filterValues: string | string[]
+        ) => {
+          if (!includeSubtasks) return [];
+          const subtaskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "subtask",
+            "assignee",
+            filterType,
+            filterValues
+          );
+          if (subtaskIds.length === 0) return [];
+          const { data: subtaskRows, error: subtaskError } = await supabase
+            .from("task_subtasks")
+            .select("task_id")
+            .in("id", subtaskIds);
+          if (subtaskError) {
+            console.error("searchTasks subtask assignee error:", subtaskError);
+            return [];
+          }
+          return Array.from(
+            new Set((subtaskRows ?? []).map((row: any) => row.task_id).filter(Boolean))
+          ) as string[];
+        };
 
-          const assigneeFilter = normalizeArrayFilter(params.assigneeId);
-          if (assigneeFilter) {
-            const taskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "task",
-              assigneePropDef.id,
-              "id",
-              assigneeFilter
-            );
-            const subtaskTaskIds = await getTaskIdsFromAssignedSubtasks("id", assigneeFilter);
-            const combinedTaskIds = mergeUniqueIds(taskIds, subtaskTaskIds);
-            matchingTaskIds = intersectIds(matchingTaskIds, combinedTaskIds);
-          }
-          if (params.assigneeName) {
-            const taskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "task",
-              assigneePropDef.id,
-              "name",
-              params.assigneeName
-            );
-            const subtaskTaskIds = await getTaskIdsFromAssignedSubtasks("name", params.assigneeName);
-            const combinedTaskIds = mergeUniqueIds(taskIds, subtaskTaskIds);
-            matchingTaskIds = intersectIds(matchingTaskIds, combinedTaskIds);
-          }
+        const assigneeFilter = normalizeArrayFilter(params.assigneeId);
+        if (assigneeFilter) {
+          const taskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "task",
+            "assignee",
+            "id",
+            assigneeFilter
+          );
+          const subtaskTaskIds = await getTaskIdsFromAssignedSubtasks("id", assigneeFilter);
+          const combinedTaskIds = mergeUniqueIds(taskIds, subtaskTaskIds);
+          matchingTaskIds = intersectIds(matchingTaskIds, combinedTaskIds);
+        }
+        if (params.assigneeName) {
+          const taskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "task",
+            "assignee",
+            "name",
+            params.assigneeName
+          );
+          const subtaskTaskIds = await getTaskIdsFromAssignedSubtasks("name", params.assigneeName);
+          const combinedTaskIds = mergeUniqueIds(taskIds, subtaskTaskIds);
+          matchingTaskIds = intersectIds(matchingTaskIds, combinedTaskIds);
         }
       }
 
-      // Filter by tags (via entity_properties)
+      // Filter by tags (via entity_properties field_type="tags")
       if (params.tagName || params.tagId) {
-        const tagsPropDef = findPropDef("Tags");
-        if (tagsPropDef) {
-          const tagFilter = normalizeArrayFilter(params.tagId);
-          if (tagFilter) {
-            const taskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "task",
-              tagsPropDef.id,
-              "id",
-              tagFilter
-            );
-            matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
-          }
-          if (params.tagName) {
-            const taskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "task",
-              tagsPropDef.id,
-              "name",
-              params.tagName
-            );
-            matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
-          }
+        const tagFilter = normalizeArrayFilter(params.tagId);
+        if (tagFilter) {
+          const taskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "task",
+            "tags",
+            "id",
+            tagFilter
+          );
+          matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
+        }
+        if (params.tagName) {
+          const taskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "task",
+            "tags",
+            "name",
+            params.tagName
+          );
+          matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
         }
       }
 
-      // Filter by status (via entity_properties)
+      // Filter by status (via entity_properties field_type="status")
       if (params.status) {
-        const statusPropDef = findPropDef("Status");
-        console.log("[searchTasks] Status filter - property def found:", !!statusPropDef);
-        if (statusPropDef) {
-          const statusFilter = normalizeArrayFilter(params.status);
-          console.log("[searchTasks] Status filter values:", statusFilter);
-          if (statusFilter) {
-            // For status, we match by name (e.g., "todo", "in_progress", "done")
-            // Pass all status values - matches any of them
-            const taskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "task",
-              statusPropDef.id,
-              "name",
-              statusFilter
-            );
-            console.log("[searchTasks] Status filter - matching task IDs count:", taskIds.length);
-            matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
-          }
+        const statusFilter = normalizeArrayFilter(params.status);
+        console.log("[searchTasks] Status filter values:", statusFilter);
+        if (statusFilter) {
+          // For status, we match by name (e.g., "todo", "in_progress", "done")
+          const taskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "task",
+            "status",
+            "name",
+            statusFilter
+          );
+          console.log("[searchTasks] Status filter - matching task IDs count:", taskIds.length);
+          matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
         }
       }
 
-      // Filter by priority (via entity_properties)
+      // Filter by priority (via entity_properties field_type="priority")
       if (params.priority) {
-        const priorityPropDef = findPropDef("Priority");
-        if (priorityPropDef) {
-          const priorityFilter = normalizeArrayFilter(params.priority);
-          if (priorityFilter) {
-            // Pass all priority values - matches any of them
-            const taskIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "task",
-              priorityPropDef.id,
-              "name",
-              priorityFilter
-            );
-            matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
-          }
+        const priorityFilter = normalizeArrayFilter(params.priority);
+        if (priorityFilter) {
+          const taskIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "task",
+            "priority",
+            "name",
+            priorityFilter
+          );
+          matchingTaskIds = intersectIds(matchingTaskIds, taskIds);
         }
       }
 
@@ -1175,29 +1175,23 @@ export async function searchTasks(params: {
       }
     }
 
-    // Filter by due date property if requested (matches "Due Date" property)
+    // Filter by due date property if requested (field_type="due_date")
     if (params.dueDate) {
-      const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
-      const findPropDef = (name: string) =>
-        propDefs.get(name) || propDefs.get(name.toLowerCase()) || propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
-      const dueDatePropDef = findPropDef("Due Date");
-      if (dueDatePropDef) {
-        dueDatePropertyIds = await getEntitiesWithDatePropertyFilter(
-          supabase,
-          workspaceId,
-          "task",
-          dueDatePropDef.id,
-          params.dueDate
-        );
+      dueDatePropertyIds = await getEntitiesWithDatePropertyFilter(
+        supabase,
+        workspaceId,
+        "task",
+        "due_date",
+        params.dueDate
+      );
 
-        // CRITICAL FIX: Intersect with other property filters to maintain AND semantics
-        // Without this, due date filter uses OR logic, returning tasks that match
-        // due date OR other filters, instead of due date AND other filters
-        if (matchingTaskIds !== null) {
-          dueDatePropertyIds = intersectIds(matchingTaskIds, dueDatePropertyIds);
-          // Update matchingTaskIds to include the due date filter
-          matchingTaskIds = dueDatePropertyIds;
-        }
+      // CRITICAL FIX: Intersect with other property filters to maintain AND semantics
+      // Without this, due date filter uses OR logic, returning tasks that match
+      // due date OR other filters, instead of due date AND other filters
+      if (matchingTaskIds !== null) {
+        dueDatePropertyIds = intersectIds(matchingTaskIds, dueDatePropertyIds);
+        // Update matchingTaskIds to include the due date filter
+        matchingTaskIds = dueDatePropertyIds;
       }
     }
 
@@ -1205,7 +1199,7 @@ export async function searchTasks(params: {
     let query = supabase
       .from("task_items")
       .select(`
-        id, title, description, status, priority, due_date, start_date, source_task_id,
+        id, title, description, statuses, priorities, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
         workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
         projects(name),
         tabs(name)
@@ -1213,7 +1207,9 @@ export async function searchTasks(params: {
       .eq("workspace_id", workspaceId);
 
     if (!params.includeWorkflowRepresentations) {
-      query = query.is("source_task_id", null);
+      query = query
+        .is("source_entity_id", null)
+        .is("source_task_id", null);
     }
 
     // Apply entity ID filter from property pre-filtering
@@ -1266,7 +1262,7 @@ export async function searchTasks(params: {
         let dueDateQuery = supabase
           .from("task_items")
           .select(`
-            id, title, description, status, priority, due_date, start_date, source_task_id,
+            id, title, description, statuses, priorities, due_date, start_date, source_task_id, source_entity_type, source_entity_id, source_sync_mode,
             workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
             projects(name),
             tabs(name)
@@ -1275,7 +1271,9 @@ export async function searchTasks(params: {
           .in("id", dueDateMatchIds);
 
         if (!params.includeWorkflowRepresentations) {
-          dueDateQuery = dueDateQuery.is("source_task_id", null);
+          dueDateQuery = dueDateQuery
+            .is("source_entity_id", null)
+            .is("source_task_id", null);
         }
 
         if (params.searchText) {
@@ -1372,14 +1370,29 @@ export async function searchTasks(params: {
       // Parse tags (multi_select type: strings or objects)
       const tags = normalizeTagsValue(tagsProp?.value);
 
-      // Parse status (select type: string/object)
-      const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof task.status === "string" ? task.status : null);
-      const status = normalizeStatusValue(rawStatus) ?? "todo";
+      // Build statuses array (props override task)
+      const rawStatuses = Array.isArray(statusProp?.value)
+        ? (statusProp.value as Array<{ field_name?: string; value?: string }>)
+        : statusProp?.value && typeof statusProp.value === "object" && "value" in statusProp.value
+          ? [{ field_name: "Status", value: String((statusProp.value as any).value) }]
+          : Array.isArray((task as any).statuses)
+            ? ((task as any).statuses as Array<{ field_name?: string; value?: string }>)
+            : [];
+      const statuses = rawStatuses
+        .filter((e) => e?.field_name && normalizeStatusValue(e?.value))
+        .map((e) => ({ field_name: e!.field_name!, value: normalizeStatusValue(e!.value)! }));
 
-      // Parse priority (select type: string/object)
-      const rawPriority = normalizeSelectValue(priorityProp?.value) ?? (typeof task.priority === "string" ? task.priority : null);
-      const normalizedPriority = normalizePriorityValue(rawPriority);
-      const priority = normalizedPriority === "none" ? null : normalizedPriority;
+      // Build priorities array (props override task)
+      const rawPriorities = Array.isArray(priorityProp?.value)
+        ? (priorityProp.value as Array<{ field_name?: string; value?: string }>)
+        : priorityProp?.value && typeof priorityProp.value === "object"
+          ? [{ field_name: "Priority", value: String((priorityProp.value as any).value ?? (priorityProp.value as any)) }]
+          : Array.isArray((task as any).priorities)
+            ? ((task as any).priorities as Array<{ field_name?: string; value?: string }>)
+            : [];
+      const priorities = rawPriorities
+        .map((e) => (e?.field_name && normalizePriorityValue(e?.value) ? { field_name: e.field_name, value: normalizePriorityValue(e.value)! } : null))
+        .filter((e): e is { field_name: string; value: string } => Boolean(e));
 
       // Parse due date (date type: string/object)
       const dueDate = normalizeDateValue(dueDateProp?.value) ?? (task.due_date as string | null);
@@ -1389,8 +1402,8 @@ export async function searchTasks(params: {
       return {
         id: task.id as string,
         title: task.title as string,
-        status,
-        priority,
+        statuses: statuses.length > 0 ? statuses : [],
+        priorities,
         description: task.description as string | null,
         due_date: dueDate,
         start_date: task.start_date as string | null,
@@ -2075,110 +2088,89 @@ export async function searchBlocks(
 
     // Pre-filter by entity_properties if property filters are specified
     if (hasPropertyFilters) {
-      const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
-
-      // Helper to find property definition case-insensitively
-      const findPropDef = (name: string) =>
-        propDefs.get(name) || propDefs.get(name.toLowerCase()) || propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
-
-      // Filter by assignee (via entity_properties)
+      // Filter by assignee (via entity_properties field_type="assignee")
       if (params.assigneeName || params.assigneeId) {
-        const assigneePropDef = findPropDef("Assignee");
-        if (assigneePropDef) {
-          const assigneeFilter = normalizeArrayFilter(params.assigneeId);
-          if (assigneeFilter) {
-            const blockIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "block",
-              assigneePropDef.id,
-              "id",
-              assigneeFilter
-            );
-            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
-          }
-          if (params.assigneeName) {
-            const blockIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "block",
-              assigneePropDef.id,
-              "name",
-              params.assigneeName
-            );
-            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
-          }
+        const assigneeFilter = normalizeArrayFilter(params.assigneeId);
+        if (assigneeFilter) {
+          const blockIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "block",
+            "assignee",
+            "id",
+            assigneeFilter
+          );
+          matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
+        }
+        if (params.assigneeName) {
+          const blockIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "block",
+            "assignee",
+            "name",
+            params.assigneeName
+          );
+          matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
         }
       }
 
-      // Filter by tags (via entity_properties)
+      // Filter by tags (via entity_properties field_type="tags")
       if (params.tagName || params.tagId) {
-        const tagsPropDef = findPropDef("Tags");
-        if (tagsPropDef) {
-          const tagFilter = normalizeArrayFilter(params.tagId);
-          if (tagFilter) {
-            const blockIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "block",
-              tagsPropDef.id,
-              "id",
-              tagFilter
-            );
-            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
-          }
-          if (params.tagName) {
-            const blockIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "block",
-              tagsPropDef.id,
-              "name",
-              params.tagName
-            );
-            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
-          }
+        const tagFilter = normalizeArrayFilter(params.tagId);
+        if (tagFilter) {
+          const blockIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "block",
+            "tags",
+            "id",
+            tagFilter
+          );
+          matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
+        }
+        if (params.tagName) {
+          const blockIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "block",
+            "tags",
+            "name",
+            params.tagName
+          );
+          matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
         }
       }
 
-      // Filter by status (via entity_properties)
+      // Filter by status (via entity_properties field_type="status")
       if (params.status) {
-        const statusPropDef = findPropDef("Status");
-        if (statusPropDef) {
-          const statusFilter = normalizeArrayFilter(params.status);
-          if (statusFilter) {
-            // For status, we match by name (e.g., "todo", "in_progress", "done")
-            // Pass all status values - matches any of them
-            const blockIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "block",
-              statusPropDef.id,
-              "name",
-              statusFilter
-            );
-            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
-          }
+        const statusFilter = normalizeArrayFilter(params.status);
+        if (statusFilter) {
+          const blockIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "block",
+            "status",
+            "name",
+            statusFilter
+          );
+          matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
         }
       }
 
-      // Filter by priority (via entity_properties)
+      // Filter by priority (via entity_properties field_type="priority")
       if (params.priority) {
-        const priorityPropDef = findPropDef("Priority");
-        if (priorityPropDef) {
-          const priorityFilter = normalizeArrayFilter(params.priority);
-          if (priorityFilter) {
-            // Pass all priority values - matches any of them
-            const blockIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "block",
-              priorityPropDef.id,
-              "name",
-              priorityFilter
-            );
-            matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
-          }
+        const priorityFilter = normalizeArrayFilter(params.priority);
+        if (priorityFilter) {
+          const blockIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "block",
+            "priority",
+            "name",
+            priorityFilter
+          );
+          matchingBlockIds = intersectIds(matchingBlockIds, blockIds);
         }
       }
 
@@ -2249,10 +2241,15 @@ export async function searchBlocks(
     }
 
     // Filter block JSON content in JS to avoid unsupported jsonb ILIKE in SQL.
+    // Tokenizes multi-word searches so any individual word can match.
     if (searchLower) {
-      results = results.filter((b: Record<string, unknown>) =>
-        toSearchableText(b.content).toLowerCase().includes(searchLower)
-      );
+      const searchWords = tokenizeSearchText(searchLower).map((w) => w.toLowerCase());
+      if (searchWords.length === 0) searchWords.push(searchLower);
+
+      results = results.filter((b: Record<string, unknown>) => {
+        const contentLower = toSearchableText(b.content).toLowerCase();
+        return searchWords.some((word) => contentLower.includes(word));
+      });
     }
 
     // Trim to requested limit after filtering
@@ -2472,30 +2469,34 @@ export async function searchDocContent(params: {
 
     // Extract text content from ProseMirror JSON
     const contentText = extractTextFromContent(doc.content);
-    const searchLower = params.searchText.toLowerCase();
     const contentLower = contentText.toLowerCase();
+    const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+    if (searchWords.length === 0) searchWords.push(params.searchText.toLowerCase());
 
     const snippets: string[] = [];
     let matchCount = 0;
-    let searchStart = 0;
 
-    // Find all occurrences and extract snippets
-    while (true) {
-      const matchIndex = contentLower.indexOf(searchLower, searchStart);
-      if (matchIndex === -1) break;
+    // Find all occurrences and extract snippets across all search words
+    for (const word of searchWords) {
+      let searchStart = 0;
+      while (true) {
+        const matchIndex = contentLower.indexOf(word, searchStart);
+        if (matchIndex === -1) break;
 
-      matchCount++;
-      const snippetStart = Math.max(0, matchIndex - snippetLength);
-      const snippetEnd = Math.min(contentText.length, matchIndex + params.searchText.length + snippetLength);
+        matchCount++;
+        const snippetStart = Math.max(0, matchIndex - snippetLength);
+        const snippetEnd = Math.min(contentText.length, matchIndex + word.length + snippetLength);
 
-      let snippet = contentText.slice(snippetStart, snippetEnd);
-      if (snippetStart > 0) snippet = "..." + snippet;
-      if (snippetEnd < contentText.length) snippet = snippet + "...";
+        let snippet = contentText.slice(snippetStart, snippetEnd);
+        if (snippetStart > 0) snippet = "..." + snippet;
+        if (snippetEnd < contentText.length) snippet = snippet + "...";
 
-      snippets.push(snippet);
-      searchStart = matchIndex + 1;
+        snippets.push(snippet);
+        searchStart = matchIndex + 1;
 
-      // Limit to 10 snippets
+        // Limit to 10 snippets
+        if (snippets.length >= 10) break;
+      }
       if (snippets.length >= 10) break;
     }
 
@@ -2586,6 +2587,8 @@ export async function searchDocsContentAll(params: {
     }
 
     const searchLower = params.searchText.toLowerCase();
+    const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+    if (searchWords.length === 0) searchWords.push(searchLower);
     const results: DocContentSearchResult[] = [];
 
     for (const doc of docs ?? []) {
@@ -2593,36 +2596,40 @@ export async function searchDocsContentAll(params: {
       const contentText = extractTextFromContent(doc.content);
       const contentLower = contentText.toLowerCase();
 
-      // Check if document contains the search text
-      if (!contentLower.includes(searchLower)) {
+      // Check if document contains any search word
+      const matchingWords = searchWords.filter((w) => contentLower.includes(w));
+      if (matchingWords.length === 0) {
         continue;
       }
 
-      // Find all occurrences and extract snippets
+      // Find all occurrences and extract snippets using the first matching word
       const snippets: string[] = [];
       let matchCount = 0;
-      let searchStart = 0;
 
-      while (true) {
-        const matchIndex = contentLower.indexOf(searchLower, searchStart);
-        if (matchIndex === -1) break;
+      for (const word of matchingWords) {
+        let searchStart = 0;
+        while (true) {
+          const matchIndex = contentLower.indexOf(word, searchStart);
+          if (matchIndex === -1) break;
 
-        matchCount++;
+          matchCount++;
 
-        if (snippets.length < maxSnippetsPerDoc) {
-          const snippetStart = Math.max(0, matchIndex - snippetLength);
-          const snippetEnd = Math.min(contentText.length, matchIndex + params.searchText.length + snippetLength);
+          if (snippets.length < maxSnippetsPerDoc) {
+            const snippetStart = Math.max(0, matchIndex - snippetLength);
+            const snippetEnd = Math.min(contentText.length, matchIndex + word.length + snippetLength);
 
-          let snippet = contentText.slice(snippetStart, snippetEnd);
-          if (snippetStart > 0) snippet = "..." + snippet;
-          if (snippetEnd < contentText.length) snippet = snippet + "...";
+            let snippet = contentText.slice(snippetStart, snippetEnd);
+            if (snippetStart > 0) snippet = "..." + snippet;
+            if (snippetEnd < contentText.length) snippet = snippet + "...";
 
-          snippets.push(snippet);
+            snippets.push(snippet);
+          }
+
+          searchStart = matchIndex + 1;
+
+          // Stop counting after 100 matches for performance
+          if (matchCount >= 100) break;
         }
-
-        searchStart = matchIndex + 1;
-
-        // Stop counting after 100 matches for performance
         if (matchCount >= 100) break;
       }
 
@@ -3036,26 +3043,42 @@ export async function searchTableRows(params: {
     }
 
     // Filter by search text across row data (post-query)
+    // Tokenizes multi-word searches so any individual word can match any cell value.
+    // Also checks the parent table title for matches.
     if (params.searchText) {
-      const searchLower = params.searchText.toLowerCase();
+      const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+      if (searchWords.length === 0) {
+        searchWords.push(params.searchText.toLowerCase());
+      }
+
       results = results.filter((r: Record<string, unknown>) => {
         const rowData = r.data as Record<string, unknown>;
-        return Object.values(rowData).some((value) => {
-          if (value === null || value === undefined) return false;
-          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-            return String(value).toLowerCase().includes(searchLower);
-          }
-          if (Array.isArray(value)) {
-            return value.some((v) => String(v).toLowerCase().includes(searchLower));
-          }
-          if (typeof value === "object") {
-            try {
-              return JSON.stringify(value).toLowerCase().includes(searchLower);
-            } catch {
-              return false;
+        const tables = r.tables as { title?: string } | null;
+        const tableTitle = tables?.title?.toLowerCase() ?? "";
+
+        // Check if any search word matches any cell value OR the table title
+        return searchWords.some((word) => {
+          // Check table title
+          if (tableTitle.includes(word)) return true;
+
+          // Check row data values
+          return Object.values(rowData).some((value) => {
+            if (value === null || value === undefined) return false;
+            if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+              return String(value).toLowerCase().includes(word);
             }
-          }
-          return false;
+            if (Array.isArray(value)) {
+              return value.some((v) => String(v).toLowerCase().includes(word));
+            }
+            if (typeof value === "object") {
+              try {
+                return JSON.stringify(value).toLowerCase().includes(word);
+              } catch {
+                return false;
+              }
+            }
+            return false;
+          });
         });
       });
     }
@@ -3153,59 +3176,46 @@ export async function searchTimelineEvents(params: {
 
     // Pre-filter by entity_properties if property filters are specified
     if (hasPropertyFilters) {
-      const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
-
-      // Helper to find property definition case-insensitively
-      const findPropDef = (name: string) =>
-        propDefs.get(name) || propDefs.get(name.toLowerCase()) || propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
-
-      // Filter by assignee (via entity_properties)
+      // Filter by assignee (via entity_properties field_type="assignee")
       if (params.assigneeName || params.assigneeId) {
-        const assigneePropDef = findPropDef("Assignee");
-        if (assigneePropDef) {
-          const assigneeFilter = normalizeArrayFilter(params.assigneeId);
-          if (assigneeFilter) {
-            const eventIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "timeline_event",
-              assigneePropDef.id,
-              "id",
-              assigneeFilter
-            );
-            matchingEventIds = intersectIds(matchingEventIds, eventIds);
-          }
-          if (params.assigneeName) {
-            const eventIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "timeline_event",
-              assigneePropDef.id,
-              "name",
-              params.assigneeName
-            );
-            matchingEventIds = intersectIds(matchingEventIds, eventIds);
-          }
+        const assigneeFilter = normalizeArrayFilter(params.assigneeId);
+        if (assigneeFilter) {
+          const eventIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "timeline_event",
+            "assignee",
+            "id",
+            assigneeFilter
+          );
+          matchingEventIds = intersectIds(matchingEventIds, eventIds);
+        }
+        if (params.assigneeName) {
+          const eventIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "timeline_event",
+            "assignee",
+            "name",
+            params.assigneeName
+          );
+          matchingEventIds = intersectIds(matchingEventIds, eventIds);
         }
       }
 
-      // Filter by status (via entity_properties)
+      // Filter by status (via entity_properties field_type="status")
       if (params.status) {
-        const statusPropDef = findPropDef("Status");
-        if (statusPropDef) {
-          const statusFilter = normalizeArrayFilter(params.status);
-          if (statusFilter) {
-            // Pass all status values - matches any of them
-            const eventIds = await getEntitiesWithPropertyFilter(
-              supabase,
-              workspaceId,
-              "timeline_event",
-              statusPropDef.id,
-              "name",
-              statusFilter
-            );
-            matchingEventIds = intersectIds(matchingEventIds, eventIds);
-          }
+        const statusFilter = normalizeArrayFilter(params.status);
+        if (statusFilter) {
+          const eventIds = await getEntitiesWithPropertyFilter(
+            supabase,
+            workspaceId,
+            "timeline_event",
+            "status",
+            "name",
+            statusFilter
+          );
+          matchingEventIds = intersectIds(matchingEventIds, eventIds);
         }
       }
 
@@ -3224,7 +3234,7 @@ export async function searchTimelineEvents(params: {
     let query = supabase
       .from("timeline_events")
       .select(`
-        id, title, start_date, end_date, status, priority, progress, notes, color,
+        id, title, start_date, end_date, status, priorities, progress, notes, color,
         is_milestone, workspace_id, timeline_block_id,
         created_at, updated_at,
         blocks:timeline_block_id(tab_id, tabs(project_id, projects(name)))
@@ -3283,24 +3293,45 @@ export async function searchTimelineEvents(params: {
     const mapped: TimelineEventResult[] = results.map((e: Record<string, unknown>) => {
       const blocks = e.blocks as { tabs: { project_id: string; projects: { name: string } | null } | null } | null;
       const props = propertiesMap.get(e.id as string) ?? [];
+      const namedPriorities = normalizeNamedTimelinePriorities((e as any).priorities);
 
       // Extract properties by name
       const assigneeProp = props.find((p) => p.name === "Assignee");
       const statusProp = props.find((p) => p.name === "Status");
+      const priorityProp = props.find((p) => p.name === "Priority");
 
       const assignees = parseAssigneeValue(assigneeProp?.value);
       const primaryAssignee = assignees[0] ?? null;
 
-      // Parse status (select type: string/object)
-      const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof e.status === "string" ? e.status : null);
-      const status = normalizeStatusValue(rawStatus);
+      // Build statuses array (props override event)
+      const rawStatuses = Array.isArray(statusProp?.value)
+        ? (statusProp.value as Array<{ field_name?: string; value?: string }>)
+        : statusProp?.value && typeof statusProp.value === "object" && "value" in statusProp.value
+          ? [{ field_name: "Status", value: String((statusProp.value as any).value) }]
+          : Array.isArray((e as any).statuses)
+            ? ((e as any).statuses as Array<{ field_name?: string; value?: string }>)
+            : [];
+      const statuses = rawStatuses
+        .filter((s) => s?.field_name && normalizeStatusValue(s?.value))
+        .map((s) => ({ field_name: s!.field_name!, value: normalizeStatusValue(s!.value)! }));
+
+      // Build priorities array (props override event)
+      const rawPriorities = Array.isArray(priorityProp?.value)
+        ? (priorityProp.value as Array<{ field_name?: string; value?: string }>)
+        : priorityProp?.value && typeof priorityProp.value === "object"
+          ? [{ field_name: "Priority", value: String((priorityProp.value as any).value ?? (priorityProp.value as any)) }]
+          : namedPriorities.map((p) => ({ field_name: p.field_name, value: p.value }));
+      const priorities = rawPriorities
+        .map((p) => (p?.field_name && normalizePriorityValue(p?.value) ? { field_name: p.field_name, value: normalizePriorityValue(p.value)! } : null))
+        .filter((p): p is { field_name: string; value: string } => Boolean(p));
 
       return {
         id: e.id as string,
         title: e.title as string,
         start_date: e.start_date as string,
         end_date: e.end_date as string,
-        status,
+        statuses,
+        priorities,
         progress: e.progress as number,
         notes: e.notes as string | null,
         color: e.color as string | null,
@@ -3818,46 +3849,12 @@ export async function searchTags(params: {
   const limit = params.limit ?? 50;
 
   try {
-    const { data: propDefs, error: propDefsError } = await supabase
-      .from("property_definitions")
-      .select("id, name, type, options")
-      .eq("workspace_id", workspaceId)
-      .ilike("name", "Tags");
-
-    if (propDefsError) {
-      console.error("searchTags property definitions error:", propDefsError);
-      return { data: null, error: propDefsError.message };
-    }
-
-    const tagsPropDef = (propDefs ?? []).find((p) => p.name.toLowerCase() === "tags");
-
-    if (!tagsPropDef) {
-      // Fallback to legacy task_tags if property definition is missing
-      let query = supabase
-        .from("task_tags")
-        .select("*")
-        .eq("workspace_id", workspaceId);
-
-      if (params.searchText) {
-        query = query.ilike("name", `%${params.searchText}%`);
-      }
-
-      const { data, error } = await query.order("name").limit(limit);
-
-      if (error) {
-        console.error("searchTags error:", error);
-        return { data: null, error: error.message };
-      }
-
-      return { data: data as TagResult[], error: null };
-    }
-
-    // Aggregate tags from entity_properties (Tags multi_select) across entities
+    // Aggregate tags from entity_properties (field_type="tags") across entities
     const { data, error } = await supabase
       .from("entity_properties")
       .select("entity_id, value")
       .eq("workspace_id", workspaceId)
-      .eq("property_definition_id", tagsPropDef.id)
+      .eq("field_type", "tags")
       .in("entity_type", ["task", "block", "timeline_event"]);
 
     if (error) {
@@ -3959,62 +3956,14 @@ export async function searchTags(params: {
   }
 }
 
-/**
- * Search for property definitions in the current workspace.
- *
- * @param params.searchText - Fuzzy search on property name
- * @param params.type - Filter by property type
- * @param params.limit - Maximum results (default 50)
- */
-export async function searchPropertyDefinitions(params: {
-  searchText?: string;
-  type?: string | string[];
-  limit?: number;
-  authContext?: AuthContext;
-}): Promise<SearchResponse<PropertyDefinitionResult>> {
-  const ctx = await getSearchContext({ authContext: params.authContext });
-  if (ctx.error !== null) return { data: null, error: ctx.error };
-
-  const { supabase, workspaceId } = ctx;
-  const limit = params.limit ?? 50;
-
-  try {
-    let query = supabase
-      .from("property_definitions")
-      .select("*")
-      .eq("workspace_id", workspaceId);
-
-    if (params.searchText) {
-      query = query.ilike("name", `%${params.searchText}%`);
-    }
-
-    const typeFilter = normalizeArrayFilter(params.type);
-    if (typeFilter) {
-      query = query.in("type", typeFilter);
-    }
-
-    const { data, error } = await query.order("name").limit(limit);
-
-    if (error) {
-      console.error("searchPropertyDefinitions error:", error);
-      return { data: null, error: error.message };
-    }
-
-    return { data: data as PropertyDefinitionResult[], error: null };
-  } catch (err) {
-    console.error("searchPropertyDefinitions exception:", err);
-    return { data: null, error: "Failed to search property definitions" };
-  }
-}
 
 /**
  * Search for entity properties generically across the workspace.
- * Allows filtering by entity type, property definition, and value matching.
+ * Allows filtering by entity type, field name/type, and value matching.
  *
  * @param params.entityType - Filter by entity type (task, block, timeline_event)
- * @param params.propertyDefinitionId - Filter by specific property definition ID
- * @param params.propertyName - Filter by property name (fuzzy match)
- * @param params.propertyType - Filter by property type (text, number, date, select, multi_select, person)
+ * @param params.fieldName - Filter by field name (exact match)
+ * @param params.fieldType - Filter by field type (status, priority, assignee, due_date, tags)
  * @param params.valueFilter - Filter by value with operator
  * @param params.valueFilter.op - Operator: "contains", "eq", "gte", "lte"
  * @param params.valueFilter.value - The value to compare against
@@ -4022,9 +3971,8 @@ export async function searchPropertyDefinitions(params: {
  */
 export async function searchEntityProperties(params: {
   entityType?: "task" | "block" | "timeline_event";
-  propertyDefinitionId?: string;
-  propertyName?: string;
-  propertyType?: string | string[];
+  fieldName?: string;
+  fieldType?: string | string[];
   valueFilter?: {
     op: "contains" | "eq" | "gte" | "lte";
     value: string | number;
@@ -4039,49 +3987,23 @@ export async function searchEntityProperties(params: {
   const limit = params.limit ?? 50;
 
   try {
-    // First, get matching property definitions if filtering by name or type
-    let propertyDefIds: string[] | null = null;
-
-    if (params.propertyName || params.propertyType) {
-      let defQuery = supabase
-        .from("property_definitions")
-        .select("id, name, type")
-        .eq("workspace_id", workspaceId);
-
-      if (params.propertyName) {
-        defQuery = defQuery.ilike("name", `%${params.propertyName}%`);
-      }
-
-      const typeFilter = normalizeArrayFilter(params.propertyType);
-      if (typeFilter) {
-        defQuery = defQuery.in("type", typeFilter);
-      }
-
-      const { data: defs, error: defError } = await defQuery;
-      if (defError) {
-        return { data: null, error: defError.message };
-      }
-
-      propertyDefIds = (defs ?? []).map((d) => d.id);
-      if (propertyDefIds.length === 0) {
-        return { data: [], error: null };
-      }
-    }
-
     // Build entity_properties query
     let query = supabase
       .from("entity_properties")
-      .select("*, property_definitions(name, type)")
+      .select("*")
       .eq("workspace_id", workspaceId);
 
     if (params.entityType) {
       query = query.eq("entity_type", params.entityType);
     }
 
-    if (params.propertyDefinitionId) {
-      query = query.eq("property_definition_id", params.propertyDefinitionId);
-    } else if (propertyDefIds) {
-      query = query.in("property_definition_id", propertyDefIds);
+    if (params.fieldName) {
+      query = query.eq("field_name", params.fieldName);
+    }
+
+    const fieldTypeFilter = normalizeArrayFilter(params.fieldType);
+    if (fieldTypeFilter) {
+      query = query.in("field_type", fieldTypeFilter);
     }
 
     // Overfetch if we need to filter by value in JS
@@ -4163,20 +4085,16 @@ export async function searchEntityProperties(params: {
     }
 
     // Map to result format
-    const mapped: EntityPropertyResult[] = results.slice(0, limit).map((row) => {
-      const def = coerceRelation<{ name: string; type: string }>(row.property_definitions);
-      return {
-        id: row.id,
-        entity_type: row.entity_type,
-        entity_id: row.entity_id,
-        property_definition_id: row.property_definition_id,
-        property_name: def?.name ?? "Unknown",
-        property_type: def?.type ?? "unknown",
-        value: row.value,
-        workspace_id: row.workspace_id,
-        created_at: row.created_at,
-      };
-    });
+    const mapped: EntityPropertyResult[] = results.slice(0, limit).map((row) => ({
+      id: row.id,
+      entity_type: row.entity_type,
+      entity_id: row.entity_id,
+      field_name: row.field_name ?? "Unknown",
+      field_type: row.field_type ?? "unknown",
+      value: row.value,
+      workspace_id: row.workspace_id,
+      created_at: row.created_at,
+    }));
 
     return { data: mapped, error: null };
   } catch (err) {
@@ -4366,36 +4284,36 @@ export async function getEntityById(params: {
           task_tags: { id: t.id, name: t.name, color: t.color ?? null },
         }));
 
-        // Parse status and priority (select type: string/object)
-        const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof data.status === "string" ? data.status : null);
-        const status = normalizeStatusValue(rawStatus);
-        const rawPriority = normalizeSelectValue(priorityProp?.value) ?? (typeof data.priority === "string" ? data.priority : null);
-        const normalizedPriority = normalizePriorityValue(rawPriority);
-        const priority = normalizedPriority === "none" ? null : normalizedPriority;
+        // Build statuses and priorities arrays
+        const rawStatuses = Array.isArray(statusProp?.value)
+          ? (statusProp.value as Array<{ field_name?: string; value?: string }>)
+          : statusProp?.value && typeof statusProp.value === "object" && "value" in statusProp.value
+            ? [{ field_name: "Status", value: String((statusProp.value as any).value) }]
+            : Array.isArray((data as any).statuses)
+              ? ((data as any).statuses as Array<{ field_name?: string; value?: string }>)
+              : [];
+        const statuses = rawStatuses
+          .filter((s) => s?.field_name && normalizeStatusValue(s?.value))
+          .map((s) => ({ field_name: s!.field_name!, value: normalizeStatusValue(s!.value)! }));
+
+        const rawPriorities = Array.isArray(priorityProp?.value)
+          ? (priorityProp.value as Array<{ field_name?: string; value?: string }>)
+          : priorityProp?.value && typeof priorityProp.value === "object"
+            ? [{ field_name: "Priority", value: String((priorityProp.value as any).value ?? (priorityProp.value as any)) }]
+            : Array.isArray((data as any).priorities)
+              ? ((data as any).priorities as Array<{ field_name?: string; value?: string }>)
+              : [];
+        const priorities = rawPriorities
+          .map((p) => (p?.field_name && normalizePriorityValue(p?.value) ? { field_name: p.field_name, value: normalizePriorityValue(p.value)! } : null))
+          .filter((p): p is { field_name: string; value: string } => Boolean(p));
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
         const tab = coerceRelation<{ name: string }>(data.tabs);
 
-        // Merge properties into data for backward compatibility
         const enrichedData = {
           ...data,
-          status: status ?? data.status,
-          priority: priority ?? data.priority,
+          statuses,
+          priorities,
           task_assignees: assignees,
           task_tag_links: tags,
         };
@@ -4669,16 +4587,23 @@ export async function getEntityById(params: {
         if (error || !data) return { data: null, error: error?.message ?? "Table not found" };
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
+
+        // Also fetch the table's rows so the LLM can reference specific row IDs
+        // (e.g., for source tracking when creating data from unstructured search chunks)
+        const { data: rows } = await supabase
+          .from("table_rows")
+          .select("id, data, order")
+          .eq("table_id", params.id)
+          .eq("workspace_id", workspaceId)
+          .order("order", { ascending: true })
+          .limit(200);
 
         return {
           data: {
             type: "table",
             id: data.id,
             name: data.title,
-            data: data,
+            data: { ...data, rows: rows ?? [] },
             context: {
               workspace_id: data.workspace_id,
               project_id: data.project_id ?? undefined,
@@ -4762,16 +4687,33 @@ export async function getEntityById(params: {
 
         const assignees = parseAssigneeValue(assigneeProp?.value);
         const tags = normalizeTagsValue(tagsProp?.value).map((tag) => tag.name);
-        const rawStatus = normalizeSelectValue(statusProp?.value) ?? (typeof data.status === "string" ? data.status : null);
-        const status = normalizeStatusValue(rawStatus);
-        const rawPriority = normalizeSelectValue(priorityProp?.value) ?? (typeof data.priority === "string" ? data.priority : null);
-        const priority = normalizePriorityValue(rawPriority);
+        const namedPriorities = normalizeNamedTimelinePriorities((data as any).priorities);
+        const rawStatuses = Array.isArray(statusProp?.value)
+          ? (statusProp.value as Array<{ field_name?: string; value?: string }>)
+          : statusProp?.value && typeof statusProp.value === "object" && "value" in statusProp.value
+            ? [{ field_name: "Status", value: String((statusProp.value as any).value) }]
+            : Array.isArray((data as any).statuses)
+              ? ((data as any).statuses as Array<{ field_name?: string; value?: string }>)
+              : [];
+        const statuses = rawStatuses
+          .filter((s) => s?.field_name && normalizeStatusValue(s?.value))
+          .map((s) => ({ field_name: s!.field_name!, value: normalizeStatusValue(s!.value)! }));
+
+        const rawPriorities = Array.isArray(priorityProp?.value)
+          ? (priorityProp.value as Array<{ field_name?: string; value?: string }>)
+          : priorityProp?.value && typeof priorityProp.value === "object"
+            ? [{ field_name: "Priority", value: String((priorityProp.value as any).value ?? (priorityProp.value as any)) }]
+            : namedPriorities.map((p) => ({ field_name: p.field_name, value: p.value }));
+        const priorities = rawPriorities
+          .map((p) => (p?.field_name && normalizePriorityValue(p?.value) ? { field_name: p.field_name, value: normalizePriorityValue(p.value)! } : null))
+          .filter((p): p is { field_name: string; value: string } => Boolean(p));
+
         const dueDate = normalizeDateValue(dueDateProp?.value);
 
         const enrichedData = {
           ...data,
-          status,
-          priority,
+          statuses,
+          priorities,
           assignees,
           tags,
           due_date: dueDate,
@@ -4804,9 +4746,6 @@ export async function getEntityById(params: {
         if (error || !data) return { data: null, error: error?.message ?? "File not found" };
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
 
         return {
           data: {
@@ -4835,9 +4774,6 @@ export async function getEntityById(params: {
         if (error || !data) return { data: null, error: error?.message ?? "Payment not found" };
 
         const project = coerceRelation<{ name: string }>(data.projects);
-        if (!project) {
-          return { data: null, error: "Tab project not found" };
-        }
         const client = coerceRelation<{ name: string }>(data.clients);
 
         return {
@@ -4925,21 +4861,18 @@ export async function getEntityContext(params: {
     if (includeProperties) {
       const { data: properties } = await supabase
         .from("entity_properties")
-        .select("*, property_definitions(name, type)")
+        .select("id, field_name, field_type, value")
         .eq("entity_type", params.entityType)
         .eq("entity_id", params.id)
         .eq("workspace_id", workspaceId);
 
       if (properties && properties.length > 0) {
-        result.properties = properties.map((p) => {
-          const def = coerceRelation<{ name: string; type: string }>(p.property_definitions);
-          return {
-            id: p.property_definition_id,
-            name: def?.name ?? "Unknown",
-            type: def?.type ?? "unknown",
-            value: p.value,
-          };
-        });
+        result.properties = properties.map((p) => ({
+          id: p.id,
+          name: p.field_name ?? "Unknown",
+          type: p.field_type ?? "unknown",
+          value: p.value,
+        }));
       }
     }
 
@@ -5030,21 +4963,18 @@ export async function getEntityContextById(params: {
     if (includeProperties && propertyEntityTypes.includes(params.entityType)) {
       const { data: properties } = await supabase
         .from("entity_properties")
-        .select("*, property_definitions(name, type)")
+        .select("id, field_name, field_type, value")
         .eq("entity_type", params.entityType)
         .eq("entity_id", params.id)
         .eq("workspace_id", workspaceId);
 
       if (properties && properties.length > 0) {
-        result.properties = properties.map((p) => {
-          const def = coerceRelation<{ name: string; type: string }>(p.property_definitions);
-          return {
-            id: p.property_definition_id,
-            name: def?.name ?? "Unknown",
-            type: def?.type ?? "unknown",
-            value: p.value,
-          };
-        });
+        result.properties = properties.map((p) => ({
+          id: p.id,
+          name: p.field_name ?? "Unknown",
+          type: p.field_type ?? "unknown",
+          value: p.value,
+        }));
       }
     }
 
@@ -5492,8 +5422,9 @@ export async function resolveEntityByName(params: {
       case "task": {
         const { data } = await supabase
           .from("task_items")
-          .select("id, title, project_id, source_task_id, projects(name)")
+          .select("id, title, project_id, source_task_id, source_entity_id, source_entity_type, projects(name)")
           .eq("workspace_id", workspaceId)
+          .is("source_entity_id", null)
           .is("source_task_id", null)
           .ilike("title", `%${searchName}%`)
           .limit(limit * 2);
@@ -6239,7 +6170,6 @@ export async function searchEntitiesByProperties(params: {
   tagId?: string | string[];
   assigneeName?: string | string[];
   assigneeId?: string | string[];
-  includeInherited?: boolean;
   includeWorkflowRepresentations?: boolean;
   limit?: number;
   authContext?: AuthContext;
@@ -6251,65 +6181,44 @@ export async function searchEntitiesByProperties(params: {
   const workspaceId = ctx.workspaceId!;
 
   try {
-    const propDefs = await getPropertyDefinitionIds(supabase, workspaceId);
-    const findPropDef = (name: string) =>
-      propDefs.get(name) ||
-      propDefs.get(name.toLowerCase()) ||
-      propDefs.get(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
-
     const properties: PropertyFilter[] = [];
 
     const statusValues = normalizeArrayFilter(params.status) ?? null;
     if (statusValues && statusValues.length > 0) {
-      const statusPropDef = findPropDef("Status");
-      if (statusPropDef) {
-        properties.push({
-          property_definition_id: statusPropDef.id,
-          operator: params.statusOperator ?? "equals",
-          value: statusValues[0],
-        });
-      }
+      properties.push({
+        field_type: "status",
+        operator: params.statusOperator ?? "equals",
+        value: statusValues[0],
+      });
     }
 
     const priorityValues = normalizeArrayFilter(params.priority) ?? null;
     if (priorityValues && priorityValues.length > 0) {
-      const priorityPropDef = findPropDef("Priority");
-      if (priorityPropDef) {
-        properties.push({
-          property_definition_id: priorityPropDef.id,
-          operator: params.priorityOperator ?? "equals",
-          value: priorityValues[0],
-        });
-      }
+      properties.push({
+        field_type: "priority",
+        operator: params.priorityOperator ?? "equals",
+        value: priorityValues[0],
+      });
     }
 
     // Tag filtering
     const tagValues = normalizeArrayFilter(params.tagName ?? params.tagId) ?? null;
     if (tagValues && tagValues.length > 0) {
-      const tagsPropDef = findPropDef("Tags");
-      if (tagsPropDef) {
-        // Use 'contains' operator for multi-select tags to match any of the provided tags
-        // Note: The underlying property matching logic handles array containment for multi-select types
-        properties.push({
-          property_definition_id: tagsPropDef.id,
-          operator: "contains",
-          value: tagValues[0], // Pass the first tag for now, or consider how to handle multiple OR tags
-        });
-      }
+      properties.push({
+        field_type: "tags",
+        operator: "contains",
+        value: tagValues[0],
+      });
     }
 
     // Assignee filtering
     const assigneeValues = normalizeArrayFilter(params.assigneeName ?? params.assigneeId) ?? null;
     if (assigneeValues && assigneeValues.length > 0) {
-      const assigneePropDef = findPropDef("Assignee");
-      if (assigneePropDef) {
-        // Use 'contains' operator for person type (which can be an array)
-        properties.push({
-          property_definition_id: assigneePropDef.id,
-          operator: "contains",
-          value: assigneeValues[0],
-        });
-      }
+      properties.push({
+        field_type: "assignee",
+        operator: "contains",
+        value: assigneeValues[0],
+      });
     }
 
     const scope =
@@ -6323,7 +6232,6 @@ export async function searchEntitiesByProperties(params: {
       tab_id: params.tabId,
       entity_types: params.entityTypes,
       properties,
-      include_inherited: params.includeInherited ?? true,
       include_workflow_representations: params.includeWorkflowRepresentations ?? false,
     };
 
@@ -6787,8 +6695,7 @@ SEARCH FUNCTIONS (with overfetch strategy for post-query filters):
 15. searchTaskComments - Search task-specific comments
 16. searchPayments - Search payments with client/project context
 17. searchTags - Search task tags
-18. searchPropertyDefinitions - Search custom property definitions
-19. searchEntityLinks - Search links between entities
+18. searchEntityLinks - Search links between entities
 
 ENTITY RETRIEVAL PRIMITIVES:
 ----------------------------
@@ -6797,7 +6704,7 @@ getEntityById - Fetch any entity by type and ID with full context
   - Returns workspace/project/client context
 
 getEntityContext - Get entity with properties, links, and relationships
-  - Includes custom properties from property_definitions
+  - Includes entity properties (field_name, field_type, value)
   - Bidirectional entity links
   - For linkable entities: block, task, timeline_event, table_row
 
@@ -6910,25 +6817,90 @@ async function getEditedTaskSnapshotsFromTaskItems(
   if (taskIds.length === 0) return [];
 
   try {
-    // Query task_items for edited snapshots only
-    const { data: snapshotTasks, error } = await supabase
-      .from("task_items")
-      .select(`
-        id, title, description, status, priority, due_date, start_date,
-        workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
-        source_entity_type, source_entity_id, source_sync_mode,
-        projects(name),
-        tabs(name)
-      `)
-      .eq("workspace_id", workspaceId)
-      .eq("source_entity_type", "task")
-      .eq("source_sync_mode", "snapshot")
-      .eq("edited", true)
-      .in("source_entity_id", taskIds);
+    const [taskSourceResult, relatedRowsResult] = await Promise.all([
+      supabase
+        .from("task_items")
+        .select(`
+          id, title, description, statuses, priorities, due_date, start_date,
+          workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
+          source_entity_type, source_entity_id, source_sync_mode,
+          projects(name),
+          tabs(name)
+        `)
+        .eq("workspace_id", workspaceId)
+        .eq("source_entity_type", "task")
+        .eq("source_sync_mode", "snapshot")
+        .eq("edited", true)
+        .in("source_entity_id", taskIds),
+      supabase
+        .from("table_rows")
+        .select("id, tables!inner(workspace_id)")
+        .eq("tables.workspace_id", workspaceId)
+        .eq("source_entity_type", "task")
+        .in("source_entity_id", taskIds),
+    ]);
 
-    if (error || !snapshotTasks) {
-      console.error("getEditedTaskSnapshotsFromTaskItems error:", error);
+    if (taskSourceResult.error || relatedRowsResult.error) {
+      console.error("getEditedTaskSnapshotsFromTaskItems error:", taskSourceResult.error || relatedRowsResult.error);
       return [];
+    }
+
+    const relatedRowIds = (relatedRowsResult.data ?? [])
+      .map((row) => row.id as string)
+      .filter(Boolean);
+
+    const { data: rowSourceData, error: rowSourceError } = relatedRowIds.length
+      ? await supabase
+          .from("task_items")
+          .select(`
+            id, title, description, statuses, priorities, due_date, start_date,
+            workspace_id, project_id, tab_id, task_block_id, created_at, updated_at,
+            source_entity_type, source_entity_id, source_sync_mode,
+            projects(name),
+            tabs(name)
+          `)
+          .eq("workspace_id", workspaceId)
+          .eq("source_entity_type", "table_row")
+          .eq("source_sync_mode", "snapshot")
+          .eq("edited", true)
+          .in("source_entity_id", relatedRowIds)
+      : { data: [], error: null };
+
+    if (rowSourceError) {
+      console.error("getEditedTaskSnapshotsFromTaskItems rowSourceError:", rowSourceError);
+      return [];
+    }
+
+    const snapshotTasks = [
+      ...((taskSourceResult.data ?? []) as Array<Record<string, unknown>>),
+      ...((rowSourceData ?? []) as Array<Record<string, unknown>>),
+    ];
+    if (snapshotTasks.length === 0) return [];
+
+    const rowSourceIds = Array.from(
+      new Set(
+        snapshotTasks
+          .filter((snapshot) => snapshot.source_entity_type === "table_row")
+          .map((snapshot) => snapshot.source_entity_id as string)
+          .filter(Boolean)
+      )
+    );
+
+    const { data: sourceRows, error: sourceRowsError } = rowSourceIds.length
+      ? await supabase
+          .from("table_rows")
+          .select("id, data, tables(title)")
+          .in("id", rowSourceIds)
+      : { data: [], error: null };
+
+    if (sourceRowsError) {
+      console.error("getEditedTaskSnapshotsFromTaskItems sourceRows error:", sourceRowsError);
+      return [];
+    }
+
+    const sourceRowsById = new Map<string, Record<string, unknown>>();
+    for (const sourceRow of (sourceRows ?? []) as Array<Record<string, unknown>>) {
+      sourceRowsById.set(sourceRow.id as string, sourceRow);
     }
 
     const editedSnapshots: TaskResult[] = [];
@@ -6936,12 +6908,48 @@ async function getEditedTaskSnapshotsFromTaskItems(
     for (const snapshot of snapshotTasks) {
       const project = coerceRelation<{ name: string }>(snapshot.projects);
       const tab = coerceRelation<{ name: string }>(snapshot.tabs);
+      const sourceEntityType = snapshot.source_entity_type as string | null;
+      const sourceEntityId = snapshot.source_entity_id as string | null;
+
+      if (sourceEntityType === "table_row") {
+        const sourceRow = sourceEntityId ? sourceRowsById.get(sourceEntityId) : null;
+        const sourceRowData = ((sourceRow?.data as Record<string, unknown> | undefined) ?? {});
+        const sourceTable = coerceRelation<{ title: string }>((sourceRow?.tables as unknown) ?? null);
+        const inferredTitle =
+          (typeof sourceRowData["Task Title"] === "string" && sourceRowData["Task Title"]) ||
+          (typeof sourceRowData["Task"] === "string" && sourceRowData["Task"]) ||
+          (typeof sourceRowData["Title"] === "string" && sourceRowData["Title"]) ||
+          null;
+
+        editedSnapshots.push({
+          id: `task-snapshot:${snapshot.id}`,
+          title: (snapshot.title as string) || inferredTitle || "Untitled Task",
+          statuses: normalizeTaskStatusesArray((snapshot as any).statuses),
+          priorities: normalizeTaskPrioritiesArray((snapshot as any).priorities),
+          description: snapshot.description as string | null,
+          due_date: snapshot.due_date as string | null,
+          start_date: snapshot.start_date as string | null,
+          workspace_id: workspaceId,
+          project_id: snapshot.project_id as string | null,
+          project_name: project?.name ?? null,
+          tab_id: snapshot.tab_id as string | null,
+          tab_name: `${sourceTable?.title || tab?.name || "Table"} (edited snapshot)`,
+          task_block_id: snapshot.task_block_id as string,
+          assignees: [],
+          tags: [],
+          subtasks: undefined,
+          subtask_list: undefined,
+          created_at: snapshot.created_at as string,
+          updated_at: snapshot.updated_at as string,
+        });
+        continue;
+      }
 
       editedSnapshots.push({
         id: `task-snapshot:${snapshot.id}`,
         title: snapshot.title as string,
-        status: snapshot.status as string,
-        priority: snapshot.priority as string | null,
+        statuses: normalizeTaskStatusesArray((snapshot as any).statuses),
+        priorities: normalizeTaskPrioritiesArray((snapshot as any).priorities),
         description: snapshot.description as string | null,
         due_date: snapshot.due_date as string | null,
         start_date: snapshot.start_date as string | null,
@@ -7014,8 +7022,13 @@ async function getEditedTaskSnapshots(
       editedSnapshots.push({
         id: `snapshot:${row.id}`,
         title: String(snapshotData["Task Title"] || snapshotData["Task"] || snapshotData["Title"] || sourceTask.title),
-        status: snapshotData["Status"] ? String(snapshotData["Status"]) as any : sourceTask.status,
-        priority: snapshotData["Priority"] ? String(snapshotData["Priority"]) as any : sourceTask.priority,
+        statuses: snapshotData["Status"]
+          ? [{ field_name: "Status", value: String(snapshotData["Status"]) }]
+          : (sourceTask.statuses ?? []),
+        priorities:
+          snapshotData["Priority"]
+            ? [{ field_name: "Priority", value: String(snapshotData["Priority"]) }]
+            : (sourceTask.priorities ?? []),
         description: snapshotData["Description"] ? String(snapshotData["Description"]) : sourceTask.description,
         due_date: snapshotData["Due Date"] ? String(snapshotData["Due Date"]) : sourceTask.due_date,
         start_date: sourceTask.start_date,
@@ -7054,33 +7067,114 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
   if (eventIds.length === 0) return [];
 
   try {
-    const { data: snapshotEvents, error } = await supabase
-      .from("timeline_events")
-      .select(`
-        id, title, start_date, end_date, status, priority, progress, notes, color,
-        is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
-        source_entity_type, source_entity_id, source_sync_mode
-      `)
-      .eq("workspace_id", workspaceId)
-      .eq("source_entity_type", "timeline_event")
-      .eq("source_sync_mode", "snapshot")
-      .eq("edited", true)
-      .in("source_entity_id", eventIds);
+    const [eventSourceResult, relatedRowsResult] = await Promise.all([
+      supabase
+        .from("timeline_events")
+        .select(`
+          id, title, start_date, end_date, statuses, priorities, progress, notes, color,
+          is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
+          source_entity_type, source_entity_id, source_sync_mode
+        `)
+        .eq("workspace_id", workspaceId)
+        .eq("source_entity_type", "timeline_event")
+        .eq("source_sync_mode", "snapshot")
+        .eq("edited", true)
+        .in("source_entity_id", eventIds),
+      supabase
+        .from("table_rows")
+        .select("id, tables!inner(workspace_id)")
+        .eq("tables.workspace_id", workspaceId)
+        .eq("source_entity_type", "timeline_event")
+        .in("source_entity_id", eventIds),
+    ]);
 
-    if (error || !snapshotEvents) {
-      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents error:", error);
+    if (eventSourceResult.error || relatedRowsResult.error) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents error:", eventSourceResult.error || relatedRowsResult.error);
       return [];
+    }
+
+    const relatedRowIds = (relatedRowsResult.data ?? [])
+      .map((row) => row.id as string)
+      .filter(Boolean);
+
+    const { data: rowSourceData, error: rowSourceError } = relatedRowIds.length
+      ? await supabase
+          .from("timeline_events")
+          .select(`
+            id, title, start_date, end_date, statuses, priorities, progress, notes, color,
+            is_milestone, workspace_id, timeline_block_id, created_at, updated_at,
+            source_entity_type, source_entity_id, source_sync_mode
+          `)
+          .eq("workspace_id", workspaceId)
+          .eq("source_entity_type", "table_row")
+          .eq("source_sync_mode", "snapshot")
+          .eq("edited", true)
+          .in("source_entity_id", relatedRowIds)
+      : { data: [], error: null };
+
+    if (rowSourceError) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents rowSourceError:", rowSourceError);
+      return [];
+    }
+
+    const snapshotEvents = [
+      ...((eventSourceResult.data ?? []) as Array<Record<string, unknown>>),
+      ...((rowSourceData ?? []) as Array<Record<string, unknown>>),
+    ];
+    if (snapshotEvents.length === 0) return [];
+
+    const rowSourceIds = Array.from(
+      new Set(
+        snapshotEvents
+          .filter((snapshot) => snapshot.source_entity_type === "table_row")
+          .map((snapshot) => snapshot.source_entity_id as string)
+          .filter(Boolean)
+      )
+    );
+
+    const { data: sourceRows, error: sourceRowsError } = rowSourceIds.length
+      ? await supabase
+          .from("table_rows")
+          .select("id, data, tables(title)")
+          .in("id", rowSourceIds)
+      : { data: [], error: null };
+
+    if (sourceRowsError) {
+      console.error("getEditedTimelineEventSnapshotsFromTimelineEvents sourceRows error:", sourceRowsError);
+      return [];
+    }
+
+    const sourceRowsById = new Map<string, Record<string, unknown>>();
+    for (const sourceRow of (sourceRows ?? []) as Array<Record<string, unknown>>) {
+      sourceRowsById.set(sourceRow.id as string, sourceRow);
     }
 
     const editedSnapshots: TimelineEventResult[] = [];
 
     for (const snapshot of snapshotEvents) {
+      const sourceEntityType = snapshot.source_entity_type as string | null;
+      const sourceEntityId = snapshot.source_entity_id as string | null;
+      const sourceRow = sourceEntityType === "table_row" && sourceEntityId ? sourceRowsById.get(sourceEntityId) : null;
+      const sourceRowData = ((sourceRow?.data as Record<string, unknown> | undefined) ?? {});
+      const sourceTable = coerceRelation<{ title: string }>((sourceRow?.tables as unknown) ?? null);
+      const namedPriorities = normalizeNamedTimelinePriorities(snapshot.priorities);
+      const inferredTitle =
+        (typeof sourceRowData["Event Title"] === "string" && sourceRowData["Event Title"]) ||
+        (typeof sourceRowData["Title"] === "string" && sourceRowData["Title"]) ||
+        (typeof sourceRowData["Event"] === "string" && sourceRowData["Event"]) ||
+        null;
+
       editedSnapshots.push({
         id: `timeline-snapshot:${snapshot.id}`,
-        title: snapshot.title as string,
+        title: (snapshot.title as string) || inferredTitle || "Untitled Event",
         start_date: snapshot.start_date as string,
         end_date: snapshot.end_date as string,
-        status: snapshot.status as string | null,
+        statuses: (Array.isArray((snapshot as any).statuses)
+          ? (snapshot as any).statuses
+          : []
+        ).filter((s: any) => s?.field_name && s?.value)
+          .map((s: any) => ({ field_name: s.field_name, value: String(s.value) })),
+        priorities: namedPriorities.map((p) => ({ field_name: p.field_name, value: p.value })),
         progress: snapshot.progress as number,
         notes: snapshot.notes as string | null,
         color: snapshot.color as string | null,
@@ -7090,7 +7184,10 @@ async function getEditedTimelineEventSnapshotsFromTimelineEvents(
         assignee_id: null,
         assignee_name: null,
         project_id: null,
-        project_name: "(edited snapshot)",
+        project_name:
+          sourceEntityType === "table_row"
+            ? `${sourceTable?.title || "Table"} (edited snapshot)`
+            : "(edited snapshot)",
         created_at: snapshot.created_at as string,
         updated_at: snapshot.updated_at as string,
       });
@@ -7146,12 +7243,20 @@ async function getEditedTimelineEventSnapshots(
       const snapshotData = (row.data || {}) as Record<string, unknown>;
       const table = (row.tables as unknown as { workspace_id: string; title: string } | null);
 
+      const statuses = snapshotData["Status"]
+        ? [{ field_name: "Status", value: String(snapshotData["Status"]) }]
+        : (sourceEvent.statuses ?? []);
+      const priorities = snapshotData["Priority"]
+        ? [{ field_name: "Priority", value: String(snapshotData["Priority"]) }]
+        : (sourceEvent.priorities ?? []);
+
       editedSnapshots.push({
         id: `table-timeline-snapshot:${row.id}`,
         title: String(snapshotData["Event Title"] || snapshotData["Title"] || snapshotData["Event"] || sourceEvent.title),
         start_date: snapshotData["Start Date"] ? String(snapshotData["Start Date"]) : sourceEvent.start_date,
         end_date: snapshotData["End Date"] ? String(snapshotData["End Date"]) : sourceEvent.end_date,
-        status: snapshotData["Status"] ? String(snapshotData["Status"]) as any : sourceEvent.status,
+        statuses,
+        priorities,
         progress: sourceEvent.progress,
         notes: snapshotData["Notes"] ? String(snapshotData["Notes"]) : sourceEvent.notes,
         color: sourceEvent.color,

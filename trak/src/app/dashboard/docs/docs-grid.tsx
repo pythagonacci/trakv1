@@ -2,17 +2,21 @@
 
 import React, { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Archive, ArchiveRestore, Trash2, FileText } from "lucide-react";
+import { MoreHorizontal, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { createDoc, updateDoc, deleteDoc } from "@/app/actions/doc";
+import { moveDocToFolder } from "@/app/actions/doc-folder";
+import type { DocFolder } from "@/app/actions/doc-folder";
 import ConfirmDialog from "@/app/dashboard/projects/confirm-dialog";
 import Toast from "@/app/dashboard/projects/toast";
 import DocsEmptyState from "./docs-empty-state";
+import CreateDocFolderDialog from "./create-doc-folder-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
@@ -23,11 +27,13 @@ interface Doc {
   is_archived: boolean;
   created_at: string;
   updated_at: string;
+  folder_id?: string | null;
 }
 
 interface DocsGridProps {
   docs: Doc[];
   workspaceId: string;
+  folders: DocFolder[];
 }
 
 // Helper function to extract plain text from Tiptap JSON
@@ -57,7 +63,7 @@ const extractTextFromContent = (content: any): string[] => {
   return lines;
 };
 
-export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridProps) {
+export default function DocsGrid({ docs: initialDocs, workspaceId, folders }: DocsGridProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -67,10 +73,22 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
   }, [initialDocs]);
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingDoc, setDeletingDoc] = useState<Doc | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const handleMoveToFolder = async (doc: Doc, folderId: string | null) => {
+    const result = await moveDocToFolder(doc.id, folderId);
+    if (result.error) setToast({ message: result.error, type: "error" });
+    else {
+      setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, folder_id: folderId } : d)));
+      setToast({ message: folderId ? "Document moved to folder" : "Document removed from folder", type: "success" });
+      startTransition(() => router.refresh());
+    }
+    setOpenMenuId(null);
+  };
 
   const handleToggleArchive = async (doc: Doc, event?: React.MouseEvent) => {
     event?.stopPropagation();
@@ -172,12 +190,17 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
           <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Documents</h2>
           <p className="text-sm text-[var(--muted-foreground)]">Create and manage your documents.</p>
         </div>
-        <button 
-          onClick={handleCreateNew} 
-          className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
-        >
-          New Document
-        </button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setCreateFolderDialogOpen(true)}>
+            New Folder
+          </Button>
+          <button 
+            onClick={handleCreateNew} 
+            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-[2px] transition-colors"
+          >
+            New Document
+          </button>
+        </div>
       </div>
 
       {docs.length === 0 ? (
@@ -255,22 +278,22 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
                           <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={(e) => handleToggleArchive(doc, e)}>
-                          {doc.is_archived ? (
-                            <>
-                              <ArchiveRestore className="h-4 w-4" /> Restore
-                            </>
-                          ) : (
-                            <>
-                              <Archive className="h-4 w-4" /> Archive
-                            </>
-                          )}
+                          {doc.is_archived ? <><ArchiveRestore className="h-4 w-4" /> Restore</> : <><Archive className="h-4 w-4" /> Archive</>}
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          onClick={(e) => handleOpenDeleteConfirm(doc, e)}
-                          className="text-red-500 focus:bg-red-50 focus:text-red-600"
-                        >
+                        {folders.length > 0 && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <div className="px-2 py-1.5 text-xs font-semibold text-[var(--muted-foreground)] uppercase">Move to Folder</div>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleMoveToFolder(doc, null); }}>No Folder</DropdownMenuItem>
+                            {folders.map((f) => (
+                              <DropdownMenuItem key={f.id} onClick={(e) => { e.stopPropagation(); handleMoveToFolder(doc, f.id); }}>{f.name}</DropdownMenuItem>
+                            ))}
+                          </>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(doc, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
                           <Trash2 className="h-4 w-4" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -292,6 +315,12 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
   function renderDialogs() {
     return (
       <>
+        <CreateDocFolderDialog
+          isOpen={createFolderDialogOpen}
+          onClose={() => setCreateFolderDialogOpen(false)}
+          workspaceId={workspaceId}
+          onFolderCreated={() => startTransition(() => router.refresh())}
+        />
         <ConfirmDialog
           isOpen={deleteConfirmOpen}
           onClose={handleCloseDeleteConfirm}
@@ -302,10 +331,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId }: DocsGridPro
           confirmButtonVariant="danger"
           isLoading={isDeleting}
         />
-
-        {toast && (
-          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-        )}
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       </>
     );
   }

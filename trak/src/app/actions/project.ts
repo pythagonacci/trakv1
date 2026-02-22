@@ -24,6 +24,7 @@ type ProjectData = {
   due_date_date?: string | null  // ISO date string
   due_date_text?: string | null
   member_ids?: string[] | 'all'  // Project permissions: 'all' or array of user IDs
+  tags?: string[]  // Optional initial tags for the project's tag bank
 }
 
 // Type for project filters
@@ -408,8 +409,71 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
   }
   // If member_ids === 'all' or undefined, don't insert any rows (= accessible to all)
 
+  // Insert initial project tags if provided
+  const tagNames = (projectData.tags || [])
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+  if (tagNames.length > 0) {
+    const tagRows = tagNames.map((name) => ({ project_id: project.id, name }))
+    const { error: tagsError } = await supabase.from('project_tags').insert(tagRows)
+    if (tagsError) {
+      console.error('Failed to add initial project tags:', tagsError)
+    }
+  }
+
   await safeRevalidatePath('/dashboard')
   return { data: project }
+}
+
+/** Get all tags for a project (tag bank). */
+export async function getProjectTags(
+  projectId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<{ data: string[] } | { error: string }> {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+  }
+
+  const { data: rows, error } = await supabase
+    .from('project_tags')
+    .select('name')
+    .eq('project_id', projectId)
+    .order('name')
+
+  if (error) return { error: error.message }
+  return { data: (rows || []).map((r) => r.name) }
+}
+
+/** Add a tag to a project's tag bank (idempotent). Creates the tag if it doesn't exist. */
+export async function addProjectTag(
+  projectId: string,
+  name: string,
+  opts?: { authContext?: AuthContext }
+): Promise<{ data: null } | { error: string }> {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+  }
+
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Tag name cannot be empty' }
+
+  const { error } = await supabase.from('project_tags').insert({ project_id: projectId, name: trimmed })
+
+  if (error) {
+    if (error.code === '23505') return { data: null }
+    return { error: error.message }
+  }
+  return { data: null }
 }
 
 /**
@@ -628,6 +692,7 @@ export async function getAllProjects(
       due_date_text,
       client_id,
       folder_id,
+      internal_group_id,
       created_at,
       updated_at,
       client:clients (

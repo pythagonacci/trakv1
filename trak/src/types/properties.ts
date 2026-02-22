@@ -13,6 +13,7 @@ export type EntityType = 'block' | 'task' | 'subtask' | 'timeline_event' | 'tabl
 
 export type Status = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export type FieldType = 'priority' | 'status' | 'assignee' | 'due_date' | 'tags';
 export interface DueDateRange {
   start: string | null;
   end: string | null;
@@ -33,22 +34,34 @@ export const PRIORITY_OPTIONS: { value: Priority; label: string; color: string }
 ];
 
 export const STATUS_COLORS: Record<Status, string> = {
-  todo: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  done: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  blocked: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  todo: 'bg-[var(--surface-muted)] text-[var(--muted-foreground)]',
+  in_progress: 'bg-[var(--primary)]/10 text-[var(--primary)]',
+  done: 'bg-[var(--success)]/10 text-[var(--success)]',
+  blocked: 'bg-[var(--error)]/10 text-[var(--error)]',
 };
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
-  low: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  urgent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  low: 'bg-[var(--surface-muted)] text-[var(--tertiary-foreground)]',
+  medium: 'bg-[var(--warning)]/10 text-[var(--warning)]',
+  high: 'bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]',
+  urgent: 'bg-[var(--error)]/10 text-[var(--error)]',
 };
 
 // ============================================================================
 // Entity Properties
 // ============================================================================
+
+export interface NamedField<TValue = unknown> {
+  id: string;
+  entity_type: EntityType;
+  entity_id: string;
+  workspace_id: string;
+  field_name: string;
+  field_type: FieldType;
+  value: TValue;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface EntityProperties {
   id: string;
@@ -63,6 +76,12 @@ export interface EntityProperties {
   assignee_ids: string[];
   due_date: DueDateRange | null; // { start, end } in ISO date format (YYYY-MM-DD)
   tags: string[];
+  /** Named fields for each property type. Canonical flat fields above are derived for backward compatibility. */
+  priorities: Array<NamedField<Priority>>;
+  statuses: Array<NamedField<Status>>;
+  assignees: Array<NamedField<string[]>>;
+  due_dates: Array<NamedField<DueDateRange>>;
+  tag_fields: Array<NamedField<string[]>>;
   created_at: string;
   updated_at: string;
 }
@@ -132,7 +151,24 @@ export interface SetEntityPropertiesInput {
     assignee_ids?: string[] | null;
     due_date?: DueDateRange | null;
     tags?: string[];
+    /** Replace all named priority fields for this entity. */
+    priorities?: Array<{ field_name: string; value: Priority | null }> | null;
+    /** Replace all named status fields for this entity. */
+    statuses?: Array<{ field_name: string; value: Status | null }> | null;
+    /** Replace all named assignee fields for this entity. */
+    assignees?: Array<{ field_name: string; value: string[] | null }> | null;
+    /** Replace all named due date fields for this entity. */
+    due_dates?: Array<{ field_name: string; value: DueDateRange | null }> | null;
   };
+}
+
+export interface SetNamedFieldInput {
+  entity_type: EntityType;
+  entity_id: string;
+  workspace_id: string;
+  field_name: string;
+  field_type: FieldType;
+  value: Priority | Status | string[] | DueDateRange | null;
 }
 
 export interface AddTagInput {
@@ -165,35 +201,8 @@ export interface SetInheritedPropertyVisibilityInput {
 }
 
 // ============================================================================
-// Legacy Property Definition Types (schema-driven properties)
+// Property Value Types
 // ============================================================================
-
-export type PropertyType =
-  | "text"
-  | "number"
-  | "select"
-  | "multi_select"
-  | "date"
-  | "checkbox"
-  | "url"
-  | "email"
-  | "phone";
-
-export interface PropertyOption {
-  id: string;
-  label: string;
-  color?: string | null;
-}
-
-export interface PropertyDefinition {
-  id: string;
-  workspace_id: string;
-  name: string;
-  type: PropertyType;
-  options?: PropertyOption[] | null;
-  created_at: string;
-  updated_at: string;
-}
 
 export type PropertyValue =
   | string
@@ -203,54 +212,6 @@ export type PropertyValue =
   | Record<string, unknown>
   | Array<Record<string, unknown>>
   | null;
-
-export interface CreatePropertyDefinitionInput {
-  workspace_id: string;
-  name: string;
-  type: PropertyType;
-  options?: PropertyOption[];
-}
-
-export interface UpdatePropertyDefinitionInput {
-  name?: string;
-  options?: PropertyOption[];
-}
-
-export interface EntityProperty {
-  id: string;
-  entity_type: EntityType;
-  entity_id: string;
-  property_definition_id: string;
-  value: PropertyValue;
-  workspace_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface EntityPropertyWithDefinition extends EntityProperty {
-  definition: PropertyDefinition;
-}
-
-export interface InheritedProperty {
-  property: EntityPropertyWithDefinition;
-  source: {
-    entity_type: EntityType;
-    entity_id: string;
-  };
-  is_visible: boolean;
-}
-
-export interface EntityPropertiesResult {
-  direct: EntityPropertyWithDefinition[];
-  inherited: InheritedProperty[];
-}
-
-export interface SetEntityPropertyInput {
-  entity_type: EntityType;
-  entity_id: string;
-  property_definition_id: string;
-  value: PropertyValue;
-}
 
 // ============================================================================
 // Query Types
@@ -267,7 +228,6 @@ export interface QueryEntitiesParams {
   entity_types?: EntityType[];
   filters?: QueryFilter[];
   properties?: PropertyFilter[];
-  include_inherited?: boolean;
   include_workflow_representations?: boolean;
 }
 
@@ -278,7 +238,8 @@ export interface QueryFilter {
 }
 
 export interface PropertyFilter {
-  property_definition_id: string;
+  field_type: FieldType;
+  field_name?: string;
   operator: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty" | "before" | "after";
   value?: PropertyValue;
 }

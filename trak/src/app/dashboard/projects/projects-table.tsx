@@ -71,6 +71,7 @@ interface FormData {
   client_name?: string;  // For creating new clients on the fly
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
+  tags?: string[];
 }
 
 export default function ProjectsTable({ projects: initialProjects, workspaceId, folders: initialFolders, currentSort }: ProjectsTableProps) {
@@ -209,6 +210,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       status: formData.status,
       due_date_date,
       due_date_text,
+      tags: formData.tags,
     });
 
     if ("error" in result) {
@@ -471,41 +473,41 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       </div>
 
       <Table className="[&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
-          <TableHeader>
-            <TableRow>
-              <TableHead>
+          <TableHeader className="bg-[var(--secondary)]/10 border-b border-[var(--secondary)]">
+            <TableRow className="border-0 hover:bg-transparent">
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 <button
-                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  className="flex items-center gap-2 hover:text-[var(--foreground)]"
                   onClick={() => handleSort("client_id")}
                 >
                   Client {getSortIndicator("client_id")}
                 </button>
               </TableHead>
-              <TableHead>
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 <button
-                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  className="flex items-center gap-2 hover:text-[var(--foreground)]"
                   onClick={() => handleSort("name")}
                 >
                   Project {getSortIndicator("name")}
                 </button>
               </TableHead>
-              <TableHead>
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 <button
-                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  className="flex items-center gap-2 hover:text-[var(--foreground)]"
                   onClick={() => handleSort("status")}
                 >
                   Status {getSortIndicator("status")}
                 </button>
               </TableHead>
-              <TableHead>
+              <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 <button
-                  className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  className="flex items-center gap-2 hover:text-[var(--foreground)]"
                   onClick={() => handleSort("due_date_date")}
                 >
                   Due date {getSortIndicator("due_date_date")}
                 </button>
               </TableHead>
-              <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              <TableHead className="h-10 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 Actions
               </TableHead>
             </TableRow>
@@ -574,7 +576,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                     return (
                       <TableRow
                         key={project.id}
-                        className={cn("cursor-pointer", isTemp && "opacity-70")}
+                        className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70")}
                         onClick={() => handleRowClick(project.id)}
                       >
                         <TableCell className="pl-8">
@@ -653,7 +655,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                   return (
                     <TableRow
                       key={project.id}
-                      className={cn("cursor-pointer", isTemp && "opacity-70", folders.length > 0 && "pl-8")}
+                      className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70", folders.length > 0 && "pl-8")}
                       onClick={() => handleRowClick(project.id)}
                     >
                       <TableCell className={folders.length > 0 ? "pl-8" : ""}>

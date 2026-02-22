@@ -194,3 +194,44 @@ export async function reindexWorkspaceContent(params: ReindexWorkspaceParams = {
 
   return { data: result };
 }
+
+/**
+ * Clean up RAG chunks when a source is deleted.
+ * Deletes unstructured_parents entries (which cascades to unstructured_chunks)
+ * and file_analysis_chunks for files.
+ */
+export async function cleanupChunksForDeletedSource(params: {
+  sourceType: "file" | "block" | "table";
+  sourceId: string;
+  supabase?: Awaited<ReturnType<typeof createClient>>;
+}): Promise<void> {
+  const supabase = params.supabase || (await createClient());
+
+  try {
+    // Delete unstructured_parents entry (cascades to unstructured_chunks via ON DELETE CASCADE)
+    const { error: parentError } = await supabase
+      .from("unstructured_parents")
+      .delete()
+      .eq("source_type", params.sourceType)
+      .eq("source_id", params.sourceId);
+
+    if (parentError) {
+      console.error(`Failed to delete unstructured_parents for ${params.sourceType}:${params.sourceId}`, parentError);
+    }
+
+    // For files, also delete file_analysis_chunks
+    if (params.sourceType === "file") {
+      const { error: fileChunksError } = await supabase
+        .from("file_analysis_chunks")
+        .delete()
+        .eq("file_id", params.sourceId);
+
+      if (fileChunksError) {
+        console.error(`Failed to delete file_analysis_chunks for file:${params.sourceId}`, fileChunksError);
+      }
+    }
+  } catch (error) {
+    console.error(`Error cleaning up chunks for ${params.sourceType}:${params.sourceId}`, error);
+    // Don't throw - cleanup failures shouldn't block deletion
+  }
+}

@@ -1,6 +1,11 @@
 "use server";
 
 import { requireTimelineAccess } from "./context";
+import {
+  normalizeTimelinePriorities,
+  syncTimelinePriorityFieldsToEntityProperties,
+} from "@/lib/timeline-priority-sync";
+import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent } from "@/types/timeline";
 
@@ -80,7 +85,8 @@ export async function bulkDuplicateTimelineEvents(input: {
     title: `${event.title} (Copy)`,
     start_date: event.start_date,
     end_date: event.end_date,
-    status: event.status,
+    statuses: event.statuses,
+    priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
     progress: event.progress,
     notes: event.notes,
@@ -89,6 +95,13 @@ export async function bulkDuplicateTimelineEvents(input: {
     baseline_start: event.baseline_start,
     baseline_end: event.baseline_end,
     display_order: event.display_order + idx + 1,
+    ...(event.source_entity_type === "table_row" && event.source_entity_id
+      ? {
+        source_entity_type: "table_row",
+        source_entity_id: event.source_entity_id,
+        source_sync_mode: "live" as const,
+      }
+      : {}),
     created_by: userId,
     updated_by: userId,
   }));
@@ -99,6 +112,30 @@ export async function bulkDuplicateTimelineEvents(input: {
     .select("*");
 
   if (error || !data) return { error: "Failed to duplicate timeline events" };
+  const normalized = (data as any[]).map((event) => {
+    const priorities = normalizeTimelinePriorities(event?.priorities);
+    return {
+      ...(event as TimelineEvent),
+      priorities,
+    } as TimelineEvent;
+  });
 
-  return { data: data as TimelineEvent[] };
+  await Promise.all(
+    normalized.map(async (event) => {
+      await syncTimelineStatusFieldsToEntityProperties(
+        supabase,
+        event.id,
+        event.workspace_id,
+        event.statuses
+      );
+      await syncTimelinePriorityFieldsToEntityProperties(
+        supabase,
+        event.id,
+        event.workspace_id,
+        event.priorities
+      );
+    })
+  );
+
+  return { data: normalized };
 }
