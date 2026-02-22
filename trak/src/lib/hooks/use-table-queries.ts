@@ -22,7 +22,7 @@ import {
 } from "@/app/actions/tables/row-actions";
 import { createView, getView, updateView, deleteView, setDefaultView, listViews } from "@/app/actions/tables/view-actions";
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
-import { getTableData, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
+import { getTableData, getTableBootstrap, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
 import { getRelatedRows, configureRelationField } from "@/app/actions/tables/relation-actions";
 import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows, bulkInsertRows } from "@/app/actions/tables/bulk-actions";
 import type { Table, TableField, TableRow, TableView, TableComment, FilterCondition } from "@/types/table";
@@ -40,6 +40,20 @@ export function useTable(tableId: string, initialData?: { table: Table; fields: 
       return result.data;
     },
     initialData,
+    staleTime: 30_000,
+    enabled: Boolean(tableId),
+  });
+}
+
+/** Single round-trip load for table + fields + default view + rows. Use for initial render to avoid 3 parallel requests. */
+export function useTableBootstrap(tableId: string) {
+  return useQuery({
+    queryKey: queryKeys.tableBootstrap(tableId),
+    queryFn: async () => {
+      const result = await getTableBootstrap(tableId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     staleTime: 30_000,
     enabled: Boolean(tableId),
   });
@@ -77,6 +91,7 @@ export function useUpdateTable(tableId: string) {
     mutationFn: (updates: Partial<Table>) => updateTable(tableId, updates),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: ["workspaceTables"] });
     },
   });
@@ -114,6 +129,7 @@ export function useCreateField(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -125,6 +141,7 @@ export function useUpdateField(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
@@ -136,6 +153,7 @@ export function useDeleteField(tableId: string) {
     mutationFn: (fieldId: string) => deleteField(fieldId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
     },
   });
@@ -246,6 +264,7 @@ export function useCreateRow(tableId: string, viewId?: string | null) {
         queryKey: ['tableRows', tableId],
         refetchType: 'active' // Only refetch active queries
       });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -325,6 +344,7 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
         queryKey: queryKeys.tableRows(tableId, viewId),
         refetchType: 'active'
       });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       // Rollups/formulas can affect related tables; refresh any visible table rows.
       qc.invalidateQueries({ queryKey: ['tableRows'] });
     },
@@ -382,6 +402,7 @@ export function useDeleteRows(tableId: string, viewId?: string | null) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -406,7 +427,11 @@ export function useDuplicateRow(tableId: string, viewId?: string | null) {
   });
 }
 
-export function useTableRows(tableId: string, viewId?: string | null) {
+export function useTableRows(
+  tableId: string,
+  viewId?: string | null,
+  opts?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: queryKeys.tableRows(tableId, viewId),
     queryFn: async () => {
@@ -415,6 +440,7 @@ export function useTableRows(tableId: string, viewId?: string | null) {
       return result.data;
     },
     staleTime: 10_000,
+    enabled: opts?.enabled !== false && Boolean(tableId),
   });
 }
 

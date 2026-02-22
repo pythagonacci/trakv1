@@ -35,12 +35,6 @@ export default function DashboardLoading() {
         
         {/* Main Content Skeleton */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Header Skeleton */}
-          <header className="h-14 bg-white border border-neutral-200 flex items-center justify-between px-6 rounded-lg mb-4 shadow-sm">
-            <div className="h-5 bg-neutral-200 rounded animate-pulse w-32" />
-            <div className="w-9 h-9 bg-neutral-200 rounded-lg animate-pulse" />
-          </header>
-          
           {/* Content Area Skeleton */}
           <main className="flex-1 overflow-auto p-8 bg-white border border-neutral-200 rounded-lg shadow-sm">
             <div className="max-w-7xl mx-auto space-y-4">

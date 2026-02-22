@@ -243,6 +243,37 @@
     border-color: var(--border-strong);
   }
 
+  /* Event details modal: inputs and selects are underline-only, no box/shadow (override base form styles) */
+  [data-event-details-modal="true"] input,
+  [data-event-details-modal="true"] select {
+    border-radius: 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--border) !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+  }
+  [data-event-details-modal="true"] select {
+    background-image: none !important;
+  }
+  [data-event-details-modal="true"] input:focus,
+  [data-event-details-modal="true"] select:focus {
+    border-bottom-color: var(--border-strong) !important;
+    box-shadow: none !important;
+  }
+  /* Assignee dropdown trigger: same underline-only look */
+  [data-event-details-modal="true"] .assignee-trigger-btn {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background-color: transparent;
+    box-shadow: none;
+  }
+  [data-event-details-modal="true"] .assignee-trigger-btn:hover {
+    background-color: transparent;
+  }
+
   /* Brutalist theme styling is handled at component level, not via CSS overrides */
 }
 
@@ -308,13 +339,13 @@
     border-color: rgba(82, 99, 122, 0.2);
   }
   
-  /* Row hover with Arts palette tint */
+  /* Row hover to match sidebar: primary tint */
   .row-hover-teal:hover {
-    background-color: rgba(74, 122, 120, 0.04);
+    background-color: color-mix(in srgb, var(--primary) 10%, transparent);
   }
-  
+
   .row-hover-coffee:hover {
-    background-color: rgba(156, 124, 88, 0.04);
+    background-color: color-mix(in srgb, var(--primary) 10%, transparent);
   }
 
   /* Block entrance animation - subtle, structural */

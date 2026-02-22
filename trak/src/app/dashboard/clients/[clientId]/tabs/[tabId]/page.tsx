@@ -129,23 +129,18 @@ export default async function ClientTabPage({
   console.log(`🎯 Client Tab: Prefetched ${Object.keys(initialFileUrls).length} file URLs for ${blocks.length} blocks`);
 
   return (
-    <div className="min-h-screen bg-transparent">
-      <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
-        {/* Client Header */}
-        <div className="pt-4 pb-2">
+    <div className="min-h-0 bg-neutral-50 dark:bg-neutral-950">
+      <div className="w-full px-2 md:px-3 lg:px-4">
+        <div className="pt-2 pb-1">
           <ClientHeader client={client} />
         </div>
-
-        {/* Client Tabs */}
-        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm">
+        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
           <ClientTabs
             clientId={clientId}
             tabs={tabs}
             activeTabId={tabId}
           />
         </div>
-
-        {/* Tab Canvas Content */}
         <div className="py-3 md:py-4 lg:py-5">
           <ClientTabCanvasWrapper
             tabId={tabId}

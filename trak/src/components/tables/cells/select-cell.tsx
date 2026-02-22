@@ -226,7 +226,6 @@ export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCan
         disabled={saving}
       >
         {onUpdateConfig && <Plus className="h-3 w-3" />}
-        <span>Empty</span>
       </button>
     );
   }

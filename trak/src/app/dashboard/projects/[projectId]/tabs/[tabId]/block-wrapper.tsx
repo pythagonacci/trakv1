@@ -817,6 +817,7 @@ export default function BlockWrapper({
           entityId={block.id}
           workspaceId={workspaceId}
           entityTitle={getBlockTitle(block)}
+          projectId={projectId}
         />
       )}
     </div>

@@ -1,4 +1,5 @@
 import { getAllProjects } from "@/app/actions/project";
+import { getAllInternalGroups } from "@/app/actions/internal-group";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getWorkspaceStandaloneFiles } from "@/app/actions/file";
 import InternalTable from "./internal-table";
@@ -38,9 +39,12 @@ export default async function InternalPage({ searchParams }: PageProps) {
     sort_order: (params.sort_order as 'asc' | 'desc') || 'desc',
   };
 
-  // Fetch internal spaces with filters
-  const projectsResult = await getAllProjects(workspaceId, filters);
-  
+  // Fetch internal spaces and groups in parallel
+  const [projectsResult, groupsResult] = await Promise.all([
+    getAllProjects(workspaceId, filters),
+    getAllInternalGroups(workspaceId),
+  ]);
+
   if (projectsResult.error) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -51,7 +55,6 @@ export default async function InternalPage({ searchParams }: PageProps) {
     );
   }
 
-  // Map data to the expected shape
   type RawProject = {
     id: string;
     name: string;
@@ -59,6 +62,7 @@ export default async function InternalPage({ searchParams }: PageProps) {
     due_date_date: string | null;
     due_date_text: string | null;
     created_at: string;
+    internal_group_id?: string | null;
   };
 
   const mappedSpaces = ((projectsResult.data || []) as RawProject[]).map((space: RawProject) => ({
@@ -66,11 +70,12 @@ export default async function InternalPage({ searchParams }: PageProps) {
     name: space.name,
     status: space.status,
     created_at: space.created_at,
+    internal_group_id: space.internal_group_id ?? null,
   }));
 
-  // Fetch standalone files
   const filesResult = await getWorkspaceStandaloneFiles(workspaceId);
   const files = filesResult.data || [];
+  const groups = groupsResult.error ? [] : (groupsResult.data || []);
 
   return (
     <div>
@@ -80,12 +85,14 @@ export default async function InternalPage({ searchParams }: PageProps) {
           spaces={mappedSpaces}
           files={files}
           workspaceId={workspaceId}
+          groups={groups}
         />
       ) : (
         <InternalTable
           spaces={mappedSpaces}
           files={files}
           workspaceId={workspaceId}
+          groups={groups}
           currentSort={{
             sort_by: filters.sort_by,
             sort_order: filters.sort_order,

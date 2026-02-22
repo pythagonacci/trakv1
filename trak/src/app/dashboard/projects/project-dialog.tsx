@@ -35,6 +35,7 @@ interface FormData {
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
   member_ids?: string[] | "all"; // Project permissions
+  tags?: string[]; // Project tag bank (create only)
 }
 
 interface ProjectDialogProps {
@@ -70,6 +71,8 @@ export default function ProjectDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientInput, setClientInput] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [tagInput, setTagInput] = useState("");
+  const [initialTags, setInitialTags] = useState<string[]>([]);
 
   // Project permissions state
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
@@ -129,6 +132,8 @@ export default function ProjectDialog({
         setClientInput("");
         setPermissionMode("all");
         setSelectedMemberIds([]);
+        setInitialTags([]);
+        setTagInput("");
       }
       setFormError("");
       setIsSubmitting(false);
@@ -173,6 +178,7 @@ export default function ProjectDialog({
         ...formData,
         client_name: clientInput && !formData.client_id ? clientInput.trim() : undefined,
         member_ids: permissionMode === "all" ? "all" : selectedMemberIds,
+        tags: mode === "create" && initialTags.length > 0 ? initialTags : undefined,
       };
 
       await onSubmit(submitData);
@@ -326,6 +332,64 @@ export default function ProjectDialog({
               disabled={isSubmitting}
             />
           </div>
+
+          {/* Initial tags (create only) */}
+          {mode === "create" && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+                Tags{" "}
+                <span className="text-[10px] text-[var(--tertiary-foreground)]">(optional – project tag bank)</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2">
+                {initialTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-0.5 text-xs"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => setInitialTags((prev) => prev.filter((t) => t !== tag))}
+                      className="ml-0.5 hover:text-[var(--error)] transition-colors"
+                      disabled={isSubmitting}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const t = tagInput.trim();
+                        if (t && !initialTags.includes(t)) setInitialTags((prev) => [...prev, t]);
+                        setTagInput("");
+                      }
+                    }}
+                    placeholder="Add tag..."
+                    className="w-24 min-w-0 rounded border-0 bg-transparent px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    disabled={isSubmitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = tagInput.trim();
+                      if (t && !initialTags.includes(t)) setInitialTags((prev) => [...prev, t]);
+                      setTagInput("");
+                    }}
+                    className="text-xs text-[var(--primary)] hover:underline disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Project Access Permissions */}
           {mode === "create" && (

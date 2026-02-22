@@ -53,6 +53,7 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     statuses: normalizeTimelineStatuses(event.statuses),
     priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
+    assignee_team_id: (event as any).assignee_team_id ?? null,
     progress: event.progress,
     color: event.color,
     is_milestone: event.is_milestone,
@@ -60,6 +61,9 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     baseline_start: event.baseline_start,
     baseline_end: event.baseline_end,
     display_order: event.display_order,
+    source_entity_type: event.source_entity_type ?? null,
+    source_entity_id: event.source_entity_id ?? null,
+    source_sync_mode: event.source_sync_mode ?? null,
   }));
 
   const combined = [...eventItems];

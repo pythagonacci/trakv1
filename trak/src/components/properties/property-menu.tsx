@@ -30,6 +30,8 @@ import {
   useAddTag,
   useRemoveTag,
   useWorkspaceMembers,
+  useProjectTags,
+  useAddProjectTag,
 } from "@/lib/hooks/use-property-queries";
 import {
   STATUS_OPTIONS,
@@ -49,6 +51,8 @@ interface PropertyMenuProps {
   entityId: string;
   workspaceId: string;
   entityTitle?: string;
+  /** When set, the project's tag bank is shown and new tags are saved to the project. */
+  projectId?: string;
   disabledFields?: Partial<{
     status: boolean;
     priority: boolean;
@@ -239,10 +243,13 @@ export function PropertyMenu({
   entityId,
   workspaceId,
   entityTitle,
+  projectId,
   disabledFields,
 }: PropertyMenuProps) {
   const [newTagInput, setNewTagInput] = useState("");
   const [statusDrafts, setStatusDrafts] = useState<StatusFieldDraft[]>([]);
+  const { data: projectTagBank = [] } = useProjectTags(projectId);
+  const addProjectTagMutation = useAddProjectTag(projectId);
   const [priorityDrafts, setPriorityDrafts] = useState<PriorityFieldDraft[]>([]);
   const [assigneeDrafts, setAssigneeDrafts] = useState<AssigneeFieldDraft[]>([]);
   const [dueDateDrafts, setDueDateDrafts] = useState<DueDateFieldDraft[]>([]);
@@ -327,9 +334,13 @@ export function PropertyMenu({
   // ============================================================================
 
   const handleAddTag = () => {
-    if (!newTagInput.trim()) return;
-    addTagMutation.mutate(newTagInput.trim(), {
-      onSuccess: () => setNewTagInput(""),
+    const tag = newTagInput.trim();
+    if (!tag) return;
+    addTagMutation.mutate(tag, {
+      onSuccess: () => {
+        setNewTagInput("");
+        if (projectId) addProjectTagMutation.mutate(tag);
+      },
     });
   };
 
@@ -799,6 +810,36 @@ export function PropertyMenu({
             ================================================================ */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">Tags</Label>
+              {projectId && projectTagBank.length > 0 && (
+                <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)] mb-1">Project tag bank</p>
+                  <div className="flex flex-wrap gap-1">
+                    {projectTagBank.map((tag) => {
+                      const currentTags = direct?.tags || [];
+                      const isOnEntity = currentTags.some((t) => t.toLowerCase() === tag.toLowerCase());
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => {
+                            if (!isOnEntity) addTagMutation.mutate(tag);
+                          }}
+                          disabled={isOnEntity}
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs transition-colors",
+                            isOnEntity
+                              ? "border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] cursor-default"
+                              : "border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--foreground)]"
+                          )}
+                        >
+                          <TagIcon className="h-3 w-3" />
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5 min-h-[32px]">
                 {(direct?.tags || []).map((tag) => (
                   <span

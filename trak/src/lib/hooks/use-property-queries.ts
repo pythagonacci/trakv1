@@ -18,6 +18,7 @@ import {
   removeEntityLink,
   getEntityLinks,
 } from "@/app/actions/entity-properties";
+import { getProjectTags, addProjectTag } from "@/app/actions/project";
 import type {
   EntityType,
   EntityProperties,
@@ -205,6 +206,41 @@ export function useAddTag(
       qc.invalidateQueries({
         queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
       });
+    },
+  });
+}
+
+/**
+ * Fetch the tag bank for a project (for suggestions in the properties modal)
+ */
+export function useProjectTags(projectId?: string) {
+  return useQuery({
+    queryKey: queryKeys.projectTags(projectId ?? ""),
+    queryFn: async () => {
+      if (!projectId) return [];
+      const result = await getProjectTags(projectId);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Add a tag to a project's tag bank (e.g. when user creates a new tag from the properties modal)
+ */
+export function useAddProjectTag(projectId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => {
+      if (!projectId) return Promise.resolve({ data: null as null });
+      return addProjectTag(projectId, name);
+    },
+    onSuccess: (_result, _name, _variables) => {
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: queryKeys.projectTags(projectId) });
+      }
     },
   });
 }

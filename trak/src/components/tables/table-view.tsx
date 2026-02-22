@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { Plus, EyeOff } from "lucide-react";
 import {
   useTable,
+  useTableBootstrap,
   useTableRows,
   useCreateRow,
   useUpdateCell,
@@ -170,7 +171,8 @@ interface Props {
 
 export function TableView({ tableId }: Props) {
   const queryClient = useQueryClient();
-  const { data: tableData, isLoading: metaLoading } = useTable(tableId);
+  const { data: bootstrap, isLoading: bootstrapLoading } = useTableBootstrap(tableId);
+  const { data: tableDataFallback } = useTable(tableId);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [commentsRowId, setCommentsRowId] = useState<string | null>(null);
   const [detailColumnId, setDetailColumnId] = useState<string | null>(null);
@@ -200,8 +202,34 @@ export function TableView({ tableId }: Props) {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [collapsedSubtasks, setCollapsedSubtasks] = useState<Set<string>>(new Set());
+  const hasInitializedSubtaskCollapse = useRef(false);
 
-  // Fetch workspace members for person fields
+  const tableData = bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : tableDataFallback ?? undefined;
+  const defaultViewId = bootstrap?.view?.id ?? null;
+  const isDefaultView = activeViewId === null || activeViewId === defaultViewId;
+  const rowDataFromQuery = useTableRows(
+    tableId,
+    !isDefaultView && activeViewId ? activeViewId : undefined,
+    { enabled: !isDefaultView && Boolean(activeViewId) }
+  );
+  const rowData = isDefaultView && bootstrap
+    ? { rows: bootstrap.rows, view: bootstrap.view }
+    : rowDataFromQuery.data;
+  const view = rowData?.view;
+  const effectiveViewId = activeViewId || view?.id || undefined;
+  const viewType = view?.type || "table";
+  const metaLoading = bootstrapLoading && !bootstrap;
+  const rowsLoading = !isDefaultView && rowDataFromQuery.isLoading;
+
+  useEffect(() => {
+    if (defaultViewId != null && activeViewId === null) {
+      setActiveViewId(defaultViewId);
+    }
+  }, [defaultViewId, activeViewId]);
+
+  // Fetch workspace members only when table has person/assignee fields (defer for new tables)
+  const allFieldsForMembers = tableData?.fields ?? [];
+  const hasPersonField = allFieldsForMembers.some((f) => f.type === "person");
   const { data: workspaceMembers } = useQuery({
     queryKey: ['workspaceMembers', tableData?.table.workspace_id],
     queryFn: async () => {
@@ -210,16 +238,10 @@ export function TableView({ tableId }: Props) {
       if ('error' in result) return [];
       return result.data || [];
     },
-    enabled: !!tableData?.table.workspace_id,
-    staleTime: 5 * 60 * 1000, // 5 minutes - workspace members don't change often
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    enabled: Boolean(tableData?.table.workspace_id && hasPersonField),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
-
-  // Always use a single source of truth for view id to keep query keys aligned
-  const { data: rowData, isLoading: rowsLoading } = useTableRows(tableId, activeViewId || undefined);
-  const view = rowData?.view;
-  const effectiveViewId = activeViewId || view?.id || undefined;
-  const viewType = view?.type || "table";
 
   const createRow = useCreateRow(tableId, effectiveViewId);
   const updateCell = useUpdateCell(tableId, effectiveViewId);
@@ -385,6 +407,17 @@ export function TableView({ tableId }: Props) {
     () => buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, collapsedSubtasks),
     [sortedRows, subtaskField?.id, collapsedSubtasks]
   );
+  // Parent row IDs that have subtasks (for default-collapsed init)
+  const parentIdsWithSubtasks = useMemo(() => {
+    const res = buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, new Set());
+    return res.parentIds;
+  }, [sortedRows, subtaskField?.id]);
+  useEffect(() => {
+    if (parentIdsWithSubtasks.size > 0 && !hasInitializedSubtaskCollapse.current) {
+      hasInitializedSubtaskCollapse.current = true;
+      setCollapsedSubtasks(new Set(parentIdsWithSubtasks));
+    }
+  }, [parentIdsWithSubtasks]);
   const sourceLinkedRows = useMemo(
     () => (rowData?.rows ?? []).filter((row) => Boolean(row.source_entity_id && row.source_entity_type)),
     [rowData?.rows]

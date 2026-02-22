@@ -187,6 +187,7 @@ export async function createTimelineEvent(input: {
   baselineEnd?: string | null;
   displayOrder?: number;
   assigneeId?: string;
+  assigneeTeamId?: string | null;
   sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
   sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
@@ -271,7 +272,8 @@ export async function createTimelineEvent(input: {
       baseline_start: input.baselineStart ?? null,
       baseline_end: input.baselineEnd ?? null,
       display_order: input.displayOrder ?? nextOrder,
-      assignee_id: input.assigneeId ?? null,
+      assignee_id: input.assigneeTeamId != null ? null : (input.assigneeId ?? null),
+      assignee_team_id: input.assigneeTeamId ?? null,
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
       source_sync_mode: sourceSyncMode,
@@ -313,9 +315,11 @@ export async function updateTimelineEvent(
     color: string | null;
     isMilestone: boolean;
     assigneeId: string | null;
+    assigneeTeamId: string | null;
     baselineStart: string | null;
     baselineEnd: string | null;
     displayOrder: number;
+    sourceSyncMode: "snapshot" | "live";
   }>,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TimelineEvent>> {
@@ -370,10 +374,18 @@ export async function updateTimelineEvent(
   if (updates.notes !== undefined) payload.notes = updates.notes;
   if (updates.color !== undefined) payload.color = updates.color;
   if (updates.isMilestone !== undefined) payload.is_milestone = updates.isMilestone;
-  if (updates.assigneeId !== undefined) payload.assignee_id = updates.assigneeId;
+  if (updates.assigneeTeamId !== undefined) {
+    payload.assignee_team_id = updates.assigneeTeamId;
+    if (updates.assigneeTeamId != null) payload.assignee_id = null;
+  }
+  if (updates.assigneeId !== undefined) {
+    payload.assignee_id = updates.assigneeId;
+    if (updates.assigneeId != null) payload.assignee_team_id = null;
+  }
   if (updates.baselineStart !== undefined) payload.baseline_start = updates.baselineStart;
   if (updates.baselineEnd !== undefined) payload.baseline_end = updates.baselineEnd;
   if (updates.displayOrder !== undefined) payload.display_order = updates.displayOrder;
+  if (updates.sourceSyncMode !== undefined) payload.source_sync_mode = updates.sourceSyncMode;
 
   const { data, error } = await supabase
     .from("timeline_events")

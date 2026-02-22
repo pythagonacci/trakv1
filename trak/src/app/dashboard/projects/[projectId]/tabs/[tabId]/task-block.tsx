@@ -3852,7 +3852,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                 <div key={task.id} className="group/task-row">
                   <div
                     id={`task-${task.id}`}
-                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0 group-hover/task-row:bg-[var(--surface-hover)]/12"
+                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0 group-hover/task-row:bg-[var(--primary)]/10"
                     style={{ gridTemplateColumns: tableColumnTemplate }}
                   >
                     <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
@@ -4293,7 +4293,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                       return (
                         <div
                           key={`subtask-${subtask.id}`}
-                          className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--secondary)]/[0.06] w-full last:border-b-0 group-hover/task-row:bg-[var(--secondary)]/[0.1] subtask-table-row"
+                          className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--secondary)]/[0.06] w-full last:border-b-0 group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row"
                           style={{ gridTemplateColumns: tableColumnTemplate }}
                         >
                           <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-1.5">
@@ -4725,6 +4725,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
           entityId={propertiesTarget.id}
           workspaceId={workspaceId}
           entityTitle={propertiesTarget.title}
+          projectId={projectId}
           disabledFields={
             propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length
               ? { status: true, assignees: true }

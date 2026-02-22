@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings, Users, MessageCircle } from "lucide-react";
+import { Settings, Users, MessageCircle, UsersRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import MembersTable from "./members/members-table";
 import GeneralSettingsForm from "./general/general-settings-form";
+import TeamsTable from "./teams/teams-table";
 
 interface Workspace {
   id: string;
@@ -23,9 +24,20 @@ interface Member {
   role: "owner" | "admin" | "teammate";
 }
 
+interface WorkspaceTeam {
+  id: string;
+  workspace_id: string;
+  name: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+  member_ids: string[];
+}
+
 interface SettingsClientProps {
   workspace: Workspace;
   members: Member[];
+  teams: WorkspaceTeam[];
   currentUserRole: "owner" | "admin" | "teammate";
   currentUserId: string;
 }
@@ -33,11 +45,12 @@ interface SettingsClientProps {
 export function SettingsClient({
   workspace,
   members,
+  teams,
   currentUserRole,
   currentUserId,
 }: SettingsClientProps) {
   const pathname = usePathname();
-  const [activeTab, setActiveTab] = useState<"members" | "general">("members");
+  const [activeTab, setActiveTab] = useState<"members" | "general" | "teams">("members");
   const { setHeaderHidden } = useDashboardHeader();
   const isSlackPage = pathname?.includes("/settings/integrations/slack");
 
@@ -53,22 +66,18 @@ export function SettingsClient({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page Header - same coloring as table header, larger */}
-      <header className="sticky top-0 z-40 border-b border-[var(--secondary)] bg-[var(--secondary)]/10">
-        <div className="flex w-full items-center justify-between py-4 px-4 md:px-5 lg:px-6">
-          <div className="flex flex-col justify-center gap-0.5">
-            <h2 className="text-base font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
-              Workspace Settings
-            </h2>
-            <p className="text-sm text-[var(--tertiary-foreground)]/80">
-              {workspace.name}
-            </p>
-          </div>
+      {/* Page Header - thin, no border, single line with dot separator */}
+      <header className="sticky top-0 z-40 bg-[var(--surface)]">
+        <div className="flex w-full items-center py-2 px-4 md:px-5 lg:px-6">
+          <p className="text-sm text-[var(--foreground)]">
+            Workspace Settings <span className="text-[var(--muted-foreground)]">·</span>{" "}
+            <span className="text-[var(--muted-foreground)]">{workspace.name}</span>
+          </p>
         </div>
       </header>
 
       {/* Tab Navigation */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface)]">
+      <div className="bg-[var(--surface)]">
         <div className="flex gap-6 px-6">
           <button
             onClick={() => setActiveTab("members")}
@@ -82,6 +91,21 @@ export function SettingsClient({
             <Users className="h-4 w-4" />
             Members
             {activeTab === "members" && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--river-indigo)]" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("teams")}
+            className={cn(
+              "flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors relative",
+              activeTab === "teams"
+                ? "text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            )}
+          >
+            <UsersRound className="h-4 w-4" />
+            Teams
+            {activeTab === "teams" && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--river-indigo)]" />
             )}
           </button>
@@ -126,6 +150,14 @@ export function SettingsClient({
             members={members}
             canManage={canManage}
             currentUserId={currentUserId}
+          />
+        )}
+        {activeTab === "teams" && (
+          <TeamsTable
+            workspaceId={workspace.id}
+            teams={teams}
+            members={members}
+            canManage={canManage}
           />
         )}
         {activeTab === "general" && (

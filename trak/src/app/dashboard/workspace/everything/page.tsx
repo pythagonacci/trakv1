@@ -16,7 +16,7 @@ export default async function EverythingPage() {
   if ("error" in authResult) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
+    <div className="min-h-screen bg-[var(--surface)]">
       <div className="w-full px-2 md:px-3 lg:px-4">
         <div className="max-w-[1600px] mx-auto pt-4 pb-8">
           <EverythingView workspaceId={workspaceId} />

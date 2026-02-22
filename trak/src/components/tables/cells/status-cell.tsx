@@ -232,7 +232,6 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
         disabled={saving}
       >
         {canEditOptions && <Plus className="h-3 w-3" />}
-        <span>Empty</span>
       </button>
     );
   }

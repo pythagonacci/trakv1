@@ -7,7 +7,6 @@ import {
   BookOpen,
   FileText,
   ChevronDown,
-  Plus,
   Check,
   LogOut,
   Loader2,
@@ -670,58 +669,7 @@ function NavLink({
 }
 
 function Header() {
-  const pathname = usePathname();
-  const { headerHidden } = useDashboardHeader();
-
-  if (headerHidden) {
-    return null;
-  }
-
-  const isDocsPage = pathname?.includes("/docs");
-  const isProjectWorkspaceView =
-    pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
-  const isProjectsPage = pathname === "/dashboard/projects";
-  const isHomePage = pathname === "/dashboard";
-  const isClientsPage = pathname?.startsWith("/dashboard/clients");
-  const isInternalPage = pathname?.startsWith("/dashboard/internal");
-  const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
-  const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
-
-  if (isDocsPage || isProjectWorkspaceView || isProjectsPage || isHomePage || isClientsPage || isInternalPage || isCalendarPage || isWorkflowPage) {
-    return null;
-  }
-
-  const getPageTitle = () => {
-    if (pathname?.includes("/projects")) return "Projects";
-    if (pathname?.includes("/internal")) return "Internal";
-    if (pathname?.includes("/docs")) return "Docs";
-    if (pathname?.includes("/clients")) return "Clients";
-    if (pathname?.includes("/payments")) return "Payments";
-    return "Dashboard";
-  };
-
-  return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--background)]">
-      <div className="flex w-full items-center justify-between px-2 py-3 md:px-3 lg:px-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--tertiary-foreground)]">
-            Overview
-          </span>
-          <h1 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">
-            {getPageTitle()}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="hidden rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] md:inline-flex">
-            Quick actions
-          </button>
-          <button className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)]">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-    </header>
-  );
+  return null;
 }
 
 function LayoutMain({ children }: { children: React.ReactNode }) {
@@ -734,15 +682,19 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
     pathname?.startsWith("/dashboard/settings") ||
     pathname?.startsWith("/dashboard/workspace/everything") ||
     pathname?.startsWith("/dashboard/shopify/products");
+  const isProjectOrClientDetail =
+    (pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects") ||
+    (pathname?.startsWith("/dashboard/clients/") && pathname !== "/dashboard/clients");
 
   return (
     <main
       id="dashboard-content"
       className={cn(
         "flex-1 min-h-0",
+        isProjectOrClientDetail && "bg-neutral-50 dark:bg-neutral-950",
         isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
-        headerHidden || isWorkflowPage || isCalendarPage ? "py-0" : "py-4 lg:py-5"
+        headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-4 lg:py-5"
       )}
     >
       {children}

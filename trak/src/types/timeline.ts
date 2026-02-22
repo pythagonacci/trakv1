@@ -30,6 +30,7 @@ export interface TimelineEvent {
   statuses: TimelineNamedStatus[];
   priorities: TimelineNamedPriority[];
   assignee_id: string | null;
+  assignee_team_id: string | null;
   source_entity_type: TimelineSourceEntityType | null;
   source_entity_id: string | null;
   source_sync_mode: TimelineSourceSyncMode | null;
@@ -89,6 +90,7 @@ export interface TimelineItem {
   statuses?: TimelineNamedStatus[];
   priorities?: TimelineNamedPriority[];
   assignee_id: string | null;
+  assignee_team_id: string | null;
   source_entity_type?: TimelineSourceEntityType | null;
   source_entity_id?: string | null;
   source_sync_mode?: TimelineSourceSyncMode | null;

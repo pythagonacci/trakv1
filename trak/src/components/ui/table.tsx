@@ -65,8 +65,8 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        // Apollo-style operational density - semantic hover and selection states
-        "transition-colors duration-150 hover:bg-[var(--surface-hover)] data-[state=selected]:bg-[var(--surface-hover)] data-[state=selected]:border-l-2 data-[state=selected]:border-l-[var(--primary)]",
+        // Match sidebar hover: primary tint
+        "transition-colors duration-150 hover:bg-[var(--primary)]/10 data-[state=selected]:bg-[var(--primary)]/10 data-[state=selected]:border-l-2 data-[state=selected]:border-l-[var(--primary)]",
         className
       )}
       {...props}

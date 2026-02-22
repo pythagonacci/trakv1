@@ -1,4 +1,5 @@
 import { getAllDocs } from "@/app/actions/doc";
+import { getAllDocFolders } from "@/app/actions/doc-folder";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import DocsTable from "./docs-table";
 import DocsGrid from "./docs-grid";
@@ -35,7 +36,10 @@ export default async function DocsPage({ searchParams }: PageProps) {
 
   const view = (params.view as "list" | "grid") || "list";
 
-  const docsResult = await getAllDocs(workspaceId, filters);
+  const [docsResult, foldersResult] = await Promise.all([
+    getAllDocs(workspaceId, filters),
+    getAllDocFolders(workspaceId),
+  ]);
 
   if (docsResult.error) {
     return (
@@ -48,6 +52,7 @@ export default async function DocsPage({ searchParams }: PageProps) {
   }
 
   const docs = docsResult.data || [];
+  const folders = foldersResult.error ? [] : (foldersResult.data || []);
 
   return (
     <div>
@@ -57,11 +62,12 @@ export default async function DocsPage({ searchParams }: PageProps) {
       </div>
       
       {view === "grid" ? (
-        <DocsGrid docs={docs} workspaceId={workspaceId} />
+        <DocsGrid docs={docs} workspaceId={workspaceId} folders={folders} />
       ) : (
         <DocsTable
           docs={docs}
           workspaceId={workspaceId}
+          folders={folders}
           currentSort={{
             sort_by: filters.sort_by,
             sort_order: filters.sort_order,

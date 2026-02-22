@@ -209,6 +209,22 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
     return mergedEvents.filter((event) => event.date === dateStr);
   };
 
+  // Get events for a specific date that start in a given hour (for week view grid)
+  const getEventsForDateAndHour = (date: Date, hour: number): CalendarEvent[] => {
+    const dayEvents = getEventsForDate(date);
+    return dayEvents.filter((event) => {
+      if (!event.time) return false;
+      const [h] = event.time.split(":").map(Number);
+      return h === hour;
+    });
+  };
+
+  // All-day events for a date (no time or full-day)
+  const getAllDayEventsForDate = (date: Date): CalendarEvent[] => {
+    const dateStr = toLocalDateString(date);
+    return mergedEvents.filter((event) => event.date === dateStr && !event.time && !event.timeEnd);
+  };
+
   // Navigate to previous/next period
   const navigatePeriod = (direction: "prev" | "next") => {
     const newDate = new Date(currentDate);
@@ -690,72 +706,117 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
         )}
 
         {viewType === "week" && (
-          <div className="grid grid-rows-[auto_1fr] grid-cols-7 gap-2 h-full">
-            {/* Day headers */}
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <div
-                key={day}
-                className="row-start-1 flex items-center justify-center border-b border-[var(--border)]/30 pb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
-              >
-                {day}
-              </div>
-            ))}
-
-            {/* Week days */}
-            {weekDays.map((date, index) => {
-              const dayEvents = getEventsForDate(date);
-              const isTodayDate = isToday(date);
-              const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
-              const dayNumber = date.getDate();
-
-              return (
-                  <div
-                    key={date.toISOString()}
-                    className="row-start-2 flex flex-col rounded-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-sm shadow-md shadow-black/5 min-h-0 transition-shadow hover:shadow-lg hover:shadow-black/10"
-                    style={{ gridColumn: index + 1 }}
-                  >
+          <div className="flex flex-col h-full min-h-[480px] rounded-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-sm shadow-md overflow-hidden">
+            {/* Top row: time gutter + day headers */}
+            <div className="grid grid-cols-[4rem_1fr] flex-shrink-0 border-b border-[var(--border)]/30 bg-[var(--surface)]/80">
+              <div className="border-r border-[var(--border)]/30 px-2 py-2 text-xs font-medium text-[var(--muted-foreground)]" />
+              <div className="grid grid-cols-7 divide-x divide-[var(--border)]/30">
+                {weekDays.map((date) => {
+                  const isTodayDate = isToday(date);
+                  const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
+                  const dayNum = date.getDate();
+                  return (
                     <div
+                      key={date.toISOString()}
                       onClick={() => handleDayClick(date)}
                       className={cn(
-                        "flex-shrink-0 sticky top-0 z-10 border-b border-[var(--border)]/30 bg-[var(--surface)]/80 backdrop-blur-md px-3 py-3 text-center rounded-t-xl",
-                        isTodayDate && "bg-gradient-to-br from-blue-50/90 to-blue-100/50 dark:from-blue-950/40 dark:to-blue-900/20"
+                        "px-2 py-2 text-center cursor-pointer hover:bg-[var(--surface-hover)]/50",
+                        isTodayDate && "bg-blue-500/10 text-blue-600 dark:text-blue-400"
                       )}
                     >
-                      <div className={cn(
-                        "text-xs font-medium text-[var(--muted-foreground)]",
-                        isTodayDate && "text-blue-600 dark:text-blue-400"
-                      )}>
-                        {dayName}
-                      </div>
-                      <div className={cn(
-                        "text-lg font-semibold",
-                        isTodayDate && "text-blue-600 dark:text-blue-400"
-                      )}>
-                        {dayNumber}
-                      </div>
+                      <div className="text-xs font-medium text-[var(--muted-foreground)]">{dayName}</div>
+                      <div className={cn("text-lg font-semibold", isTodayDate && "text-blue-600 dark:text-blue-400")}>{dayNum}</div>
                     </div>
-                    <div className="flex-1 space-y-1.5 p-2 overflow-y-auto min-h-0">
-                    {dayEvents.map((event) => (
-                      <div
-                        key={event.id}
-                        onClick={(e) => handleEventClick(event, e)}
-                        className={cn(
-                          "px-2 py-1.5",
-                          getEventClassName(event, "text-xs")
-                        )}
-                      >
-                        <div className="font-medium">{event.title}</div>
-                        {(event.time || event.timeEnd) && (
-                          <div className="text-[10px] opacity-75">
-                            {event.timeEnd ? `${event.time ?? "—"} – ${event.timeEnd}` : (event.time ?? event.timeEnd)}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* All-day row */}
+            <div className="grid grid-cols-[4rem_1fr] flex-shrink-0 border-b border-[var(--border)]/30 min-h-[2rem]">
+              <div className="border-r border-[var(--border)]/30 px-2 py-1.5 text-[10px] text-[var(--muted-foreground)] font-medium flex items-center">
+                All day
+              </div>
+              <div className="grid grid-cols-7 divide-x divide-[var(--border)]/20 min-h-[2rem]">
+                {weekDays.map((date) => {
+                  const allDayEvents = getAllDayEventsForDate(date);
+                  return (
+                    <div
+                      key={date.toISOString()}
+                      className="p-1 space-y-0.5 overflow-hidden"
+                    >
+                      {allDayEvents.map((event) => (
+                        <div
+                          key={event.id}
+                          onClick={(e) => handleEventClick(event, e)}
+                          className={cn("truncate px-1.5 py-0.5 rounded", getEventClassName(event, "text-[10px]"))}
+                        >
+                          {event.title}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Scrollable time grid: one row per hour, time label + 7 day cells */}
+            <div className="flex-1 overflow-auto min-h-0">
+              {Array.from({ length: 24 }).map((_, hour) => (
+                <div
+                  key={hour}
+                  className="grid grid-cols-[4rem_1fr] min-h-[3rem] border-b border-[var(--border)]/20"
+                >
+                  {/* Time label (sticky left) */}
+                  <div className="sticky left-0 z-10 flex items-start justify-end border-r border-[var(--border)]/30 bg-[var(--surface)]/95 pr-2 pt-0.5 text-[10px] text-[var(--muted-foreground)]">
+                    {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
+                  </div>
+
+                  {/* 7 day cells for this hour */}
+                  <div className="grid grid-cols-7 divide-x divide-[var(--border)]/20 min-w-0">
+                    {weekDays.map((date) => {
+                      const slotDate = new Date(date);
+                      slotDate.setHours(hour, 0, 0, 0);
+                      const timeStr = `${String(hour).padStart(2, "0")}:00`;
+                      const hourEvents = getEventsForDateAndHour(date, hour);
+                      const isTodayDate = isToday(date);
+
+                      return (
+                        <div
+                          key={date.toISOString()}
+                          onClick={() => handleAddEventFromDay(slotDate, timeStr)}
+                          className={cn(
+                            "min-h-[3rem] p-1 cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/40",
+                            isTodayDate && "bg-blue-500/5"
+                          )}
+                        >
+                          {hourEvents.map((event) => (
+                            <div
+                              key={event.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEventClick(event, e);
+                              }}
+                              className={cn(
+                                "mb-0.5 px-1.5 py-1 rounded truncate",
+                                getEventClassName(event, "text-[10px]")
+                              )}
+                            >
+                              <span className="font-medium">{event.title}</span>
+                              {event.timeEnd && (
+                                <span className="opacity-75 text-[9px] ml-1">
+                                  – {event.timeEnd}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         )}
 

@@ -137,20 +137,19 @@ export default async function ClientPage({
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Client Header */}
-        <ClientHeader client={client} />
-
-        {/* Client Tabs */}
-        <ClientTabs
-          clientId={clientId}
-          tabs={tabs}
-          activeTabId={tab}
-        />
-
-        {/* Tab Content */}
-        <div className="mt-6">
+    <div className="min-h-0 bg-neutral-50 dark:bg-neutral-950">
+      <div className="w-full px-2 md:px-3 lg:px-4">
+        <div className="pt-2 pb-1">
+          <ClientHeader client={client} />
+        </div>
+        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
+          <ClientTabs
+            clientId={clientId}
+            tabs={tabs}
+            activeTabId={tab}
+          />
+        </div>
+        <div className="py-3 md:py-4 lg:py-5">
           {renderTabContent()}
         </div>
       </div>

@@ -4,11 +4,13 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag } from "lucide-react";
+import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import { getAllTeams } from "@/app/actions/workspace-teams";
+import type { WorkspaceTeam } from "@/app/actions/workspace-teams";
 import { PropertyBadges, PropertyMenu } from "@/components/properties";
 import {
   useEntitiesProperties,
@@ -47,6 +49,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,11 +73,15 @@ interface TimelineEvent {
   priorities: TimelineNamedPriority[];
   assignee?: string;
   assigneeId?: string | null;
+  assigneeTeamId?: string | null;
   notes?: string;
   progress?: number; // 0-100
   isMilestone?: boolean;
   baselineStart?: string;
   baselineEnd?: string;
+  source_entity_type?: string | null;
+  source_entity_id?: string | null;
+  sourceSyncMode?: "snapshot" | "live" | null;
 }
 
 type TimelineEventPatch = Partial<TimelineEvent> & {
@@ -447,6 +454,11 @@ function DraggableEvent({
               )}
               <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
               <span className="flex-1 truncate relative z-10">{event.title}</span>
+              {event.source_entity_id && (
+                <span className="shrink-0 relative z-10" title="Linked from another item">
+                  <Link2 className="h-3 w-3 opacity-90" aria-hidden />
+                </span>
+              )}
               {(event.statuses?.[0]?.value) && (
                 <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />
               )}
@@ -563,6 +575,11 @@ function DraggableEvent({
 
             <span className="h-2 w-2 shrink-0 rounded-full bg-white/80" />
             <span className="flex-1 truncate relative z-10">{event.title}</span>
+            {event.source_entity_id && (
+              <span className="shrink-0 relative z-10" title="Linked from another item">
+                <Link2 className="h-3 w-3 opacity-90" aria-hidden />
+              </span>
+            )}
             {(event.statuses?.[0]?.value) && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />}
             {progress > 0 && (
               <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
@@ -820,6 +837,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return timelineItems.map((item) => {
       const props = timelinePropertiesById[item.id];
       const assigneeId = props?.assignee_id ?? item.assignee_id ?? null;
+      const assigneeTeamId = item.assignee_team_id ?? null;
       const propertyPriorities = normalizeTimelinePrioritiesClient(props?.priorities ?? []);
       const itemPriorities = normalizeTimelinePrioritiesClient(item.priorities ?? []);
       const priorities = propertyPriorities.length > 0 ? propertyPriorities : itemPriorities;
@@ -833,11 +851,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         priorities,
         assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
         assigneeId,
+        assigneeTeamId,
         progress: item.progress,
         notes: item.notes ?? undefined,
         isMilestone: item.is_milestone,
         baselineStart: item.baseline_start ?? undefined,
         baselineEnd: item.baseline_end ?? undefined,
+        source_entity_type: item.source_entity_type ?? undefined,
+        source_entity_id: item.source_entity_id ?? undefined,
+        sourceSyncMode: item.source_sync_mode ?? null,
       };
     });
   }, [timelineItems, timelinePropertiesById, memberMap]);
@@ -1032,12 +1054,14 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         }
       }
     }
+    if (patch.assigneeTeamId !== undefined) updates.assigneeTeamId = patch.assigneeTeamId;
     if (patch.notes !== undefined) updates.notes = patch.notes;
     if (patch.progress !== undefined) updates.progress = patch.progress;
     if (patch.color !== undefined) updates.color = patch.color;
     if (patch.isMilestone !== undefined) updates.isMilestone = patch.isMilestone;
     if (patch.baselineStart !== undefined) updates.baselineStart = patch.baselineStart ?? null;
     if (patch.baselineEnd !== undefined) updates.baselineEnd = patch.baselineEnd ?? null;
+    if (patch.sourceSyncMode !== undefined) updates.sourceSyncMode = patch.sourceSyncMode;
 
     const result = await updateEventMutation.mutateAsync({
       eventId: id,
@@ -1274,7 +1298,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         onClick={closePanel}
       />
       <div
-        className="fixed z-[99999] w-96 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl overflow-hidden flex flex-col"
+        className="fixed z-[99999] w-[calc(100vw-24px)] max-w-md rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl overflow-hidden flex flex-col"
         style={{
           top: modalPosition.top,
           left: modalPosition.left,
@@ -1331,6 +1355,12 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                   {format(new Date(event.start), "MMM d")} – {format(new Date(event.end), "MMM d, yyyy")}
                 </div>
+                {event.source_entity_id && (
+                  <div className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
+                    <Link2 className="h-3 w-3 shrink-0" />
+                    <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+                  </div>
+                )}
                 {event.assignee && (
                   <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
                     Assignee: {event.assignee}
@@ -1519,8 +1549,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="truncate text-sm text-[var(--foreground)] font-medium">
-                      {event.title || "Untitled"}
+                    <div className="flex items-center gap-1.5 truncate text-sm text-[var(--foreground)] font-medium">
+                      <span className="truncate">{event.title || "Untitled"}</span>
+                      {event.source_entity_id && (
+                        <span className="shrink-0 text-[var(--muted-foreground)]" title="Linked from another item">
+                          <Link2 className="h-3 w-3" aria-hidden />
+                        </span>
+                      )}
                     </div>
                     {event.assignee && (
                       <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
@@ -2165,6 +2200,17 @@ function EventDetailsPanel({
 }) {
   const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const { data: teams = [] } = useQuery({
+    queryKey: ["workspaceTeams", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return [];
+      const r = await getAllTeams(workspaceId);
+      if ("error" in r) return [];
+      return r.data;
+    },
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  });
   const direct = propertiesResult?.direct;
   const eventPriorities = useMemo(
     () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
@@ -2179,6 +2225,7 @@ function EventDetailsPanel({
   const [local, setLocal] = useState<{
     status: string | null;
     assigneeId: string | null;
+    assigneeTeamId: string | null;
     progress: number;
     notes: string;
     start: string;
@@ -2188,6 +2235,7 @@ function EventDetailsPanel({
   }>({
     status: event.statuses?.[0]?.value ?? null,
     assigneeId: event.assigneeId ?? null,
+    assigneeTeamId: event.assigneeTeamId ?? null,
     progress: event.progress ?? 0,
     notes: event.notes ?? "",
     start: event.start,
@@ -2196,7 +2244,27 @@ function EventDetailsPanel({
     color: event.color ?? null,
   });
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
+  const [assigneeSearchOpen, setAssigneeSearchOpen] = useState(false);
+  const [assigneeSearchQuery, setAssigneeSearchQuery] = useState("");
+  const assigneeSearchInputRef = useRef<HTMLInputElement>(null);
+  const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
+
+  const resizeNotesTextarea = React.useCallback(() => {
+    const el = notesTextareaRef.current;
+    if (!el || variant !== "modal") return;
+    el.style.height = "auto";
+    const lineHeight = 20;
+    const minH = lineHeight + 8;
+    const maxH = 200;
+    const h = Math.max(minH, Math.min(el.scrollHeight, maxH));
+    el.style.height = `${h}px`;
+    el.style.overflowY = h >= maxH ? "auto" : "hidden";
+  }, [variant]);
+
+  React.useEffect(() => {
+    resizeNotesTextarea();
+  }, [local.notes, resizeNotesTextarea]);
 
   // Scroll content to top when panel opens or event changes so the event details are visible
   React.useEffect(() => {
@@ -2209,6 +2277,7 @@ function EventDetailsPanel({
     setLocal({
       status: event.statuses?.[0]?.value ?? null,
       assigneeId: event.assigneeId ?? null,
+      assigneeTeamId: event.assigneeTeamId ?? null,
       progress: event.progress ?? 0,
       notes: event.notes ?? "",
       start: event.start,
@@ -2217,10 +2286,36 @@ function EventDetailsPanel({
       color: event.color ?? null,
     });
     setIsColorDialogOpen(false);
+    setAssigneeSearchQuery("");
+    setAssigneeSearchOpen(false);
   }, [event]);
 
   const selectedMember = local.assigneeId ? findWorkspaceMember(workspaceMembers, local.assigneeId) : undefined;
-  const assigneeLabel = selectedMember?.name ?? selectedMember?.email ?? "Unassigned";
+  const selectedTeam = local.assigneeTeamId ? (teams as WorkspaceTeam[]).find((t) => t.id === local.assigneeTeamId) : undefined;
+  const assigneeLabel = selectedTeam
+    ? selectedTeam.name
+    : selectedMember
+      ? (selectedMember?.name ?? selectedMember?.email ?? "Unassigned")
+      : "Unassigned";
+  const assigneeSearchLower = assigneeSearchQuery.trim().toLowerCase();
+  const filteredTeamsForSearch = useMemo(
+    () =>
+      assigneeSearchLower
+        ? (teams as WorkspaceTeam[]).filter((t) => t.name.toLowerCase().includes(assigneeSearchLower))
+        : (teams as WorkspaceTeam[]),
+    [teams, assigneeSearchLower]
+  );
+  const filteredMembersForSearch = useMemo(
+    () =>
+      assigneeSearchLower
+        ? workspaceMembers.filter(
+            (m) =>
+              (m.name ?? "").toLowerCase().includes(assigneeSearchLower) ||
+              (m.email ?? "").toLowerCase().includes(assigneeSearchLower)
+          )
+        : workspaceMembers,
+    [workspaceMembers, assigneeSearchLower]
+  );
 
   const handleStartChange = (value: string) => {
     if (!value) return;
@@ -2268,9 +2363,23 @@ function EventDetailsPanel({
   };
 
   const handleAssigneeChange = (assigneeId: string | null) => {
-    setLocal((s) => ({ ...s, assigneeId }));
-    if ((event.assigneeId ?? null) !== assigneeId) {
-      onUpdate({ assigneeId });
+    setLocal((s) => ({ ...s, assigneeId, assigneeTeamId: null }));
+    if ((event.assigneeId ?? null) !== assigneeId || (event.assigneeTeamId ?? null) !== null) {
+      onUpdate({ assigneeId, assigneeTeamId: null });
+    }
+  };
+
+  const handleAssigneeTeamChange = (assigneeTeamId: string | null) => {
+    setLocal((s) => ({ ...s, assigneeTeamId, assigneeId: null }));
+    if ((event.assigneeTeamId ?? null) !== assigneeTeamId || (event.assigneeId ?? null) !== null) {
+      onUpdate({ assigneeTeamId, assigneeId: null });
+    }
+  };
+
+  const handleAssigneeClear = () => {
+    setLocal((s) => ({ ...s, assigneeId: null, assigneeTeamId: null }));
+    if ((event.assigneeId ?? null) !== null || (event.assigneeTeamId ?? null) !== null) {
+      onUpdate({ assigneeId: null, assigneeTeamId: null });
     }
   };
 
@@ -2305,70 +2414,121 @@ function EventDetailsPanel({
 
   if (!isOpen) return null;
 
+  const isModal = variant === "modal";
   return (
     <div
       className={cn(
         "flex flex-col min-h-0 overflow-hidden",
-        variant === "modal"
+        isModal
           ? "h-full w-full bg-[var(--surface)]"
           : "h-full w-full shrink-0 border-t border-[var(--border)] bg-[var(--surface)] shadow-popover lg:w-96 lg:border-l lg:border-t-0 lg:rounded-2xl"
       )}
-      role={variant === "modal" ? undefined : "complementary"}
-      aria-label={variant === "modal" ? undefined : `Event details: ${event.title}`}
+      role={isModal ? undefined : "complementary"}
+      aria-label={isModal ? undefined : `Event details: ${event.title}`}
     >
-      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+      <div className={cn(
+        "flex items-center justify-between bg-[var(--surface)]",
+        isModal ? "border-0 px-3 py-2" : "border-b border-[var(--border)] px-6 py-4"
+      )}>
         <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
-          <div className="text-lg font-semibold text-[var(--foreground)] truncate">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Timeline event</div>
+          <div className={cn(
+            "font-semibold text-[var(--foreground)] truncate",
+            isModal ? "text-sm" : "text-lg"
+          )}>
             {event.title || "Event details"}
           </div>
+          {event.source_entity_id && (
+            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+              <Link2 className="h-3 w-3 shrink-0" />
+              <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+            </div>
+          )}
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-          <X className="h-4 w-4" />
+        <Button variant="ghost" size="icon" onClick={onClose} className={isModal ? "h-7 w-7" : "h-8 w-8"}>
+          <X className={isModal ? "h-3.5 w-3.5" : "h-4 w-4"} />
         </Button>
       </div>
 
-      <div ref={contentScrollRef} className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+      <div
+        ref={contentScrollRef}
+        className={cn(
+          "flex-1 overflow-y-auto min-h-0",
+          isModal ? "px-3 py-2.5" : "px-6 py-5"
+        )}
+        data-event-details-modal={isModal ? "true" : undefined}
+      >
+        <div className={cn("space-y-3", isModal && "space-y-2")}>
+          <div className={cn(
+            "rounded-md",
+            isModal ? "border-0 bg-transparent px-0 py-1.5" : "border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5"
+          )}>
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Schedule</div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className={cn("grid grid-cols-2 gap-2", isModal && "mt-1")}>
               <input
                 type="date"
                 value={format(new Date(local.start), "yyyy-MM-dd")}
                 onChange={(e) => handleStartChange(e.target.value)}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
               />
               <input
                 type="date"
                 value={format(new Date(local.end), "yyyy-MM-dd")}
                 onChange={(e) => handleEndChange(e.target.value)}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
                 disabled={local.isMilestone}
               />
             </div>
           </div>
 
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Color</div>
+          {event.source_entity_id && (
+            <div className={cn(
+              "flex items-center justify-between gap-2",
+              isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+            )}>
+              <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sync with source</span>
+              <Switch
+                checked={event.sourceSyncMode === "live"}
+                onCheckedChange={(checked) => onUpdate({ sourceSyncMode: checked ? "live" : "snapshot" })}
+              />
+            </div>
+          )}
+
+          <div className={cn(
+            "flex items-center gap-2",
+            isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+          )}>
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] shrink-0">Color</div>
             <button
               type="button"
               onClick={() => setIsColorDialogOpen(true)}
               className={cn(
-                "mt-2 h-6 w-6 rounded-full border border-[var(--border)] ring-offset-2 ring-offset-[var(--surface)]",
-                currentColorClass
+                "rounded-full ring-offset-1 ring-offset-[var(--surface)]",
+                currentColorClass,
+                isModal ? "h-5 w-5 border-0" : "mt-2 h-6 w-6 border border-[var(--border)]"
               )}
               title="Change color"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+          <div className={cn("grid grid-cols-2 gap-2", !isModal && "gap-3")}>
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+            )}>
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Status</div>
               <select
                 value={local.status ?? "none"}
                 onChange={(e) => handleStatusChange(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "mt-0.5 border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0 shadow-none ring-0 appearance-none" : "mt-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
               >
                 <option value="none">None</option>
                 <option value="todo">To Do</option>
@@ -2377,48 +2537,107 @@ function EventDetailsPanel({
                 <option value="done">Done</option>
               </select>
             </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
+            )}>
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Assignee</div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)]">
+                  <button
+                    className={cn(
+                      "w-full text-left text-xs text-[var(--foreground)] focus:outline-none",
+                      isModal ? "assignee-trigger-btn mt-0.5 rounded-none border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 shadow-none ring-0 focus:shadow-none focus:ring-0" : "mt-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+                    )}
+                  >
                     {assigneeLabel}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto z-50">
+                <DropdownMenuContent align="start" className="w-44 max-h-56 overflow-y-auto z-[100000] py-1 text-xs" sideOffset={4}>
                   <DropdownMenuItem
-                    onClick={() => handleAssigneeChange(null)}
-                    className="text-neutral-500"
+                    onClick={handleAssigneeClear}
+                    className="text-[11px] text-neutral-500 py-1.5 px-2"
                   >
                     Unassigned
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
+                  <DropdownMenuSeparator className="my-1" />
+                  {teams.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 py-1 px-2">
+                        Teams
+                      </DropdownMenuLabel>
+                      {filteredTeamsForSearch.map((team) => (
+                        <DropdownMenuItem
+                          key={team.id}
+                          onClick={() => handleAssigneeTeamChange(team.id)}
+                          className="py-1 px-2 gap-1.5"
+                        >
+                          <span className="truncate text-[11px]">{team.name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                      {assigneeSearchLower && filteredTeamsForSearch.length === 0 && (
+                        <div className="py-1 px-2 text-[11px] text-neutral-400">No teams match</div>
+                      )}
+                      <DropdownMenuSeparator className="my-1" />
+                    </>
+                  )}
+                  <div className="flex items-center justify-between gap-1 py-1 px-2">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-neutral-400 p-0">
+                      {teams.length > 0 ? "Members" : "Members"}
+                    </DropdownMenuLabel>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setAssigneeSearchOpen((v) => !v);
+                        if (!assigneeSearchOpen) setTimeout(() => assigneeSearchInputRef.current?.focus(), 0);
+                      }}
+                      className="p-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600"
+                      title="Search assignees"
+                    >
+                      <Search className="h-3 w-3" />
+                    </button>
+                  </div>
+                  {assigneeSearchOpen && (
+                    <div className="px-2 pb-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        ref={assigneeSearchInputRef}
+                        type="text"
+                        value={assigneeSearchQuery}
+                        onChange={(e) => setAssigneeSearchQuery(e.target.value)}
+                        placeholder="Search..."
+                        className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
                   {workspaceMembers.length > 0 ? (
-                    workspaceMembers.map((member) => (
-                      <DropdownMenuItem
-                        key={member.id}
-                        onClick={() => handleAssigneeChange(member.user_id ?? member.id)}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium">
+                    filteredMembersForSearch.length > 0 ? (
+                      filteredMembersForSearch.map((member) => (
+                        <DropdownMenuItem
+                          key={member.id}
+                          onClick={() => handleAssigneeChange(member.user_id ?? member.id)}
+                          className="py-1 px-2 gap-1.5"
+                        >
+                          <div className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center text-[9px] font-medium shrink-0">
                             {(member.name ?? member.email ?? "?")[0]?.toUpperCase() || "?"}
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm truncate">{member.name ?? member.email ?? "Unknown"}</div>
-                            <div className="text-xs text-neutral-500 truncate">{member.email ?? ""}</div>
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
+                          <span className="truncate text-[11px]">{member.name ?? member.email ?? "Unknown"}</span>
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <div className="py-1 px-2 text-[11px] text-neutral-400">No members match</div>
+                    )
                   ) : (
-                    <DropdownMenuItem disabled className="text-neutral-400">
+                    <DropdownMenuItem disabled className="text-[11px] text-neutral-400 py-1 px-2">
                       Loading members...
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
+            )}>
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Progress</div>
               <input
                 type="number"
@@ -2427,18 +2646,25 @@ function EventDetailsPanel({
                 value={local.progress}
                 onChange={(e) => setLocal((s) => ({ ...s, progress: Number(e.target.value) }))}
                 onBlur={handleProgressBlur}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={cn(
+                  "w-full rounded text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500",
+                  isModal ? "mt-0.5 w-full border-0 border-b border-[var(--border)] bg-transparent px-0 py-1 focus:ring-0" : "mt-1 border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 rounded-md focus:ring-2"
+                )}
               />
             </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+            <div className={cn(
+              isModal ? "border-0 px-0 py-1.5" : "rounded-md border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5"
+            )}>
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Priority</div>
               {effectivePriorities.length > 0 ? (
-                <div className="mt-1 flex flex-wrap gap-1">
+                <div className={cn("flex flex-wrap gap-1", isModal ? "mt-0.5" : "mt-1")}>
                   {effectivePriorities.map((priorityField) => (
                     <span
                       key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`}
                       className={cn(
-                        "inline-flex max-w-[220px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                        "inline-flex max-w-[180px] items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                        isModal && "border-0 shadow-none",
+                        !isModal && "border",
                         PRIORITY_PILL_COLORS[priorityField.value]
                       )}
                       title={getTimelinePriorityDisplayLabel(priorityField)}
@@ -2448,18 +2674,21 @@ function EventDetailsPanel({
                   ))}
                 </div>
               ) : (
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-xs text-[var(--muted-foreground)]">None</span>
+                <div className={cn("flex items-center gap-2", isModal ? "mt-0.5" : "mt-1")}>
+                  <span className="text-[10px] text-[var(--muted-foreground)]">None</span>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="text-xs text-blue-600 hover:underline"
+                        className={cn(
+                          "text-[10px] text-blue-600 hover:underline focus:outline-none",
+                          isModal && "shadow-none ring-0 focus:shadow-none focus:ring-0"
+                        )}
                       >
                         Add priority
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
+                    <DropdownMenuContent align="start" className="z-[100000]" sideOffset={4}>
                       <DropdownMenuItem onClick={() => handleAddPriority("low")}>Low</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleAddPriority("medium")}>Medium</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleAddPriority("high")}>High</DropdownMenuItem>
@@ -2471,52 +2700,73 @@ function EventDetailsPanel({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Notes</div>
+          <div className={cn("space-y-1", !isModal && "space-y-2")}>
+            <div className={cn(
+              "font-medium text-neutral-700 dark:text-neutral-300",
+              isModal ? "text-xs" : "text-sm"
+            )}>Notes</div>
             <textarea
+              ref={notesTextareaRef}
               value={local.notes}
               onChange={(e) => setLocal((s) => ({ ...s, notes: e.target.value }))}
+              onInput={isModal ? resizeNotesTextarea : undefined}
               onBlur={handleNotesBlur}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={cn(
+                "w-full bg-transparent text-[var(--foreground)] focus:outline-none resize-none overflow-hidden",
+                isModal
+                  ? "text-xs border-0 border-b border-[var(--border)] py-1 px-0 min-h-[28px] focus:border-[var(--foreground)]/30"
+                  : "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
+              )}
               placeholder="Add notes..."
-              rows={2}
+              rows={isModal ? 1 : 2}
             />
           </div>
 
           {workspaceId && direct && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Properties</div>
-              <div className="flex flex-wrap gap-2">
+            <div className={cn("space-y-1", !isModal && "space-y-2")}>
+              <div className={cn(
+                "font-medium text-neutral-700 dark:text-neutral-300",
+                isModal ? "text-xs" : "text-sm"
+              )}>Properties</div>
+              <div className="flex flex-wrap gap-1.5">
                 <PropertyBadges properties={direct} />
               </div>
             </div>
           )}
 
-          <div className="space-y-2">
+          <div className={cn("space-y-1", !isModal && "space-y-2")}>
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Attachments</div>
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={onAddReference}>
-                <Plus className="h-3.5 w-3.5" />
+              <div className={cn(
+                "font-medium text-neutral-700 dark:text-neutral-300",
+                isModal ? "text-xs" : "text-sm"
+              )}>Attachments</div>
+              <Button variant="outline" size="icon" className={isModal ? "h-6 w-6" : "h-7 w-7"} onClick={onAddReference}>
+                <Plus className={isModal ? "h-3 w-3" : "h-3.5 w-3.5"} />
               </Button>
             </div>
             {references.length > 0 && (
-              <div className="space-y-2">
+              <div className={cn("space-y-1", !isModal && "space-y-2")}>
                 {references.map((ref) => (
                   <button
                     key={ref.id}
                     onClick={() => onNavigateToReference?.(ref)}
-                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-xs text-left hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                    className={cn(
+                      "w-full rounded text-left text-xs transition-colors cursor-pointer",
+                      isModal
+                        ? "border-0 bg-transparent px-0 py-1.5 hover:bg-[var(--surface-hover)]"
+                        : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-3 py-2"
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
                           {ref.title}
                         </div>
-                        <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+                        <div className="text-[10px] uppercase tracking-wide text-neutral-400">
                           {ref.type_label || ref.reference_type}
                         </div>
                       </div>
-                      <ExternalLink className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
+                      <ExternalLink className="h-3 w-3 text-neutral-400 flex-shrink-0" />
                     </div>
                   </button>
                 ))}
@@ -2671,6 +2921,12 @@ function EditEventDialog({
           <div className="text-lg font-semibold text-[var(--foreground)] truncate">
             {event.title || "Event details"}
           </div>
+          {event.source_entity_id && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+              <Link2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Linked from {event.source_entity_type === "task" ? "task" : event.source_entity_type ?? "source"}</span>
+            </div>
+          )}
         </div>
         <Button variant="ghost" size="icon" onClick={closePanel} className="h-8 w-8">
           <X className="h-4 w-4" />

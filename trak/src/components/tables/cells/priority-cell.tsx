@@ -160,7 +160,7 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
         onClick={onStartEdit}
         disabled={saving}
       >
-        Empty
+        {"\u00A0"}
       </button>
     );
   }
