@@ -10,7 +10,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 
 interface ClientAddBlockButtonProps {
@@ -71,12 +73,6 @@ const blockTypes: Array<{ type: ClientTabBlockType; label: string; icon: React.R
     label: "Image",
     icon: <Image className="w-4 h-4" />,
     description: "Image with caption",
-  },
-  {
-    type: "gallery",
-    label: "Gallery",
-    icon: <Images className="w-4 h-4" />,
-    description: "Scrollable image grid",
   },
   {
     type: "video",
@@ -175,7 +171,13 @@ export default function ClientAddBlockButton({
       case "text":
         return { text: "" };
       case "task":
-        return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+        return {
+          title: "New Task List",
+          hideIcons: false,
+          viewMode: "list",
+          boardGroupBy: "status",
+          tasks: [{ id: Date.now(), text: "New task", statuses: [{ field_name: "Status", value: "todo" }] }],
+        };
       case "link":
         return { title: "", url: "", description: "" };
       case "divider":
@@ -253,6 +255,40 @@ export default function ClientAddBlockButton({
             </div>
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="flex items-start gap-3 px-3 py-2">
+            <div className="mt-0.5 text-[var(--muted-foreground)]">
+              <Images className="w-4 h-4" />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-[var(--foreground)]">Gallery</div>
+              <div className="text-xs text-[var(--muted-foreground)]">Scrollable image grid</div>
+            </div>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-52">
+            <DropdownMenuItem
+              onClick={() => handleCreateBlock("gallery", { layout: "collage", items: [] })}
+              className="flex items-center gap-2 px-3 py-1.5"
+            >
+              <span className="font-medium">Collage</span>
+              <span className="text-xs text-[var(--muted-foreground)]">Natural shapes, resizable</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => handleCreateBlock("gallery", { layout: "3x3", items: [] })}
+              className="flex items-center gap-2 px-3 py-1.5"
+            >
+              <span className="font-medium">3×3</span>
+              <span className="text-xs text-[var(--muted-foreground)]">9 cells</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => handleCreateBlock("gallery", { layout: "2x3", items: [] })}
+              className="flex items-center gap-2 px-3 py-1.5"
+            >
+              <span className="font-medium">2×3</span>
+              <span className="text-xs text-[var(--muted-foreground)]">6 cells</span>
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
       </DropdownMenuContent>
     </DropdownMenu>
   );

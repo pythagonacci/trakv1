@@ -194,6 +194,7 @@ export default async function TabPage({
       tabId={tabId}
       tabs={hierarchicalTabs}
       isWorkflowTab={isWorkflowTab}
+      blocks={isWorkflowTab ? [] : blocks}
     >
       {isWorkflowTab ? (
         <WorkflowPageLayout

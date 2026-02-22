@@ -118,6 +118,12 @@ export interface ExecuteAICommandOptions {
    * entities without calling search tools in the current turn.
    */
   initialSearchedEntities?: SearchManifestEntity[];
+  /**
+   * Max consecutive failures of the same tool before aborting.
+   * Default 3. Use a higher value (e.g. 6) for read-only/background flows like dashboard insights
+   * where search tools may need more retries with varying params.
+   */
+  maxConsecutiveToolErrors?: number;
 }
 
 interface ChatCompletionResponse {
@@ -1688,8 +1694,9 @@ export async function executeAICommand(
             allToolCallsSuccessful = false;
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
             consecutiveErrorCount.set(toolName, currentErrors);
+            const maxErrors = options.maxConsecutiveToolErrors ?? 3;
 
-            if (currentErrors >= 3) {
+            if (currentErrors >= maxErrors) {
               return withTiming({
                 success: false,
                 response: `I'm having trouble with the ${toolName} tool. It failed ${currentErrors} times in a row. Error: ${result.error}`,
@@ -3057,8 +3064,9 @@ export async function* executeAICommandStream(
           if (!result.success) {
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
             consecutiveErrorCount.set(toolName, currentErrors);
+            const maxErrors = options.maxConsecutiveToolErrors ?? 3;
 
-            if (currentErrors >= 3) {
+            if (currentErrors >= maxErrors) {
               yield {
                 type: "response",
                 content: `I'm having trouble with the ${toolName} tool. It failed ${currentErrors} times in a row. Error: ${result.error}`,

@@ -57,10 +57,10 @@ interface BlockWrapperProps {
   workspaceId?: string;
   projectId?: string;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: Block["type"]) => void;
+  onConvert?: (blockId: string, newType: Block["type"], content?: Record<string, unknown>) => void;
   onUpdate?: () => void;
-  onAddBlockAbove?: (blockId: string, type?: Block["type"]) => void;
-  onAddBlockBelow?: (blockId: string, type?: Block["type"]) => void;
+  onAddBlockAbove?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
+  onAddBlockBelow?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
   isDragging?: boolean;
   readOnly?: boolean;
 }
@@ -124,7 +124,7 @@ export default function BlockWrapper({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
+    opacity: isDraggingInternal ? 0 : 1,
   };
 
   const contextLabel = (() => {
@@ -165,14 +165,17 @@ export default function BlockWrapper({
     { type: "file", label: "File", icon: <Paperclip className="h-4 w-4" /> },
     { type: "video", label: "Video", icon: <Video className="h-4 w-4" /> },
     { type: "image", label: "Image", icon: <Image className="h-4 w-4" /> },
-    { type: "gallery", label: "Gallery", icon: <Images className="h-4 w-4" /> },
     { type: "embed", label: "Embed", icon: <Maximize2 className="h-4 w-4" /> },
     { type: "section", label: "Section", icon: <Layout className="h-4 w-4" /> },
   ];
+  const galleryLayouts = [
+    { layout: "collage" as const, label: "Collage" },
+    { layout: "3x3" as const, label: "3×3" },
+    { layout: "2x3" as const, label: "2×3" },
+  ];
 
-  // Only apply drag listeners to non-text blocks
   const isTextBlock = block.type === "text";
-  
+
   return (
     <div 
       ref={setNodeRef} 
@@ -190,7 +193,7 @@ export default function BlockWrapper({
         >
           <button
             {...(!readOnly ? attributes : {})}
-            {...(!readOnly && !isTextBlock ? listeners : {})}
+            {...(!readOnly ? listeners : {})}
             className="flex h-6 w-6 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] cursor-move"
             aria-label="Drag block"
             onClick={(e) => e.stopPropagation()}
@@ -513,6 +516,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-above-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -535,6 +557,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-below-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSeparator />
@@ -560,6 +601,27 @@ export default function BlockWrapper({
                             <span>{option.label}</span>
                           </DropdownMenuItem>
                         ))}
+                      {block.type !== "gallery" && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Images className="h-4 w-4" />
+                            <span>Gallery</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="w-52">
+                            {galleryLayouts.map((g) => (
+                              <DropdownMenuItem
+                                key={`convert-gallery-${g.layout}`}
+                                onClick={() => {
+                                  onConvert?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                  setMenuOpen(false);
+                                }}
+                              >
+                                <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      )}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   
@@ -659,6 +721,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-above-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -681,6 +762,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-below-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 <DropdownMenuSeparator />
@@ -706,6 +806,27 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                    {block.type !== "gallery" && (
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`convert-gallery-${g.layout}`}
+                              onClick={() => {
+                                onConvert?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 

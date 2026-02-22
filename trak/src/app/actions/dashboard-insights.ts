@@ -194,6 +194,7 @@ export async function generateDashboardInsights(
         readOnly: true,
         forcedToolGroups: ["core", "task", "project", "timeline", "table", "workspace"],
         disableOptimisticEarlyExit: false,
+        maxConsecutiveToolErrors: 6,
       }
     );
 

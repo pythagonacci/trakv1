@@ -11,6 +11,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import DocSelectorDialog from "./doc-selector-dialog";
 import BlockReferenceSelector from "./block-reference-selector";
@@ -89,12 +92,6 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     description: "Upload and display images with captions",
   },
   {
-    type: "gallery",
-    label: "Gallery",
-    icon: <Images className="w-4 h-4" />,
-    description: "Grid of images with a scrollable layout",
-  },
-  {
     type: "embed",
     label: "Embed",
     icon: <Maximize2 className="w-4 h-4" />,
@@ -130,7 +127,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     if (open) prefetchTableViewChunk();
   }, []);
 
-  const handleCreateBlock = async (type: BlockType) => {
+  const handleCreateBlock = async (type: BlockType, contentOverride?: Record<string, unknown>) => {
     // Special handling for doc_reference - open doc selector instead
     if (type === "doc_reference") {
       setDocSelectorOpen(true);
@@ -140,6 +137,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     setIsCreating(true);
 
     const nextPosition = getNextPosition?.() ?? 0;
+    const content = contentOverride ?? getDefaultContent(type);
 
     // Create optimistic block IMMEDIATELY (before server call)
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
@@ -148,7 +146,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       tab_id: tabId,
       parent_block_id: parentBlockId || null,
       type: type,
-      content: getDefaultContent(type),
+      content,
       position: nextPosition, // Aim for next row
       column: 0,
       is_template: false,
@@ -170,6 +168,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       const result = await createBlock({
         tabId,
         type,
+        content,
         position: nextPosition,
         parentBlockId: parentBlockId || null,
       });
@@ -207,7 +206,13 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
   const getDefaultContent = (type: BlockType) => {
     switch (type) {
       case "text": return { text: "" };
-      case "task": return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+      case "task": return {
+        title: "New Task List",
+        hideIcons: false,
+        viewMode: "list",
+        boardGroupBy: "status",
+        tasks: [{ id: Date.now(), text: "New task", statuses: [{ field_name: "Status", value: "todo" }] }],
+      };
       case "link": return { title: null, url: null, caption: "" };
       case "divider": return {};
       case "table": 
@@ -409,6 +414,40 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
               </div>
             </DropdownMenuItem>
           ))}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+              <div className="flex h-7 w-7 items-center justify-center bg-[var(--surface-muted)] text-[var(--foreground)]">
+                <Images className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-[var(--foreground)]">Gallery</div>
+                <div className="text-xs text-[var(--tertiary-foreground)]">Grid of images with a scrollable layout</div>
+              </div>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-52">
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("gallery", { layout: "collage", items: [] })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">Collage</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">Natural shapes, resizable</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("gallery", { layout: "3x3", items: [] })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">3×3</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">9 cells</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("gallery", { layout: "2x3", items: [] })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">2×3</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">6 cells</span>
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>
 

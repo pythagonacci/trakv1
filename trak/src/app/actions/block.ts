@@ -455,6 +455,20 @@ export async function createBlock(data: {
       return { error: createError.message || "Failed to create block" };
     }
 
+    // For task blocks, create a default task item
+    if (data.type === "task") {
+      const { createTaskItem } = await import("./tasks/item-actions");
+      const authContext = data.authContext ?? undefined;
+      const taskResult = await createTaskItem(
+        { taskBlockId: block.id, title: "New task", status: "todo" },
+        { authContext }
+      );
+      if ("error" in taskResult) {
+        console.error("Failed to create default task item for task block:", taskResult.error);
+        // Block was created; don't fail the whole operation, but log the error
+      }
+    }
+
     // Revalidate the tab page path
     await safeRevalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${data.tabId}`);
     await revalidateClientPages(tab.project_id, data.tabId, {

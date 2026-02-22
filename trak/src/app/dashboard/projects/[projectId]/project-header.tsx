@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Edit, Palette, LayoutDashboard, Users, ChevronUp, ChevronDown } from "lucide-react";
+import { ArrowLeft, Edit, Palette, LayoutDashboard, Users, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
@@ -19,6 +19,7 @@ import {
 import { TAB_THEMES } from "./tabs/[tabId]/tab-themes";
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
+import { useTabContents } from "./tabs/[tabId]/tab-contents-context";
 
 interface Tab {
   id: string;
@@ -53,6 +54,8 @@ interface ProjectHeaderProps {
 }
 
 export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }: ProjectHeaderProps) {
+  const tabContents = useTabContents();
+  const hasBlocks = tabContents && tabContents.blocks.length > 0;
   const router = useRouter();
   const [tabTheme, setTabTheme] = useState<string>("default");
   const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
@@ -179,14 +182,30 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
               )}
             </span>
           </div>
-          <button
-            onClick={handleCollapseToggle}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground)]/50 hover:text-[var(--foreground)]/80 transition-colors rounded hover:bg-[var(--surface-hover)]"
-            title="Expand header"
-          >
-            <ChevronDown className="h-2.5 w-2.5" />
-            Expand
-          </button>
+          <div className="flex items-center gap-1">
+            {hasBlocks && (
+              <button
+                onClick={() => tabContents?.setTocExpanded((prev) => !prev)}
+                className="hidden lg:inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground)]/50 hover:text-[var(--foreground)]/80 transition-colors rounded hover:bg-[var(--surface-hover)]"
+                title={tabContents?.tocExpanded ? "Collapse contents" : "Show contents"}
+              >
+                {tabContents?.tocExpanded ? (
+                  <PanelRightClose className="h-2.5 w-2.5" />
+                ) : (
+                  <PanelRightOpen className="h-2.5 w-2.5" />
+                )}
+                <span>Contents</span>
+              </button>
+            )}
+            <button
+              onClick={handleCollapseToggle}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground)]/50 hover:text-[var(--foreground)]/80 transition-colors rounded hover:bg-[var(--surface-hover)]"
+              title="Expand header"
+            >
+              <ChevronDown className="h-2.5 w-2.5" />
+              Expand
+            </button>
+          </div>
         </div>
         {/* TabBar shown when dropdown is open */}
         {isTabBarOpen && (
@@ -319,6 +338,29 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           </button>
         </div>
       </div>
+
+      {/* Contents button - at bottom of header when expanded */}
+      {hasBlocks && tabId && (
+        <div className="flex justify-end pt-2 pb-0.5">
+          <button
+            onClick={() => tabContents?.setTocExpanded((prev) => !prev)}
+            className="hidden lg:inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+            title={tabContents?.tocExpanded ? "Collapse table of contents" : "Show table of contents"}
+          >
+            {tabContents?.tocExpanded ? (
+              <>
+                <PanelRightClose className="h-3 w-3" />
+                Contents
+              </>
+            ) : (
+              <>
+                <PanelRightOpen className="h-3 w-3" />
+                Contents
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Project Permissions Dialog */}
       {(workspaceId || project.workspace_id) && (

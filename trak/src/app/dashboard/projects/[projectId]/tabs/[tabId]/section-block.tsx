@@ -301,6 +301,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     targetBlockId: string,
     direction: "above" | "below",
     type: BlockType = "text",
+    contentOverride?: Record<string, unknown>,
   ) => {
     const targetBlock = childBlocks.find((child) => child.id === targetBlockId);
     if (!targetBlock) return;
@@ -310,13 +311,14 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
 
     await shiftChildRowsForInsertion(insertionRow);
 
+    const content = contentOverride ?? getDefaultContent(type);
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock: Block = {
       id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: block.id,
       type,
-      content: getDefaultContent(type),
+      content,
       position: insertionRow,
       column: 0,
       is_template: false,
@@ -331,6 +333,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     createBlock({
       tabId,
       type,
+      content,
       position: insertionRow,
       parentBlockId: block.id,
     })
@@ -348,11 +351,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
       });
   };
 
-  const handleAddChildBlockAbove = (targetBlockId: string, type?: BlockType) =>
-    handleAddChildBlockAtRow(targetBlockId, "above", type);
+  const handleAddChildBlockAbove = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
+    handleAddChildBlockAtRow(targetBlockId, "above", type ?? "text", content);
 
-  const handleAddChildBlockBelow = (targetBlockId: string, type?: BlockType) =>
-    handleAddChildBlockAtRow(targetBlockId, "below", type);
+  const handleAddChildBlockBelow = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
+    handleAddChildBlockAtRow(targetBlockId, "below", type ?? "text", content);
 
 
   return (

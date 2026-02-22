@@ -15,7 +15,7 @@
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
     /* Backgrounds - Warm, matte, no high-glare */
-    --background: #F2F0EB; /* Plaster Canvas - warm off-white, matte */
+    --background: #F8F7F5; /* Plaster Canvas - lighter warm off-white, matte */
     --surface: #FFFFFF; /* Card White - for active content only */
     --surface-hover: #EBE9E4; /* Slightly darker plaster for hover states */
     --surface-muted: #E8E6E1; /* Muted plaster for secondary surfaces */
@@ -78,7 +78,7 @@
 
   /* Dark Theme - Maintains Sarajevo aesthetic */
   .dark {
-    --background: #1A1918; /* Dark plaster */
+    --background: #222120; /* Lighter dark plaster */
     --surface: #242321; /* Dark card */
     --surface-hover: #2D2C2A;
     --surface-muted: #323130;

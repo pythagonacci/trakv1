@@ -119,6 +119,7 @@ export async function createTaskItem(
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
       source_sync_mode: sourceSyncMode,
+      is_placeholder: input.isPlaceholder ?? false,
       created_by: userId,
       updated_by: userId,
     })
@@ -192,7 +193,10 @@ export async function updateTaskItem(
     .select("*")
     .single();
 
-  if (error || !data) return { error: "Failed to update task" };
+  if (error || !data) {
+    const msg = error?.message ?? "Unknown error";
+    return { error: `Failed to update task: ${msg}` };
+  }
   const normalizedTask = normalizeTaskRow(data);
 
   // Update entity_properties to keep status, priority, and due date in sync

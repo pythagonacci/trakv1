@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import ProjectHeader from "../../project-header";
 import TabBar from "../../tab-bar";
+import { TabContentsProvider } from "./tab-contents-context";
+import type { Block } from "@/app/actions/block";
 
 interface Tab {
   id: string;
@@ -15,6 +17,7 @@ interface Tab {
 }
 
 interface TabPageLayoutProps {
+  blocks?: Block[];
   project: {
     id: string;
     name: string;
@@ -44,6 +47,7 @@ export default function TabPageLayout({
   tabs,
   children,
   isWorkflowTab,
+  blocks = [],
 }: TabPageLayoutProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -71,14 +75,15 @@ export default function TabPageLayout({
   }, [project.id]);
 
   return (
-    <div className={isWorkflowTab ? "h-full flex flex-col min-h-0 bg-transparent" : "min-h-screen bg-transparent"}>
-      {/* Project Header - Compact or Collapsed */}
-      <div className={cn(
-        "shrink-0",
-        isCollapsed ? "sticky top-0 z-50" : "pt-1 pb-1 pl-2 pr-4 md:pl-3 md:pr-4 lg:pl-4 lg:pr-4"
-      )}>
-        <ProjectHeader project={project} tabId={tabId} tabs={tabs} />
-      </div>
+    <TabContentsProvider blocks={blocks} tabId={tabId}>
+      <div className={isWorkflowTab ? "h-full flex flex-col min-h-0 bg-transparent" : "min-h-screen bg-transparent"}>
+        {/* Project Header - Compact or Collapsed */}
+        <div className={cn(
+          "shrink-0",
+          isCollapsed ? "sticky top-0 z-50" : "pt-1 pb-1 pl-2 pr-4 md:pl-3 md:pr-4 lg:pl-4 lg:pr-4"
+        )}>
+          <ProjectHeader project={project} tabId={tabId} tabs={tabs} />
+        </div>
 
       {/* Tab Navigation - Sticky, hidden when collapsed */}
       {!isCollapsed && (
@@ -94,10 +99,11 @@ export default function TabPageLayout({
         </div>
       )}
 
-      {/* Canvas Content */}
-      <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1" : "pt-1 pb-3 md:pb-4 lg:pb-5"}>
-        {children}
+        {/* Canvas Content */}
+        <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1" : "pt-1 pb-3 md:pb-4 lg:pb-5"}>
+          {children}
+        </div>
       </div>
-    </div>
+    </TabContentsProvider>
   );
 }
