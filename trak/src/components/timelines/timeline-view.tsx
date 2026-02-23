@@ -1660,7 +1660,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   </div>
                 );
               })
-            )
             )}
           </div>
         </div>
