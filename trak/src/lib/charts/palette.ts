@@ -1,40 +1,39 @@
 /**
- * Deterministic chart color palette using Trak design tokens.
- * Colors are derived from the Sarajevo Arts palette + extended set.
- * A label hash maps to a stable index so the same label always gets the same color.
+ * Chart color palette — matches timeline event palette (Tailwind hues).
+ * Ordered for maximum adjacent contrast: consecutive indices (0,1,2...) get
+ * colors spaced across the hue wheel so bars/slices next to each other are
+ * visually distinct (avoids blue/indigo/purple clustering).
  */
 
-// Base palette — ordered by visual diversity.
-// These are CSS variable references; callers may use raw hex values for
-// Recharts which doesn't traverse CSS vars at paint time.
+// Maximal-contrast order: alternate between hue regions (blue, orange, teal, rose, lime, purple, etc.)
 const PALETTE_HEX_LIGHT = [
-  "#4A7A78", // dome-teal
-  "#C77D63", // tile-orange
-  "#52637A", // river-indigo
-  "#D4A353", // tram-yellow
-  "#7D6B7D", // velvet-purple
-  "#5A9EA0", // extended: cadet-blue
-  "#B5651D", // extended: sienna
-  "#6B8E23", // extended: olive-drab
-  "#8B6914", // extended: golden-brown
-  "#9370DB", // extended: medium-purple
-  "#CD5C5C", // extended: indian-red
-  "#2E8B57", // extended: sea-green
+  "#3b82f6", // blue-500
+  "#f97316", // orange-500
+  "#14b8a6", // teal-500
+  "#f43f5e", // rose-500
+  "#84cc16", // lime-500
+  "#a855f7", // purple-500
+  "#f59e0b", // amber-500
+  "#06b6d4", // cyan-500
+  "#ec4899", // pink-500
+  "#22c55e", // green-500
+  "#6366f1", // indigo-500
+  "#10b981", // emerald-500
 ];
 
 const PALETTE_HEX_DARK = [
-  "#5A8A88", // dome-teal dark
-  "#D98E74", // tile-orange dark
-  "#6B7C94", // river-indigo dark
-  "#E4B363", // tram-yellow dark
-  "#8D7B8D", // velvet-purple dark
-  "#6EB4B6",
-  "#C7763A",
-  "#7EA030",
-  "#A07824",
-  "#A385E8",
-  "#DC7070",
-  "#3EA067",
+  "#60a5fa", // blue-400
+  "#fb923c", // orange-400
+  "#2dd4bf", // teal-400
+  "#fb7185", // rose-400
+  "#a3e635", // lime-400
+  "#c084fc", // purple-400
+  "#fbbf24", // amber-400
+  "#22d3ee", // cyan-400
+  "#f472b6", // pink-400
+  "#4ade80", // green-400
+  "#818cf8", // indigo-400
+  "#34d399", // emerald-400
 ];
 
 /** Simple djb2-style hash for a string → unsigned 31-bit int */
