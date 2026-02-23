@@ -2679,8 +2679,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
 
                     {/* Subtasks - Modal Display */}
                     {showSubtasksPanel && (
-                      <div className="mt-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 shadow-sm">
-                        <div className="space-y-1.5">
+                      <div className="mt-2 space-y-1.5">
                           {(task.subtasks || []).map((subtask) => {
                             const subtaskId = String(subtask.id);
                             const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
@@ -2972,7 +2971,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             <Plus className="h-2.5 w-2.5" />
                             Add subtask
                           </button>
-                        </div>
                       </div>
                     )}
 
@@ -4293,7 +4291,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                       return (
                         <div
                           key={`subtask-${subtask.id}`}
-                          className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--secondary)]/[0.06] w-full last:border-b-0 group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row"
+                          className="grid transition-colors duration-150 w-full group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row"
                           style={{ gridTemplateColumns: tableColumnTemplate }}
                         >
                           <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-1.5">

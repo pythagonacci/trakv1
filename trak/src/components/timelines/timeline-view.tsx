@@ -956,7 +956,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       const subs = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
       const withDates = subs.filter((st) => st.due_date && (st.due_date.start || st.due_date.end));
       if (withDates.length === 0) return ROW_HEIGHT_BASE;
-      return MAIN_BAR_HEIGHT + withDates.length * SUBTASK_BAR_HEIGHT;
+      return MAIN_BAR_HEIGHT + withDates.length * SUBTASK_BAR_HEIGHT + 16; // +16 for 8px top/bottom padding
     });
     const tops: number[] = [];
     let acc = 0;
@@ -1016,8 +1016,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       left = startCol * columnWidth;
       width = span * columnWidth;
     }
-    // rowTop is pixel offset for this row (variable when row has subtask bars)
-    const topOffset = rowTop + (MAIN_BAR_HEIGHT / 2) - 16; // Center main bar in its 32px slot
+    // rowTop is pixel offset for this row; offset by 8px (py-2) to align bar top with sidebar content top
+    const topOffset = rowTop + 8;
     return {
       position: "absolute" as const,
       left: `${left}px`,
@@ -1028,7 +1028,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   function barStyleForSubtask(startISO: string, endISO: string, rowTop: number, subtaskIndex: number): React.CSSProperties {
     const base = barStyle(startISO, endISO, rowTop);
-    const top = rowTop + MAIN_BAR_HEIGHT + subtaskIndex * SUBTASK_BAR_HEIGHT + (SUBTASK_BAR_HEIGHT / 2) - 8; // 8 = half of 16px bar
+    const top = rowTop + 8 + MAIN_BAR_HEIGHT + subtaskIndex * SUBTASK_BAR_HEIGHT + (SUBTASK_BAR_HEIGHT / 2) - 8; // align below main bar (which starts at rowTop+8)
     return {
       ...base,
       top: `${top}px`,
@@ -1604,7 +1604,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   <div
                     key={event.id}
                     className={cn(
-                      "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2 justify-center",
+                      "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2",
                       rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
                     )}
                     style={{ minHeight: rowHeights[rowIndex] ?? 44 }}
@@ -1668,7 +1668,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         <div ref={scrollRef} className="overflow-x-auto min-w-0">
           <div className="inline-block min-w-0 w-full" style={{ minWidth: `${totalColumns * columnWidth}px` }}>
             {/* Sticky date header */}
-            <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] min-h-[44px]">
+            <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] h-[44px] overflow-hidden">
               <div
                 className="grid"
                 style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
@@ -1676,7 +1676,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 {grid.map((c, idx) => (
                   <div
                     key={`dateheader_${c.key}`}
-                    className="flex min-h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                    className="flex h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
                   >
                     {c.monthLabel ? (
                       <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
