@@ -854,8 +854,8 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const getPriorityDisplayLabel = (priorityField: TaskItemPriority) => {
     const priorityLabel = getPriorityLabel(priorityField.value);
     if (!priorityLabel) return null;
-    const fieldName = priorityField.field_name?.trim() || "Priority";
-    return `${priorityLabel} · ${fieldName}`;
+    const fieldName = (priorityField.field_name?.trim() || "Priority").trim();
+    return fieldName.toLowerCase() !== "priority" ? `${fieldName}: ${priorityLabel}` : priorityLabel;
   };
 
   const getEffectivePriorityFields = (taskId: string, task: Task): TaskItemPriority[] => {
@@ -2763,123 +2763,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                         subtask={subtask}
                                         updateSubtask={(id, updates) => updateSubtask(task.id, id, updates)}
                                       />
-                                    )}
-                                    {canUseSubtaskProperties && subtaskEntityId && (
-                                      <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] leading-normal">
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => e.stopPropagation()}
-                                              className={cn(
-                                                "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                                                "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                              )}
-                                              title={`Status: ${subtaskStatusLabel}`}
-                                            >
-                                              {subtaskStatus === "done" ? (
-                                                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                              ) : subtaskStatus === "blocked" ? (
-                                                <XCircle className="h-3 w-3 text-red-500" />
-                                              ) : subtaskStatus === "in_progress" ? (
-                                                <Clock className="h-3 w-3 text-[var(--tram-yellow)]" />
-                                              ) : (
-                                                <Circle className="h-3 w-3 text-neutral-300 dark:text-neutral-600" />
-                                              )}
-                                              <span className="max-w-[120px] truncate">{subtaskStatusLabel}</span>
-                                            </button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
-                                            {STATUS_OPTIONS.map((opt) => (
-                                              <DropdownMenuItem
-                                                key={opt.value}
-                                                onClick={() => updateSubtaskStatus(subtaskId, opt.value as Status)}
-                                              >
-                                                {opt.label}
-                                              </DropdownMenuItem>
-                                            ))}
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => e.stopPropagation()}
-                                              className={cn(
-                                                "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                                                subtaskPriority
-                                                  ? PRIORITY_COLORS[subtaskPriority]
-                                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                                              )}
-                                              title={subtaskPriorityLabel ? `Priority: ${subtaskPriorityLabel}` : "Set priority"}
-                                            >
-                                              <Flag className="h-3 w-3" />
-                                              {subtaskPriorityLabel && <span className="max-w-[120px] truncate">{subtaskPriorityLabel}</span>}
-                                            </button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="start" className="w-40" onClick={(e) => e.stopPropagation()}>
-                                            <DropdownMenuItem onClick={() => updateSubtaskPriority(subtaskId, null)}>
-                                              None
-                                            </DropdownMenuItem>
-                                            <DropdownMenuSeparator />
-                                            {PRIORITY_OPTIONS.map((opt) => (
-                                              <DropdownMenuItem
-                                                key={opt.value}
-                                                onClick={() => updateSubtaskPriority(subtaskId, opt.value)}
-                                              >
-                                                {opt.label}
-                                              </DropdownMenuItem>
-                                            ))}
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => e.stopPropagation()}
-                                              className={cn(
-                                                "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                                                subtaskAssigneeIds.length
-                                                  ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                                              )}
-                                              title={subtaskAssigneeLabel ? `Assignees: ${subtaskAssigneeLabel}` : "Assign"}
-                                            >
-                                              <Users className="h-3 w-3" />
-                                              {subtaskAssigneeLabel && (
-                                                <span className="max-w-[140px] truncate">{subtaskAssigneeLabel}</span>
-                                              )}
-                                            </button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
-                                            <DropdownMenuItem onClick={() => updateSubtaskAssignees(subtaskId, [])}>
-                                              Unassigned (clear all)
-                                            </DropdownMenuItem>
-                                            <DropdownMenuSeparator />
-                                            {workspaceMembers.map((m) => {
-                                              const isAssigned = subtaskAssigneeIds.includes(m.user_id);
-                                              return (
-                                                <DropdownMenuItem
-                                                  key={m.user_id}
-                                                  onClick={() => {
-                                                    const next = isAssigned
-                                                      ? subtaskAssigneeIds.filter((id) => id !== m.user_id)
-                                                      : [...subtaskAssigneeIds, m.user_id];
-                                                    updateSubtaskAssignees(subtaskId, next);
-                                                  }}
-                                                >
-                                                  <span className="flex items-center gap-2">
-                                                    {isAssigned ? "✓ " : ""}
-                                                    {m.name || m.email}
-                                                  </span>
-                                                </DropdownMenuItem>
-                                              );
-                                            })}
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </div>
                                     )}
                                     {subtaskProps && (
                                       <div className="pt-1">

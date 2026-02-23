@@ -5,7 +5,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { User, Calendar, Tag as TagIcon } from "lucide-react";
+import { User, Calendar, Tag as TagIcon, Flag, CheckCircle2, Circle, Clock, XCircle } from "lucide-react";
 import {
   STATUS_OPTIONS,
   PRIORITY_OPTIONS,
@@ -136,19 +136,25 @@ export function StatusBadge({
     fieldLabel && fieldLabel.toLowerCase() !== "status"
       ? `${fieldLabel}: ${option.label}`
       : option.label;
+  const StatusIcon =
+    status === "done" ? CheckCircle2
+    : status === "blocked" ? XCircle
+    : status === "in_progress" ? Clock
+    : Circle;
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium transition-colors",
+        "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors",
         STATUS_COLORS[status],
         inherited && "border border-dashed opacity-75",
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {text}
+      <StatusIcon className="h-3 w-3 flex-shrink-0" />
+      <span>{text}</span>
     </button>
   );
 }
@@ -180,13 +186,14 @@ export function PriorityBadge({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium transition-colors",
+        "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors",
         PRIORITY_COLORS[priority],
         inherited && "border border-dashed opacity-75",
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {text}
+      <Flag className="h-3 w-3 flex-shrink-0" />
+      <span>{text}</span>
     </button>
   );
 }
@@ -266,8 +273,8 @@ export function DueDateBadge({
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      <Calendar className="h-3 w-3" />
-      {text}
+      <Calendar className="h-3 w-3 flex-shrink-0" />
+      <span>{text}</span>
     </button>
   );
 }
