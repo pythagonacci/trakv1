@@ -18,6 +18,7 @@ interface Tab {
 
 interface TabPageLayoutProps {
   blocks?: Block[];
+  workspaceId?: string;
   project: {
     id: string;
     name: string;
@@ -48,6 +49,7 @@ export default function TabPageLayout({
   children,
   isWorkflowTab,
   blocks = [],
+  workspaceId,
 }: TabPageLayoutProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -82,7 +84,7 @@ export default function TabPageLayout({
           "shrink-0",
           isCollapsed ? "sticky top-0 z-50" : "pt-1 pb-1 pl-2 pr-4 md:pl-3 md:pr-4 lg:pl-4 lg:pr-4"
         )}>
-          <ProjectHeader project={project} tabId={tabId} tabs={tabs} />
+          <ProjectHeader project={project} tabId={tabId} tabs={tabs} workspaceId={workspaceId} />
         </div>
 
       {/* Tab Navigation - Sticky, hidden when collapsed */}

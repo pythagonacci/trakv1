@@ -12,10 +12,12 @@ interface CalendarEvent {
   date: string;
   time?: string;
   timeEnd?: string;
-  type: "task" | "project" | "google";
+  type: "task" | "project" | "google" | "timeline";
   projectId?: string;
   tabId?: string;
   taskId?: string;
+  timelineEventId?: string;
+  blockId?: string;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   projectName?: string;
   tabName?: string;
@@ -23,15 +25,22 @@ interface CalendarEvent {
   location?: string;
 }
 
-export default async function CalendarPage() {
+export default async function CalendarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const workspaceId = await getCurrentWorkspaceId();
+  const params = await searchParams;
+  const itemsView = params.view === "mine" ? "mine" : "all";
 
   // Auth check
   const authResult = await getServerUser();
   if (!authResult) {
     redirect("/login");
   }
-  const { supabase } = authResult;
+  const { supabase, user } = authResult;
+  const userId = user.id;
 
   if (!workspaceId) {
     return (
@@ -43,8 +52,32 @@ export default async function CalendarPage() {
     );
   }
 
-  // Fetch tasks with due dates from task items
-  const { data: taskItems } = await supabase
+  // When "mine" view: get task IDs where user is assignee; and user's team IDs for timeline filter
+  let myTaskIds: string[] | null = null;
+  let myTeamIds: string[] = [];
+  if (itemsView === "mine") {
+    const [assigneesRes, legacyRes, teamRes] = await Promise.all([
+      supabase.from("task_assignees").select("task_id").eq("assignee_id", userId),
+      supabase
+        .from("task_items")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .not("assignee_id", "is", null)
+        .eq("assignee_id", userId),
+      supabase
+        .from("workspace_team_members")
+        .select("team_id")
+        .eq("user_id", userId),
+    ]);
+    const ids = new Set<string>();
+    assigneesRes.data?.forEach((r) => ids.add(r.task_id));
+    legacyRes.data?.forEach((r) => ids.add(r.id));
+    myTaskIds = Array.from(ids);
+    myTeamIds = (teamRes.data?.map((r) => r.team_id) ?? []).filter(Boolean);
+  }
+
+  // Build task items query
+  let taskQuery = supabase
     .from("task_items")
     .select(`
       id,
@@ -68,12 +101,51 @@ export default async function CalendarPage() {
     .not("due_date", "is", null)
     .order("updated_at", { ascending: false });
 
+  if (itemsView === "mine" && myTaskIds) {
+    if (myTaskIds.length === 0) {
+      taskQuery = taskQuery.in("id", ["00000000-0000-0000-0000-000000000000"]); // Empty filter - no matches
+    } else {
+      taskQuery = taskQuery.in("id", myTaskIds);
+    }
+  }
+
+  const { data: taskItems } = await taskQuery;
+
   // Fetch projects with due dates
   const { data: projects } = await supabase
     .from("projects")
     .select("id, name, due_date_date, due_date_text, workspace_id")
     .eq("workspace_id", workspaceId)
     .not("due_date_date", "is", null);
+
+  // Fetch timeline events (with block -> tab -> project for context)
+  const { data: timelineEventsRaw } = await supabase
+    .from("timeline_events")
+    .select(
+      `
+      id,
+      title,
+      start_date,
+      end_date,
+      priorities,
+      assignee_id,
+      assignee_team_id,
+      timeline_block_id,
+      blocks:timeline_block_id(id, tab_id, tabs(id, name, project_id, projects(id, name)))
+    `
+    )
+    .eq("workspace_id", workspaceId)
+    .not("start_date", "is", null);
+
+  // Filter timeline events for "mine" view: assigned to user or to a team user is in
+  const timelineEvents =
+    itemsView === "mine" && timelineEventsRaw
+      ? timelineEventsRaw.filter((ev: any) => {
+          if (ev.assignee_id === userId) return true;
+          if (ev.assignee_team_id && myTeamIds.includes(ev.assignee_team_id)) return true;
+          return false;
+        })
+      : timelineEventsRaw ?? [];
 
   // Extract events from tasks
   const taskEvents: CalendarEvent[] = [];
@@ -114,7 +186,48 @@ export default async function CalendarPage() {
     }
   });
 
-  const allEvents = [...taskEvents, ...projectEvents];
+  // Map timeline events to calendar events (use start_date for the calendar day; optional time from ISO)
+  const timelineEventsList: CalendarEvent[] = [];
+  const toDateOnly = (s: string) => s.slice(0, 10);
+  const toTimeOnly = (s: string) => (s.includes("T") && s.length >= 16 ? s.slice(11, 16) : undefined);
+  timelineEvents.forEach((ev: any) => {
+    if (!ev.start_date) return;
+    const block = ev.blocks;
+    const tab = block?.tabs;
+    const project = tab?.projects;
+    const date = toDateOnly(ev.start_date);
+    const time = toTimeOnly(ev.start_date);
+    const timeEnd = ev.end_date ? toTimeOnly(ev.end_date) : undefined;
+    const priorities = Array.isArray(ev.priorities) ? ev.priorities : [];
+    const firstPriority = priorities[0]?.value ?? null;
+    timelineEventsList.push({
+      id: `timeline-${ev.id}`,
+      title: ev.title || "Untitled",
+      date,
+      time,
+      timeEnd,
+      type: "timeline",
+      projectId: project?.id,
+      tabId: tab?.id,
+      timelineEventId: ev.id,
+      blockId: ev.timeline_block_id,
+      priority: firstPriority,
+      projectName: project?.name ?? "Unknown",
+      tabName: tab?.name ?? "Unknown",
+    });
+  });
 
-  return <CalendarView initialEvents={allEvents} workspaceId={workspaceId} />;
+  // In "mine" view: only tasks + timeline events (no projects); in "all" view: tasks + projects + timeline
+  const allEvents =
+    itemsView === "mine"
+      ? [...taskEvents, ...timelineEventsList]
+      : [...taskEvents, ...projectEvents, ...timelineEventsList];
+
+  return (
+    <CalendarView
+      initialEvents={allEvents}
+      workspaceId={workspaceId}
+      itemsView={itemsView}
+    />
+  );
 }

@@ -7,6 +7,9 @@ import StatusBadge from "../../projects/status-badge";
 import ClientPageToggle from "./client-page-toggle";
 import ProjectPermissionsDialog from "../project-permissions-dialog";
 import TabBar from "./tab-bar";
+import ProjectDialog from "../project-dialog";
+import { updateProject } from "@/app/actions/project";
+import { getAllClients } from "@/app/actions/client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -61,6 +64,8 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isTabBarOpen, setIsTabBarOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [clients, setClients] = useState<{ id: string; name: string; company?: string }[]>([]);
 
   // Load theme from localStorage
   useEffect(() => {
@@ -332,7 +337,10 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             </button>
           )}
 
-          <button className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm">
+          <button
+            onClick={() => setIsEditDialogOpen(true)}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+          >
             <Edit className="h-3 w-3" />
             Edit details
           </button>
@@ -371,9 +379,51 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           projectName={project.name}
           workspaceId={workspaceId || project.workspace_id || ""}
           onSuccess={() => {
-            // Optionally refresh the project data
             router.refresh();
           }}
+        />
+      )}
+
+      {/* Edit Project Dialog */}
+      {workspaceId && (
+        <ProjectDialog
+          mode="edit"
+          isOpen={isEditDialogOpen}
+          onClose={() => setIsEditDialogOpen(false)}
+          onSubmit={async (formData) => {
+            let due_date_date: string | null = null;
+            let due_date_text: string | null = null;
+            if (formData.due_date.trim()) {
+              const dateTest = new Date(formData.due_date);
+              if (!isNaN(dateTest.getTime())) {
+                due_date_date = formData.due_date;
+              } else {
+                due_date_text = formData.due_date;
+              }
+            }
+            const result = await updateProject(project.id, {
+              name: formData.name,
+              client_id: formData.client_id || null,
+              status: formData.status,
+              due_date_date,
+              due_date_text,
+            });
+            if ("error" in result) throw new Error(result.error);
+            setIsEditDialogOpen(false);
+            router.refresh();
+          }}
+          initialData={{
+            id: project.id,
+            name: project.name,
+            status: project.status,
+            due_date_date: project.due_date_date ?? null,
+            due_date_text: project.due_date_text ?? null,
+            client_id: project.client?.id ?? null,
+            client_name: project.client?.name ?? null,
+          }}
+          workspaceId={workspaceId}
+          clients={clients}
+          onClientsLoad={setClients}
         />
       )}
     </div>

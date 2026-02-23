@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { getAllClients } from "@/app/actions/client";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
+import { getProjectTags, addProjectTag } from "@/app/actions/project";
 
 interface Client {
   id: string;
@@ -104,6 +105,15 @@ export default function ProjectDialog({
       });
     }
   }, [isOpen, workspaceId]);
+
+  // Load project tags in edit mode
+  useEffect(() => {
+    if (isOpen && mode === "edit" && initialData?.id) {
+      getProjectTags(initialData.id).then((result) => {
+        if ("data" in result) setInitialTags(result.data);
+      });
+    }
+  }, [isOpen, mode, initialData?.id]);
 
   // Pre-fill form in edit mode
   useEffect(() => {
@@ -333,20 +343,22 @@ export default function ProjectDialog({
             />
           </div>
 
-          {/* Initial tags (create only) */}
-          {mode === "create" && (
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
-                Tags{" "}
-                <span className="text-[10px] text-[var(--tertiary-foreground)]">(optional – project tag bank)</span>
-              </label>
-              <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2">
-                {initialTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-0.5 text-xs"
-                  >
-                    {tag}
+          {/* Tags (create: initial tags; edit: project tag bank) */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+              Tags{" "}
+              <span className="text-[10px] text-[var(--tertiary-foreground)]">
+                {mode === "create" ? "(optional – project tag bank)" : "Project tag bank"}
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2">
+              {initialTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-0.5 text-xs"
+                >
+                  {tag}
+                  {mode === "create" && (
                     <button
                       type="button"
                       onClick={() => setInitialTags((prev) => prev.filter((t) => t !== tag))}
@@ -355,41 +367,67 @@ export default function ProjectDialog({
                     >
                       <X className="h-3 w-3" />
                     </button>
-                  </span>
-                ))}
+                  )}
+                </span>
+              ))}
                 <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const t = tagInput.trim();
-                        if (t && !initialTags.includes(t)) setInitialTags((prev) => [...prev, t]);
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  placeholder="Add tag..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const t = tagInput.trim().toLowerCase();
+                      const normalized = tagInput.trim();
+                      if (!normalized) return;
+                      const exists = initialTags.some((x) => x.toLowerCase() === t);
+                      if (exists) {
                         setTagInput("");
+                        return;
                       }
-                    }}
-                    placeholder="Add tag..."
-                    className="w-24 min-w-0 rounded border-0 bg-transparent px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-                    disabled={isSubmitting}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const t = tagInput.trim();
-                      if (t && !initialTags.includes(t)) setInitialTags((prev) => [...prev, t]);
                       setTagInput("");
-                    }}
-                    className="text-xs text-[var(--primary)] hover:underline disabled:opacity-50"
-                    disabled={isSubmitting}
-                  >
-                    Add
-                  </button>
-                </div>
+                      if (mode === "create") {
+                        setInitialTags((prev) => [...prev, normalized]);
+                      } else if (mode === "edit" && initialData?.id) {
+                        setInitialTags((prev) => [...prev, normalized]);
+                        addProjectTag(initialData.id, normalized);
+                      }
+                    }
+                  }}
+                  className="w-24 min-w-0 rounded border-0 bg-transparent px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  disabled={isSubmitting}
+                />
+                {tagInput.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = tagInput.trim().toLowerCase();
+                    const normalized = tagInput.trim();
+                    if (!normalized) return;
+                    const exists = initialTags.some((x) => x.toLowerCase() === t);
+                    if (exists) {
+                      setTagInput("");
+                      return;
+                    }
+                    setTagInput("");
+                    if (mode === "create") {
+                      setInitialTags((prev) => [...prev, normalized]);
+                    } else if (mode === "edit" && initialData?.id) {
+                      setInitialTags((prev) => [...prev, normalized]);
+                      addProjectTag(initialData.id, normalized);
+                    }
+                  }}
+                  className="text-xs text-[var(--primary)] hover:underline disabled:opacity-50"
+                  disabled={isSubmitting}
+                >
+                  Add
+                </button>
+                )}
               </div>
             </div>
-          )}
+          </div>
 
           {/* Project Access Permissions */}
           {mode === "create" && (

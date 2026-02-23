@@ -151,7 +151,7 @@ function extractCreatedBlockIds(toolCallsMade: ExecutionResult["toolCallsMade"])
   for (const call of toolCallsMade || []) {
     if (!call?.result?.success) continue;
     const tool = call.tool;
-    if (!["createBlock", "createChartBlock", "createTaskBoardFromTasks", "createTableFull", "createTable"].includes(tool)) continue;
+    if (!["createBlock", "createSpecChartBlock", "createTaskBoardFromTasks", "createTableFull", "createTable"].includes(tool)) continue;
     const data = call.result.data;
     const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
     if (tool === "createTableFull") {
@@ -827,7 +827,7 @@ Keep conversational explanation, reasoning, and elaboration in chat.
 
 BLOCK CREATION:
 - Use createTableFull({ title: "...", rows: [...] }) for lists/comparisons/tabular data - the title IS the heading
-- Use createChartBlock() for visualizations
+- Use createSpecChartBlock() for visualizations
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
@@ -911,7 +911,7 @@ RESPONSE PATTERN:
     "bulkInsertRows",
     "bulkUpdateRows",
     "bulkUpdateRowsByFieldNames",
-    "createChartBlock",
+    "createSpecChartBlock",
   ];
   allowedWriteTools.push("createTableFull");
   allowedWriteTools.push("deleteTable");
@@ -1281,7 +1281,7 @@ Keep conversational explanation, reasoning, and elaboration in chat.
 
 BLOCK CREATION:
 - Use createTableFull({ title: "...", rows: [...] }) for lists/comparisons/tabular data - the title IS the heading
-- Use createChartBlock() for visualizations
+- Use createSpecChartBlock() for visualizations
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
@@ -1361,7 +1361,7 @@ RESPONSE PATTERN:
     "bulkInsertRows",
     "bulkUpdateRows",
     "bulkUpdateRowsByFieldNames",
-    "createChartBlock",
+    "createSpecChartBlock",
   ];
   allowedWriteTools.push("createTableFull");
   allowedWriteTools.push("deleteTable");

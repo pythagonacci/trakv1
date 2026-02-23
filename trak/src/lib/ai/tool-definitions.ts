@@ -990,24 +990,45 @@ const tabActionTools: ToolDefinition[] = [
 
 const blockActionTools: ToolDefinition[] = [
   {
-    name: "createChartBlock",
+    name: "createSpecChartBlock",
     description:
-      "Create a chart block by generating React/Chart.js JSX and saving it to the blocks table. " +
-      "Use ONLY when the user explicitly asks for a chart/graph/visualization, or after they confirm an implicit suggestion. " +
-      "If the user asks a what-if scenario, set isSimulation=true and provide originalChartId plus a short simulationDescription.",
+      "PREFERRED chart tool. Create a spec-driven chart block. " +
+      "Use this when the user asks for a chart/graph/visualization over Trak entities (tasks, table rows, timeline events, etc.). " +
+      "Steps: (1) retrieve data using search tools, (2) normalise rows with consistent field names, (3) build a ChartSpec JSON, (4) call this tool. " +
+      "Do NOT generate JSX. Output a validated JSON spec and the data rows.\n\n" +
+      "CHART SPEC v1 reference:\n" +
+      "  version: 1\n" +
+      "  chartType: 'pie' | 'doughnut' | 'bar'\n" +
+      "  orientation: 'horizontal' (default) | 'vertical'  — vertical only valid with multi-series bar\n" +
+      "  breakdown: { field: string }  — primary grouping (e.g. 'status', 'priority', 'assignee', 'tags')\n" +
+      "  series?: { field: string }   — secondary grouping; enables multi-series bar\n" +
+      "  measure: { type: 'count' } | { type: 'sum', field: string } | { type: 'avg', field: string }\n" +
+      "  normalizeTo: 'focus' (default) | 'universe'\n" +
+      "  pieComposition: 'breakdownOnly' (default) | 'focusPlusRest'  — adds a remainder slice when normalizeTo='universe'\n" +
+      "  restLabel: string (default 'Rest')\n" +
+      "  topN?: number  — limit to top N categories\n" +
+      "  includeOtherBucket: boolean  — roll remainder into 'Other'\n" +
+      "  sort: 'value_desc' (default) | 'value_asc' | 'label_asc' | 'label_desc'\n" +
+      "  title?: string\n\n" +
+      "ROW FORMAT: each row must have an 'id' field plus any fields used in breakdown/series/measure. " +
+      "Use consistent field names: 'status', 'priority', 'assignee', 'tags' (array), 'type'. " +
+      "tags must be string[].\n\n" +
+      "UNIVERSE: to show 'Figma files by status out of all files', set normalizeTo='universe', pass only Figma rows as rows[], " +
+      "and set universeTotal to the count of ALL files. To add a 'Non-Figma' slice, set pieComposition='focusPlusRest'.",
     category: "block",
     parameters: {
-      tabId: { type: "string", description: "The tab ID to create the chart in. PREFER 'tabName' if target differs from current context." },
-      tabName: { type: "string", description: "Target Tab Name (e.g. 'Overview'). System finds fuzzy match." },
-      prompt: { type: "string", description: "The user's chart request (include any inline data or context needed)." },
-      chartType: { type: "string", description: "Optional chart type hint.", enum: ["bar", "line", "pie", "doughnut"] },
-      title: { type: "string", description: "Optional chart title override." },
-      explicitData: { type: "object", description: "Optional structured data to chart (labels/datasets or any JSON context)." },
-      isSimulation: { type: "boolean", description: "True if this is a what-if simulation (creates a new chart)." },
-      originalChartId: { type: "string", description: "Original chart block ID for simulations." },
-      simulationDescription: { type: "string", description: "Short description of the what-if change applied." },
+      tabId:    { type: "string", description: "Tab ID to create the chart in." },
+      tabName:  { type: "string", description: "Target Tab Name (fuzzy matched)." },
+      spec:     { type: "object", description: "ChartSpec v1 JSON object (see description)." },
+      rows:     { type: "array",  description: "Normalised data rows. Each must have an 'id' plus breakdown/series fields." },
+      universeTotal: { type: "number", description: "Total count of the full universe (denominator scope). Required when spec.normalizeTo='universe'." },
+      title:    { type: "string", description: "Chart title override (also settable in spec.title)." },
+      prompt:   { type: "string", description: "Original user request (stored for traceability)." },
+      isSimulation: { type: "boolean", description: "True for what-if simulations." },
+      originalChartId: { type: "string", description: "Source chart block ID for simulations." },
+      simulationDescription: { type: "string", description: "Brief description of the what-if change." },
     },
-    requiredParams: ["prompt"],
+    requiredParams: ["spec", "rows"],
   },
   {
     name: "createBlock",

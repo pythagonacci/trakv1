@@ -60,7 +60,7 @@ export default async function ProjectPage({
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       <div className="max-w-7xl mx-auto">
         {/* Project Header */}
-        <ProjectHeader project={project} />
+        <ProjectHeader project={project} workspaceId={workspaceId} />
 
         {/* Empty Tabs State */}
           <EmptyTabsState projectId={projectId} />

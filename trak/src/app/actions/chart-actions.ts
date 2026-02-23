@@ -10,13 +10,11 @@ import { getTaskItemsByBlock } from "@/app/actions/tasks/query-actions";
 import { getTimelineItems } from "@/app/actions/timelines/query-actions";
 import { getOrCreateFileAnalysisSession } from "@/app/actions/file-analysis";
 import { searchAll, searchBlocks, searchTables } from "@/app/actions/ai-search";
-import { generateChartCode } from "@/lib/ai/chart-generator";
 import { detectFileKind } from "@/lib/file-analysis/extractor";
 import { getSessionFiles, getTabAttachedFiles } from "@/lib/file-analysis/context";
 import { ensureFileArtifact, type FileRecord } from "@/lib/file-analysis/service";
 import type { ChartBlockContent, ChartType } from "@/types/chart";
 import type { TableField } from "@/types/table";
-import { applyChartCustomizationToCode } from "@/lib/chart-customization";
 
 export type ChartActionResult<T> = { data: T } | { error: string };
 
@@ -164,23 +162,6 @@ function suggestChartTypeFromLabels(labels: string[], prompt: string): ChartType
   return "bar";
 }
 
-function detectChartTypeFromPrompt(prompt: string): ChartType | undefined {
-  const lower = prompt.toLowerCase();
-  if (/(doughnut|donut)\s+chart|doughnut|donut/.test(lower)) return "doughnut";
-  if (/pie\s+chart|pie/.test(lower)) return "pie";
-  if (/line\s+chart|line graph|trend/.test(lower)) return "line";
-  if (/bar\s+chart|bar graph|histogram/.test(lower)) return "bar";
-  return undefined;
-}
-
-function detectChartTypeFromCode(code: string): ChartType | undefined {
-  if (/<Line\b/.test(code)) return "line";
-  if (/<Pie\b/.test(code)) return "pie";
-  if (/<Doughnut\b/.test(code)) return "doughnut";
-  if (/<Bar\b/.test(code)) return "bar";
-  return undefined;
-}
-
 function parseInlineSeries(prompt: string): InlineSeries | undefined {
   const labels: string[] = [];
   const values: number[] = [];
@@ -219,16 +200,6 @@ function parseInlineSeries(prompt: string): InlineSeries | undefined {
     return { labels, values };
   }
   return undefined;
-}
-
-function deriveTitle(prompt: string) {
-  const cleaned = prompt
-    .replace(/\b(create|make|build|show|visualize|graph|chart|plot)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cleaned) return "Chart";
-  if (cleaned.length <= 70) return cleaned;
-  return cleaned.slice(0, 67) + "...";
 }
 
 function mapSelectValue(value: unknown, field: TableField) {
@@ -772,140 +743,6 @@ export async function getChartSuggestion(params: {
   }
 }
 
-export async function createChartBlock(params: {
-  tabId: string;
-  prompt: string;
-  chartType?: ChartType;
-  title?: string | null;
-  isSimulation?: boolean;
-  originalChartId?: string | null;
-  simulationDescription?: string | null;
-  explicitData?: Record<string, unknown> | null;
-  authContext?: AuthContext;
-}): Promise<ChartActionResult<{ blockId: string }>> {
-  try {
-    const authContext = params.authContext ?? (await getAuthContext());
-    if ("error" in authContext) return { error: authContext.error };
-
-    const { supabase, userId } = authContext;
-
-    let tabMeta = await getTabMetadata(params.tabId);
-    if (!tabMeta) return { error: "Tab not found" };
-
-    let workspaceId = (tabMeta.projects as any).workspace_id as string | undefined;
-    if (!workspaceId) return { error: "Workspace not found" };
-
-    let projectId = tabMeta.project_id as string | null;
-
-    let originalChartCode: string | undefined;
-    let originalChartType: ChartType | undefined;
-    let originalChartTitle: string | undefined;
-    let originalChartPosition: number | undefined;
-    let originalChartColumn: number | undefined;
-    let originalChartParentId: string | null | undefined;
-    let originalChartTabId: string | undefined;
-    if (params.originalChartId) {
-      const { data: originalBlock } = await supabase
-        .from("blocks")
-        .select("id, type, content, position, column, parent_block_id, tab_id")
-        .eq("id", params.originalChartId)
-        .single();
-
-      if (originalBlock && originalBlock.type === "chart") {
-        originalChartCode = (originalBlock.content as any)?.code as string | undefined;
-        originalChartType = (originalBlock.content as any)?.chartType as ChartType | undefined;
-        originalChartTitle = (originalBlock.content as any)?.title as string | undefined;
-        originalChartPosition = originalBlock.position ?? undefined;
-        originalChartColumn = originalBlock.column ?? undefined;
-        originalChartParentId = originalBlock.parent_block_id ?? undefined;
-        originalChartTabId = originalBlock.tab_id ?? undefined;
-      }
-    }
-    const targetTabId = originalChartTabId || params.tabId;
-
-    if (targetTabId !== params.tabId) {
-      const targetMeta = await getTabMetadata(targetTabId);
-      if (!targetMeta) return { error: "Target tab not found" };
-      tabMeta = targetMeta;
-      workspaceId = (targetMeta.projects as any).workspace_id as string | undefined;
-      if (!workspaceId) return { error: "Workspace not found" };
-      projectId = targetMeta.project_id as string | null;
-    }
-
-    const membership = await checkWorkspaceMembership(workspaceId, userId);
-    if (!membership) return { error: "Not a member of this workspace" };
-
-    const { dataContext } = await buildChartContext({
-      supabase,
-      workspaceId,
-      projectId,
-      tabId: targetTabId,
-      prompt: params.prompt,
-      authContext,
-      explicitData: params.explicitData,
-    });
-
-    const chartTypeHint = params.chartType || detectChartTypeFromPrompt(params.prompt) || originalChartType;
-
-    const dataContextForGeneration = (params.explicitData
-      ? { ...dataContext, explicitData: params.explicitData }
-      : dataContext) as Record<string, unknown>;
-
-    const generated = await generateChartCode({
-      prompt: params.prompt,
-      chartType: chartTypeHint,
-      title: params.title,
-      dataContext: dataContextForGeneration,
-      isSimulation: params.isSimulation,
-      originalChartCode,
-      simulationDescription: params.simulationDescription,
-    });
-
-    const inferredType = detectChartTypeFromCode(generated.code) ?? chartTypeHint ?? "bar";
-    const title =
-      params.title ??
-      (params.isSimulation && originalChartTitle
-        ? `${originalChartTitle} (Simulation)`
-        : deriveTitle(params.prompt));
-
-    const chartContent: ChartBlockContent = {
-      code: generated.code,
-      chartType: inferredType,
-      title,
-      metadata: {
-        sourcePrompt: params.prompt,
-        sourceBlockIds: [
-          ...(dataContext.tables || []).map((table) => table.blockId),
-          ...(dataContext.taskBlocks || []).map((task) => task.blockId),
-          ...(dataContext.timelineBlocks || []).map((timeline) => timeline.blockId),
-        ].filter(Boolean) as string[],
-        sourceFileIds: dataContext.fileTables?.map((file) => file.fileId),
-        isSimulation: params.isSimulation,
-        originalChartId: params.originalChartId ?? null,
-        description: params.simulationDescription ?? undefined,
-      },
-    };
-
-    const blockResult = await createBlock({
-      tabId: targetTabId,
-      type: "chart",
-      content: chartContent as any,
-      authContext,
-      position: params.isSimulation && originalChartPosition !== undefined ? originalChartPosition + 0.01 : undefined,
-      column: params.isSimulation && originalChartColumn !== undefined ? originalChartColumn : undefined,
-      parentBlockId: params.isSimulation ? originalChartParentId ?? undefined : undefined,
-    });
-
-    if ("error" in blockResult) {
-      return { error: blockResult.error ?? "Failed to create chart block" };
-    }
-
-    return { data: { blockId: blockResult.data.id } };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Failed to create chart" };
-  }
-}
-
 export async function updateChartBlock(params: {
   blockId: string;
   content: ChartBlockContent;
@@ -923,84 +760,6 @@ export async function updateChartBlock(params: {
   return { data: { blockId: params.blockId } };
 }
 
-export async function updateChartCustomization(params: {
-  blockId: string;
-  title?: string | null;
-  labels?: string[];
-  values?: number[];
-  colors?: string[];
-  height?: number | null;
-  authContext?: AuthContext;
-}): Promise<ChartActionResult<{ blockId: string }>> {
-  try {
-    const authContext = params.authContext ?? (await getAuthContext());
-    if ("error" in authContext) return { error: authContext.error };
-
-    const { supabase, userId } = authContext;
-
-    const { data: block } = await supabase
-      .from("blocks")
-      .select("id, type, content")
-      .eq("id", params.blockId)
-      .single();
-
-    if (!block || block.type !== "chart") {
-      return { error: "Chart block not found" };
-    }
-
-    const content = (block.content || {}) as ChartBlockContent;
-    const chartType = content.chartType;
-    const currentCustomization = content.metadata?.customization;
-    const nextTitle = params.title ?? currentCustomization?.title ?? content.title ?? undefined;
-    const nextCustomization = {
-      title: nextTitle ?? null,
-      labels: params.labels ?? currentCustomization?.labels,
-      values: params.values ?? currentCustomization?.values,
-      colors: params.colors ?? currentCustomization?.colors,
-      height: params.height ?? currentCustomization?.height ?? null,
-    };
-
-    const updatedCode = applyChartCustomizationToCode(content.code ?? "", {
-      labels: nextCustomization.labels,
-      values: nextCustomization.values,
-      colors: nextCustomization.colors,
-      title: nextCustomization.title ?? undefined,
-      previousTitle: content.title ?? currentCustomization?.title ?? null,
-      height: nextCustomization.height ?? undefined,
-    });
-
-    const updatedContent: ChartBlockContent = {
-      ...content,
-      code: updatedCode,
-      chartType,
-      title: nextTitle,
-      metadata: {
-        ...(content.metadata || {}),
-        customization: {
-          title: nextCustomization.title ?? null,
-          labels: nextCustomization.labels,
-          values: nextCustomization.values,
-          colors: nextCustomization.colors,
-          height: nextCustomization.height ?? null,
-        },
-      },
-    };
-
-    const result = await updateBlock({
-      blockId: params.blockId,
-      content: updatedContent as any,
-    });
-
-    if ("error" in result) {
-      return { error: result.error ?? "Failed to update chart" };
-    }
-
-    return { data: { blockId: params.blockId } };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Failed to update chart" };
-  }
-}
-
 export async function deleteChartBlock(params: {
   blockId: string;
   authContext?: AuthContext;
@@ -1012,4 +771,83 @@ export async function deleteChartBlock(params: {
   }
 
   return { data: { blockId: params.blockId } };
+}
+
+// ─── Spec-driven chart creation ───────────────────────────────────────────────
+
+/**
+ * Create a chart block using a validated ChartSpec JSON + pre-fetched rows.
+ * This is the new AI integration path. The AI:
+ *  1. Retrieves data rows using existing search/query tools
+ *  2. Normalises them into ChartRow[] (with standard field names)
+ *  3. Builds a ChartSpec describing how to visualise the data
+ *  4. Calls this function with spec + rows (no LLM-generated JSX)
+ */
+export async function createSpecChartBlock(params: {
+  tabId: string;
+  /** Raw ChartSpec object — will be Zod-validated server-side */
+  spec: Record<string, unknown>;
+  /** Normalised data rows */
+  rows: Array<Record<string, unknown>>;
+  /** Denominator for universe-normalised charts */
+  universeTotal?: number;
+  title?: string | null;
+  prompt?: string;
+  isSimulation?: boolean;
+  originalChartId?: string | null;
+  simulationDescription?: string | null;
+  authContext?: AuthContext;
+}): Promise<ChartActionResult<{ blockId: string }>> {
+  try {
+    const { parseChartSpec, applySpecFallbacks } = await import("@/lib/charts/chartSpec");
+
+    const authContext = params.authContext ?? (await getAuthContext());
+    if ("error" in authContext) return { error: authContext.error };
+
+    const { supabase, userId } = authContext;
+
+    const tabMeta = await getTabMetadata(params.tabId);
+    if (!tabMeta) return { error: "Tab not found" };
+
+    const workspaceId = (tabMeta.projects as any).workspace_id as string | undefined;
+    if (!workspaceId) return { error: "Workspace not found" };
+
+    const membership = await checkWorkspaceMembership(workspaceId, userId);
+    if (!membership) return { error: "Not a member of this workspace" };
+
+    // Validate spec
+    const { spec: parsedSpec, error: specError } = parseChartSpec(params.spec);
+    if (!parsedSpec) return { error: `Invalid chart spec: ${specError}` };
+
+    const safeSpec = applySpecFallbacks(parsedSpec);
+
+    const chartContent = {
+      spec: safeSpec,
+      rows: params.rows,
+      universeTotal: params.universeTotal,
+      chartType: safeSpec.chartType,
+      title: params.title ?? safeSpec.title ?? undefined,
+      metadata: {
+        sourcePrompt: params.prompt,
+        isSimulation: params.isSimulation,
+        originalChartId: params.originalChartId ?? null,
+        description: params.simulationDescription ?? undefined,
+      },
+    };
+
+    const blockResult = await createBlock({
+      tabId: params.tabId,
+      type: "chart",
+      content: chartContent as any,
+      authContext,
+    });
+
+    if ("error" in blockResult) {
+      return { error: blockResult.error ?? "Failed to create chart block" };
+    }
+
+    return { data: { blockId: blockResult.data.id } };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to create spec chart" };
+  }
 }

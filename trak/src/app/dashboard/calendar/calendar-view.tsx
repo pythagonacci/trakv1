@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Plus,
   Palette,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -65,10 +66,12 @@ export interface CalendarEvent {
   date: string;
   time?: string;
   timeEnd?: string;
-  type: "task" | "project" | "google";
+  type: "task" | "project" | "google" | "timeline";
   projectId?: string;
   tabId?: string;
   taskId?: string;
+  timelineEventId?: string;
+  blockId?: string;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   projectName?: string;
   tabName?: string;
@@ -87,9 +90,13 @@ interface GoogleCalendarApiEvent {
   location?: string | null;
 }
 
+export type ItemsViewType = "all" | "mine";
+
 interface CalendarViewProps {
   initialEvents: CalendarEvent[];
   workspaceId: string;
+  /** When "mine", only tasks assigned to current user (or user's teams) are shown */
+  itemsView?: ItemsViewType;
 }
 
 // Day view constants and helpers
@@ -118,6 +125,7 @@ function formatTimeLabel(hour24: number): string {
 function getEventColor(event: CalendarEvent): DayViewColor {
   if (event.type === "google") return "violet";
   if (event.type === "project") return "slate";
+  if (event.type === "timeline") return "amber";
   if (event.priority === "urgent") return "rose";
   if (event.priority === "high") return "amber";
   if (event.priority === "medium") return "teal";
@@ -284,7 +292,7 @@ function DayViewEventCard({
 }) {
   const color = getEventColor(event);
   const c = DAY_GRID_COLORS[color];
-  const source = event.type === "google" ? "Google" : "Trak";
+  const source = event.type === "google" ? "Google" : event.type === "timeline" ? "Timeline" : "Trak";
 
   return (
     <div
@@ -566,7 +574,11 @@ const DayView = forwardRef<
   );
 });
 
-export default function CalendarView({ initialEvents, workspaceId }: CalendarViewProps) {
+export default function CalendarView({
+  initialEvents,
+  workspaceId,
+  itemsView = "all",
+}: CalendarViewProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -604,6 +616,12 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
       return isBrutalist
         ? `${baseClasses} text-white bg-[var(--velvet-purple)]/70`
         : `${baseClasses} bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] border border-[var(--velvet-purple)]/25`;
+    }
+
+    if (event.type === "timeline") {
+      return isBrutalist
+        ? `${baseClasses} text-white bg-[var(--tram-yellow)]/70`
+        : `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
     }
     
     if (event.priority === "urgent") {
@@ -1012,6 +1030,26 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
               </DropdownMenuContent>
             </DropdownMenu>
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-md border border-[var(--border)] p-0.5">
+                <Button
+                  variant={itemsView === "all" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => router.push("/dashboard/calendar")}
+                  className="text-xs px-3 gap-1.5"
+                >
+                  All
+                </Button>
+                <Button
+                  variant={itemsView === "mine" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => router.push("/dashboard/calendar?view=mine")}
+                  className="text-xs px-3 gap-1.5"
+                  title="Tasks assigned to you or teams you're in"
+                >
+                  <User className="h-3.5 w-3.5" />
+                  Mine
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"

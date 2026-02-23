@@ -73,7 +73,8 @@ const PRIORITY_LABELS: Record<string, string> = {
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  none: "var(--muted-foreground)",
+  none: "white",
+  None: "white",
   low: "var(--muted-foreground)",
   medium: "var(--warning)",
   high: "var(--tile-orange)",
@@ -111,7 +112,10 @@ function getSegmentLabel(value: string, groupBy: GroupBy, getMemberName: (id: st
 
 function getSegmentColor(value: string, groupBy: GroupBy, assigneeIndex: number): string {
   if (groupBy === "status") return STATUS_COLORS[value as StatusValue] ?? "var(--muted-foreground)";
-  if (groupBy === "priority") return PRIORITY_COLORS[value] ?? "var(--muted-foreground)";
+  if (groupBy === "priority") {
+    const key = (value === "None" || value === "none" || !value) ? "none" : value;
+    return PRIORITY_COLORS[key] ?? "var(--muted-foreground)";
+  }
   if (groupBy === "assignee") return ASSIGNEE_COLORS[assigneeIndex % ASSIGNEE_COLORS.length];
   return "var(--muted-foreground)";
 }

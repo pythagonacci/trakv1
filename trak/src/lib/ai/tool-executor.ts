@@ -88,7 +88,7 @@ import {
   deleteBlock,
   getTabBlocks,
 } from "@/app/actions/block";
-import { createChartBlock } from "@/app/actions/chart-actions";
+import { createSpecChartBlock } from "@/app/actions/chart-actions";
 
 // ============================================================================
 // IMPORTS - File Actions
@@ -720,7 +720,7 @@ function buildUndoStepsAfter(
       return deleteById("tabs", data?.id);
     case "createBlock":
       return deleteById("blocks", data?.id);
-    case "createChartBlock":
+    case "createSpecChartBlock":
       return deleteById("blocks", data?.id);
     case "createTaskItem":
       return deleteById("task_items", data?.id);
@@ -2000,41 +2000,27 @@ export async function executeTool(
         // ==================================================================
         // BLOCK ACTIONS
         // ==================================================================
-        case "createChartBlock": {
+        case "createSpecChartBlock": {
           let tabId = args.tabId as string | undefined;
-          const isSimulation = args.isSimulation as boolean | undefined;
-          let originalChartId = args.originalChartId as string | undefined;
-
           if (!tabId && args.tabName) {
             const tabSearch = await searchTabs({ searchText: args.tabName as string, limit: 1 });
-            if (tabSearch.data && tabSearch.data.length > 0) {
-              tabId = tabSearch.data[0].id;
-            }
+            if (tabSearch.data && tabSearch.data.length > 0) tabId = tabSearch.data[0].id;
           }
-
-          if (!tabId && context?.currentTabId) {
-            tabId = context.currentTabId;
-          }
-
-          if (!tabId) {
-            return { success: false, error: "createChartBlock: Missing tabId and could not infer from context" };
-          }
-
-          if (isSimulation && !originalChartId && context?.contextBlockId) {
-            originalChartId = context.contextBlockId;
-          }
+          if (!tabId && context?.currentTabId) tabId = context.currentTabId;
+          if (!tabId) return { success: false, error: "createSpecChartBlock: Missing tabId" };
 
           return await wrapResult(
-            createChartBlock({
+            createSpecChartBlock({
               tabId,
-              prompt: args.prompt as string,
-              chartType: args.chartType as any,
-              title: args.title as string | undefined,
-              explicitData: args.explicitData as any,
-              isSimulation,
-              originalChartId,
+              spec:              args.spec as Record<string, unknown>,
+              rows:              Array.isArray(args.rows) ? args.rows as Array<Record<string, unknown>> : [],
+              universeTotal:     args.universeTotal as number | undefined,
+              title:             args.title as string | undefined,
+              prompt:            args.prompt as string | undefined,
+              isSimulation:      args.isSimulation as boolean | undefined,
+              originalChartId:   args.originalChartId as string | undefined,
               simulationDescription: args.simulationDescription as string | undefined,
-              authContext: authContext ?? undefined,
+              authContext:       authContext ?? undefined,
             })
           );
         }
