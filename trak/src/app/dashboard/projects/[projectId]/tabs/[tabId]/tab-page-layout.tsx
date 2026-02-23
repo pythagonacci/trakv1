@@ -26,6 +26,7 @@ interface TabPageLayoutProps {
     status: "not_started" | "in_progress" | "complete";
     due_date_date?: string | null;
     due_date_text?: string | null;
+    priority?: string | null;
     client_page_enabled?: boolean;
     client_comments_enabled?: boolean;
     client_editing_enabled?: boolean;

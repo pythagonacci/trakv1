@@ -211,7 +211,9 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       status: formData.status,
       due_date_date,
       due_date_text,
-      tags: formData.tags,
+      priority: formData.priority ?? null,
+      assigned_tags: formData.assigned_tags ?? [],
+      tag_bank: formData.tag_bank,
     });
 
     if ("error" in result) {

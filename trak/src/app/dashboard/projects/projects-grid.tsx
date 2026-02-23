@@ -324,7 +324,9 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
       status: formData.status,
       due_date_date,
       due_date_text,
-      tags: formData.tags,
+      priority: formData.priority ?? null,
+      assigned_tags: formData.assigned_tags ?? [],
+      tag_bank: formData.tag_bank,
     });
 
     if (result.error) {

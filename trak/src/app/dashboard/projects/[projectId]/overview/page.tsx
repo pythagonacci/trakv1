@@ -26,11 +26,11 @@ export default async function ProjectOverviewPage({
   const authResult = await requireWorkspaceAccess(workspaceId);
   if ("error" in authResult) redirect("/login");
 
-  // Fetch project
+  // Fetch project (includes tags assigned to the project)
   const { data: projectRow, error: projectError } = await supabase
     .from("projects")
     .select(
-      `id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, client:clients(id, name, company)`
+      `id, name, status, due_date_date, due_date_text, priority, tags, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, client:clients(id, name, company)`
     )
     .eq("id", projectId)
     .eq("workspace_id", workspaceId)
@@ -41,6 +41,7 @@ export default async function ProjectOverviewPage({
   const project = {
     ...projectRow,
     client: Array.isArray(projectRow.client) ? projectRow.client[0] : projectRow.client,
+    tags: projectRow.tags ?? [],
   };
 
   // All tab IDs for this project (flat)

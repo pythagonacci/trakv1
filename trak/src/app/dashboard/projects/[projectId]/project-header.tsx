@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Edit, Palette, LayoutDashboard, Users, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose, Settings } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
@@ -10,16 +10,12 @@ import TabBar from "./tab-bar";
 import ProjectDialog from "../project-dialog";
 import { updateProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { TAB_THEMES } from "./tabs/[tabId]/tab-themes";
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
 import { useTabContents } from "./tabs/[tabId]/tab-contents-context";
@@ -41,6 +37,8 @@ interface ProjectHeaderProps {
     status: "not_started" | "in_progress" | "complete";
     due_date_date?: string | null;
     due_date_text?: string | null;
+    priority?: string | null;
+    tags?: string[] | null;
     client_page_enabled?: boolean;
     client_comments_enabled?: boolean;
     client_editing_enabled?: boolean;
@@ -60,21 +58,11 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   const tabContents = useTabContents();
   const hasBlocks = tabContents && tabContents.blocks.length > 0;
   const router = useRouter();
-  const [tabTheme, setTabTheme] = useState<string>("default");
   const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isTabBarOpen, setIsTabBarOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [clients, setClients] = useState<{ id: string; name: string; company?: string }[]>([]);
-
-  // Load theme from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined" || !tabId) return;
-    const saved = localStorage.getItem(`trak-tab-theme-${tabId}`);
-    if (saved && TAB_THEMES.some((t) => t.id === saved)) {
-      setTabTheme(saved);
-    }
-  }, [tabId]);
 
   // Load collapsed state from localStorage
   useEffect(() => {
@@ -101,28 +89,6 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
     window.dispatchEvent(new CustomEvent("project-header-collapse-changed", { 
       detail: { projectId: project.id, collapsed: newCollapsed } 
     }));
-  };
-
-  // Listen for theme changes from tab canvas
-  useEffect(() => {
-    if (typeof window === "undefined" || !tabId) return;
-    const handleThemeChange = (e: StorageEvent) => {
-      if (e.key === `trak-tab-theme-${tabId}` && e.newValue) {
-        if (TAB_THEMES.some((t) => t.id === e.newValue)) {
-          setTabTheme(e.newValue);
-        }
-      }
-    };
-    window.addEventListener("storage", handleThemeChange);
-    return () => window.removeEventListener("storage", handleThemeChange);
-  }, [tabId]);
-
-  const handleThemeChange = (themeId: string) => {
-    if (!tabId) return;
-    setTabTheme(themeId);
-    localStorage.setItem(`trak-tab-theme-${tabId}`, themeId);
-    // Dispatch custom event for same-window listeners (storage event only works cross-window)
-    window.dispatchEvent(new CustomEvent("tab-theme-updated"));
   };
 
   const formatDueDate = () => {
@@ -268,6 +234,23 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
                 Due {dueDateText}
               </span>
             )}
+            {project.priority && (
+              <span className="rounded-[2px] border border-[var(--border)] bg-[var(--surface-hover)] px-1.5 py-0.5 font-medium capitalize text-[var(--foreground)]/80">
+                {project.priority}
+              </span>
+            )}
+            {project.tags && project.tags.length > 0 && (
+              <span className="flex flex-wrap items-center gap-1">
+                {project.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-[2px] border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
         </div>
 
@@ -284,38 +267,6 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             </button>
           )}
 
-          {/* Theme selector - only show when on a tab */}
-          {tabId && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2 text-[11px]">
-                  <Palette className="h-3 w-3" />
-                  Theme
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Background Theme</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {TAB_THEMES.map((theme) => (
-                  <DropdownMenuItem
-                    key={theme.id}
-                    onClick={() => handleThemeChange(theme.id)}
-                    className="flex items-center gap-2"
-                  >
-                    <div
-                      className={cn(
-                        "h-4 w-4 rounded border border-[var(--border)] flex-shrink-0",
-                        tabTheme === theme.id && "ring-2 ring-[var(--foreground)]"
-                      )}
-                      style={theme.containerBg ? { background: theme.containerBg } : undefined}
-                    />
-                    <span>{theme.label}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
           {/* Public Link Toggle */}
           <ClientPageToggle
             projectId={project.id}
@@ -326,24 +277,27 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             tabs={tabs}
           />
 
-          {/* Manage Access Button */}
-          {(workspaceId || project.workspace_id) && (
-            <button
-              onClick={() => setIsPermissionsDialogOpen(true)}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
-            >
-              <Users className="h-3 w-3" />
-              Manage Access
-            </button>
-          )}
-
-          <button
-            onClick={() => setIsEditDialogOpen(true)}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
-          >
-            <Edit className="h-3 w-3" />
-            Edit details
-          </button>
+          {/* Project settings: Edit details + Manage Access */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+                title="Project settings"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => setIsEditDialogOpen(true)}>
+                Edit details
+              </DropdownMenuItem>
+              {(workspaceId || project.workspace_id) && (
+                <DropdownMenuItem onClick={() => setIsPermissionsDialogOpen(true)}>
+                  Manage Access
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -407,6 +361,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
               status: formData.status,
               due_date_date,
               due_date_text,
+              priority: formData.priority ?? null,
             });
             if ("error" in result) throw new Error(result.error);
             setIsEditDialogOpen(false);
@@ -418,6 +373,8 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             status: project.status,
             due_date_date: project.due_date_date ?? null,
             due_date_text: project.due_date_text ?? null,
+            priority: (project.priority as "low" | "medium" | "high" | "urgent" | null) ?? null,
+            tags: project.tags ?? [],
             client_id: project.client?.id ?? null,
             client_name: project.client?.name ?? null,
           }}

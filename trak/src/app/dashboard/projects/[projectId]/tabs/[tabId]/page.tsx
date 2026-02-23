@@ -49,7 +49,7 @@ export default async function TabPage({
   ] = await Promise.allSettled([
     supabase
       .from("projects")
-      .select(`id, name, status, due_date_date, due_date_text, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, client:clients(id, name, company)`)
+      .select(`id, name, status, due_date_date, due_date_text, priority, tags, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, client:clients(id, name, company)`)
       .eq("id", projectId)
       .eq("workspace_id", workspaceId)
       .single(),
@@ -91,11 +91,12 @@ export default async function TabPage({
     notFound();
   }
 
-  // Handle Supabase foreign key quirk (client might be array)
+  // Handle Supabase foreign key quirk (client might be array); ensure tags array
   const rawProject = projectData;
   const project = {
     ...rawProject,
     client: Array.isArray(rawProject.client) ? rawProject.client[0] : rawProject.client,
+    tags: rawProject.tags ?? [],
   };
 
   const tab = tabData as { id: string; name: string; project_id: string; is_workflow_page?: boolean };

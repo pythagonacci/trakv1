@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { getAllClients } from "@/app/actions/client";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
-import { getProjectTags, addProjectTag } from "@/app/actions/project";
+import { getProjectTags, addProjectTag, removeProjectTag } from "@/app/actions/project";
 
 interface Client {
   id: string;
@@ -19,12 +19,16 @@ interface WorkspaceMember {
   role: "owner" | "admin" | "teammate";
 }
 
+type ProjectPriority = "low" | "medium" | "high" | "urgent" | null;
+
 interface Project {
   id: string;
   name: string;
   status: "not_started" | "in_progress" | "complete";
   due_date_date: string | null;
   due_date_text: string | null;
+  priority?: ProjectPriority;
+  tags?: string[]; // Tags assigned to this project (labels on the project)
   client_id: string | null;
   client_name?: string | null;
 }
@@ -35,8 +39,10 @@ interface FormData {
   client_name?: string; // For creating new clients
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
+  priority: ProjectPriority;
+  assigned_tags?: string[]; // Tags for this project (saved to project.tags)
+  tag_bank?: string[]; // Tag bank for tasks (project_tags table, create only)
   member_ids?: string[] | "all"; // Project permissions
-  tags?: string[]; // Project tag bank (create only)
 }
 
 interface ProjectDialogProps {
@@ -67,13 +73,16 @@ export default function ProjectDialog({
     client_id: "",
     status: "not_started",
     due_date: "",
+    priority: null,
   });
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientInput, setClientInput] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
-  const [tagInput, setTagInput] = useState("");
-  const [initialTags, setInitialTags] = useState<string[]>([]);
+  const [projectTags, setProjectTags] = useState<string[]>([]); // Tags for this project (project.tags)
+  const [tagBank, setTagBank] = useState<string[]>([]); // Tag bank for tasks (project_tags table)
+  const [projectTagInput, setProjectTagInput] = useState("");
+  const [tagBankInput, setTagBankInput] = useState("");
 
   // Project permissions state
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
@@ -106,11 +115,11 @@ export default function ProjectDialog({
     }
   }, [isOpen, workspaceId]);
 
-  // Load project tags in edit mode
+  // Load tag bank (project_tags) in edit mode
   useEffect(() => {
     if (isOpen && mode === "edit" && initialData?.id) {
       getProjectTags(initialData.id).then((result) => {
-        if ("data" in result) setInitialTags(result.data);
+        if ("data" in result) setTagBank(result.data);
       });
     }
   }, [isOpen, mode, initialData?.id]);
@@ -119,31 +128,34 @@ export default function ProjectDialog({
   useEffect(() => {
     if (isOpen) {
       if (mode === "edit" && initialData) {
-        // Pre-fill with existing data
         const dueDate = initialData.due_date_date || initialData.due_date_text || "";
         setFormData({
           name: initialData.name,
           client_id: initialData.client_id || "",
           status: initialData.status,
           due_date: dueDate,
+          priority: initialData.priority ?? null,
+          assigned_tags: initialData.tags ?? [],
         });
-        // Set client input for edit mode
+        setProjectTags(initialData.tags ?? []);
         if (initialData.client_name) {
           setClientInput(initialData.client_name);
         }
       } else {
-        // Reset for create mode
         setFormData({
           name: "",
           client_id: "",
           status: "not_started",
           due_date: "",
+          priority: null,
         });
         setClientInput("");
         setPermissionMode("all");
         setSelectedMemberIds([]);
-        setInitialTags([]);
-        setTagInput("");
+        setProjectTags([]);
+        setTagBank([]);
+        setProjectTagInput("");
+        setTagBankInput("");
       }
       setFormError("");
       setIsSubmitting(false);
@@ -188,7 +200,8 @@ export default function ProjectDialog({
         ...formData,
         client_name: clientInput && !formData.client_id ? clientInput.trim() : undefined,
         member_ids: permissionMode === "all" ? "all" : selectedMemberIds,
-        tags: mode === "create" && initialTags.length > 0 ? initialTags : undefined,
+        assigned_tags: projectTags,
+        tag_bank: mode === "create" && tagBank.length > 0 ? tagBank : undefined,
       };
 
       await onSubmit(submitData);
@@ -343,87 +356,181 @@ export default function ProjectDialog({
             />
           </div>
 
-          {/* Tags (create: initial tags; edit: project tag bank) */}
+          {/* Priority */}
+          <div>
+            <label htmlFor="priority" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+              Priority{" "}
+              <span className="text-neutral-400 text-[10px]">(optional)</span>
+            </label>
+            <select
+              id="priority"
+              value={formData.priority ?? ""}
+              onChange={(e) => setFormData({ ...formData, priority: (e.target.value || null) as FormData["priority"] })}
+              className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
+              disabled={isSubmitting}
+            >
+              <option value="">None</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          {/* Tags for this project (labels on the project, shown in header) */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
-              Tags{" "}
-              <span className="text-[10px] text-[var(--tertiary-foreground)]">
-                {mode === "create" ? "(optional – project tag bank)" : "Project tag bank"}
-              </span>
+              Tags (for this project){" "}
+              <span className="text-[10px] text-[var(--tertiary-foreground)]">(optional)</span>
             </label>
+            <p className="mb-1 text-[11px] text-[var(--muted-foreground)]">
+              Labels on the project, e.g. Q1, Marketing. Shown in the project header.
+            </p>
             <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2">
-              {initialTags.map((tag) => (
+              {projectTags.map((tag) => (
                 <span
                   key={tag}
                   className="inline-flex items-center gap-1 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-0.5 text-xs"
                 >
                   {tag}
-                  {mode === "create" && (
-                    <button
-                      type="button"
-                      onClick={() => setInitialTags((prev) => prev.filter((t) => t !== tag))}
-                      className="ml-0.5 hover:text-[var(--error)] transition-colors"
-                      disabled={isSubmitting}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setProjectTags((prev) => prev.filter((t) => t !== tag))}
+                    className="ml-0.5 hover:text-[var(--error)] transition-colors"
+                    disabled={isSubmitting}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </span>
               ))}
-                <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1">
                 <input
                   type="text"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
+                  value={projectTagInput}
+                  onChange={(e) => setProjectTagInput(e.target.value)}
                   placeholder="Add tag..."
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      const t = tagInput.trim().toLowerCase();
-                      const normalized = tagInput.trim();
+                      const normalized = projectTagInput.trim();
                       if (!normalized) return;
-                      const exists = initialTags.some((x) => x.toLowerCase() === t);
-                      if (exists) {
-                        setTagInput("");
-                        return;
-                      }
-                      setTagInput("");
-                      if (mode === "create") {
-                        setInitialTags((prev) => [...prev, normalized]);
-                      } else if (mode === "edit" && initialData?.id) {
-                        setInitialTags((prev) => [...prev, normalized]);
-                        addProjectTag(initialData.id, normalized);
+                      const exists = projectTags.some((x) => x.toLowerCase() === normalized.toLowerCase());
+                      if (!exists) {
+                        setProjectTags((prev) => [...prev, normalized]);
+                        setProjectTagInput("");
                       }
                     }
                   }}
                   className="w-24 min-w-0 rounded border-0 bg-transparent px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   disabled={isSubmitting}
                 />
-                {tagInput.trim() && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const t = tagInput.trim().toLowerCase();
-                    const normalized = tagInput.trim();
-                    if (!normalized) return;
-                    const exists = initialTags.some((x) => x.toLowerCase() === t);
-                    if (exists) {
-                      setTagInput("");
-                      return;
-                    }
-                    setTagInput("");
-                    if (mode === "create") {
-                      setInitialTags((prev) => [...prev, normalized]);
-                    } else if (mode === "edit" && initialData?.id) {
-                      setInitialTags((prev) => [...prev, normalized]);
-                      addProjectTag(initialData.id, normalized);
+                {projectTagInput.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const normalized = projectTagInput.trim();
+                      if (!normalized) return;
+                      const exists = projectTags.some((x) => x.toLowerCase() === normalized.toLowerCase());
+                      if (!exists) {
+                        setProjectTags((prev) => [...prev, normalized]);
+                        setProjectTagInput("");
+                      }
+                    }}
+                    className="text-xs text-[var(--primary)] hover:underline disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    Add
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Tag bank (for tasks in this project) */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+              Tag bank (for tasks in this project){" "}
+              <span className="text-[10px] text-[var(--tertiary-foreground)]">(optional)</span>
+            </label>
+            <p className="mb-1 text-[11px] text-[var(--muted-foreground)]">
+              Tags that can be used when adding tags to tasks and other items in this project.
+            </p>
+            <div className="flex flex-wrap gap-1.5 min-h-[32px] rounded-[2px] border border-[var(--border)] bg-[var(--surface)] p-2">
+              {tagBank.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-0.5 text-xs"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (mode === "create") {
+                        setTagBank((prev) => prev.filter((t) => t !== tag));
+                      } else if (mode === "edit" && initialData?.id) {
+                        await removeProjectTag(initialData.id, tag);
+                        setTagBank((prev) => prev.filter((t) => t !== tag));
+                      }
+                    }}
+                    className="ml-0.5 hover:text-[var(--error)] transition-colors"
+                    disabled={isSubmitting}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={tagBankInput}
+                  onChange={(e) => setTagBankInput(e.target.value)}
+                  placeholder="Add to tag bank..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const normalized = tagBankInput.trim();
+                      if (!normalized) return;
+                      const exists = tagBank.some((x) => x.toLowerCase() === normalized.toLowerCase());
+                      if (exists) {
+                        setTagBankInput("");
+                        return;
+                      }
+                      setTagBankInput("");
+                      if (mode === "create") {
+                        setTagBank((prev) => [...prev, normalized]);
+                      } else if (mode === "edit" && initialData?.id) {
+                        addProjectTag(initialData.id, normalized);
+                        setTagBank((prev) => [...prev, normalized]);
+                      }
                     }
                   }}
-                  className="text-xs text-[var(--primary)] hover:underline disabled:opacity-50"
+                  className="w-24 min-w-0 rounded border-0 bg-transparent px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   disabled={isSubmitting}
-                >
-                  Add
-                </button>
+                />
+                {tagBankInput.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const normalized = tagBankInput.trim();
+                      if (!normalized) return;
+                      const exists = tagBank.some((x) => x.toLowerCase() === normalized.toLowerCase());
+                      if (exists) {
+                        setTagBankInput("");
+                        return;
+                      }
+                      setTagBankInput("");
+                      if (mode === "create") {
+                        setTagBank((prev) => [...prev, normalized]);
+                      } else if (mode === "edit" && initialData?.id) {
+                        addProjectTag(initialData.id, normalized);
+                        setTagBank((prev) => [...prev, normalized]);
+                      }
+                    }}
+                    className="text-xs text-[var(--primary)] hover:underline disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    Add
+                  </button>
                 )}
               </div>
             </div>

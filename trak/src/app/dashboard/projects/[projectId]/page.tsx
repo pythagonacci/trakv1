@@ -47,9 +47,10 @@ export default async function ProjectPage({
     notFound();
   }
 
-  // 4. Fetch tabs for this project (hierarchical structure)
+  // 4. Fetch tabs for this project (project already has tags from select *)
   const tabsResult = await getProjectTabs(projectId);
   const hierarchicalTabs = tabsResult.data || [];
+  const projectWithTags = { ...project, tags: project.tags ?? [] };
 
   // 5. Redirect to project overview by default (or empty state if no tabs)
   if (hierarchicalTabs.length > 0) {
@@ -60,7 +61,7 @@ export default async function ProjectPage({
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       <div className="max-w-7xl mx-auto">
         {/* Project Header */}
-        <ProjectHeader project={project} workspaceId={workspaceId} />
+        <ProjectHeader project={projectWithTags} workspaceId={workspaceId} />
 
         {/* Empty Tabs State */}
           <EmptyTabsState projectId={projectId} />
