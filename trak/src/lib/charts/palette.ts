@@ -1,36 +1,46 @@
 /**
- * Chart color palette — matches timeline event palette (Tailwind hues).
- * Ordered for maximum adjacent contrast: consecutive indices (0,1,2...) get
- * colors spaced across the hue wheel so bars/slices next to each other are
- * visually distinct (avoids blue/indigo/purple clustering).
+ * Chart color palette — refined, cohesive colors with good adjacent contrast.
+ * Order alternates hue regions so consecutive series (bars/slices) stay distinct.
+ * Alpha matches timeline event bars (bg-*-500/50) for a consistent transparent feel.
  */
 
-// Maximal-contrast order: alternate between hue regions (blue, orange, teal, rose, lime, purple, etc.)
+/** Alpha for chart fills (0–1). Matches timeline bars (50% opacity). */
+const CHART_ALPHA = 0.5;
+
+function withAlpha(hex: string, alpha: number): string {
+  const a = Math.round(alpha * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return hex + a;
+}
+
+// Light mode: slightly deeper, polished tones that read well on white/light gray
 const PALETTE_HEX_LIGHT = [
-  "#3b82f6", // blue-500
-  "#f97316", // orange-500
-  "#14b8a6", // teal-500
-  "#f43f5e", // rose-500
-  "#84cc16", // lime-500
-  "#a855f7", // purple-500
-  "#f59e0b", // amber-500
-  "#06b6d4", // cyan-500
-  "#ec4899", // pink-500
-  "#22c55e", // green-500
-  "#6366f1", // indigo-500
-  "#10b981", // emerald-500
+  "#2563eb", // blue-600
+  "#ea580c", // orange-600
+  "#0d9488", // teal-600
+  "#db2777", // pink-600
+  "#65a30d", // lime-600
+  "#7c3aed", // violet-600
+  "#d97706", // amber-600
+  "#0891b2", // cyan-600
+  "#be185d", // rose-600
+  "#16a34a", // green-600
+  "#4f46e5", // indigo-600
+  "#059669", // emerald-600
 ];
 
+// Dark mode: brighter variants for contrast on dark backgrounds
 const PALETTE_HEX_DARK = [
   "#60a5fa", // blue-400
   "#fb923c", // orange-400
   "#2dd4bf", // teal-400
-  "#fb7185", // rose-400
+  "#f472b6", // pink-400
   "#a3e635", // lime-400
-  "#c084fc", // purple-400
+  "#a78bfa", // violet-400
   "#fbbf24", // amber-400
   "#22d3ee", // cyan-400
-  "#f472b6", // pink-400
+  "#fb7185", // rose-400
   "#4ade80", // green-400
   "#818cf8", // indigo-400
   "#34d399", // emerald-400
@@ -64,7 +74,7 @@ export function getCategoryColor(
     index !== undefined
       ? index % palette.length
       : hashString(label) % palette.length;
-  return palette[idx]!;
+  return withAlpha(palette[idx]!, CHART_ALPHA);
 }
 
 /**
@@ -82,11 +92,11 @@ export function buildColorMap(
   return map;
 }
 
-/** Special colors for semantic labels */
-const SEMANTIC_COLORS: Record<string, string> = {
-  Rest: "#94a3b8",    // slate-400 — neutral remainder slice
-  Other: "#94a3b8",
-  Unspecified: "#cbd5e1", // slate-300
+/** Special colors for semantic labels (neutral, easy to read) */
+const SEMANTIC_BASE: Record<string, string> = {
+  Rest: "#64748b", // slate-500
+  Other: "#64748b",
+  Unspecified: "#94a3b8", // slate-400
 };
 
 /**
@@ -97,5 +107,8 @@ export function resolveColor(
   index?: number,
   dark = false
 ): string {
-  return SEMANTIC_COLORS[label] ?? getCategoryColor(label, index, dark);
+  const base = SEMANTIC_BASE[label];
+  return base
+    ? withAlpha(base, CHART_ALPHA)
+    : getCategoryColor(label, index, dark);
 }

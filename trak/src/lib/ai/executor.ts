@@ -124,6 +124,11 @@ export interface ExecuteAICommandOptions {
    * where search tools may need more retries with varying params.
    */
   maxConsecutiveToolErrors?: number;
+  /**
+   * Use a higher initial token budget for tool calls (e.g. when block/chart
+   * creation is likely). Helps avoid truncation before the model can emit tool calls.
+   */
+  preferHigherTokenBudget?: boolean;
 }
 
 interface ChatCompletionResponse {
@@ -155,14 +160,16 @@ const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+/** Deepseek API allows max_tokens in [1, 8192]; higher values cause 400. */
+const DEEPSEEK_MAX_TOKENS_LIMIT = 8192;
 const MAX_TOOL_ITERATIONS = 25; // Prevent infinite loops
 const TOOL_REPEAT_THRESHOLD = 2;
-const parsedToolCallMaxTokens = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 8192);
-const TOOL_CALL_MAX_TOKENS = Math.max(8192, Number.isFinite(parsedToolCallMaxTokens) ? parsedToolCallMaxTokens : 8192);
-const parsedToolCallMaxTokensMax = Number(process.env.AI_TOOL_CALL_MAX_TOKENS_MAX ?? 12288);
+const parsedToolCallMaxTokens = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 12288);
+const TOOL_CALL_MAX_TOKENS = Math.max(8192, Number.isFinite(parsedToolCallMaxTokens) ? parsedToolCallMaxTokens : 12288);
+const parsedToolCallMaxTokensMax = Number(process.env.AI_TOOL_CALL_MAX_TOKENS_MAX ?? 16384);
 const TOOL_CALL_MAX_TOKENS_MAX = Math.max(
   TOOL_CALL_MAX_TOKENS,
-  Number.isFinite(parsedToolCallMaxTokensMax) ? parsedToolCallMaxTokensMax : 12288
+  Number.isFinite(parsedToolCallMaxTokensMax) ? parsedToolCallMaxTokensMax : 16384
 );
 const parsedToolCallLengthRetryLimit = Number(process.env.AI_TOOL_CALL_LENGTH_RETRY_LIMIT ?? 2);
 const TOOL_CALL_LENGTH_RETRY_LIMIT = Math.max(
@@ -1341,7 +1348,7 @@ export async function executeAICommand(
 
   // Track all tool calls made
   const allToolCallsMade: ExecutionResult["toolCallsMade"] = [];
-  let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
+  let toolCallTokenBudget = options.preferHigherTokenBudget ? TOOL_CALL_MAX_TOKENS_MAX : TOOL_CALL_MAX_TOKENS;
   let toolCallLengthRetries = 0;
   let lastToolSignature: string | null = null;
   let lastToolRepeatCount = 0;
@@ -1455,14 +1462,9 @@ export async function executeAICommand(
         finishReason,
       });
 
-      // If the model stopped because of length while emitting tool calls,
-      // retry immediately with a larger tool-call token budget.
-      // This avoids truncated JSON arguments for write-heavy tool calls.
-      if (
-        !hasToolResultsInConversation &&
-        finishReason === "length" &&
-        (assistantMessage.tool_calls?.length ?? 0) > 0
-      ) {
+      // If the model stopped because of length (with or without tool calls),
+      // retry with a larger token budget.
+      if (!hasToolResultsInConversation && finishReason === "length") {
         const nextBudget = Math.min(
           Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
           TOOL_CALL_MAX_TOKENS_MAX
@@ -1472,11 +1474,23 @@ export async function executeAICommand(
             retry: toolCallLengthRetries + 1,
             fromMaxTokens: toolCallTokenBudget,
             toMaxTokens: nextBudget,
+            hadToolCalls: (assistantMessage.tool_calls?.length ?? 0) > 0,
           });
           toolCallTokenBudget = nextBudget;
           toolCallLengthRetries += 1;
           continue;
         }
+        // Exhausted retries; return truncation message
+        const truncationNote =
+          "The response was cut off before it could finish. Try a simpler request or breaking it into smaller steps.";
+        return withTiming({
+          success: false,
+          response:
+            (assistantMessage.content?.trim() ? assistantMessage.content.trim() + "\n\n" : "") +
+            truncationNote,
+          toolCallsMade: allToolCallsMade,
+          error: "Response truncated (finish_reason=length)",
+        });
       } else {
         toolCallLengthRetries = 0;
       }
@@ -2276,7 +2290,10 @@ async function callDeepseek(
     toolCount: tools.length,
     model: DEEPSEEK_MODEL,
   });
-  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  const resolvedMaxTokens = Math.min(
+    Number.isFinite(maxTokens) ? maxTokens : 4096,
+    DEEPSEEK_MAX_TOKENS_LIMIT
+  );
   const response = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
     headers: {
@@ -2323,6 +2340,61 @@ async function callDeepseek(
     model: DEEPSEEK_MODEL,
   });
   return body;
+}
+
+/** Chat completion with no tools (for summarization, etc.). */
+type CompletionMessage = { role: "system" | "user" | "assistant"; content: string };
+
+async function callOpenAICompletion(
+  apiKey: string,
+  messages: CompletionMessage[],
+  maxTokens: number
+): Promise<ChatCompletionResponse> {
+  const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL;
+  const response = await fetch(OPENAI_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: 0.1,
+      max_tokens: maxTokens,
+    }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
+  }
+  return response.json();
+}
+
+async function callDeepseekCompletion(
+  apiKey: string,
+  messages: CompletionMessage[],
+  maxTokens: number
+): Promise<ChatCompletionResponse> {
+  const resolvedMaxTokens = Math.min(maxTokens, DEEPSEEK_MAX_TOKENS_LIMIT);
+  const response = await fetch(DEEPSEEK_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: 0.1,
+      max_tokens: resolvedMaxTokens,
+    }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Deepseek API error: ${response.status} ${errorText}`);
+  }
+  return response.json();
 }
 
 /**
@@ -2379,6 +2451,59 @@ async function callOpenAI(
     model,
   });
   return body;
+}
+
+/**
+ * Single completion with no tools (for summarization, formatting, etc.).
+ * Uses same provider/API key as executeAICommand. Returns assistant content only.
+ */
+export async function generateCompletion(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  options?: { maxTokens?: number }
+): Promise<{ content: string; error?: string }> {
+  const openAIKey = process.env.OPENAI_API_KEY;
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const providerPref = (process.env.AI_PROVIDER || "").toLowerCase();
+
+  if (!openAIKey && !deepseekKey) {
+    return { content: "", error: "AI service is not configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY." };
+  }
+
+  const provider =
+    providerPref === "deepseek"
+      ? deepseekKey
+        ? "deepseek"
+        : openAIKey
+          ? "openai"
+          : "deepseek"
+      : providerPref === "openai"
+        ? openAIKey
+          ? "openai"
+          : deepseekKey
+            ? "deepseek"
+            : "openai"
+        : openAIKey
+          ? "openai"
+          : "deepseek";
+
+  const apiKey = provider === "openai" ? (openAIKey as string) : (deepseekKey as string);
+  const maxTokens = options?.maxTokens ?? 2048;
+
+  try {
+    const response =
+      provider === "openai"
+        ? await callOpenAICompletion(apiKey, messages, maxTokens)
+        : await callDeepseekCompletion(apiKey, messages, maxTokens);
+
+    if (!response.choices?.length) {
+      return { content: "", error: "Empty response from AI" };
+    }
+    const text = response.choices[0].message?.content ?? "";
+    return { content: text };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { content: "", error: message };
+  }
 }
 
 /**
@@ -2498,7 +2623,7 @@ export async function* executeAICommandStream(
 
   // Track empty argument calls to prevent infinite loops when LLM calls tools with no args (streaming path)
   const emptyArgCallCount = new Map<string, number>();
-  let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
+  let toolCallTokenBudget = options.preferHigherTokenBudget ? TOOL_CALL_MAX_TOKENS_MAX : TOOL_CALL_MAX_TOKENS;
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
   // Track searched entities for deterministic source metadata annotation (streaming path)
@@ -2735,11 +2860,9 @@ export async function* executeAICommandStream(
         }
       }
 
-      if (
-        !hasToolResultsInConversation &&
-        streamedFinishReason === "length" &&
-        (streamedToolCalls?.length ?? 0) > 0
-      ) {
+      if (!hasToolResultsInConversation && streamedFinishReason === "length") {
+        // Retry with higher budget: either tool calls were cut off mid-stream, or model
+        // was about to emit a tool call when truncated.
         const nextBudget = Math.min(
           Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
           TOOL_CALL_MAX_TOKENS_MAX
@@ -2749,11 +2872,28 @@ export async function* executeAICommandStream(
             retry: toolCallLengthRetries + 1,
             fromMaxTokens: toolCallTokenBudget,
             toMaxTokens: nextBudget,
+            hadToolCalls: (streamedToolCalls?.length ?? 0) > 0,
           });
           toolCallTokenBudget = nextBudget;
           toolCallLengthRetries += 1;
           continue;
         }
+        // Exhausted retries; surface truncation message
+        const truncationNote =
+          "The response was cut off before it could finish. Try a simpler request or breaking it into smaller steps.";
+        const truncatedContent =
+          (streamedContent?.trim() ? streamedContent.trim() + "\n\n" : "") + truncationNote;
+        yield {
+          type: "response",
+          content: truncatedContent,
+          data: {
+            toolCallsMade,
+            undoBatches: undoTracker.batches,
+            undoSkippedTools: undoTracker.skippedTools,
+            searchManifest: buildStreamSearchManifest(),
+          },
+        };
+        return;
       } else {
         toolCallLengthRetries = 0;
       }
@@ -3409,7 +3549,11 @@ export async function* executeAICommandStream(
         },
       };
       return;
-    } catch {
+    } catch (err) {
+      aiDebug("executeAICommandStream:error", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       yield {
         type: "response",
         content: "An error occurred while processing your command.",
@@ -3448,7 +3592,10 @@ async function* streamChatCompletion({
     provider === "openai"
       ? process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL
       : DEEPSEEK_MODEL;
-  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  let resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  if (provider === "deepseek") {
+    resolvedMaxTokens = Math.min(resolvedMaxTokens, DEEPSEEK_MAX_TOKENS_LIMIT);
+  }
   const response = await fetch(url, {
     method: "POST",
     headers: {

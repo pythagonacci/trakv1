@@ -100,7 +100,7 @@ function buildSearchHistoryContext(
     return `--- Search ${idx + 1} (user asked: "${m.userQuery.slice(0, 120)}") ---\nSearched via: ${m.manifest.searchTools.join(", ")}\nEntities found:\n${entityLines.join("\n")}`;
   });
 
-  const searchHistory = `\n\n📋 SEARCH HISTORY — PREVIOUSLY SEARCHED ENTITIES\nThe following entities were found in your recent search tool calls. If you are about to create or render something that uses this data, you MUST include the correct source_entity_id, source_entity_type ("task" | "timeline_event" | "table_row" | "block"), and source_sync_mode ("live") for each entity that corresponds to a row/item you create.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
+  const searchHistory = `\n\n---\n📋 SOURCE ID REFERENCE — PRIOR TURNS ONLY (do NOT skip tool calls)\nThe entities below were found in PREVIOUS conversation turns, NOT in the current request. This section exists solely so you can supply the correct source_entity_id, source_entity_type, and source_sync_mode when you create table rows that map to these entities. You MUST still call the appropriate tools (searchTasks, createTableFull, etc.) to fulfill the current user request. Do NOT treat this reference as a substitute for tool use — always call tools first.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
 
   return { searchHistory, hasSearchHistory: true };
 }
@@ -322,7 +322,11 @@ async function resolveLatestBlockContext(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   tabId: string;
   history: Array<{ created_block_ids?: string[] }>;
-}) {
+}): Promise<{
+  blockId?: string;
+  blockType?: string;
+  chartContent?: { spec: Record<string, unknown>; rows: Array<Record<string, unknown>>; universeTotal?: number };
+}> {
   for (let i = params.history.length - 1; i >= 0; i -= 1) {
     const ids = params.history[i]?.created_block_ids ?? [];
     if (!ids || ids.length === 0) continue;
@@ -336,21 +340,53 @@ async function resolveLatestBlockContext(params: {
     for (const id of orderedIds) {
       const block = byId.get(id);
       if (block) {
-        return { blockId: block.id as string, blockType: block.type as string };
+        const content = block.content as Record<string, unknown> | null;
+        const chartContent =
+          block.type === "chart" &&
+          content &&
+          typeof content.spec === "object" &&
+          Array.isArray(content.rows)
+            ? {
+                spec: content.spec as Record<string, unknown>,
+                rows: content.rows as Array<Record<string, unknown>>,
+                universeTotal: typeof content.universeTotal === "number" ? content.universeTotal : undefined,
+              }
+            : undefined;
+        return {
+          blockId: block.id as string,
+          blockType: block.type as string,
+          chartContent,
+        };
       }
     }
   }
 
   const { data: latestBlock } = await params.supabase
     .from("blocks")
-    .select("id, type")
+    .select("id, type, content")
     .eq("tab_id", params.tabId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (latestBlock?.id) {
-    return { blockId: latestBlock.id as string, blockType: latestBlock.type as string };
+    const content = (latestBlock as { content?: Record<string, unknown> }).content;
+    const chartContent =
+      latestBlock.type === "chart" &&
+      content &&
+      typeof content.spec === "object" &&
+      Array.isArray(content.rows)
+        ? {
+            spec: content.spec as Record<string, unknown>,
+            rows: content.rows as Array<Record<string, unknown>>,
+            universeTotal: typeof content.universeTotal === "number" ? content.universeTotal : undefined,
+          }
+        : undefined;
+    return {
+      blockId: latestBlock.id as string,
+      blockType: latestBlock.type as string,
+      chartContent,
+    };
   }
 
   return { blockId: undefined, blockType: undefined };
@@ -828,6 +864,7 @@ Keep conversational explanation, reasoning, and elaboration in chat.
 BLOCK CREATION:
 - Use createTableFull({ title: "...", rows: [...] }) for lists/comparisons/tabular data - the title IS the heading
 - Use createSpecChartBlock() for visualizations
+- When the user asks to SEE, SHOW, or VISUALIZE a distribution/chart/graph (e.g. "let me see the distribution", "show me the breakdown"), you MUST call createSpecChartBlock to create the actual chart. NEVER respond with text-only descriptions of what a chart would show—always create the chart block.
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
@@ -872,6 +909,13 @@ IMPORTANT SAFETY:
 - If a field like Priority/Status is missing in source data, fill with "Unspecified" rather than leaving blanks.
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
+${blockContext.chartContent ? `
+CHART CONVERSION: The latest block is a chart. To convert it to a different type (e.g. "render as doughnut chart", "make it a pie chart"), you MUST call createSpecChartBlock with the SAME rows and a spec with the new type.
+Current chart data (use these rows and modify spec.type as needed):
+spec: ${JSON.stringify(blockContext.chartContent.spec)}
+rows: ${JSON.stringify(blockContext.chartContent.rows)}
+${typeof blockContext.chartContent.universeTotal === "number" ? `universeTotal: ${blockContext.chartContent.universeTotal}` : ""}
+Do NOT respond with text-only. Call createSpecChartBlock.` : ""}
 
 SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for comprehensive results. ALWAYS READ THE QUERY, AND DECIDE WHETHER ITS ASKING ABOUT STRUCTURED, UNSTRUCTURED, OR A COMBINATION OF BOTH:
 1. STRUCTURED SEARCH (searchTasks, searchSubtasks, searchProjects, searchDocs, searchTables, etc.)
@@ -897,7 +941,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? searchHistory : ""}`,
+   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? "\n" + searchHistory : ""}`,
     },
   ];
 
@@ -1282,6 +1326,7 @@ Keep conversational explanation, reasoning, and elaboration in chat.
 BLOCK CREATION:
 - Use createTableFull({ title: "...", rows: [...] }) for lists/comparisons/tabular data - the title IS the heading
 - Use createSpecChartBlock() for visualizations
+- When the user asks to SEE, SHOW, or VISUALIZE a distribution/chart/graph (e.g. "let me see the distribution", "show me the breakdown"), you MUST call createSpecChartBlock to create the actual chart. NEVER respond with text-only descriptions of what a chart would show—always create the chart block.
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
@@ -1326,6 +1371,13 @@ IMPORTANT SAFETY:
 - If a field like Priority/Status is missing in source data, fill with "Unspecified" rather than leaving blanks.
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
+${blockContext.chartContent ? `
+CHART CONVERSION: The latest block is a chart. To convert it to a different type (e.g. "render as doughnut chart", "make it a pie chart"), you MUST call createSpecChartBlock with the SAME rows and a spec with the new type.
+Current chart data (use these rows and modify spec.type as needed):
+spec: ${JSON.stringify(blockContext.chartContent.spec)}
+rows: ${JSON.stringify(blockContext.chartContent.rows)}
+${typeof blockContext.chartContent.universeTotal === "number" ? `universeTotal: ${blockContext.chartContent.universeTotal}` : ""}
+Do NOT respond with text-only. Call createSpecChartBlock.` : ""}
 
 SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for comprehensive results. ALWAYS READ THE QUERY, AND DECIDE WHETHER ITS ASKING ABOUT STRUCTURED, UNSTRUCTURED, OR A COMBINATION OF BOTH:
 1. STRUCTURED SEARCH (searchTasks, searchSubtasks, searchProjects, searchDocs, searchTables, etc.)
@@ -1347,7 +1399,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? streamSearchHistory : ""}`,
+   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? "\n" + streamSearchHistory : ""}`,
     },
   ];
 
@@ -1421,6 +1473,7 @@ RESPONSE PATTERN:
   }
 
   if (!finalEvent) {
+    aiDebug("workflow:streamCompletedWithoutResponse", { command: params.command });
     yield { type: "response", content: "An error occurred while processing your command." };
     return;
   }

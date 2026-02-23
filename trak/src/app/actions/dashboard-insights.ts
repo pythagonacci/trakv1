@@ -1,8 +1,13 @@
 "use server";
 
-import { executeAICommand, type ExecutionContext } from "@/lib/ai/executor";
+import { generateCompletion, type ExecutionContext } from "@/lib/ai/executor";
 import { getServerUser } from "@/lib/auth/get-server-user";
 import { revalidatePath } from "next/cache";
+import {
+  searchTasks,
+  searchTimelineEvents,
+  searchProjects,
+} from "@/app/actions/ai-search";
 
 // ============================================================================
 // TYPES
@@ -38,47 +43,165 @@ const CACHE_TTL_HOURS = 6;
 const RATE_LIMIT_PER_HOUR = 10;
 
 // ============================================================================
-// AI PROMPT TEMPLATE
+// FIXED DATA GATHERING (same tools every time — no LLM tool-calling, saves tokens)
 // ============================================================================
 
-function getDashboardInsightsPrompt(currentDate: string): string {
-  return `You are generating a daily workspace overview for a project management dashboard.
+/** Compact shape for LLM summarization; derived from search results. */
+export interface DashboardOverviewData {
+  currentDate: string;
+  overdueEvents: Array<{ title: string; projectName: string; endDate: string; assignee?: string }>;
+  dueTodayEvents: Array<{ title: string; projectName: string; endDate: string; assignee?: string }>;
+  dueThisWeekEvents: Array<{ title: string; projectName: string; endDate: string; assignee?: string }>;
+  tasksDueThisWeek: Array<{ title: string; projectName: string; tabName: string; dueDate?: string; assignee?: string }>;
+  blockedTasks: Array<{ title: string; projectName: string; tabName: string; assignee?: string }>;
+  highPriorityTasks: Array<{ title: string; projectName: string; tabName: string; priority: string; dueDate?: string; assignee?: string }>;
+  activeProjects: Array<{ name: string; status: string }>;
+}
 
-Current date: ${currentDate}
+/**
+ * Run the same fixed set of searches every time. No LLM tool-calling — saves tokens and ensures consistent data.
+ */
+async function gatherDashboardOverviewData(
+  currentDate: string
+): Promise<DashboardOverviewData> {
+  // Overdue = end_date before today (use lte: yesterday)
+  const yesterday = new Date(currentDate);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-CRITICAL REQUIREMENT: You MUST use the search tools to gather REAL data from the workspace. DO NOT generate generic or hypothetical insights. Only report what you actually find in the workspace data.
+  // This week = tomorrow through today + 7 days (inclusive)
+  const tomorrow = new Date(currentDate);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split("T")[0];
+  const endOfWeek = new Date(currentDate);
+  endOfWeek.setDate(endOfWeek.getDate() + 7);
+  const endOfWeekStr = endOfWeek.toISOString().split("T")[0];
 
-REQUIRED STEPS - Follow this process:
-1. FIRST: Call searchTimelineEvents with end_date filter to find overdue items (end_date < ${currentDate})
-2. THEN: Call searchTimelineEvents with end_date filter to find items due today (end_date = ${currentDate})
-3. THEN: Call searchTasks with status filters to find blocked tasks (status = "blocked")
-4. THEN: Call searchTasks with priority filters to find high/urgent priority items
-5. THEN: Call searchProjects to check active project statuses
-6. OPTIONALLY: Call searchTableRows if you need to check data in tables
+  const [
+    overdueRes,
+    dueTodayRes,
+    dueThisWeekRes,
+    tasksDueThisWeekRes,
+    blockedRes,
+    highPriorityRes,
+    projectsRes,
+  ] = await Promise.all([
+    searchTimelineEvents({
+      endDate: { lte: yesterdayStr },
+      limit: 25,
+    }),
+    searchTimelineEvents({
+      endDate: { eq: currentDate },
+      limit: 25,
+    }),
+    searchTimelineEvents({
+      endDate: { gte: tomorrowStr, lte: endOfWeekStr },
+      limit: 25,
+    }),
+    searchTasks({
+      dueDate: { gte: currentDate, lte: endOfWeekStr },
+      status: ["todo", "in_progress", "blocked"],
+      limit: 25,
+    }),
+    searchTasks({
+      status: "blocked",
+      limit: 15,
+    }),
+    searchTasks({
+      priority: ["high", "urgent"],
+      status: ["todo", "in_progress", "blocked"],
+      limit: 20,
+    }),
+    searchProjects({ limit: 15 }),
+  ]);
 
-After gathering data, provide a concise overview with these sections:
+  const taskAssignee = (t: { assignees?: Array<{ name?: string }> }) =>
+    t.assignees?.[0]?.name ?? undefined;
+  const taskPriority = (t: { priorities?: Array<{ value?: string }> }) =>
+    t.priorities?.[0]?.value ?? "high";
 
-1. **Summary** (2-3 sentences): Based on ACTUAL data you found, describe workspace status
-2. **Top Priorities** (3-5 bullet points): SPECIFIC items from search results that need attention TODAY
-3. **Action Items** (3-5 specific tasks): REAL tasks/events from search results with actual assignee names
-4. **Blockers & Risks** (0-3 items): ACTUAL blocked items or overdue tasks from search results
+  return {
+    currentDate,
+    overdueEvents: (overdueRes.data ?? []).slice(0, 25).map((e: { title?: string; project_name?: string; end_date?: string; assignee_name?: string }) => ({
+      title: e.title ?? "",
+      projectName: e.project_name ?? "Unknown",
+      endDate: e.end_date ?? "",
+      assignee: e.assignee_name ?? undefined,
+    })),
+    dueTodayEvents: (dueTodayRes.data ?? []).slice(0, 25).map((e: { title?: string; project_name?: string; end_date?: string; assignee_name?: string }) => ({
+      title: e.title ?? "",
+      projectName: e.project_name ?? "Unknown",
+      endDate: e.end_date ?? "",
+      assignee: e.assignee_name ?? undefined,
+    })),
+    dueThisWeekEvents: (dueThisWeekRes.data ?? []).slice(0, 25).map((e: { title?: string; project_name?: string; end_date?: string; assignee_name?: string }) => ({
+      title: e.title ?? "",
+      projectName: e.project_name ?? "Unknown",
+      endDate: e.end_date ?? "",
+      assignee: e.assignee_name ?? undefined,
+    })),
+    tasksDueThisWeek: (tasksDueThisWeekRes.data ?? []).slice(0, 25).map((t: { title?: string; project_name?: string; tab_name?: string; due_date?: string; assignees?: Array<{ name?: string }> }) => ({
+      title: t.title ?? "",
+      projectName: t.project_name ?? "Unknown",
+      tabName: t.tab_name ?? "Unknown",
+      dueDate: t.due_date ?? undefined,
+      assignee: taskAssignee(t),
+    })),
+    blockedTasks: (blockedRes.data ?? []).slice(0, 15).map((t: { title?: string; project_name?: string; tab_name?: string; assignees?: Array<{ name?: string }> }) => ({
+      title: t.title ?? "",
+      projectName: t.project_name ?? "Unknown",
+      tabName: t.tab_name ?? "Unknown",
+      assignee: taskAssignee(t),
+    })),
+    highPriorityTasks: (highPriorityRes.data ?? []).slice(0, 20).map((t: { title?: string; project_name?: string; tab_name?: string; due_date?: string; priorities?: Array<{ value?: string }>; assignees?: Array<{ name?: string }> }) => ({
+      title: t.title ?? "",
+      projectName: t.project_name ?? "Unknown",
+      tabName: t.tab_name ?? "Unknown",
+      priority: taskPriority(t),
+      dueDate: t.due_date ?? undefined,
+      assignee: taskAssignee(t),
+    })),
+    activeProjects: (projectsRes.data ?? []).slice(0, 15).map((p: { name?: string; status?: string }) => ({
+      name: p.name ?? "",
+      status: p.status ?? "",
+    })),
+  };
+}
 
-Guidelines:
-- Use SPECIFIC names, titles, and details from the search results
-- If you find 0 overdue items, say "No overdue items"
-- If you find 0 blocked tasks, say "No blockers identified" or leave blockers array empty
-- Prioritize: overdue > due today > high priority > medium priority
-- Include assignee names from the actual data (e.g., "John needs to complete X")
-- DO NOT make up project names, task names, or generic suggestions
-- If workspace is truly empty, say so clearly
+/** Build the summarization prompt (single LLM call, no tools). */
+function getSummarizationPrompt(data: DashboardOverviewData): { system: string; user: string } {
+  const system = `You are a workspace overview summarizer. You receive pre-gathered data and output valid JSON only (no markdown, no extra text).`;
+  const user = `Today's date: ${data.currentDate}
 
-CRITICAL: Format your response as valid JSON only, with no markdown or extra text:
-{
-  "summary": "string (2-3 sentences based on ACTUAL search results)",
-  "priorities": ["specific item from search results", "another specific item", "..."],
-  "actionItems": ["specific task with assignee from results", "another specific action", "..."],
-  "blockers": ["specific blocker from search results", "..."] or []
-}`;
+Data gathered for the workspace:
+
+Overdue timeline events (end_date before today):
+${JSON.stringify(data.overdueEvents)}
+
+Due today (timeline events):
+${JSON.stringify(data.dueTodayEvents)}
+
+Due this week (timeline events, tomorrow through next 7 days):
+${JSON.stringify(data.dueThisWeekEvents)}
+
+Tasks due this week (today through next 7 days):
+${JSON.stringify(data.tasksDueThisWeek)}
+
+Blocked tasks:
+${JSON.stringify(data.blockedTasks)}
+
+High/urgent priority tasks (not done):
+${JSON.stringify(data.highPriorityTasks)}
+
+Active projects:
+${JSON.stringify(data.activeProjects)}
+
+From this data only, produce a concise dashboard overview. Prioritize: overdue > due today > due this week > blocked > high priority. Use SPECIFIC names and titles from the data. If a list is empty, say so in the summary and use empty arrays where appropriate.
+
+Output valid JSON only:
+{"summary":"2-3 sentences","priorities":["item1","item2"],"actionItems":["action1","action2"],"blockers":["blocker1"]}`;
+
+  return { system, user };
 }
 
 // ============================================================================
@@ -181,60 +304,39 @@ export async function generateDashboardInsights(
       }
     }
 
-    // Generate current date for prompt
     const currentDate = new Date().toISOString().split("T")[0];
-    const prompt = getDashboardInsightsPrompt(currentDate);
 
-    // Execute AI command with specialized prompt
-    const result = await executeAICommand(
-      prompt,
-      context,
-      [], // Empty conversation history for fresh insights
-      {
-        readOnly: true,
-        forcedToolGroups: ["core", "task", "project", "timeline", "table", "workspace"],
-        disableOptimisticEarlyExit: false,
-        maxConsecutiveToolErrors: 6,
-      }
+    // 1. Fixed data gathering — same searches every time, no LLM tool-calling (saves tokens)
+    const overviewData = await gatherDashboardOverviewData(currentDate);
+    const { system, user } = getSummarizationPrompt(overviewData);
+
+    // 2. Single LLM call to summarize (no tools)
+    const completion = await generateCompletion(
+      [{ role: "system", content: system }, { role: "user", content: user }],
+      { maxTokens: 1024 }
     );
 
-    if (!result.success || !result.response) {
+    if (completion.error || !completion.content) {
       return {
         data: null,
-        error: result.error || "AI generation failed",
+        error: completion.error ?? "AI summarization failed",
       };
     }
 
-    // Validate that AI actually used search tools (not just hallucinating)
-    const toolsCalled = result.toolCallsMade.map((t) => t.tool);
-    const hasSearchTools = toolsCalled.some((tool) =>
-      tool.startsWith("search") || tool === "unstructuredSearchWorkspace"
-    );
-
-    if (!hasSearchTools) {
-      console.error("AI did not use any search tools. Tools called:", toolsCalled);
-      return {
-        data: null,
-        error: "AI failed to search workspace data",
-      };
-    }
-
-    // Parse AI response
     let insights: Omit<DashboardInsight, "generatedAt">;
     try {
-      insights = parseAIResponse(result.response);
+      insights = parseAIResponse(completion.content);
     } catch (parseError) {
       console.error("Error parsing AI response:", parseError);
-      console.error("Raw response:", result.response);
+      console.error("Raw response:", completion.content);
       return {
         data: null,
         error: "Failed to parse AI response",
       };
     }
 
-    // Extract metadata from tool calls
     const metadata = {
-      toolsUsed: result.toolCallsMade.map((t) => t.tool),
+      toolsUsed: ["searchTimelineEvents", "searchTasks", "searchProjects"],
     };
 
     // Store in database (upsert)
