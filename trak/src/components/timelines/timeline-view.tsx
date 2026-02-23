@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
 import { parseLocalDate, parseDateSafe } from "@/lib/due-date";
-import { Plus, User, ChevronDown, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, User, ChevronDown, ChevronRight, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block, getBlockLocation, updateBlock } from "@/app/actions/block";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
@@ -39,6 +39,8 @@ import type {
   ReferenceType,
 } from "@/types/timeline";
 import { useQuery } from "@tanstack/react-query";
+import { getTaskSubtasksWithProperties, getTaskSubtasksWithPropertiesBatch } from "@/app/actions/tasks/query-actions";
+import type { TaskSubtaskWithProperties } from "@/app/actions/tasks/query-actions";
 import { createClient } from "@/lib/supabase/client";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
 import {
@@ -933,6 +935,38 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return rows;
   }, [groupedEvents]);
 
+  const taskIdsForSubtasks = useMemo(
+    () => [...new Set(filteredEvents.filter((e) => e.source_entity_type === "task" && e.source_entity_id).map((e) => e.source_entity_id!))],
+    [filteredEvents]
+  );
+  const { data: subtasksByTaskId = {} } = useQuery({
+    queryKey: ["taskSubtasksWithPropertiesBatch", taskIdsForSubtasks.sort().join(",")],
+    queryFn: () => getTaskSubtasksWithPropertiesBatch(taskIdsForSubtasks).then((r) => ("error" in r ? {} : r.data)),
+    enabled: taskIdsForSubtasks.length > 0,
+    staleTime: 30_000,
+  });
+
+  const MAIN_BAR_HEIGHT = 32;
+  const SUBTASK_BAR_HEIGHT = 20;
+  const ROW_HEIGHT_BASE = 44;
+
+  const { rowHeights, rowTops, totalRowHeight } = useMemo(() => {
+    const heights = flatRows.map(({ event }) => {
+      const taskId = event.source_entity_type === "task" ? event.source_entity_id : null;
+      const subs = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
+      const withDates = subs.filter((st) => st.due_date && (st.due_date.start || st.due_date.end));
+      if (withDates.length === 0) return ROW_HEIGHT_BASE;
+      return MAIN_BAR_HEIGHT + withDates.length * SUBTASK_BAR_HEIGHT;
+    });
+    const tops: number[] = [];
+    let acc = 0;
+    for (const h of heights) {
+      tops.push(acc);
+      acc += h;
+    }
+    return { rowHeights: heights, rowTops: tops, totalRowHeight: acc };
+  }, [flatRows, subtasksByTaskId]);
+
   const totalRowCount = Math.max(1, flatRows.length);
 
   // Sort events by start date
@@ -944,7 +978,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return Math.max(0, Math.min(totalColumns - 1, dateToColumn(date, displayRange.start, zoomLevel)));
   }
 
-  function barStyle(startISO: string, endISO: string, rowIndex: number): React.CSSProperties {
+  function barStyle(startISO: string, endISO: string, rowTop: number): React.CSSProperties {
     const s = clampDate(new Date(startISO));
     const e = clampDate(new Date(endISO));
     let left = 0;
@@ -982,13 +1016,26 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       left = startCol * columnWidth;
       width = span * columnWidth;
     }
-    const rowHeight = 44; // Grid row height
-    const topOffset = rowIndex * rowHeight + (rowHeight / 2) - 16; // Center vertically (event bar is 32px/2 = 16px offset)
+    // rowTop is pixel offset for this row (variable when row has subtask bars)
+    const topOffset = rowTop + (MAIN_BAR_HEIGHT / 2) - 16; // Center main bar in its 32px slot
     return {
-      position: 'absolute',
+      position: "absolute" as const,
       left: `${left}px`,
       width: `${width}px`,
       top: `${topOffset}px`,
+    };
+  }
+
+  function barStyleForSubtask(startISO: string, endISO: string, rowTop: number, subtaskIndex: number): React.CSSProperties {
+    const base = barStyle(startISO, endISO, rowTop);
+    const top = rowTop + MAIN_BAR_HEIGHT + subtaskIndex * SUBTASK_BAR_HEIGHT + (SUBTASK_BAR_HEIGHT / 2) - 8; // 8 = half of 16px bar
+    return {
+      ...base,
+      top: `${top}px`,
+      left: `calc(${base.left} + 12px)`,
+      width: `calc(${base.width} - 24px)`,
+      height: "16px",
+      minWidth: "4px",
     };
   }
 
@@ -1550,35 +1597,70 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 No events
               </div>
             ) : (
-              flatRows.map(({ event, rowIndex }) => (
-                <div
-                  key={event.id}
-                  className={cn(
-                    "min-h-[44px] border-b border-[var(--border)] flex items-center gap-2 px-3 py-2",
-                    rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
-                  )}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 truncate text-sm text-[var(--foreground)] font-medium">
-                      <span className="truncate">{event.title || "Untitled"}</span>
-                      {event.source_entity_id && (
-                        <span className="shrink-0 text-[var(--muted-foreground)]" title="Linked from another item">
-                          <Link2 className="h-3 w-3" aria-hidden />
-                        </span>
-                      )}
-                    </div>
-                    {event.assignee && (
-                      <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                        {event.assignee}
+              flatRows.map(({ event, rowIndex }) => {
+                const taskId = event.source_entity_type === "task" ? event.source_entity_id : null;
+                const rowSubtasks = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
+                return (
+                  <div
+                    key={event.id}
+                    className={cn(
+                      "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2 justify-center",
+                      rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
+                    )}
+                    style={{ minHeight: rowHeights[rowIndex] ?? 44 }}
+                  >
+                    <div className="flex items-center gap-2 min-h-[20px]">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 truncate text-sm text-[var(--foreground)] font-medium">
+                          <span className="truncate">{event.title || "Untitled"}</span>
+                          {event.source_entity_id && (
+                            <span className="shrink-0 text-[var(--muted-foreground)]" title="Linked from another item">
+                              <Link2 className="h-3 w-3" aria-hidden />
+                            </span>
+                          )}
+                        </div>
+                        {event.assignee && (
+                          <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                            {event.assignee}
+                          </div>
+                        )}
                       </div>
+                      <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
+                        {format(new Date(event.start), "MMM d")}
+                        {event.start !== event.end && ` – ${format(new Date(event.end), "MMM d")}`}
+                      </div>
+                    </div>
+                    {rowSubtasks.length > 0 && (
+                      <ul className="mt-0.5 pl-4 space-y-0.5 border-l border-[var(--border)] ml-1">
+                        {rowSubtasks.map((st) => (
+                          <li
+                            key={st.id}
+                            className={cn(
+                              "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate",
+                              st.completed && "line-through opacity-80"
+                            )}
+                          >
+                            {st.completed ? (
+                              <CheckSquare className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
+                            ) : (
+                              <Square className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
+                            )}
+                            <span className="truncate flex-1 min-w-0">{st.title || "Untitled"}</span>
+                            {st.due_date && (st.due_date.start || st.due_date.end) && (
+                              <span className="text-[9px] text-[var(--tertiary-foreground)] shrink-0">
+                                {st.due_date.start && st.due_date.end
+                                  ? `${format(parseDateSafe(st.due_date.start) || new Date(), "MMM d")}–${format(parseDateSafe(st.due_date.end) || new Date(), "MMM d")}`
+                                  : format(parseDateSafe(st.due_date.end ?? st.due_date.start) || new Date(), "MMM d")}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
-                  <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
-                    {format(new Date(event.start), "MMM d")}
-                    {event.start !== event.end && ` – ${format(new Date(event.end), "MMM d")}`}
-                  </div>
-                </div>
-              ))
+                );
+              })
+            )
             )}
           </div>
         </div>
@@ -1620,7 +1702,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
               style={{
                 position: "relative",
                 gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)`,
-                gridTemplateRows: `repeat(${totalRowCount}, 44px)`,
+                gridTemplateRows: rowHeights.map((h) => `${h}px`).join(" "),
+                minHeight: totalRowHeight,
               }}
             >
               {/* Droppable columns for drag-and-drop */}
@@ -1641,7 +1724,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   className="pointer-events-none absolute top-0 bottom-0 w-px bg-[var(--border)]"
                   style={{
                     left: idx * columnWidth,
-                    height: totalRowCount * 44,
+                    height: totalRowHeight,
                   }}
                 />
               ))}
@@ -1650,32 +1733,34 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                 className="pointer-events-none absolute top-0 bottom-0 w-px bg-[var(--border)]"
                 style={{
                   left: totalColumns * columnWidth,
-                  height: totalRowCount * 44,
+                  height: totalRowHeight,
                 }}
               />
 
               {/* Horizontal row separators */}
-              {Array.from({ length: totalRowCount + 1 }, (_, i) => (
+              {rowTops.map((top, i) => (
                 <div
                   key={`hline_${i}`}
                   className="pointer-events-none absolute left-0 right-0 h-px bg-[var(--border)]"
-                  style={{
-                    top: i * 44,
-                    width: totalColumns * columnWidth,
-                  }}
+                  style={{ top, width: totalColumns * columnWidth }}
                 />
               ))}
-
+              {totalRowCount > 0 && (
+                <div
+                  className="pointer-events-none absolute left-0 right-0 h-px bg-[var(--border)]"
+                  style={{ top: totalRowHeight, width: totalColumns * columnWidth }}
+                />
+              )}
               {/* Alternating row banding (subtle) */}
-              {Array.from({ length: totalRowCount }, (_, rowIndex) => (
+              {rowTops.map((top, rowIndex) => (
                 <div
                   key={`band_${rowIndex}`}
                   className="pointer-events-none absolute left-0"
                   style={{
-                    top: rowIndex * 44,
+                    top,
                     left: 0,
                     width: totalColumns * columnWidth,
-                    height: 44,
+                    height: rowHeights[rowIndex] ?? 44,
                     backgroundColor: rowIndex % 2 === 1 ? "var(--surface-hover)" : undefined,
                     opacity: 0.5,
                   }}
@@ -1723,11 +1808,48 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                         setHoveredEventId(null);
                         setTooltipPosition(null);
                       }}
-                      barStyle={barStyle(it.start, it.end, eventRowIndex)}
+                      barStyle={barStyle(it.start, it.end, rowTops[eventRowIndex] ?? 0)}
                       columnWidth={columnWidth}
                       readOnly={readOnly}
                     />
                   );
+                })
+              )}
+
+              {/* Nested subtask bars (thinner, indented under task-sourced events) */}
+              {Object.entries(groupedEvents).flatMap(([_, groupEvents], groupIndex) =>
+                groupEvents.map((it, eventIndexInGroup) => {
+                  const eventRowIndex =
+                    Object.entries(groupedEvents)
+                      .slice(0, groupIndex)
+                      .reduce((sum, [, evs]) => sum + evs.length, 0) + eventIndexInGroup;
+                  const taskId = it.source_entity_type === "task" ? it.source_entity_id : null;
+                  const subs = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
+                  const withDates = subs.filter((st) => st.due_date && (st.due_date.start || st.due_date.end));
+                  const rowTop = rowTops[eventRowIndex] ?? 0;
+                  return withDates.map((st, j) => {
+                    const startISO = st.due_date!.start ?? st.due_date!.end ?? "";
+                    const endISO = st.due_date!.end ?? st.due_date!.start ?? "";
+                    if (!startISO && !endISO) return null;
+                    const subStyle = barStyleForSubtask(startISO, endISO, rowTop, j);
+                    return (
+                      <div
+                        key={`subtask-${it.id}-${st.id}`}
+                        className="absolute z-10 pointer-events-none rounded-[4px] border-l-2 border-[var(--primary)]/60 bg-[var(--primary)]/20"
+                        style={{
+                          ...subStyle,
+                          pointerEvents: "auto",
+                        }}
+                        data-event-id={it.id}
+                        data-subtask-id={st.id}
+                        title={st.title}
+                      >
+                        <span className="absolute inset-0 flex items-center px-2 truncate text-[9px] text-[var(--foreground)]/90">
+                          {st.title || "Untitled"}
+                        </span>
+                      </div>
+                    );
+                  });
                 })
               )}
 
@@ -2261,9 +2383,24 @@ function EventDetailsPanel({
   const [assigneeSearchOpen, setAssigneeSearchOpen] = useState(false);
   const [assigneeSearchQuery, setAssigneeSearchQuery] = useState("");
   const [notesOpen, setNotesOpen] = useState(Boolean((event.notes ?? "").trim()));
+  const [subtasksCollapsed, setSubtasksCollapsed] = useState(false);
   const assigneeSearchInputRef = useRef<HTMLInputElement>(null);
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
+
+  const taskId = event.source_entity_type === "task" ? event.source_entity_id ?? null : null;
+  const { data: subtasksData } = useQuery({
+    queryKey: ["taskSubtasksWithProperties", taskId],
+    queryFn: async () => {
+      if (!taskId) return { data: [] };
+      const r = await getTaskSubtasksWithProperties(taskId);
+      if ("error" in r) return { data: [] as TaskSubtaskWithProperties[] };
+      return { data: r.data };
+    },
+    enabled: Boolean(isOpen && taskId),
+    staleTime: 30_000,
+  });
+  const subtasks: TaskSubtaskWithProperties[] = subtasksData?.data ?? [];
 
   const resizeNotesTextarea = React.useCallback(() => {
     const el = notesTextareaRef.current;
@@ -2536,6 +2673,55 @@ function EventDetailsPanel({
               </label>
             </div>
           </div>
+          {taskId && (
+            <>
+              <Divider />
+              <div className="py-2">
+                <button
+                  type="button"
+                  onClick={() => setSubtasksCollapsed((c) => !c)}
+                  className="flex items-center gap-2 w-full text-left focus:outline-none focus:ring-2 focus:ring-blue-500/20 rounded-[6px] py-0.5 -mx-1 px-1"
+                >
+                  {subtasksCollapsed ? (
+                    <ChevronRight className="h-4 w-4 text-zinc-400 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />
+                  )}
+                  <SectionLabel>SUBTASKS</SectionLabel>
+                  {subtasks.length > 0 && (
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400">({subtasks.length})</span>
+                  )}
+                </button>
+                {!subtasksCollapsed && (
+                  <ul className="mt-1.5 space-y-1 pl-6">
+                    {subtasks.length === 0 ? (
+                      <li className="text-[11px] text-zinc-500 dark:text-zinc-400">No subtasks</li>
+                    ) : (
+                      subtasks.map((st) => (
+                        <li key={st.id} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                          {st.completed ? (
+                            <CheckSquare className="h-4 w-4 text-zinc-500 shrink-0" aria-hidden />
+                          ) : (
+                            <Square className="h-4 w-4 text-zinc-400 shrink-0" aria-hidden />
+                          )}
+                          <span className={cn("truncate flex-1 min-w-0", st.completed && "line-through opacity-70")}>
+                            {st.title || "Untitled"}
+                          </span>
+                          {st.due_date && (st.due_date.start || st.due_date.end) && (
+                            <span className="text-[10px] text-zinc-500 shrink-0">
+                              {st.due_date.start && st.due_date.end
+                                ? `${format(parseDateSafe(st.due_date.start) || new Date(), "MMM d")} – ${format(parseDateSafe(st.due_date.end) || new Date(), "MMM d")}`
+                                : format(parseDateSafe(st.due_date.end ?? st.due_date.start) || new Date(), "MMM d")}
+                            </span>
+                          )}
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
           <Divider />
           <div className="py-0.5 grid grid-cols-2 gap-x-4">
             <div className="flex items-start justify-between gap-2 py-1.5">
@@ -2810,6 +2996,52 @@ function EventDetailsPanel({
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex items-center justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sync with source</span>
               <Switch checked={event.sourceSyncMode === "live"} onCheckedChange={(checked) => onUpdate({ sourceSyncMode: checked ? "live" : "snapshot" })} />
+            </div>
+          )}
+          {taskId && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setSubtasksCollapsed((c) => !c)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30"
+              >
+                {subtasksCollapsed ? (
+                  <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+                )}
+                <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Subtasks</span>
+                {subtasks.length > 0 && (
+                  <span className="text-[10px] text-[var(--muted-foreground)]">({subtasks.length})</span>
+                )}
+              </button>
+              {!subtasksCollapsed && (
+                <ul className="border-t border-[var(--border)] px-3 py-2 space-y-1.5 max-h-48 overflow-y-auto">
+                  {subtasks.length === 0 ? (
+                    <li className="text-[11px] text-[var(--muted-foreground)]">No subtasks</li>
+                  ) : (
+                    subtasks.map((st) => (
+                      <li key={st.id} className="flex items-center gap-2 text-xs text-[var(--foreground)]">
+                        {st.completed ? (
+                          <CheckSquare className="h-3.5 w-3.5 text-[var(--muted-foreground)] shrink-0" aria-hidden />
+                        ) : (
+                          <Square className="h-3.5 w-3.5 text-[var(--muted-foreground)] shrink-0" aria-hidden />
+                        )}
+                        <span className={cn("truncate flex-1 min-w-0", st.completed && "line-through opacity-70")}>
+                          {st.title || "Untitled"}
+                        </span>
+                        {st.due_date && (st.due_date.start || st.due_date.end) && (
+                          <span className="text-[10px] text-[var(--muted-foreground)] shrink-0">
+                            {st.due_date.start && st.due_date.end
+                              ? `${format(parseDateSafe(st.due_date.start) || new Date(), "MMM d")} – ${format(parseDateSafe(st.due_date.end) || new Date(), "MMM d")}`
+                              : format(parseDateSafe(st.due_date.end ?? st.due_date.start) || new Date(), "MMM d")}
+                          </span>
+                        )}
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
             </div>
           )}
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex items-center gap-2">

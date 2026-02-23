@@ -77,6 +77,8 @@ export async function createTaskItem(
     sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
     sourceEntityId?: string | null;
     sourceSyncMode?: TaskSourceSyncMode;
+    /** When true, task is excluded from search/Everything until the user edits it. Used for the default "New task" in new blocks. */
+    isPlaceholder?: boolean;
   },
   opts?: { timing?: TaskTimingSink; authContext?: AuthContext }
 ): Promise<ActionResult<TaskItem>> {
@@ -130,7 +132,10 @@ export async function createTaskItem(
     opts.timing.t_fetch_return_ms = 0; // return is part of insert round-trip
   }
 
-  if (error || !data) return { error: "Failed to create task" };
+  if (error || !data) {
+    const message = error?.message ?? "Unknown error";
+    return { error: message };
+  }
   return { data: normalizeTaskRow(data) };
 }
 
@@ -160,6 +165,8 @@ export async function updateTaskItem(
 
   const payload: Record<string, any> = {
     updated_by: userId,
+    // Clear placeholder on any edit so the task appears in search/Everything
+    is_placeholder: false,
   };
 
   if (updates.title !== undefined) payload.title = updates.title;

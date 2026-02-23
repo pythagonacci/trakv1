@@ -1204,7 +1204,8 @@ export async function searchTasks(params: {
         projects(name),
         tabs(name)
       `)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .eq("is_placeholder", false);
 
     if (!params.includeWorkflowRepresentations) {
       query = query
@@ -1268,6 +1269,7 @@ export async function searchTasks(params: {
             tabs(name)
           `)
           .eq("workspace_id", workspaceId)
+          .eq("is_placeholder", false)
           .in("id", dueDateMatchIds);
 
         if (!params.includeWorkflowRepresentations) {

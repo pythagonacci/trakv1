@@ -1,8 +1,9 @@
 "use server";
 
-import { requireTaskBlockAccess, requireWorkspaceAccessForTasks } from "./context";
+import { requireTaskBlockAccess, requireTaskItemAccess, requireWorkspaceAccessForTasks } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TaskItem, TaskItemPriority } from "@/types/task";
+import type { DueDateRange } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -204,4 +205,135 @@ export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: 
 
   if (error || !data) return { error: "Failed to load tasks" };
   return { data: data as TaskItem[] };
+}
+
+/** Subtask with optional due_date range (from entity_properties). Used for timeline sidebar and nested bars. */
+export interface TaskSubtaskWithProperties {
+  id: string;
+  title: string;
+  description: string | null;
+  completed: boolean;
+  display_order: number;
+  due_date: DueDateRange | null;
+}
+
+/**
+ * Fetch subtasks for a task with their due_date from entity_properties.
+ * Used when a timeline event is linked to a task: sidebar list and nested timeline bars.
+ */
+export async function getTaskSubtasksWithProperties(
+  taskId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<TaskSubtaskWithProperties[]>> {
+  const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase } = access;
+
+  const { data: subtasks, error: stError } = await supabase
+    .from("task_subtasks")
+    .select("id, title, description, completed, display_order")
+    .eq("task_id", taskId)
+    .order("display_order", { ascending: true });
+
+  if (stError) return { error: "Failed to load subtasks" };
+  if (!subtasks?.length) return { data: [] };
+
+  const subtaskIds = subtasks.map((s: any) => s.id);
+  const { data: propRows } = await supabase
+    .from("entity_properties")
+    .select("entity_id, value")
+    .eq("entity_type", "subtask")
+    .in("entity_id", subtaskIds)
+    .eq("field_type", "due_date");
+
+  const dueDateBySubtask = new Map<string, DueDateRange | null>();
+  for (const row of propRows ?? []) {
+    const val = row.value;
+    if (val && typeof val === "object" && ("start" in val || "end" in val)) {
+      const start = typeof (val as any).start === "string" ? (val as any).start : null;
+      const end = typeof (val as any).end === "string" ? (val as any).end : null;
+      dueDateBySubtask.set(row.entity_id, start || end ? { start, end } : null);
+    } else if (typeof val === "string") {
+      dueDateBySubtask.set(row.entity_id, { start: null, end: val });
+    } else {
+      dueDateBySubtask.set(row.entity_id, null);
+    }
+  }
+
+  const result: TaskSubtaskWithProperties[] = subtasks.map((s: any) => ({
+    id: s.id,
+    title: s.title,
+    description: s.description ?? null,
+    completed: Boolean(s.completed),
+    display_order: s.display_order ?? 0,
+    due_date: dueDateBySubtask.get(s.id) ?? null,
+  }));
+
+  return { data: result };
+}
+
+/**
+ * Batch fetch subtasks with due_date for multiple tasks. Returns a map taskId -> subtasks.
+ * Used by timeline to render nested subtask bars without N round-trips.
+ */
+export async function getTaskSubtasksWithPropertiesBatch(
+  taskIds: string[],
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<Record<string, TaskSubtaskWithProperties[]>>> {
+  if (taskIds.length === 0) return { data: {} };
+  const first = await requireTaskItemAccess(taskIds[0], { authContext: opts?.authContext });
+  if ("error" in first) return { error: first.error ?? "Unknown error" };
+  const { supabase } = first;
+
+  const uniqueIds = [...new Set(taskIds)];
+
+  const { data: subtasks, error: stError } = await supabase
+    .from("task_subtasks")
+    .select("id, task_id, title, description, completed, display_order")
+    .in("task_id", uniqueIds)
+    .order("display_order", { ascending: true });
+
+  if (stError) return { error: "Failed to load subtasks" };
+  if (!subtasks?.length) return { data: Object.fromEntries(uniqueIds.map((id) => [id, []])) };
+
+  const subtaskIds = subtasks.map((s: any) => s.id);
+  const { data: propRows } = await supabase
+    .from("entity_properties")
+    .select("entity_id, value")
+    .eq("entity_type", "subtask")
+    .in("entity_id", subtaskIds)
+    .eq("field_type", "due_date");
+
+  const dueDateBySubtask = new Map<string, DueDateRange | null>();
+  for (const row of propRows ?? []) {
+    const val = row.value;
+    if (val && typeof val === "object" && ("start" in val || "end" in val)) {
+      const start = typeof (val as any).start === "string" ? (val as any).start : null;
+      const end = typeof (val as any).end === "string" ? (val as any).end : null;
+      dueDateBySubtask.set(row.entity_id, start || end ? { start, end } : null);
+    } else if (typeof val === "string") {
+      dueDateBySubtask.set(row.entity_id, { start: null, end: val });
+    } else {
+      dueDateBySubtask.set(row.entity_id, null);
+    }
+  }
+
+  const byTask = new Map<string, TaskSubtaskWithProperties[]>();
+  for (const s of subtasks as any[]) {
+    const list = byTask.get(s.task_id) ?? [];
+    list.push({
+      id: s.id,
+      title: s.title,
+      description: s.description ?? null,
+      completed: Boolean(s.completed),
+      display_order: s.display_order ?? 0,
+      due_date: dueDateBySubtask.get(s.id) ?? null,
+    });
+    byTask.set(s.task_id, list);
+  }
+  const data: Record<string, TaskSubtaskWithProperties[]> = {};
+  for (const id of uniqueIds) {
+    data[id] = byTask.get(id) ?? [];
+  }
+  return { data };
 }

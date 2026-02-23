@@ -19,9 +19,40 @@ import type {
   FieldType,
   Status,
   WorkspaceMember,
+  DueDateRange,
 } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+// ============================================================================
+// Subtask date range validation (must fall within parent task's date range)
+// ============================================================================
+
+function isSubtaskDateRangeWithinTask(
+  subtaskRange: DueDateRange | null,
+  taskStartDate: string | null,
+  taskDueDate: string | null
+): { valid: true } | { valid: false; error: string } {
+  if (!subtaskRange || (!subtaskRange.start && !subtaskRange.end)) return { valid: true };
+  if (!taskStartDate && !taskDueDate) return { valid: true };
+
+  const subStart = subtaskRange.start ?? subtaskRange.end;
+  const subEnd = subtaskRange.end ?? subtaskRange.start;
+
+  if (taskStartDate && subStart !== null && subStart < taskStartDate) {
+    return { valid: false, error: "Subtask date range must start on or after the parent task's start date." };
+  }
+  if (taskStartDate && subEnd !== null && subEnd < taskStartDate) {
+    return { valid: false, error: "Subtask date range must fall within the parent task's date range." };
+  }
+  if (taskDueDate && subStart !== null && subStart > taskDueDate) {
+    return { valid: false, error: "Subtask date range must fall within the parent task's date range." };
+  }
+  if (taskDueDate && subEnd !== null && subEnd > taskDueDate) {
+    return { valid: false, error: "Subtask date range must end on or before the parent task's due date." };
+  }
+  return { valid: true };
+}
 
 // ============================================================================
 // Helper Functions
@@ -865,6 +896,28 @@ export async function setEntityProperties(
       ? normalizeDueDateRange(updates.due_date)
       : undefined;
 
+  // Enforce subtask date range within parent task's date range
+  if (input.entity_type === "subtask" && updates.due_date !== undefined) {
+    const { data: subtaskRow } = await supabase
+      .from("task_subtasks")
+      .select("task_id")
+      .eq("id", input.entity_id)
+      .maybeSingle();
+    if (subtaskRow?.task_id) {
+      const { data: taskRow } = await supabase
+        .from("task_items")
+        .select("start_date, due_date")
+        .eq("id", subtaskRow.task_id)
+        .maybeSingle();
+      const taskStart = (taskRow?.start_date as string) ?? null;
+      const taskDue = (taskRow?.due_date as string) ?? null;
+      const validation = isSubtaskDateRangeWithinTask(normalizedDueDate ?? null, taskStart, taskDue);
+      if (!validation.valid) {
+        return { error: validation.error };
+      }
+    }
+  }
+
   let assigneePayloadForTask: Array<{ id: string; name: string }> | null = null;
   if (assigneeIdsToSet !== null) {
     const assigneePayload: Array<{ id: string; name: string }> = [];
@@ -959,6 +1012,7 @@ export async function setEntityProperties(
       statuses: taskStatuses,
       priorities: taskPriorities,
       assignee_id: assigneeId ?? null,
+      is_placeholder: false, // User edited via property menu; no longer a placeholder
     };
     if (updates.due_date !== undefined) {
       taskItemUpdates.due_date = dueDate ?? null;

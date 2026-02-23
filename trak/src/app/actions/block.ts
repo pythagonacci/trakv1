@@ -460,7 +460,7 @@ export async function createBlock(data: {
       const { createTaskItem } = await import("./tasks/item-actions");
       const authContext = data.authContext ?? undefined;
       const taskResult = await createTaskItem(
-        { taskBlockId: block.id, title: "New task", status: "todo" },
+        { taskBlockId: block.id, title: "New task", status: "todo", isPlaceholder: true },
         { authContext }
       );
       if ("error" in taskResult) {
@@ -568,7 +568,7 @@ export async function updateBlock(data: {
 
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id")
+      .select("id, tab_id, type")
       .eq("id", data.blockId.trim())
       .single();
 
@@ -651,6 +651,14 @@ export async function updateBlock(data: {
     if (updateError) {
       console.error("Update block error:", updateError);
       return { error: updateError.message || "Failed to update block" };
+    }
+
+    // 7.5. If this is a task block, clear is_placeholder on all its tasks (block was edited in any way)
+    if (block.type === "task") {
+      await supabase
+        .from("task_items")
+        .update({ is_placeholder: false })
+        .eq("task_block_id", data.blockId);
     }
 
     // 8. Revalidate the tab page path
