@@ -28,7 +28,7 @@ export async function getEntityProperties(
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("*")
+    .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
     .eq("entity_type", entityType)
     .eq("entity_id", entityId);
 
@@ -72,7 +72,7 @@ export async function setEntityProperty(
         onConflict: "entity_type,entity_id,field_name",
       }
     )
-    .select("*")
+    .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -140,11 +140,12 @@ export async function getEntitiesProperties(
     return { data: new Map() };
   }
 
+  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("*")
+    .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
     .eq("entity_type", entityType)
     .in("entity_id", entityIds);
 
@@ -163,6 +164,10 @@ export async function getEntitiesProperties(
     const props = result.get(row.entity_id) ?? [];
     props.push(row as NamedField);
     result.set(row.entity_id, props);
+  }
+
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] getEntitiesProperties type=${entityType} ids=${entityIds.length} rows=${data?.length ?? 0} ms=${Math.round(performance.now() - _t0)}`);
   }
 
   return { data: result };

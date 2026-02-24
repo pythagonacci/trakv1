@@ -53,15 +53,30 @@ export default function DashboardLayoutClient({
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    // Initialize synchronously so sidebar is already in correct state on first render,
+    // preventing a layout shift (CLS) when navigating directly to a project page.
+    if (typeof window !== "undefined") {
+      const p = window.location.pathname;
+      return p.startsWith("/dashboard/projects/") && p !== "/dashboard/projects";
+    }
+    return false;
+  });
   const [showSplash, setShowSplash] = useState(true);
   const pathname = usePathname();
   const wasProjectView = useRef<boolean | null>(null);
+  const isFirstRender = useRef(true);
 
   const isProjectView =
     pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
 
   useEffect(() => {
+    // Skip initial mount — sidebarCollapsed is already initialized correctly from pathname.
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      wasProjectView.current = isProjectView;
+      return;
+    }
     if (wasProjectView.current !== true && isProjectView) {
       setSidebarCollapsed(true);
     }
@@ -133,7 +148,7 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
         clearInterval(interval);
         setTypingDone(true);
       }
-    }, 85);
+    }, 40);
 
     return () => clearInterval(interval);
   }, [greeting, resolvedName]);
@@ -199,8 +214,8 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       setIsHiding(true);
       finalizeTimer = setTimeout(() => {
         onFinish();
-      }, 450);
-    }, 3200);
+      }, 300);
+    }, 800);
 
     return () => {
       clearTimeout(hideTimer);

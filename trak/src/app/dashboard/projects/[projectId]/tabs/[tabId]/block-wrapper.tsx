@@ -61,6 +61,7 @@ interface BlockWrapperProps {
   onAddBlockBelow?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
   isDragging?: boolean;
   readOnly?: boolean;
+  onOpenChartCustomize?: () => void;
 }
 
 export default function BlockWrapper({
@@ -75,6 +76,7 @@ export default function BlockWrapper({
   onAddBlockBelow,
   isDragging: externalIsDragging,
   readOnly = false,
+  onOpenChartCustomize,
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
@@ -211,8 +213,8 @@ export default function BlockWrapper({
               : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--primary)]/20"
         )}
         onDoubleClick={() => {
-          if (block.type === "chart" && !readOnly) {
-            setChartCustomizeOpen(true);
+          if (block.type === "chart" && !readOnly && onOpenChartCustomize) {
+            onOpenChartCustomize();
           }
         }}
         onMouseDown={(e) => {
@@ -576,7 +578,7 @@ export default function BlockWrapper({
                             <span>{option.label}</span>
                           </DropdownMenuItem>
                         ))}
-                      {block.type !== "gallery" && (
+                      {(block.type as Block["type"]) !== "gallery" && (
                         <DropdownMenuSub>
                           <DropdownMenuSubTrigger>
                             <Images className="h-4 w-4" />
@@ -862,15 +864,17 @@ export default function BlockWrapper({
           <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3")}>
             {children}
 
-            {/* Property Badges */}
-            {hasProperties && (
-              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
-                {direct && (
-                  <PropertyBadges
-                    properties={direct}
-                    onClick={() => setPropertiesOpen(true)}
-                    memberNames={getMemberNames(direct)}
-                  />
+            {/* Property Badges — container always rendered when workspace exists to prevent CLS */}
+            {workspaceId && (
+              <div className="min-h-[28px]">
+                {hasProperties && direct && (
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
+                    <PropertyBadges
+                      properties={direct}
+                      onClick={() => setPropertiesOpen(true)}
+                      memberNames={getMemberNames(direct)}
+                    />
+                  </div>
                 )}
               </div>
             )}

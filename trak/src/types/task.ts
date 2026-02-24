@@ -127,4 +127,5 @@ export interface TaskBlockContent {
   search?: string;
   showDone?: boolean;
   rollups?: TaskRollupConfig[];
+  showRollup?: boolean;
 }

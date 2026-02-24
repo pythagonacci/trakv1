@@ -94,7 +94,7 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
 
   const handleDeleteGroup = async (groupId: string) => {
     const result = await deleteInternalGroup(groupId);
-    if (result.error) setToast({ message: result.error, type: "error" });
+    if ("error" in result) setToast({ message: result.error ?? "Failed to delete group", type: "error" });
     else {
       setLocalGroups((prev) => prev.filter((g) => g.id !== groupId));
       setSpaces((prev) => prev.map((s) => (s.internal_group_id === groupId ? { ...s, internal_group_id: null } : s)));
@@ -115,7 +115,7 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
 
   const handleMoveToGroup = async (space: Space, groupId: string | null) => {
     const result = await moveSpaceToGroup(space.id, groupId);
-    if (result.error) setToast({ message: result.error, type: "error" });
+    if ("error" in result) setToast({ message: result.error ?? "Failed to move space", type: "error" });
     else {
       setSpaces((prev) => prev.map((s) => (s.id === space.id ? { ...s, internal_group_id: groupId } : s)));
       setToast({ message: groupId ? "Space moved to group" : "Space removed from group", type: "success" });
@@ -160,9 +160,9 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
     setSpaces((prev) => prev.filter((p) => p.id !== deletingSpace.id));
     const result = await deleteProject(deletingSpace.id);
 
-    if (result.error) {
+    if ("error" in result) {
       setSpaces(previousSpaces);
-      setToast({ message: result.error, type: "error" });
+      setToast({ message: result.error ?? "Failed to delete space", type: "error" });
     } else {
       setToast({ message: "Space deleted successfully", type: "success" });
       startTransition(() => {
@@ -181,9 +181,10 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
       project_type: "internal",
     });
 
-    if (result.error) {
-      setToast({ message: result.error, type: "error" });
-      throw new Error(result.error);
+    if ("error" in result) {
+      const errMsg = result.error ?? "Failed to create space";
+      setToast({ message: errMsg, type: "error" });
+      throw new Error(errMsg);
     } else {
       setToast({ message: "Space created", type: "success" });
       handleCloseDialog();
@@ -206,10 +207,11 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
       status: formData.status,
     });
 
-    if (result.error) {
+    if ("error" in result) {
+      const errMsg = result.error ?? "Failed to update space";
       setSpaces(previousSpaces);
-      setToast({ message: result.error, type: "error" });
-      throw new Error(result.error);
+      setToast({ message: errMsg, type: "error" });
+      throw new Error(errMsg);
     } else {
       setToast({ message: "Space updated", type: "success" });
       handleCloseDialog();
@@ -235,10 +237,10 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
 
   const handleFileDownload = async (file: File) => {
     const result = await getFileUrl(file.id);
-    if (result.data?.url) {
+    if ("data" in result && result.data?.url) {
       window.open(result.data.url, '_blank');
     } else {
-      setToast({ message: result.error || 'Failed to get download URL', type: "error" });
+      setToast({ message: ("error" in result ? result.error : null) || 'Failed to get download URL', type: "error" });
     }
   };
 
@@ -257,9 +259,9 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
     
     const result = await deleteFile(deletingFile.id);
 
-    if (result.error) {
+    if ("error" in result) {
       setFiles(previousFiles);
-      setToast({ message: result.error, type: "error" });
+      setToast({ message: result.error ?? "Failed to delete file", type: "error" });
     } else {
       setToast({ message: "File deleted successfully", type: "success" });
       startTransition(() => {

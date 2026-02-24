@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { useCreateBlockReference } from "@/lib/hooks/use-block-references";
@@ -8,12 +8,14 @@ import { useCreateBlockReference } from "@/lib/hooks/use-block-references";
 interface OpenOptions {
   initialQuery?: string;
   onSelect?: (item: LinkableItem, searchQuery?: string) => void;
+  onClose?: () => void;
   anchorRect?: DOMRect | null;
 }
 
 interface BlockReferencePickerContextValue {
   openPicker: (options?: OpenOptions) => void;
   updateQuery?: (query: string) => void;
+  closePicker: () => void;
 }
 
 const BlockReferencePickerContext = createContext<BlockReferencePickerContextValue | null>(null);
@@ -38,6 +40,7 @@ export function BlockReferencePickerProvider({
   const [currentQuery, setCurrentQuery] = useState<string>("");
   const [pendingSelect, setPendingSelect] = useState<OpenOptions["onSelect"]>();
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const pendingCloseRef = useRef<(() => void) | undefined>(undefined);
 
   const createReference = useCreateBlockReference(blockId);
 
@@ -47,6 +50,7 @@ export function BlockReferencePickerProvider({
     setCurrentQuery(query);
     setPendingSelect(() => options?.onSelect);
     setAnchorRect(options?.anchorRect ?? null);
+    pendingCloseRef.current = options?.onClose;
     setIsOpen(true);
   }, []);
 
@@ -63,6 +67,8 @@ export function BlockReferencePickerProvider({
     setCurrentQuery("");
     setPendingSelect(undefined);
     setAnchorRect(null);
+    pendingCloseRef.current?.();
+    pendingCloseRef.current = undefined;
   }, []);
 
   const handleQueryChange = useCallback((query: string) => {
@@ -92,7 +98,7 @@ export function BlockReferencePickerProvider({
     [blockId, createReference, pendingSelect, currentQuery]
   );
 
-  const value = useMemo(() => ({ openPicker, updateQuery }), [openPicker, updateQuery]);
+  const value = useMemo(() => ({ openPicker, updateQuery, closePicker: handleClose }), [openPicker, updateQuery, handleClose]);
 
   return (
     <BlockReferencePickerContext.Provider value={value}>

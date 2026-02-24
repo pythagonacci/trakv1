@@ -94,7 +94,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
     if (editingTabId) return;
     if (e?.detail === 2) return;
 
-    const isActive = activeTabId === tab.id || activeTabInfo?.parent.id === tab.id || activeTabInfo?.activeChild?.id === tab.id;
+    const isActive = activeTabId === tab.id;
     if (isActive) {
       setEditingTabId(tab.id);
       setEditName(tab.name);

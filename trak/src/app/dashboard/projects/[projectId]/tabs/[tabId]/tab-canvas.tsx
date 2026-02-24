@@ -80,7 +80,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [isUndoing, setIsUndoing] = useState(false);
   const tabContents = useTabContents();
   const tocExpanded = tabContents?.tocExpanded ?? false;
-  const setTocExpanded = tabContents?.setTocExpanded ?? (() => {});
+  const setTocExpanded = tabContents?.setTocExpanded ?? (() => { });
 
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
@@ -101,6 +101,14 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       lastDragTimeRef.current = 0;
     }
   }, [tabId, initialBlocks]);
+
+  // Prefetch table chunks when this tab has table blocks so table block renders faster
+  useEffect(() => {
+    const hasTableBlock = blocks.some((b) => b.type === "table");
+    if (!hasTableBlock) return;
+    void import("./table-block");
+    void import("@/components/tables/table-view");
+  }, [blocks]);
 
   useEffect(() => {
     if (prevTabIdRef.current !== tabId) return;
@@ -302,9 +310,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       return;
     }
 
-    // Fallback: refetch blocks when no updated block is provided.
+    // Fallback: refetch blocks via targeted cache invalidation (no full page refresh).
     queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
-    router.refresh();
   };
 
   const handleDelete = async (blockId: string) => {
@@ -339,7 +346,6 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       }
       // Invalidate tab blocks cache so useTabBlocks refetches; prevents deleted block reappearing from stale cache
       queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
-      router.refresh();
     } catch (error) {
       console.error("Failed to delete block:", error);
       alert(
@@ -403,7 +409,6 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           next.splice(insertionIndex, 0, newBlock);
           return next;
         });
-        router.refresh();
       }
     } catch (error) {
       console.error("Undo failed:", error);
@@ -492,7 +497,19 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       alert(`Error converting block: ${result.error}`);
       return;
     }
-    router.refresh();
+
+    // Update local state and cache with the converted block (no full page refresh)
+    if (result.data) {
+      setBlocks((prev) =>
+        prev.map((b) => (b.id === blockId ? result.data! : b))
+      );
+      queryClient.setQueryData(
+        queryKeys.tabBlocks(tabId),
+        (old: Block[] | undefined) =>
+          old?.map((b) => (b.id === blockId ? result.data! : b)) ?? old
+      );
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
   };
 
   const getDefaultContent = (type: BlockType) => {
@@ -657,7 +674,6 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
-    console.log("Drag started for block:", event.active.id);
     setIsDragging(true);
     const block = blocks.find((b) => b.id === event.active.id);
     setDraggedBlock(block || null);
@@ -677,7 +693,6 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
       // Allow dropping on the same block (no change needed)
       if (!over || active.id === over.id) {
-        console.log("No valid drop target or dropped on same block, cancelling drag");
         setDraggedBlock(null);
         return;
       }
@@ -699,18 +714,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         return;
       }
 
-      console.log("Found dragged block:", draggedBlock.id, "Type:", draggedBlock.type, "Position:", draggedBlock.position, "Column:", draggedBlock.column);
-
       // Try to find the over block
       const overBlock = blocks.find((b) => b.id === over.id);
-      console.log("Looking for over block:", over.id, "Found:", overBlock ? `${overBlock.id} (pos: ${overBlock.position}, col: ${overBlock.column})` : "not found");
-
-      // Determine drag type based on overBlock position (if found)
-      if (overBlock) {
-        const isSameRow = Math.floor(draggedBlock.position) === Math.floor(overBlock.position);
-        const isSameColumn = draggedBlock.column === overBlock.column;
-        console.log("Drag analysis:", { isSameRow, isSameColumn, draggedPos: draggedBlock.position, overPos: overBlock.position, draggedCol: draggedBlock.column, overCol: overBlock.column });
-      }
 
       if (!overBlock) {
         console.warn("Over target not found in blocks array. Over ID:", over.id, "Available block IDs:", blocks.map(b => b.id));
@@ -1403,6 +1408,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           blocks={tocBlocks}
           isExpanded={tocExpanded}
           onToggle={() => setTocExpanded((prev) => !prev)}
+          projectId={projectId}
         />
       </div>
 
@@ -1417,22 +1423,22 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 /** Compact card that follows the cursor while dragging a block. */
 function BlockDragCard({ block }: { block: Block }) {
   const iconMap: Partial<Record<Block["type"], React.ReactNode>> = {
-    text:            <FileText className="h-4 w-4" />,
-    task:            <CheckSquare className="h-4 w-4" />,
-    link:            <Link2 className="h-4 w-4" />,
-    divider:         <Minus className="h-4 w-4" />,
-    table:           <Table className="h-4 w-4" />,
-    timeline:        <Calendar className="h-4 w-4" />,
-    file:            <Paperclip className="h-4 w-4" />,
-    video:           <Video className="h-4 w-4" />,
-    image:           <Image className="h-4 w-4" />,
-    gallery:         <Images className="h-4 w-4" />,
-    embed:           <Maximize2 className="h-4 w-4" />,
-    section:         <Layout className="h-4 w-4" />,
-    chart:           <BarChart2 className="h-4 w-4" />,
-    doc_reference:   <BookOpen className="h-4 w-4" />,
+    text: <FileText className="h-4 w-4" />,
+    task: <CheckSquare className="h-4 w-4" />,
+    link: <Link2 className="h-4 w-4" />,
+    divider: <Minus className="h-4 w-4" />,
+    table: <Table className="h-4 w-4" />,
+    timeline: <Calendar className="h-4 w-4" />,
+    file: <Paperclip className="h-4 w-4" />,
+    video: <Video className="h-4 w-4" />,
+    image: <Image className="h-4 w-4" />,
+    gallery: <Images className="h-4 w-4" />,
+    embed: <Maximize2 className="h-4 w-4" />,
+    section: <Layout className="h-4 w-4" />,
+    chart: <BarChart2 className="h-4 w-4" />,
+    doc_reference: <BookOpen className="h-4 w-4" />,
     shopify_product: <ShoppingBag className="h-4 w-4" />,
-    pdf:             <Paperclip className="h-4 w-4" />,
+    pdf: <Paperclip className="h-4 w-4" />,
   };
   const labelMap: Partial<Record<Block["type"], string>> = {
     text: "Text", task: "Task list", link: "Link", divider: "Divider",
@@ -1485,16 +1491,16 @@ function getDragBlockTitle(block: Block): string {
       const text = (content.text ?? content.content ?? "") as string;
       return typeof text === "string" && text.trim() ? text.slice(0, 40) : "Text block";
     }
-    case "task":     return (content.title as string) ?? "Task block";
-    case "table":    return (content.title as string) ?? "Table";
-    case "image":    return (content.alt as string) ?? (content.filename as string) ?? "Image";
-    case "file":     return (content.filename as string) ?? "File";
-    case "video":    return (content.title as string) ?? "Video";
-    case "embed":    return (content.title as string) ?? "Embed";
-    case "link":     return (content.title as string) ?? (content.url as string) ?? "Link";
-    case "section":  return (content.title as string) ?? "Section";
-    case "chart":    return (content.title as string) ?? "Chart";
-    case "pdf":      return (content.filename as string) ?? "PDF";
-    default:         return `${block.type} block`;
+    case "task": return (content.title as string) ?? "Task block";
+    case "table": return (content.title as string) ?? "Table";
+    case "image": return (content.alt as string) ?? (content.filename as string) ?? "Image";
+    case "file": return (content.filename as string) ?? "File";
+    case "video": return (content.title as string) ?? "Video";
+    case "embed": return (content.title as string) ?? "Embed";
+    case "link": return (content.title as string) ?? (content.url as string) ?? "Link";
+    case "section": return (content.title as string) ?? "Section";
+    case "chart": return (content.title as string) ?? "Chart";
+    case "pdf": return (content.filename as string) ?? "PDF";
+    default: return `${block.type} block`;
   }
 }

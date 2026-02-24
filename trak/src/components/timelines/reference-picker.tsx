@@ -77,6 +77,7 @@ export default function ReferencePicker({
       anchorRect.width !== 0 ||
       anchorRect.height !== 0);
 
+  // Reset state when picker opens
   useEffect(() => {
     if (!isOpen) return;
     if (variant === "popover") {
@@ -93,14 +94,14 @@ export default function ReferencePicker({
     setResults([]);
     setActiveIndex(0);
     void loadRecent();
-  }, [isOpen, initialQuery]);
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update search query when initialQuery changes (even after mount, for syncing from external source)
+  // Sync search query when initialQuery is updated externally (e.g. typing after @)
   useEffect(() => {
-    if (isOpen && initialQuery !== undefined) {
-      setSearchQuery(initialQuery);
+    if (isOpen) {
+      setSearchQuery(initialQuery ?? "");
     }
-  }, [isOpen, initialQuery]);
+  }, [initialQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isOpen || variant !== "popover") return;

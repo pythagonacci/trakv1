@@ -123,7 +123,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
   // If this block is a reference to another block, render the reference component
   if (block.original_block_id) {
     return (
-      <LazyBlockWrapper blockId={block.id}>
+      <LazyBlockWrapper blockId={block.id} blockType={block.type}>
         <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
           <BlockWrapper
             block={block}
@@ -197,7 +197,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
   };
 
   return (
-    <LazyBlockWrapper blockId={block.id}>
+    <LazyBlockWrapper blockId={block.id} blockType={block.type}>
       <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
         <BlockWrapper
           block={block}

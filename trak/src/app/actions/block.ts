@@ -43,6 +43,7 @@ const BLOCKS_PER_TAB_LIMIT = 500;
 // ============================================================================
 
 export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthContext }) {
+  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
   try {
     let supabase: Awaited<ReturnType<typeof createClient>>;
     let userId: string;
@@ -57,6 +58,7 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     }
 
     // 🔒 Verify tab access + get workspace in one query
+    const _tAuth0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const tab = await getTabMetadata(tabId);
     if (!tab) {
       return { error: "Tab not found" };
@@ -69,9 +71,13 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     if (!member) {
       return { error: "Not a member of this workspace" };
     }
+    if (process.env.PERF_DEBUG === '1') {
+      console.log(`[PERF] getTabBlocks auth ms=${Math.round(performance.now() - _tAuth0)}`);
+    }
 
     // ✅ Auth verified - NOW safe to fetch blocks
     // 🚀 Select specific fields + add limit for safety
+    const _tQuery0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
       .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
@@ -86,6 +92,12 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
       return { error: "Failed to fetch blocks" };
     }
 
+    if (process.env.PERF_DEBUG === '1') {
+      const blockCount = (blocks || []).length;
+      const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
+      console.log(`[PERF] getTabBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
+    }
+
     return { data: blocks || [] };
   } catch (error) {
     console.error("Get tab blocks exception:", error);
@@ -98,16 +110,18 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
 // ============================================================================
 
 export async function getChildBlocks(parentBlockId: string) {
+  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
   try {
     const supabase = await createClient();
 
-    // 1. Auth check
+    // 1. Auth check (cached)
     const user = await getAuthenticatedUser();
     if (!user) {
       return { error: "Unauthorized" };
     }
 
     // 2. Get parent block with tab and project info to verify workspace access
+    const _tAuth0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const { data: parentBlock, error: parentError } = await supabase
       .from("blocks")
       .select("id, tab_id, tabs!inner(id, project_id, projects!inner(workspace_id))")
@@ -118,34 +132,41 @@ export async function getChildBlocks(parentBlockId: string) {
       return { error: "Parent block not found" };
     }
 
-    // SECURITY: Extract workspace ID and verify membership
+    // SECURITY: Extract workspace ID and verify membership (use cached helper)
     const workspaceId = (parentBlock.tabs as any)?.projects?.workspace_id;
 
     if (!workspaceId) {
       return { error: "Invalid block structure" };
     }
 
-    const { data: membership, error: memberError } = await supabase
-      .from("workspace_members")
-      .select("role")
-      .eq("workspace_id", workspaceId)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // Use cached checkWorkspaceMembership instead of raw inline query
+    const membership = await checkWorkspaceMembership(workspaceId, user.id);
 
-    if (memberError || !membership) {
+    if (process.env.PERF_DEBUG === '1') {
+      console.log(`[PERF] getChildBlocks auth ms=${Math.round(performance.now() - _tAuth0)} parentBlockId=${parentBlockId}`);
+    }
+
+    if (!membership) {
       return { error: "You don't have access to this workspace" };
     }
 
-    // 3. Get all child blocks for this parent block
+    // 3. Get all child blocks with explicit projection (no wildcard)
+    const _tQuery0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
-      .select("*")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
       .eq("parent_block_id", parentBlockId)
       .order("position", { ascending: true });
 
     if (blocksError) {
       console.error("Get child blocks error:", blocksError);
       return { error: "Failed to fetch child blocks" };
+    }
+
+    if (process.env.PERF_DEBUG === '1') {
+      const blockCount = (blocks || []).length;
+      const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
+      console.log(`[PERF] getChildBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
     }
 
     return { data: blocks || [] };
@@ -432,6 +453,18 @@ export async function createBlock(data: {
           content = { code: "", chartType: "bar", title: "Chart" };
           break;
       }
+    } else if (data.type === "table" && !(content as { tableId?: string }).tableId) {
+      // Client sent {} for new table block (optimistic UI); create table and set tableId
+      const { createTable } = await import("./tables/table-actions");
+      const tableResult = await createTable({
+        workspaceId: project.workspace_id,
+        projectId: tab.project_id,
+        title: "Untitled Table",
+      });
+      if ("error" in tableResult) {
+        return { error: tableResult.error };
+      }
+      content = { tableId: tableResult.data.table.id };
     }
 
     // 8. Create the block

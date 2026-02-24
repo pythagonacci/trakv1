@@ -5,8 +5,6 @@ import { getProjectTabs } from "@/app/actions/tab";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { BlockComment } from "@/types/block-comment";
 import { parseDateSafe } from "@/lib/due-date";
-import ProjectHeader from "../project-header";
-import TabBar from "../tab-bar";
 import ProjectOverview from "./project-overview";
 
 export const dynamic = "force-dynamic";
@@ -55,23 +53,9 @@ export default async function ProjectOverviewPage({
 
   if (tabsError || !projectTabs?.length) {
     return (
-      <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-        <div className="w-full px-2 md:px-3 lg:px-4">
-          <div className="pt-2 pb-1">
-            <ProjectHeader project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
-          </div>
-          {hierarchicalTabs.length > 0 && (
-            <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
-              <TabBar
-                tabs={hierarchicalTabs}
-                projectId={projectId}
-                isClientProject={!!project.client}
-                clientPageEnabled={project.client_page_enabled || false}
-              />
-            </div>
-          )}
-          <div className="max-w-7xl mx-auto pt-2 pb-1">
-            <ProjectOverview
+      <div className="w-full px-2 md:px-3 lg:px-4">
+        <div className="max-w-7xl mx-auto pt-2 pb-1">
+          <ProjectOverview
             projectId={projectId}
             projectName={project.name}
             tasksDueToday={[]}
@@ -79,8 +63,7 @@ export default async function ProjectOverviewPage({
             tasksOverdue={[]}
             teamFeedback={[]}
             openTasksCount={0}
-            />
-          </div>
+          />
         </div>
       </div>
     );
@@ -152,14 +135,14 @@ export default async function ProjectOverviewPage({
       const taskPriorities = Array.isArray(t.priorities) ? t.priorities : [];
       const firstPriority = taskPriorities[0]?.value ?? null;
       return {
-      id: `${t.task_block_id}-${t.id}`,
-      text: t.title,
-      tabName: t.tab?.name ?? tabNameById[t.tab_id] ?? "Unknown",
-      tabId: t.tab_id,
-      priority: firstPriority,
-      dueDate: t.due_date,
-      dueTime: t.due_time,
-      status: t.status ?? "todo",
+        id: `${t.task_block_id}-${t.id}`,
+        text: t.title,
+        tabName: t.tab?.name ?? tabNameById[t.tab_id] ?? "Unknown",
+        tabId: t.tab_id,
+        priority: firstPriority,
+        dueDate: t.due_date,
+        dueTime: t.due_time,
+        status: t.status ?? "todo",
       };
     });
 
@@ -203,30 +186,17 @@ export default async function ProjectOverviewPage({
   }).slice(0, 15);
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <div className="w-full px-2 md:px-3 lg:px-4">
-        <div className="pt-2 pb-1">
-          <ProjectHeader project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
-        </div>
-        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
-          <TabBar
-            tabs={hierarchicalTabs}
-            projectId={projectId}
-            isClientProject={!!project.client}
-            clientPageEnabled={project.client_page_enabled || false}
-          />
-        </div>
-        <div className="py-3 md:py-4 lg:py-5">
-          <ProjectOverview
-            projectId={projectId}
-            projectName={project.name}
-            tasksDueToday={tasksDueToday}
-            tasksDueSoon={tasksDueSoon.slice(0, 10)}
-            tasksOverdue={tasksOverdue.slice(0, 15)}
-            teamFeedback={teamFeedback}
-            openTasksCount={openTasks.length}
-          />
-        </div>
+    <div className="w-full px-2 md:px-3 lg:px-4">
+      <div className="py-3 md:py-4 lg:py-5">
+        <ProjectOverview
+          projectId={projectId}
+          projectName={project.name}
+          tasksDueToday={tasksDueToday}
+          tasksDueSoon={tasksDueSoon.slice(0, 10)}
+          tasksOverdue={tasksOverdue.slice(0, 15)}
+          teamFeedback={teamFeedback}
+          openTasksCount={openTasks.length}
+        />
       </div>
     </div>
   );

@@ -7,7 +7,6 @@ import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { getBatchFileUrls } from "@/app/actions/file";
 import TabPageLayout from "./tab-page-layout";
 import TabCanvasWrapper from "./tab-canvas-wrapper";
-import SubtabSidebarWrapper from "./subtab-sidebar-wrapper";
 import WorkflowPageLayout from "@/app/dashboard/workflow/[workflowPageId]/workflow-page-layout";
 import type { Block } from "@/app/actions/block";
 
@@ -38,6 +37,8 @@ export default async function TabPage({
   if ('error' in authResult) {
     redirect("/login");
   }
+
+  const _tPage0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
 
   // 🚀 STEP 2: Parallel queries with individual error handling
   // getProjectTabs and getTabBlocks have their own auth checks (cached)
@@ -134,32 +135,68 @@ export default async function TabPage({
     }
   });
 
-  // For file blocks, we need to fetch file attachments to get file IDs
-  const fileBlockIds = blocks.filter(b => b.type === 'file').map(b => b.id);
-  if (fileBlockIds.length > 0) {
-    const { data: fileAttachments } = await supabase
-      .from('file_attachments')
-      .select('file:files(id)')
-      .in('block_id', fileBlockIds);
-
-    if (fileAttachments) {
-      fileAttachments.forEach((attachment: any) => {
-        const file = Array.isArray(attachment.file) ? attachment.file[0] : attachment.file;
-        if (file?.id) {
-          fileIds.push(file.id);
-        }
-      });
-    }
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] page.tsx allSettled ms=${Math.round(performance.now() - _tPage0)} blocks=${blocks.length} projectId=${projectId} tabId=${tabId}`);
   }
 
-  // Batch fetch all file URLs in ONE call
-  const fileUrlsResult = fileIds.length > 0 
-    ? await getBatchFileUrls(fileIds)
-    : { data: {} };
+  // 🚀 PHASE 1c: Run file_attachments + getBatchFileUrls concurrently (not serially)
+  // file_attachments fetches IDs for "file" type blocks (stored in join table, not content)
+  // These two are now parallel with each other instead of sequential
+  const _tFilePrefetch = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
 
-  const initialFileUrls = fileUrlsResult.data || {};
+  const fileBlockIds = blocks.filter(b => b.type === 'file').map(b => b.id);
 
-  console.log(`🎯 Prefetched ${Object.keys(initialFileUrls).length} file URLs for ${blocks.length} blocks`);
+  // Fetch file attachment IDs (for file blocks) concurrently with signing inline fileIds
+  const [fileAttachmentsResult, inlineFileUrlsResult] = await Promise.all([
+    // Leg A: fetch attachment IDs for 'file' type blocks (join table)
+    fileBlockIds.length > 0
+      ? supabase
+          .from('file_attachments')
+          .select('file:files(id)')
+          .in('block_id', fileBlockIds)
+      : Promise.resolve({ data: null }),
+    // Leg B: sign URLs for inline file IDs already extracted from block content (image/gallery/pdf/video)
+    fileIds.length > 0
+      ? getBatchFileUrls(fileIds)
+      : Promise.resolve({ data: {} as Record<string, string> }),
+  ]);
+
+  // Collect any additional file IDs from file_attachments result
+  const attachmentFileIds: string[] = [];
+  if (fileAttachmentsResult.data) {
+    fileAttachmentsResult.data.forEach((attachment: any) => {
+      const file = Array.isArray(attachment.file) ? attachment.file[0] : attachment.file;
+      if (file?.id) {
+        attachmentFileIds.push(file.id);
+      }
+    });
+  }
+
+  // Sign URLs for attachment-sourced file IDs (second parallel batch if needed)
+  const attachmentFileUrlsResult = attachmentFileIds.length > 0
+    ? await getBatchFileUrls(attachmentFileIds)
+    : { data: {} as Record<string, string> };
+
+  // Merge both URL maps
+  const initialFileUrls: Record<string, string> = {
+    ...(inlineFileUrlsResult.data || {}),
+    ...(attachmentFileUrlsResult.data || {}),
+  };
+
+  if (process.env.PERF_DEBUG === '1') {
+    const blockPayloadBytes = Buffer.byteLength(JSON.stringify(blocks), 'utf8');
+    const fileUrlBytes = Buffer.byteLength(JSON.stringify(initialFileUrls), 'utf8');
+    console.log(`[PERF] page.tsx filePrefetch ms=${Math.round(performance.now() - _tFilePrefetch)} inlineIds=${fileIds.length} attachmentIds=${attachmentFileIds.length} urlsResolved=${Object.keys(initialFileUrls).length}`);
+    console.log(`[PERF] page.tsx TOTAL ms=${Math.round(performance.now() - _tPage0)} blockPayloadBytes=${blockPayloadBytes} fileUrlBytes=${fileUrlBytes}`);
+    blocks.forEach(b => {
+      const contentBytes = Buffer.byteLength(JSON.stringify(b.content ?? {}), 'utf8');
+      if (contentBytes > 5000) {
+        console.log(`[PERF] heavy block type=${b.type} id=${b.id} contentBytes=${contentBytes}`);
+      }
+    });
+  } else {
+    console.log(`🎯 Prefetched ${Object.keys(initialFileUrls).length} file URLs for ${blocks.length} blocks`);
+  }
 
   // Determine if we should show subtab sidebar
   let sidebarConfig: { parentTabId: string; parentTabName: string; subtabs: any[] } | null = null;
@@ -197,6 +234,7 @@ export default async function TabPage({
       isWorkflowTab={isWorkflowTab}
       blocks={isWorkflowTab ? [] : blocks}
       workspaceId={workspaceId}
+      subtabConfig={sidebarConfig}
     >
       {isWorkflowTab ? (
         <WorkflowPageLayout
@@ -209,19 +247,14 @@ export default async function TabPage({
           inProjectContext
         />
       ) : (
-        <SubtabSidebarWrapper
-          sidebarConfig={sidebarConfig}
+        <TabCanvasWrapper
+          tabId={tabId}
           projectId={projectId}
-        >
-          <TabCanvasWrapper 
-            tabId={tabId}
-            projectId={projectId}
-            workspaceId={workspaceId}
-            blocks={blocks}
-            scrollToTaskId={taskId}
-            initialFileUrls={initialFileUrls}
-          />
-        </SubtabSidebarWrapper>
+          workspaceId={workspaceId}
+          blocks={blocks}
+          scrollToTaskId={taskId}
+          initialFileUrls={initialFileUrls}
+        />
       )}
     </TabPageLayout>
   );

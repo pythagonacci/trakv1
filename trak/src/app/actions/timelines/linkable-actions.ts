@@ -110,8 +110,40 @@ export async function getRecentLinkableItems(input: {
     .in("tab_id", tabIds)
     .limit(500);
 
-  const items = await buildLinkableItems(supabase, blocks || [], tabMap, input.projectId);
-  const sorted = items
+  const blockItems = await buildLinkableItems(supabase, blocks || [], tabMap, input.projectId);
+
+  // Include recent task items as linkable "Task" targets
+  const { data: tasks } = await supabase
+    .from("task_items")
+    .select("id, title, tab_id, updated_at")
+    .eq("workspace_id", input.workspaceId)
+    .in("tab_id", tabIds)
+    .limit(500);
+
+  const taskItems: LinkableItem[] = [];
+
+  (tasks || []).forEach((task: any) => {
+    const tabInfo = tabMap.get(task.tab_id);
+    if (!tabInfo) return;
+
+    taskItems.push({
+      id: task.id,
+      type: "task",
+      name: task.title || "Untitled task",
+      location: tabInfo.name || "Tasks",
+      referenceType: "task",
+      tabId: task.tab_id,
+      projectId: tabInfo.projectId,
+      projectName: tabInfo.projectName,
+      isCurrentProject: tabInfo.isCurrentProject,
+      isWorkflow: tabInfo.isWorkflow,
+      updatedAt: task.updated_at,
+    });
+  });
+
+  const allItems = blockItems.concat(taskItems);
+
+  const sorted = allItems
     .slice()
     .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
 
@@ -177,8 +209,41 @@ export async function searchLinkableItems(input: {
     .in("tab_id", tabIds)
     .limit(500);
 
-  const items = await buildLinkableItems(supabase, blocks || [], tabMap, input.projectId);
-  const filtered = filterByType(filterByQuery(items, trimmed), input.type);
+  const blockItems = await buildLinkableItems(supabase, blocks || [], tabMap, input.projectId);
+
+  // Search task items by title so individual tasks can be mentioned
+  const { data: tasks } = await supabase
+    .from("task_items")
+    .select("id, title, tab_id, updated_at")
+    .eq("workspace_id", input.workspaceId)
+    .in("tab_id", tabIds)
+    .ilike("title", `%${trimmed}%`)
+    .limit(500);
+
+  const taskItems: LinkableItem[] = [];
+
+  (tasks || []).forEach((task: any) => {
+    const tabInfo = tabMap.get(task.tab_id);
+    if (!tabInfo) return;
+
+    taskItems.push({
+      id: task.id,
+      type: "task",
+      name: task.title || "Untitled task",
+      location: tabInfo.name || "Tasks",
+      referenceType: "task",
+      tabId: task.tab_id,
+      projectId: tabInfo.projectId,
+      projectName: tabInfo.projectName,
+      isCurrentProject: tabInfo.isCurrentProject,
+      isWorkflow: tabInfo.isWorkflow,
+      updatedAt: task.updated_at,
+    });
+  });
+
+  const allItems = blockItems.concat(taskItems);
+
+  const filtered = filterByType(filterByQuery(allItems, trimmed), input.type);
 
   // Sort: current project items first, then other items
   const sorted = filtered.sort((a, b) => {

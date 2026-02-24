@@ -3,9 +3,19 @@
 import { requireTaskBlockAccess, requireTaskItemAccess, requireWorkspaceAccessForTasks } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TaskItem, TaskItemPriority } from "@/types/task";
-import type { DueDateRange } from "@/types/properties";
+import type { DueDateRange, EntityProperties } from "@/types/properties";
+import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+/** Entity properties keyed by task ID, mapped once server-side */
+export type TaskEntityPropertiesMap = Record<string, EntityProperties>;
+
+/** Bundle returned by getTaskItemsByBlock — tasks + pre-fetched entity properties */
+export interface TaskBlockBundle {
+  tasks: TaskItemView[];
+  entityPropertiesByTaskId: TaskEntityPropertiesMap;
+}
 
 export interface TaskItemView {
   id: string;
@@ -33,23 +43,41 @@ export interface TaskItemView {
   hideIcons?: boolean;
 }
 
-export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionResult<TaskItemView[]>> {
+export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionResult<TaskBlockBundle>> {
+  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
   const access = await requireTaskBlockAccess(taskBlockId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] getTaskItemsByBlock auth ms=${Math.round(performance.now() - _t0)}`);
+  }
+
+  const _tItems = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  // P0-2: Column projection — only fetch fields used in TaskItemView
   const { data: items, error: itemsError } = await supabase
     .from("task_items")
-    .select("*")
+    .select("id, title, statuses, priorities, source_task_id, source_entity_type, source_entity_id, source_sync_mode, due_date, due_time, due_time_end, start_date, description, display_order, recurring_enabled, recurring_frequency, recurring_interval, hide_icons")
     .eq("task_block_id", taskBlockId)
     .order("display_order", { ascending: true });
 
   if (itemsError) return { error: "Failed to load tasks" };
-  if (!items || items.length === 0) return { data: [] };
+  if (!items || items.length === 0) {
+    if (process.env.PERF_DEBUG === '1') {
+      console.log(`[PERF] getTaskItemsByBlock taskBlockId=${taskBlockId} items=0 totalMs=${Math.round(performance.now() - _t0)}`);
+    }
+    return { data: { tasks: [], entityPropertiesByTaskId: {} } };
+  }
+
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] getTaskItemsByBlock items query ms=${Math.round(performance.now() - _tItems)} count=${items.length}`);
+  }
 
   const taskIds = items.map((item: any) => item.id);
 
-  const [subtasksResult, commentsResult, tagLinksResult, assigneesResult] = await Promise.all([
+  // --- Single parallel batch: subtasks, comments, tags (joined), assignees, AND entity_properties ---
+  const _tParallel = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const [subtasksResult, commentsResult, tagLinksResult, assigneesResult, entityPropsResult] = await Promise.all([
     supabase
       .from("task_subtasks")
       .select("id, task_id, title, description, completed")
@@ -60,53 +88,82 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
       .select("id, task_id, author_id, text, created_at")
       .in("task_id", taskIds)
       .order("created_at", { ascending: true }),
+    // Join tag_links → task_tags in one query (eliminates separate task_tags fetch)
     supabase
       .from("task_tag_links")
-      .select("task_id, tag_id")
+      .select("task_id, tag_id, tag:task_tags(id, name)")
       .in("task_id", taskIds),
     supabase
       .from("task_assignees")
       .select("task_id, assignee_id, assignee_name")
       .in("task_id", taskIds),
+    // P0-1: Bulk entity properties — eliminates N+1 useEntityPropertiesWithInheritance calls
+    supabase
+      .from("entity_properties")
+      .select("id, entity_id, entity_type, field_name, field_type, value, workspace_id, created_at, updated_at")
+      .eq("entity_type", "task")
+      .in("entity_id", taskIds),
   ]);
+
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] getTaskItemsByBlock parallel ms=${Math.round(performance.now() - _tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}`);
+  }
 
   const subtasks = subtasksResult.data || [];
   const comments = commentsResult.data || [];
   const tagLinks = tagLinksResult.data || [];
   const assignees = assigneesResult.data || [];
 
-  const tagIds = Array.from(new Set(tagLinks.map((link: any) => link.tag_id)));
-  const { data: tags } = tagIds.length
-    ? await supabase.from("task_tags").select("id, name").in("id", tagIds)
-    : { data: [] } as any;
+  // Build entity properties map — keyed by task ID, mapped once server-side into EntityProperties objects
+  const entityPropertiesByTaskId: TaskEntityPropertiesMap = {};
 
+  // Group rows for buildEntityPropertiesFromRows
+  const propsByTaskId = new Map<string, any[]>();
+  for (const prop of entityPropsResult.data || []) {
+    const list = propsByTaskId.get(prop.entity_id) || [];
+    list.push(prop);
+    propsByTaskId.set(prop.entity_id, list);
+  }
+
+  // Assuming workspaceId is on the block, but wait, TaskPropertyBadges accesses workspaceId...
+  // For tasks, their properties have workspace_id. We can take it from the first row or access.
+  // We can just grab workspace_id from the first row of each task's properties since they're there.
+  await Promise.all(taskIds.map(async (id: string) => {
+    const rows = propsByTaskId.get(id) || [];
+    const workspaceId = rows.length > 0 ? rows[0].workspace_id : "";
+    entityPropertiesByTaskId[id] = await buildEntityPropertiesFromRows(
+      "task",
+      id,
+      workspaceId,
+      rows
+    );
+  }));
+
+  // Build tag map directly from the joined result (no separate task_tags query needed)
   const tagMap = new Map<string, string>();
-  (tags || []).forEach((tag: any) => tagMap.set(tag.id, tag.name));
+  for (const link of tagLinks as any[]) {
+    if (link.tag && link.tag.id && link.tag.name) {
+      tagMap.set(link.tag.id, link.tag.name);
+    }
+  }
 
+  // --- Profiles: only if comments or assignees have profile IDs ---
   const authorIds = Array.from(
     new Set(comments.map((comment: any) => comment.author_id).filter(Boolean))
   ) as string[];
-  const { data: authorProfiles } = authorIds.length
-    ? await supabase.from("profiles").select("id, name, email").in("id", authorIds)
-    : { data: [] } as any;
-
-  const authorMap = new Map<string, string>();
-  (authorProfiles || []).forEach((profile: any) => {
-    const displayName = profile.name || profile.email || "Unknown";
-    authorMap.set(profile.id, displayName);
-  });
-
   const assigneeIds = Array.from(
     new Set(assignees.map((assignee: any) => assignee.assignee_id).filter(Boolean))
   ) as string[];
-  const { data: assigneeProfiles } = assigneeIds.length
-    ? await supabase.from("profiles").select("id, name, email").in("id", assigneeIds)
+
+  // Union author + assignee IDs into one profiles query
+  const allProfileIds = Array.from(new Set([...authorIds, ...assigneeIds]));
+  const { data: allProfiles } = allProfileIds.length
+    ? await supabase.from("profiles").select("id, name, email").in("id", allProfileIds)
     : { data: [] } as any;
 
-  const assigneeMap = new Map<string, string>();
-  (assigneeProfiles || []).forEach((profile: any) => {
-    const displayName = profile.name || profile.email || "Unknown";
-    assigneeMap.set(profile.id, displayName);
+  const profileMap = new Map<string, string>();
+  (allProfiles || []).forEach((profile: any) => {
+    profileMap.set(profile.id, profile.name || profile.email || "Unknown");
   });
 
   const subtasksByTask = new Map<string, Array<{ id: string; text: string; description?: string | null; completed: boolean }>>();
@@ -126,7 +183,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     const list = commentsByTask.get(comment.task_id) || [];
     list.push({
       id: comment.id,
-      author: authorMap.get(comment.author_id) || "Unknown",
+      author: profileMap.get(comment.author_id) || "Unknown",
       text: comment.text,
       timestamp: comment.created_at,
     });
@@ -144,15 +201,15 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
   const assigneesByTask = new Map<string, string[]>();
   for (const assignee of assignees) {
     const list = assigneesByTask.get(assignee.task_id) || [];
-    if (assignee.assignee_id && assigneeMap.has(assignee.assignee_id)) {
-      list.push(assigneeMap.get(assignee.assignee_id)!);
+    if (assignee.assignee_id && profileMap.has(assignee.assignee_id)) {
+      list.push(profileMap.get(assignee.assignee_id)!);
     } else if (assignee.assignee_name) {
       list.push(assignee.assignee_name);
     }
     assigneesByTask.set(assignee.task_id, list);
   }
 
-  const result = (items as TaskItem[]).map((item) => {
+  const taskViews = (items as TaskItem[]).map((item) => {
     const priorities = Array.isArray((item as any).priorities)
       ? ((item as any).priorities as TaskItemPriority[])
       : [];
@@ -186,7 +243,12 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     };
   });
 
-  return { data: result };
+  if (process.env.PERF_DEBUG === '1') {
+    const payloadBytes = Buffer.byteLength(JSON.stringify({ tasks: taskViews, entityPropertiesByTaskId }), 'utf8');
+    console.log(`[PERF] getTaskItemsByBlock taskBlockId=${taskBlockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
+  }
+
+  return { data: { tasks: taskViews, entityPropertiesByTaskId } };
 }
 
 export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TaskItem[]>> {

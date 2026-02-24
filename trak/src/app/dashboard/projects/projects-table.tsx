@@ -73,6 +73,9 @@ interface FormData {
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
   tags?: string[];
+  priority?: string | null;
+  assigned_tags?: string[];
+  tag_bank?: string[];
 }
 
 export default function ProjectsTable({ projects: initialProjects, workspaceId, folders: initialFolders, currentSort }: ProjectsTableProps) {
@@ -211,7 +214,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       status: formData.status,
       due_date_date,
       due_date_text,
-      priority: formData.priority ?? null,
+      priority: (formData.priority && ["low", "medium", "high", "urgent"].includes(formData.priority) ? formData.priority : null) as "low" | "medium" | "high" | "urgent" | null,
       assigned_tags: formData.assigned_tags ?? [],
       tag_bank: formData.tag_bank,
     });

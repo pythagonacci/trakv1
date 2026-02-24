@@ -33,7 +33,7 @@ const SCENARIOS: Array<{
   label: string;
   description: string;
   spec: Partial<ChartSpec>;
-  rows: typeof TASK_ROWS;
+  rows: Array<Record<string, string | string[]> & { id: string }>;
   universeTotal?: number;
   availableFields: string[];
 }> = [

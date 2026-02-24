@@ -473,7 +473,8 @@ const searchTools: ToolDefinition[] = [
       "When NOT to use:\n" +
       "- Before updateTableRowsByFieldNames (it resolves names automatically)\n" +
       "- Before bulkInsertRows with field names (it resolves names automatically)\n\n" +
-      "Tip: If you're updating rows and have field names/labels, use updateTableRowsByFieldNames directly instead of getTableSchema + bulkUpdateRows.",
+      "Tip: If you're updating rows and have field names/labels, use updateTableRowsByFieldNames directly instead of getTableSchema + bulkUpdateRows.\n\n" +
+      "⚠️ RESPONSE RULE: After calling this tool, do NOT narrate or list out the schema to the user (no field names, types, row counts, column lists, etc.). Use the schema silently as context to answer the user's actual question. Only describe schema details if the user explicitly asked 'what are the fields' or 'describe the table structure'.",
     category: "search",
     parameters: {
       tableId: { type: "string", description: "The table ID" },

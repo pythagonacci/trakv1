@@ -160,7 +160,6 @@ function CollageView({
               onClick={() => item.fileId && setSideModalIndex(index)}
               onAddClick={() => openFilePicker(index)}
               onDrop={(e) => handleDrop(e, index)}
-              onResizeEnd={onResizeEnd}
             />
           ))}
         </div>
@@ -189,6 +188,7 @@ function SortableCollageImage({
   onResizeEnd,
 }: {
   id: string;
+  captionsMode: CaptionsMode;
   item: GalleryItem;
   index: number;
   fileUrl: string | null;
@@ -204,7 +204,6 @@ function SortableCollageImage({
   onClick: () => void;
   onAddClick: () => void;
   onDrop: (e: React.DragEvent) => void;
-  onResizeEnd: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
@@ -232,7 +231,7 @@ function SortableCollageImage({
         onAddClick={onAddClick}
         onDrop={onDrop}
         onResizeEnd={onResizeEnd}
-        dragHandleProps={{ attributes, listeners }}
+        dragHandleProps={{ attributes: attributes as unknown as Record<string, unknown>, listeners: listeners as unknown as Record<string, unknown> }}
       />
     </div>
   );
@@ -272,7 +271,6 @@ function CollageImage({
   onClick: () => void;
   onAddClick: () => void;
   onDrop: (e: React.DragEvent) => void;
-  onResizeEnd: () => void;
   captionsMode?: CaptionsMode;
   dragHandleProps?: { attributes: Record<string, unknown>; listeners: Record<string, unknown> };
 }) {
@@ -336,106 +334,110 @@ function CollageImage({
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
     >
-    <div
-      ref={containerRef}
-      onClick={onClick}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onDrop(e);
-      }}
-      onDragOver={(e) => e.preventDefault()}
-      className={cn(
-        "group relative shrink-0 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60 transition-all",
-        isUploading && "border-solid"
-      )}
-      style={{ width, height }}
-    >
-      {isUploading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
-          <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
-        </div>
-      )}
-      {fileUrl && (
-        <Image
-          src={fileUrl}
-          alt={item.caption || `Collage image ${index + 1}`}
-          width={Math.round(width)}
-          height={Math.round(height)}
-          className="h-full w-full object-contain"
-          style={{ aspectRatio }}
-          draggable={false}
-          onLoad={(e) => {
-            const img = e.target as HTMLImageElement;
-            if (img.naturalWidth && img.naturalHeight) {
-              onAspectRatioLoaded(img.naturalWidth / img.naturalHeight);
-            }
-          }}
-          loading="lazy"
-          unoptimized
-        />
-      )}
-      {dragHandleProps && (
-        <div
-          className="absolute inset-0 z-[5] cursor-grab active:cursor-grabbing"
-          title="Drag to reorder"
-          {...dragHandleProps.attributes}
-          {...dragHandleProps.listeners}
-        />
-      )}
-      {isHovered && (
-        <>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            className="absolute right-1 top-1 z-10 rounded-full bg-black/60 p-1 text-white transition-colors hover:bg-black/80"
-            title="Remove"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </>
-      )}
-      {captionsMode === "hover" && isHovered && (
-        <div className="absolute bottom-1 left-1 right-1 z-10">
-          <input
-            type="text"
-            value={item.caption || ""}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            placeholder="Add caption..."
-            onClick={(e) => e.stopPropagation()}
-            className="w-full rounded bg-black/60 px-2 py-0.5 text-[10px] text-white placeholder:text-white/70 focus:outline-none"
-          />
-        </div>
-      )}
       <div
-        role="button"
-        tabIndex={0}
-        onMouseDown={handleResizeMouseDown}
-        className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-se-resize rounded-tl bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
-        title="Drag to resize"
-      />
-    </div>
-    {captionsMode === "always" && (
-      <div className="mt-1 min-w-0 w-full">
-        {isHovered ? (
-          <input
-            type="text"
-            value={item.caption || ""}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            placeholder="Add caption..."
-            onClick={(e) => e.stopPropagation()}
-            className="w-full rounded bg-transparent border-b border-neutral-200 dark:border-neutral-600 px-0 py-0.5 text-[10px] text-neutral-600 dark:text-neutral-400 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400"
+        ref={containerRef}
+        onClick={onClick}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDrop(e);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        className={cn(
+          "group relative shrink-0 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60 transition-all",
+          isUploading && "border-solid"
+        )}
+        style={{ width, height }}
+      >
+        {isUploading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
+            <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+          </div>
+        )}
+        {fileUrl && (
+          <Image
+            src={fileUrl}
+            alt={item.caption || `Collage image ${index + 1}`}
+            width={Math.round(width)}
+            height={Math.round(height)}
+            className="h-full w-full object-contain"
+            style={{ aspectRatio }}
+            draggable={false}
+            onLoad={(e) => {
+              const img = e.target as HTMLImageElement;
+              if (img.naturalWidth && img.naturalHeight) {
+                onAspectRatioLoaded(img.naturalWidth / img.naturalHeight);
+              }
+            }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+            loading={index === 0 ? "eager" : "lazy"}
+            priority={index === 0}
+            unoptimized
           />
-        ) : item.caption ? (
-          <span className="block truncate text-[10px] text-neutral-500 dark:text-neutral-400">
-            {item.caption}
-          </span>
-        ) : null}
+        )}
+        {dragHandleProps && (
+          <div
+            className="absolute inset-0 z-[5] cursor-grab active:cursor-grabbing"
+            title="Drag to reorder"
+            {...dragHandleProps.attributes}
+            {...dragHandleProps.listeners}
+          />
+        )}
+        {isHovered && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="absolute right-1 top-1 z-10 rounded-full bg-black/60 p-1 text-white transition-colors hover:bg-black/80"
+              title="Remove"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
+        )}
+        {captionsMode === "hover" && isHovered && (
+          <div className="absolute bottom-1 left-1 right-1 z-10">
+            <input
+              type="text"
+              value={item.caption || ""}
+              onChange={(e) => onCaptionChange(e.target.value)}
+              placeholder="Add caption..."
+              onClick={(e) => e.stopPropagation()}
+              className="w-full rounded bg-black/60 px-2 py-0.5 text-[10px] text-white placeholder:text-white/70 focus:outline-none"
+            />
+          </div>
+        )}
+        <div
+          role="button"
+          tabIndex={0}
+          onMouseDown={handleResizeMouseDown}
+          className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-se-resize rounded-tl bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+          title="Drag to resize"
+        />
       </div>
-    )}
+      {captionsMode === "always" && (
+        <div className="mt-1 min-w-0 w-full">
+          {isHovered ? (
+            <input
+              type="text"
+              value={item.caption || ""}
+              onChange={(e) => onCaptionChange(e.target.value)}
+              placeholder="Add caption..."
+              onClick={(e) => e.stopPropagation()}
+              className="w-full rounded bg-transparent border-b border-neutral-200 dark:border-neutral-600 px-0 py-0.5 text-[10px] text-neutral-600 dark:text-neutral-400 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400"
+            />
+          ) : item.caption ? (
+            <span className="block truncate text-[10px] text-neutral-500 dark:text-neutral-400">
+              {item.caption}
+            </span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -713,7 +715,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     const item = items[index];
     const currentFitMode = item.fitMode || imageFitMode;
     const nextFitMode: ImageFitMode = currentFitMode === "contain" ? "cover" : "contain";
-    
+
     const nextItems = items.map((it, idx) =>
       idx === index ? { ...it, fitMode: nextFitMode } : it
     );
@@ -860,8 +862,8 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   // Grid: only show filled slots + add button; block resizes
   const gridDisplayItems = !isCollage
     ? items
-        .map((item, idx) => ({ item, idx }))
-        .filter(({ item, idx }) => item.fileId || uploadingSlots.has(idx))
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item, idx }) => item.fileId || uploadingSlots.has(idx))
     : items.map((item, idx) => ({ item, idx }));
   const showAddSlotInGrid = !isCollage;
   const gridCellCount = gridDisplayItems.length + (showAddSlotInGrid ? 1 : 0);
@@ -935,7 +937,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
           >
             <Settings className="h-4 w-4" />
           </button>
-          <div 
+          <div
             className={cn(
               "absolute right-0 top-full pt-1 transition-all duration-200 z-10",
               isSettingsHovered ? "opacity-100 visible pointer-events-auto" : "opacity-0 invisible pointer-events-none"
@@ -1047,11 +1049,15 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                                 width={CELL_WIDTH}
                                 height={CELL_HEIGHT}
                                 className={cn(
-                                  itemFitMode === "contain" 
-                                    ? "max-h-full max-w-full object-contain" 
+                                  itemFitMode === "contain"
+                                    ? "max-h-full max-w-full object-contain"
                                     : "h-full w-full object-cover"
                                 )}
-                                loading="lazy"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                                loading={index === 0 ? "eager" : "lazy"}
+                                priority={index === 0}
                                 unoptimized
                               />
                             </div>
@@ -1133,163 +1139,169 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                 gridTemplateRows: `repeat(${displayRows}, minmax(0, 1fr))`,
                 height: `${galleryHeight}px`,
+                minHeight: `${CELL_PX}px`,
+                transition: 'height 150ms ease',
               }}
             >
-            {gridDisplayItems.map(({ item, idx: index }) => {
-              const fileId = item.fileId;
-              const imageUrl = fileId ? fileUrls[fileId] : null;
-              const hasFile = Boolean(fileId);
-              const isUploading = uploadingSlots.has(index);
-              const isPendingUrl = hasFile && !imageUrl;
-              const itemFitMode = item.fitMode || imageFitMode;
+              {gridDisplayItems.map(({ item, idx: index }) => {
+                const fileId = item.fileId;
+                const imageUrl = fileId ? fileUrls[fileId] : null;
+                const hasFile = Boolean(fileId);
+                const isUploading = uploadingSlots.has(index);
+                const isPendingUrl = hasFile && !imageUrl;
+                const itemFitMode = item.fitMode || imageFitMode;
 
-              const isHovered = hoveredImageIndex === index;
+                const isHovered = hoveredImageIndex === index;
 
-              return (
-                <div
-                  key={`gallery-slot-${index}`}
-                  className={cn(
-                    "group relative flex flex-col min-h-0 overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
-                    isUploading && "border-solid"
-                  )}
-                  onMouseEnter={() => setHoveredImageIndex(index)}
-                  onMouseLeave={() => setHoveredImageIndex(null)}
-                  onClick={() => {
-                    if (hasFile) {
-                      if (imageUrl) {
-                        setSideModalIndex(index);
+                return (
+                  <div
+                    key={`gallery-slot-${index}`}
+                    className={cn(
+                      "group relative flex flex-col min-h-0 overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
+                      isUploading && "border-solid"
+                    )}
+                    onMouseEnter={() => setHoveredImageIndex(index)}
+                    onMouseLeave={() => setHoveredImageIndex(null)}
+                    onClick={() => {
+                      if (hasFile) {
+                        if (imageUrl) {
+                          setSideModalIndex(index);
+                        }
+                        return;
                       }
-                      return;
-                    }
-                    if (!isUploading) {
-                      openFilePicker(index);
-                    }
-                  }}
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragOver={(e) => e.preventDefault()}
-                >
-                  {isUploading && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
-                      <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
-                    </div>
-                  )}
+                      if (!isUploading) {
+                        openFilePicker(index);
+                      }
+                    }}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragOver={(e) => e.preventDefault()}
+                  >
+                    {isUploading && (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
+                        <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+                      </div>
+                    )}
 
-                  {imageUrl ? (
-                    <>
-                      <div className={cn(
-                        "relative flex-1 min-h-0 w-full",
-                        itemFitMode === "contain" && "flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50"
-                      )}>
-                        <Image
-                          src={imageUrl}
-                          alt={item.caption || `Gallery image ${index + 1}`}
-                          fill
-                          className={cn(
-                            itemFitMode === "contain" 
-                              ? "object-contain" 
-                              : "object-cover",
-                            "transition-opacity",
-                            hoveredImageIndex === index && "opacity-90"
-                          )}
-                          loading="lazy"
-                          unoptimized
-                        />
-                      </div>
-                      <div className={cn(
-                        "absolute right-2 top-2 flex gap-1 transition-opacity",
-                        hoveredImageIndex === index ? "opacity-100" : "opacity-0"
-                      )}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleImageFitModeToggle(index);
-                          }}
-                          className="rounded-full bg-black/60 p-1.5 text-white transition-colors hover:bg-black/80"
-                          title={itemFitMode === "contain" ? "Fill block (crop to fill)" : "Fit image (show full)"}
-                        >
-                          {itemFitMode === "contain" ? (
-                            <Maximize2 className="h-3 w-3" />
-                          ) : (
-                            <Minimize2 className="h-3 w-3" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFilePicker(index);
-                          }}
-                          className="rounded-full bg-black/60 px-2 py-1 text-[10px] text-white transition-colors hover:bg-black/80"
-                        >
-                          Replace
-                        </button>
-                      </div>
-                      {captionsMode === "always" && (
-                        <div className="shrink-0 px-2 py-1 min-h-0">
-                          {isHovered ? (
+                    {imageUrl ? (
+                      <>
+                        <div className={cn(
+                          "relative flex-1 min-h-0 w-full",
+                          itemFitMode === "contain" && "flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50"
+                        )}>
+                          <Image
+                            src={imageUrl}
+                            alt={item.caption || `Gallery image ${index + 1}`}
+                            fill
+                            className={cn(
+                              itemFitMode === "contain"
+                                ? "object-contain"
+                                : "object-cover",
+                              "transition-opacity",
+                              hoveredImageIndex === index && "opacity-90"
+                            )}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                            loading={index === 0 ? "eager" : "lazy"}
+                            priority={index === 0}
+                            unoptimized
+                          />
+                        </div>
+                        <div className={cn(
+                          "absolute right-2 top-2 flex gap-1 transition-opacity",
+                          hoveredImageIndex === index ? "opacity-100" : "opacity-0"
+                        )}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleImageFitModeToggle(index);
+                            }}
+                            className="rounded-full bg-black/60 p-1.5 text-white transition-colors hover:bg-black/80"
+                            title={itemFitMode === "contain" ? "Fill block (crop to fill)" : "Fit image (show full)"}
+                          >
+                            {itemFitMode === "contain" ? (
+                              <Maximize2 className="h-3 w-3" />
+                            ) : (
+                              <Minimize2 className="h-3 w-3" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openFilePicker(index);
+                            }}
+                            className="rounded-full bg-black/60 px-2 py-1 text-[10px] text-white transition-colors hover:bg-black/80"
+                          >
+                            Replace
+                          </button>
+                        </div>
+                        {captionsMode === "always" && (
+                          <div className="shrink-0 px-2 py-1 min-h-0">
+                            {isHovered ? (
+                              <input
+                                type="text"
+                                value={item.caption || ""}
+                                onChange={(e) => handleCaptionChange(index, e.target.value)}
+                                placeholder="Add caption..."
+                                className="w-full rounded-md bg-transparent border-b border-neutral-200 dark:border-neutral-600 px-0 py-0.5 text-[10px] text-neutral-600 dark:text-neutral-400 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : item.caption ? (
+                              <span className="block truncate text-[10px] text-neutral-500 dark:text-neutral-400">
+                                {item.caption}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                        {captionsMode === "hover" && isHovered && (
+                          <div className="absolute bottom-2 left-2 right-2 z-10">
                             <input
                               type="text"
                               value={item.caption || ""}
                               onChange={(e) => handleCaptionChange(index, e.target.value)}
                               placeholder="Add caption..."
-                              className="w-full rounded-md bg-transparent border-b border-neutral-200 dark:border-neutral-600 px-0 py-0.5 text-[10px] text-neutral-600 dark:text-neutral-400 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400"
+                              className="w-full rounded-md bg-black/60 px-2 py-1 text-[10px] text-white placeholder:text-white/70 focus:outline-none"
                               onClick={(e) => e.stopPropagation()}
                             />
-                          ) : item.caption ? (
-                            <span className="block truncate text-[10px] text-neutral-500 dark:text-neutral-400">
-                              {item.caption}
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-                      {captionsMode === "hover" && isHovered && (
-                        <div className="absolute bottom-2 left-2 right-2 z-10">
-                          <input
-                            type="text"
-                            value={item.caption || ""}
-                            onChange={(e) => handleCaptionChange(index, e.target.value)}
-                            placeholder="Add caption..."
-                            className="w-full rounded-md bg-black/60 px-2 py-1 text-[10px] text-white placeholder:text-white/70 focus:outline-none"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center text-xs text-neutral-500">
-                      {isPendingUrl ? (
-                        <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
-                      ) : (
-                        <ImageIcon className="h-6 w-6 text-neutral-400" />
-                      )}
-                      <span>{isPendingUrl ? "Loading image..." : "Drop image or click to upload"}</span>
-                    </div>
-                  )}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center text-xs text-neutral-500">
+                        {isPendingUrl ? (
+                          <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+                        ) : (
+                          <ImageIcon className="h-6 w-6 text-neutral-400" />
+                        )}
+                        <span>{isPendingUrl ? "Loading image..." : "Drop image or click to upload"}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {showAddSlotInGrid && (
+                <div
+                  onClick={handleAddGridImage}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    const newItem: GalleryItem = { fileId: null, caption: "" };
+                    const nextItems = [...items, newItem];
+                    setItems(nextItems);
+                    await persistItems(nextItems);
+                    await uploadImage(file, nextItems.length - 1, nextItems);
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/30 text-neutral-500 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-300"
+                >
+                  <Plus className="h-8 w-8" />
+                  <span className="text-[10px]">Add image</span>
                 </div>
-              );
-            })}
-            {showAddSlotInGrid && (
-              <div
-                onClick={handleAddGridImage}
-                onDrop={async (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const file = e.dataTransfer.files?.[0];
-                  if (!file) return;
-                  const newItem: GalleryItem = { fileId: null, caption: "" };
-                  const nextItems = [...items, newItem];
-                  setItems(nextItems);
-                  await persistItems(nextItems);
-                  await uploadImage(file, nextItems.length - 1, nextItems);
-                }}
-                onDragOver={(e) => e.preventDefault()}
-                className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/30 text-neutral-500 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-300"
-              >
-                <Plus className="h-8 w-8" />
-                <span className="text-[10px]">Add image</span>
-              </div>
-            )}
+              )}
             </div>
           )}
         </div>
@@ -1325,6 +1337,9 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
             width={1920}
             height={1080}
             unoptimized
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
             onClick={(e) => e.stopPropagation()}
           />
         </div>

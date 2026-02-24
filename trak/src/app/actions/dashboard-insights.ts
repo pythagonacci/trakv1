@@ -122,38 +122,38 @@ async function gatherDashboardOverviewData(
 
   return {
     currentDate,
-    overdueEvents: (overdueRes.data ?? []).slice(0, 25).map((e: { title?: string; project_name?: string; end_date?: string; assignee_name?: string }) => ({
+    overdueEvents: (overdueRes.data ?? []).slice(0, 25).map((e) => ({
       title: e.title ?? "",
       projectName: e.project_name ?? "Unknown",
       endDate: e.end_date ?? "",
       assignee: e.assignee_name ?? undefined,
     })),
-    dueTodayEvents: (dueTodayRes.data ?? []).slice(0, 25).map((e: { title?: string; project_name?: string; end_date?: string; assignee_name?: string }) => ({
+    dueTodayEvents: (dueTodayRes.data ?? []).slice(0, 25).map((e) => ({
       title: e.title ?? "",
       projectName: e.project_name ?? "Unknown",
       endDate: e.end_date ?? "",
       assignee: e.assignee_name ?? undefined,
     })),
-    dueThisWeekEvents: (dueThisWeekRes.data ?? []).slice(0, 25).map((e: { title?: string; project_name?: string; end_date?: string; assignee_name?: string }) => ({
+    dueThisWeekEvents: (dueThisWeekRes.data ?? []).slice(0, 25).map((e) => ({
       title: e.title ?? "",
       projectName: e.project_name ?? "Unknown",
       endDate: e.end_date ?? "",
       assignee: e.assignee_name ?? undefined,
     })),
-    tasksDueThisWeek: (tasksDueThisWeekRes.data ?? []).slice(0, 25).map((t: { title?: string; project_name?: string; tab_name?: string; due_date?: string; assignees?: Array<{ name?: string }> }) => ({
+    tasksDueThisWeek: (tasksDueThisWeekRes.data ?? []).slice(0, 25).map((t) => ({
       title: t.title ?? "",
       projectName: t.project_name ?? "Unknown",
       tabName: t.tab_name ?? "Unknown",
       dueDate: t.due_date ?? undefined,
       assignee: taskAssignee(t),
     })),
-    blockedTasks: (blockedRes.data ?? []).slice(0, 15).map((t: { title?: string; project_name?: string; tab_name?: string; assignees?: Array<{ name?: string }> }) => ({
+    blockedTasks: (blockedRes.data ?? []).slice(0, 15).map((t) => ({
       title: t.title ?? "",
       projectName: t.project_name ?? "Unknown",
       tabName: t.tab_name ?? "Unknown",
       assignee: taskAssignee(t),
     })),
-    highPriorityTasks: (highPriorityRes.data ?? []).slice(0, 20).map((t: { title?: string; project_name?: string; tab_name?: string; due_date?: string; priorities?: Array<{ value?: string }>; assignees?: Array<{ name?: string }> }) => ({
+    highPriorityTasks: (highPriorityRes.data ?? []).slice(0, 20).map((t) => ({
       title: t.title ?? "",
       projectName: t.project_name ?? "Unknown",
       tabName: t.tab_name ?? "Unknown",
@@ -161,7 +161,7 @@ async function gatherDashboardOverviewData(
       dueDate: t.due_date ?? undefined,
       assignee: taskAssignee(t),
     })),
-    activeProjects: (projectsRes.data ?? []).slice(0, 15).map((p: { name?: string; status?: string }) => ({
+    activeProjects: (projectsRes.data ?? []).slice(0, 15).map((p) => ({
       name: p.name ?? "",
       status: p.status ?? "",
     })),

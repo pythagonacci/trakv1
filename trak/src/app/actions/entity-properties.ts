@@ -93,12 +93,12 @@ async function loadFixedPropertyDefinitions(
   };
 }
 
-function buildEntityPropertiesFromRows(
+export async function buildEntityPropertiesFromRows(
   entityType: EntityType,
   entityId: string,
   workspaceId: string,
   rows: any[]
-): EntityProperties {
+): Promise<EntityProperties> {
   let createdAt = rows[0]?.created_at ?? new Date().toISOString();
   let updatedAt = rows[0]?.updated_at ?? createdAt;
 
@@ -630,7 +630,7 @@ export async function getEntityProperties(
 
   if (!data || data.length === 0) return { data: null };
 
-  const props = buildEntityPropertiesFromRows(
+  const props = await buildEntityPropertiesFromRows(
     entityType,
     entityId,
     workspaceId,
@@ -690,7 +690,7 @@ export async function getEntitiesProperties(
   }
 
   for (const [id, rows] of grouped.entries()) {
-    result[id] = buildEntityPropertiesFromRows(
+    result[id] = await buildEntityPropertiesFromRows(
       entityType,
       id,
       workspaceId,

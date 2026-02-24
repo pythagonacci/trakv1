@@ -1,6 +1,7 @@
 "use client";
 
 import { type ClientTabBlock, type ClientTabBlockType } from "@/app/actions/client-tab-block";
+import { type BlockType } from "@/app/actions/block";
 import dynamic from "next/dynamic";
 import BlockWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/block-wrapper";
 import LazyBlockWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/lazy-block-wrapper";
@@ -156,8 +157,8 @@ export default function ClientTabBlockRenderer({
   };
 
   return (
-    <LazyBlockWrapper blockId={block.id}>
-      <BlockWrapper 
+    <LazyBlockWrapper blockId={block.id} blockType={block.type as BlockType}>
+      <BlockWrapper
         block={blockForComponents} 
         workspaceId={workspaceId}
         projectId={clientId}

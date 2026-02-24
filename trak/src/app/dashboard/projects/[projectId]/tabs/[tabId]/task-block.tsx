@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, startTransition } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   CheckCircle2,
   Circle,
@@ -53,7 +54,6 @@ import { PropertyBadges, PropertyMenu } from "@/components/properties";
 import { DateRangeCalendar } from "@/components/due-date-calendar";
 import {
   useEntitiesProperties,
-  useEntityPropertiesWithInheritance,
   useSetEntityPropertiesForType,
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
@@ -397,19 +397,18 @@ function getInputCaretRect(input: HTMLInputElement) {
 
 function TaskPropertyBadges({
   entityId,
+  properties,
   onOpen,
   workspaceId,
-  entityType = "task",
 }: {
   entityId: string;
+  properties?: EntityProperties;
   onOpen: () => void;
   workspaceId: string;
-  entityType?: EntityType;
 }) {
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance(entityType, entityId);
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
 
-  const direct = propertiesResult?.direct;
+  const direct = properties;
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -601,11 +600,12 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const content = (block.content || {}) as TaskBlockContent & { tasks?: Task[] };
   const title = content.title || "Task list";
   const isTempBlock = block.id.startsWith("temp-");
-  const { data: serverTasks = [] } = useTaskItems(block.id, { enabled: !isTempBlock });
+  const { data: { tasks: serverTasks = [], entityPropertiesByTaskId = {} } = {} } = useTaskItems(block.id, { enabled: !isTempBlock });
   const tasks = isTempBlock ? (content.tasks || []) : (serverTasks as Task[]);
   const initialGlobalHideIcons = content.hideIcons || false;
   const initialViewMode = content.viewMode || "list";
   const initialBoardGroupBy = content.boardGroupBy || "status";
+  const initialShowRollup = content.showRollup || false;
 
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const workspaceMemberLookup = useMemo(() => {
@@ -628,6 +628,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(title);
   const [globalHideIcons, setGlobalHideIcons] = useState(initialGlobalHideIcons);
+  const [showRollup, setShowRollup] = useState(initialShowRollup);
   const [viewMode, setViewMode] = useState<TaskViewMode>(initialViewMode);
   const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>(initialBoardGroupBy);
   const [editingTaskId, setEditingTaskId] = useState<string | number | null>(null);
@@ -655,6 +656,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [propertyOverrides, setPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
+  const taskListScrollRef = useRef<HTMLDivElement | null>(null);
 
   const createTaskMutation = useCreateTaskItem(block.id);
   const updateTaskMutation = useUpdateTaskItem(block.id);
@@ -691,6 +693,15 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
     return taskOrder.map((id) => taskMap.get(id)).filter(Boolean) as Task[];
   }, [tasks, taskOrder]);
+
+  // Virtual scrolling for list view — only render visible task rows
+  const taskVirtualizer = useVirtualizer({
+    count: orderedTasks.length,
+    getScrollElement: () => taskListScrollRef.current,
+    estimateSize: () => 60, // estimated row height in px
+    overscan: 5, // render 5 extra rows above/below viewport
+    getItemKey: (index) => String(orderedTasks[index]?.id ?? index),
+  });
 
   // Board view: flattened array of tasks and subtasks as independent items
   const boardItems: BoardItem[] = useMemo(() => {
@@ -969,6 +980,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   useEffect(() => {
     setGlobalHideIcons(content.hideIcons || false);
   }, [content.hideIcons]);
+
+  // Stay in sync if showRollup changes externally
+  useEffect(() => {
+    setShowRollup(content.showRollup || false);
+  }, [content.showRollup]);
 
   // Stay in sync if view mode changes externally
   useEffect(() => {
@@ -1374,6 +1390,22 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       console.error("Failed to toggle global icons:", result.error);
       // Revert on error
       setGlobalHideIcons(!newHideIcons);
+    }
+  };
+
+  const toggleRollup = async () => {
+    const next = !showRollup;
+    setShowRollup(next);
+    const updatedContent = { ...content, showRollup: next };
+    onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
+    if (!isTempBlock) {
+      const result = await updateBlock({ blockId: block.id, content: updatedContent });
+      if (result.data) {
+        onUpdate?.(result.data);
+      } else if (result.error) {
+        console.error("Failed to toggle rollup:", result.error);
+        setShowRollup(!next);
+      }
     }
   };
 
@@ -2486,6 +2518,19 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                 </>
               )}
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={toggleRollup}>
+              {showRollup ? (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" />
+                  Hide Rollup
+                </>
+              ) : (
+                <>
+                  <Eye className="mr-2 h-4 w-4" />
+                  Show Rollup
+                </>
+              )}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -2495,302 +2540,294 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
         </p>
       )}
       {viewMode === "list" ? (
-        <div className="space-y-2">
-          {orderedTasks.map((task: Task) => {
-            const taskSections = expandedSections[task.id] || {};
-            const hasAnyExpanded = taskSections.comments || taskSections.references;
-            const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
-            const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-            const showSubtasksPanel = hasSubtasks || taskSections.subtasks;
-            const statusIsDerived = hasSubtasks;
-            const taskEntityId = typeof task.id === "string" ? task.id : null;
-            const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
-            const effectiveStatus = getEffectiveStatus(String(task.id), task);
-            const isDone = effectiveStatus === "done";
-            const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
-            const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
-            const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
-            const assigneeNames = effectiveAssigneeIds
-              .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
-              .filter(Boolean) as string[];
-            const assigneeLabel = assigneeNames.length
-              ? assigneeNames.join(", ")
-              : (task.assignees?.length ? task.assignees.join(", ") : null);
-            const dueDateLabel = formatDueDateRange(effectiveDueDate) || null;
-            const hasDueDateValue = hasDueDate(effectiveDueDate);
-            const showInlineIcons =
-              shouldShowIcons(task) ||
-              Boolean(effectivePriorityFields.length || effectiveAssigneeIds.length || hasDueDateValue);
+        <div ref={taskListScrollRef} className="space-y-0 max-h-[70vh] overflow-y-auto" style={{ contain: 'layout style' }}>
+          <div style={{ height: `${taskVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+            {taskVirtualizer.getVirtualItems().map((virtualRow) => {
+              const task = orderedTasks[virtualRow.index] as Task;
+              if (!task) return null;
+              const taskSections = expandedSections[task.id] || {};
+              const hasAnyExpanded = taskSections.comments || taskSections.references;
+              const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
+              const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+              const showSubtasksPanel = hasSubtasks || taskSections.subtasks;
+              const statusIsDerived = hasSubtasks;
+              const taskEntityId = typeof task.id === "string" ? task.id : null;
+              const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
+              const effectiveStatus = getEffectiveStatus(String(task.id), task);
+              const isDone = effectiveStatus === "done";
+              const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
+              const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
+              const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
+              const assigneeNames = effectiveAssigneeIds
+                .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
+                .filter(Boolean) as string[];
+              const assigneeLabel = assigneeNames.length
+                ? assigneeNames.join(", ")
+                : (task.assignees?.length ? task.assignees.join(", ") : null);
+              const dueDateLabel = formatDueDateRange(effectiveDueDate) || null;
+              const hasDueDateValue = hasDueDate(effectiveDueDate);
+              const showInlineIcons =
+                shouldShowIcons(task) ||
+                Boolean(effectivePriorityFields.length || effectiveAssigneeIds.length || hasDueDateValue);
 
-            return (
-              <div
-                id={`task-${task.id}`}
-                key={task.id}
-                className={cn(
-                  "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 transition-all duration-150 ease-out",
-                  "hover:border-[var(--foreground)]/30 hover:shadow-sm"
-                )}
-              >
-                {/* Main Task Row */}
-                <div className="flex items-start gap-2">
-                  {/* Status Icon */}
-                  {shouldShowIcons(task) ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (statusIsDerived) return;
-                        toggleTask(task.id);
-                      }}
-                      className={cn(
-                        "mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer",
-                        statusIsDerived && "cursor-not-allowed opacity-60 hover:border-[var(--border)]"
-                      )}
-                      aria-label="Toggle task"
-                      type="button"
-                    >
-                      {effectiveStatus === "done" ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      ) : effectiveStatus === "blocked" ? (
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      ) : effectiveStatus === "in_progress" ? (
-                        <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (statusIsDerived) return;
-                        toggleTask(task.id);
-                      }}
-                      className={cn(
-                        "mt-0.5 flex h-5 w-5 items-center justify-center flex-shrink-0 cursor-pointer",
-                        statusIsDerived && "cursor-not-allowed opacity-60"
-                      )}
-                      aria-label="Toggle task"
-                      type="button"
-                    >
-                      <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
-                    </button>
-                  )}
-
-                  <div className="flex-1 space-y-1.5 min-w-0">
-                    {/* Task Title */}
-                    {editingTaskId === task.id ? (
-                      <input
-                        ref={editingTaskInputRef}
-                        type="text"
-                        value={editingTaskText}
-                        onBlur={() => {
-                          updateTask(task.id, { text: editingTaskText });
-                          setEditingTaskId(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "@" && projectId && !isTempBlock) {
-                            e.preventDefault();
-                            const cursor = e.currentTarget.selectionStart ?? editingTaskText.length;
-                            const nextValue =
-                              editingTaskText.slice(0, cursor) + "@" + editingTaskText.slice(cursor);
-                            setEditingTaskText(nextValue);
-                            setInlineReference({ taskId: String(task.id), cursor });
-                            const rect = getInputCaretRect(e.currentTarget);
-                            openReferencePicker(task.id, { cursor, anchorRect: rect, initialQuery: "" });
-                            requestAnimationFrame(() => {
-                              if (editingTaskInputRef.current) {
-                                const pos = cursor + 1;
-                                editingTaskInputRef.current.setSelectionRange(pos, pos);
-                              }
-                            });
-                            return;
-                          }
-                          if (e.key === "Enter") {
-                            updateTask(task.id, { text: editingTaskText });
-                            setEditingTaskId(null);
-                          }
-                          if (e.key === "Escape") {
-                            setEditingTaskId(null);
-                            setInlineReference(null);
-                            setReferenceCurrentQuery("");
-                          }
-                        }}
-                        onChange={(e) => {
-                          // Sync search query when typing after "@"
-                          if (inlineReference && String(task.id) === inlineReference.taskId) {
-                            const cursor = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
-                            const start = inlineReference.cursor;
-                            if (cursor > start) {
-                              const query = e.currentTarget.value.slice(start + 1, cursor);
-                              setReferenceCurrentQuery(query);
-                            }
-                          }
-                          setEditingTaskText(e.target.value);
-                        }}
-                        autoFocus
-                        className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
-                      />
-                    ) : (
-                      <div className="flex items-start gap-1.5">
-                        <div
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={taskVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div
+                    id={`task-${task.id}`}
+                    className={cn(
+                      "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 transition-all duration-150 ease-out",
+                      "hover:border-[var(--foreground)]/30 hover:shadow-sm"
+                    )}
+                  >
+                    {/* Main Task Row */}
+                    <div className="flex items-start gap-2">
+                      {/* Status Icon */}
+                      {shouldShowIcons(task) ? (
+                        <button
                           onClick={(e) => {
-                            const target = e.target as HTMLElement;
-                            if (target.closest('a[data-ref-link="true"]')) {
-                              return;
-                            }
-                            setEditingTaskId(task.id);
-                            setEditingTaskText(task.text);
+                            e.stopPropagation();
+                            e.preventDefault();
+                            if (statusIsDerived) return;
+                            toggleTask(task.id);
                           }}
                           className={cn(
-                            "flex-1 cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
-                            isDone && "line-through text-[var(--muted-foreground)]"
+                            "mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer",
+                            statusIsDerived && "cursor-not-allowed opacity-60 hover:border-[var(--border)]"
                           )}
-                          dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
-                        />
-                        {hasExtendedInfo && (
-                          <button
-                            onClick={() => {
-                              // Toggle comments section
-                              if (hasAnyExpanded) {
-                                setExpandedSections(prev => ({ ...prev, [task.id]: {} }));
-                              } else {
-                                setExpandedSections(prev => ({
-                                  ...prev,
-                                  [task.id]: {
-                                    comments: !!(task.comments && task.comments.length > 0)
+                          aria-label="Toggle task"
+                          type="button"
+                        >
+                          {effectiveStatus === "done" ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          ) : effectiveStatus === "blocked" ? (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          ) : effectiveStatus === "in_progress" ? (
+                            <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
+                          ) : (
+                            <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            if (statusIsDerived) return;
+                            toggleTask(task.id);
+                          }}
+                          className={cn(
+                            "mt-0.5 flex h-5 w-5 items-center justify-center flex-shrink-0 cursor-pointer",
+                            statusIsDerived && "cursor-not-allowed opacity-60"
+                          )}
+                          aria-label="Toggle task"
+                          type="button"
+                        >
+                          <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+                        </button>
+                      )}
+
+                      <div className="flex-1 space-y-1.5 min-w-0">
+                        {/* Task Title */}
+                        {editingTaskId === task.id ? (
+                          <input
+                            ref={editingTaskInputRef}
+                            type="text"
+                            value={editingTaskText}
+                            onBlur={() => {
+                              updateTask(task.id, { text: editingTaskText });
+                              setEditingTaskId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "@" && projectId && !isTempBlock) {
+                                e.preventDefault();
+                                const cursor = e.currentTarget.selectionStart ?? editingTaskText.length;
+                                const nextValue =
+                                  editingTaskText.slice(0, cursor) + "@" + editingTaskText.slice(cursor);
+                                setEditingTaskText(nextValue);
+                                setInlineReference({ taskId: String(task.id), cursor });
+                                const rect = getInputCaretRect(e.currentTarget);
+                                openReferencePicker(task.id, { cursor, anchorRect: rect, initialQuery: "" });
+                                requestAnimationFrame(() => {
+                                  if (editingTaskInputRef.current) {
+                                    const pos = cursor + 1;
+                                    editingTaskInputRef.current.setSelectionRange(pos, pos);
                                   }
-                                }));
+                                });
+                                return;
+                              }
+                              if (e.key === "Enter") {
+                                updateTask(task.id, { text: editingTaskText });
+                                setEditingTaskId(null);
+                              }
+                              if (e.key === "Escape") {
+                                setEditingTaskId(null);
+                                setInlineReference(null);
+                                setReferenceCurrentQuery("");
                               }
                             }}
-                            className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-                          >
-                            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", hasAnyExpanded && "rotate-90")} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Description - Inline Display */}
-                    {task.description !== undefined && (
-                      <TaskDescription task={task} updateTask={updateTask} />
-                    )}
-
-                    {/* Subtasks - Modal Display */}
-                    {showSubtasksPanel && (
-                      <div className="mt-2 space-y-1.5">
-                          {(task.subtasks || []).map((subtask) => {
-                            const subtaskId = String(subtask.id);
-                            const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
-                            const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
-                            const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
-                            const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
-                            const subtaskAssigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
-                            const subtaskAssigneeNames = subtaskAssigneeIds
-                              .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
-                              .filter(Boolean) as string[];
-                            const subtaskPriority = normalizePriority(subtaskProps?.priority ?? null);
-                            const subtaskPriorityLabel = subtaskPriority
-                              ? PRIORITY_OPTIONS.find((o) => o.value === subtaskPriority)?.label ?? subtaskPriority
-                              : null;
-                            const subtaskAssigneeLabel = subtaskAssigneeNames.length ? subtaskAssigneeNames.join(", ") : null;
-                            const subtaskStatusLabel =
-                              STATUS_OPTIONS.find((o) => o.value === subtaskStatus)?.label ?? subtaskStatus;
-                            const subtaskSections = expandedSubtasks[subtaskId] || {};
-                            const showSubtaskDescription =
-                              subtask.description !== undefined || subtaskSections.description;
-
-                            return (
-                              <div
-                                key={subtask.id}
-                                className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5"
+                            onChange={(e) => {
+                              // Sync search query when typing after "@"
+                              if (inlineReference && String(task.id) === inlineReference.taskId) {
+                                const cursor = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
+                                const start = inlineReference.cursor;
+                                if (cursor > start) {
+                                  const query = e.currentTarget.value.slice(start + 1, cursor);
+                                  setReferenceCurrentQuery(query);
+                                }
+                              }
+                              setEditingTaskText(e.target.value);
+                            }}
+                            autoFocus
+                            className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                          />
+                        ) : (
+                          <div className="flex items-start gap-1.5">
+                            <div
+                              onClick={(e) => {
+                                const target = e.target as HTMLElement;
+                                if (target.closest('a[data-ref-link="true"]')) {
+                                  return;
+                                }
+                                setEditingTaskId(task.id);
+                                setEditingTaskText(task.text);
+                              }}
+                              className={cn(
+                                "flex-1 cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                isDone && "line-through text-[var(--muted-foreground)]"
+                              )}
+                              dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
+                            />
+                            {hasExtendedInfo && (
+                              <button
+                                onClick={() => {
+                                  // Toggle comments section
+                                  if (hasAnyExpanded) {
+                                    setExpandedSections(prev => ({ ...prev, [task.id]: {} }));
+                                  } else {
+                                    setExpandedSections(prev => ({
+                                      ...prev,
+                                      [task.id]: {
+                                        comments: !!(task.comments && task.comments.length > 0)
+                                      }
+                                    }));
+                                  }
+                                }}
+                                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
                               >
-                                <div className="flex items-start gap-2">
-                                  <button
-                                    onClick={() => toggleSubtask(task.id, subtask.id)}
-                                    className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0"
-                                    aria-label="Toggle subtask"
-                                    type="button"
-                                  >
-                                    {subtaskStatus === "done" ? (
-                                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                    ) : subtaskStatus === "blocked" ? (
-                                      <XCircle className="h-3 w-3 text-red-500" />
-                                    ) : subtaskStatus === "in_progress" ? (
-                                      <Clock className="h-3 w-3 text-[var(--tram-yellow)]" />
-                                    ) : (
-                                      <Circle className="h-3 w-3 text-neutral-300 dark:text-neutral-600" />
-                                    )}
-                                  </button>
-                                  <div className="min-w-0 flex-1 space-y-1">
-                                    <input
-                                      type="text"
-                                      value={subtaskDrafts[subtaskId] ?? subtask.text}
-                                      onChange={(e) =>
-                                        setSubtaskDrafts((prev) => ({ ...prev, [subtaskId]: e.target.value }))
-                                      }
-                                      onBlur={() =>
-                                        commitSubtaskDraft(
-                                          task.id,
-                                          subtask.id,
-                                          subtaskDrafts[subtaskId],
-                                          subtask.text
-                                        )
-                                      }
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          e.preventDefault();
-                                          e.currentTarget.blur();
-                                        }
-                                        if (e.key === "Escape") {
-                                          e.preventDefault();
-                                          setSubtaskDrafts((prev) => {
-                                            const next = { ...prev };
-                                            delete next[subtaskId];
-                                            return next;
-                                          });
-                                          e.currentTarget.blur();
-                                        }
-                                      }}
-                                      className={cn(
-                                        "w-full text-xs bg-transparent border-none outline-none text-[var(--foreground)] py-0.5",
-                                        subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
+                                <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", hasAnyExpanded && "rotate-90")} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Description - Inline Display */}
+                        {task.description !== undefined && (
+                          <TaskDescription task={task} updateTask={updateTask} />
+                        )}
+
+                        {/* Subtasks - Modal Display */}
+                        {showSubtasksPanel && (
+                          <div className="mt-2 space-y-1.5">
+                            {(task.subtasks || []).map((subtask) => {
+                              const subtaskId = String(subtask.id);
+                              const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
+                              const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
+                              const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
+                              const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
+                              const subtaskAssigneeIds = getSubtaskEffectiveAssigneeIds(subtaskId);
+                              const subtaskAssigneeNames = subtaskAssigneeIds
+                                .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
+                                .filter(Boolean) as string[];
+                              const subtaskPriority = normalizePriority(subtaskProps?.priority ?? null);
+                              const subtaskPriorityLabel = subtaskPriority
+                                ? PRIORITY_OPTIONS.find((o) => o.value === subtaskPriority)?.label ?? subtaskPriority
+                                : null;
+                              const subtaskAssigneeLabel = subtaskAssigneeNames.length ? subtaskAssigneeNames.join(", ") : null;
+                              const subtaskStatusLabel =
+                                STATUS_OPTIONS.find((o) => o.value === subtaskStatus)?.label ?? subtaskStatus;
+                              const subtaskSections = expandedSubtasks[subtaskId] || {};
+                              const showSubtaskDescription =
+                                subtask.description !== undefined || subtaskSections.description;
+
+                              return (
+                                <div
+                                  key={subtask.id}
+                                  className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5"
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <button
+                                      onClick={() => toggleSubtask(task.id, subtask.id)}
+                                      className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0"
+                                      aria-label="Toggle subtask"
+                                      type="button"
+                                    >
+                                      {subtaskStatus === "done" ? (
+                                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                      ) : subtaskStatus === "blocked" ? (
+                                        <XCircle className="h-3 w-3 text-red-500" />
+                                      ) : subtaskStatus === "in_progress" ? (
+                                        <Clock className="h-3 w-3 text-[var(--tram-yellow)]" />
+                                      ) : (
+                                        <Circle className="h-3 w-3 text-neutral-300 dark:text-neutral-600" />
                                       )}
-                                    />
-                                    {showSubtaskDescription && (
-                                      <SubtaskDescription
-                                        subtask={subtask}
-                                        updateSubtask={(id, updates) => updateSubtask(task.id, id, updates)}
-                                      />
-                                    )}
-                                    {subtaskProps && (
-                                      <div className="pt-1">
-                                        <PropertyBadges
-                                          properties={subtaskProps}
-                                          memberNames={subtaskAssigneeNames}
-                                          onClick={() => {
-                                            setPropertiesTarget({
-                                              type: "subtask",
-                                              id: subtaskId,
-                                              title: subtask.text || "Subtask",
+                                    </button>
+                                    <div className="min-w-0 flex-1 space-y-1">
+                                      <input
+                                        type="text"
+                                        value={subtaskDrafts[subtaskId] ?? subtask.text}
+                                        onChange={(e) =>
+                                          setSubtaskDrafts((prev) => ({ ...prev, [subtaskId]: e.target.value }))
+                                        }
+                                        onBlur={() =>
+                                          commitSubtaskDraft(
+                                            task.id,
+                                            subtask.id,
+                                            subtaskDrafts[subtaskId],
+                                            subtask.text
+                                          )
+                                        }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            e.currentTarget.blur();
+                                          }
+                                          if (e.key === "Escape") {
+                                            e.preventDefault();
+                                            setSubtaskDrafts((prev) => {
+                                              const next = { ...prev };
+                                              delete next[subtaskId];
+                                              return next;
                                             });
-                                            setPropertiesOpen(true);
-                                          }}
+                                            e.currentTarget.blur();
+                                          }
+                                        }}
+                                        className={cn(
+                                          "w-full text-xs bg-transparent border-none outline-none text-[var(--foreground)] py-0.5",
+                                          subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
+                                        )}
+                                      />
+                                      {showSubtaskDescription && (
+                                        <SubtaskDescription
+                                          subtask={subtask}
+                                          updateSubtask={(id, updates) => updateSubtask(task.id, id, updates)}
                                         />
-                                      </div>
-                                    )}
-                                  </div>
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
-                                        <MoreVertical className="h-3.5 w-3.5" />
-                                      </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-44">
-                                      {canUseProperties && (
-                                        <>
-                                          <DropdownMenuItem
+                                      )}
+                                      {subtaskProps && (
+                                        <div className="pt-1">
+                                          <PropertyBadges
+                                            properties={subtaskProps}
+                                            memberNames={subtaskAssigneeNames}
                                             onClick={() => {
                                               setPropertiesTarget({
                                                 type: "subtask",
@@ -2799,366 +2836,393 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                               });
                                               setPropertiesOpen(true);
                                             }}
-                                          >
-                                            <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
-                                            Properties
-                                          </DropdownMenuItem>
-                                          <DropdownMenuSeparator />
-                                        </>
+                                          />
+                                        </div>
                                       )}
-                                      <DropdownMenuItem
-                                        onClick={() => {
-                                          setExpandedSubtasks((prev) => ({
-                                            ...prev,
-                                            [subtaskId]: { ...(prev[subtaskId] || {}), description: true },
-                                          }));
-                                          if (subtask.description === undefined) {
-                                            updateSubtask(task.id, subtask.id, { description: "" });
-                                          }
-                                        }}
-                                      >
-                                        <AlignLeft className="mr-2 h-4 w-4" />
-                                        Add Description
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => openSubtaskReferencesPanel(subtask.id)}>
-                                        <Paperclip className="mr-2 h-4 w-4" />
-                                        Attachments
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() => deleteSubtask(task.id, subtask.id)}
-                                        className="text-red-600"
-                                      >
-                                        <X className="mr-2 h-4 w-4" />
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </div>
-                                {subtaskSections.references && (
-                                  <div className="mt-2 border-t border-[var(--border)] pt-2">
-                                    <SubtaskReferences
-                                      subtaskId={subtaskId}
-                                      onAdd={() => openSubtaskReferencesPanel(subtask.id)}
-                                      disabled={!projectId || isTempBlock}
-                                    />
+                                    </div>
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                                          <MoreVertical className="h-3.5 w-3.5" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end" className="w-44">
+                                        {canUseProperties && (
+                                          <>
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                setPropertiesTarget({
+                                                  type: "subtask",
+                                                  id: subtaskId,
+                                                  title: subtask.text || "Subtask",
+                                                });
+                                                setPropertiesOpen(true);
+                                              }}
+                                            >
+                                              <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
+                                              Properties
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
+                                          </>
+                                        )}
+                                        <DropdownMenuItem
+                                          onClick={() => {
+                                            setExpandedSubtasks((prev) => ({
+                                              ...prev,
+                                              [subtaskId]: { ...(prev[subtaskId] || {}), description: true },
+                                            }));
+                                            if (subtask.description === undefined) {
+                                              updateSubtask(task.id, subtask.id, { description: "" });
+                                            }
+                                          }}
+                                        >
+                                          <AlignLeft className="mr-2 h-4 w-4" />
+                                          Add Description
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => openSubtaskReferencesPanel(subtask.id)}>
+                                          <Paperclip className="mr-2 h-4 w-4" />
+                                          Attachments
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onClick={() => deleteSubtask(task.id, subtask.id)}
+                                          className="text-red-600"
+                                        >
+                                          <X className="mr-2 h-4 w-4" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
                                   </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                          <button
-                            onClick={() => addSubtask(task.id)}
-                            className="flex items-center gap-0.5 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors py-0.5"
-                          >
-                            <Plus className="h-2.5 w-2.5" />
-                            Add subtask
-                          </button>
-                      </div>
-                    )}
-
-                    {/* Inline Icons (Priority / Assignee / Due Date) driven by universal properties */}
-                    {canUseProperties && taskEntityId && showInlineIcons && (
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal">
-                        {effectivePriorityFields.map((priorityField) => {
-                          const priorityLabel = getPriorityDisplayLabel(priorityField);
-                          if (!priorityLabel || !priorityField.value) return null;
-                          return (
+                                  {subtaskSections.references && (
+                                    <div className="mt-2 border-t border-[var(--border)] pt-2">
+                                      <SubtaskReferences
+                                        subtaskId={subtaskId}
+                                        onAdd={() => openSubtaskReferencesPanel(subtask.id)}
+                                        disabled={!projectId || isTempBlock}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                             <button
-                              key={`${task.id}-priority-${priorityField.field_name.toLowerCase()}`}
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPropertiesTarget({
-                                  type: "task",
-                                  id: taskEntityId,
-                                  title: task.text || "Task",
-                                });
-                                setPropertiesOpen(true);
-                              }}
-                              className={cn(
-                                "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-opacity hover:opacity-90",
-                                PRIORITY_COLORS[priorityField.value]
-                              )}
-                              title={priorityLabel}
+                              onClick={() => addSubtask(task.id)}
+                              className="flex items-center gap-0.5 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors py-0.5"
                             >
-                              <Flag className="h-3 w-3" />
-                              <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                              <Plus className="h-2.5 w-2.5" />
+                              Add subtask
                             </button>
-                          );
-                        })}
-
-                        {/* Assignees (multiple) */}
-                        {statusIsDerived ? (
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]",
-                              "cursor-not-allowed opacity-60"
-                            )}
-                            title="Assignees are derived from subtasks"
-                          >
-                            <Users className="h-3 w-3" />
-                            <span className="max-w-[140px] truncate">
-                              {assigneeLabel || "Unassigned"}
-                            </span>
-                          </span>
-                        ) : (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                type="button"
-                                onClick={(e) => e.stopPropagation()}
-                                className={cn(
-                                  "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                                  effectiveAssigneeIds.length
-                                    ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                                )}
-                                title={assigneeLabel ? `Assignees: ${assigneeLabel}` : "Assign"}
-                              >
-                                <Users className="h-3 w-3" />
-                                {assigneeLabel && <span className="max-w-[140px] truncate">{assigneeLabel}</span>}
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  setTaskProperties.mutate({
-                                    entityId: taskEntityId,
-                                    updates: { assignee_ids: null },
-                                  })
-                                }
-                              >
-                                Unassigned (clear all)
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              {workspaceMembers.map((m) => {
-                                const isAssigned = effectiveAssigneeIds.includes(m.user_id);
-                                return (
-                                  <DropdownMenuItem
-                                    key={m.user_id}
-                                    onClick={() => {
-                                      const next = isAssigned
-                                        ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
-                                        : [...effectiveAssigneeIds, m.user_id];
-                                      setTaskProperties.mutate({
-                                        entityId: taskEntityId,
-                                        updates: { assignee_ids: next.length ? next : null },
-                                      });
-                                    }}
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      {isAssigned ? "✓ " : ""}
-                                      {m.name || m.email}
-                                    </span>
-                                  </DropdownMenuItem>
-                                );
-                              })}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          </div>
                         )}
 
-                        {/* Due Date */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              className={cn(
-                                "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                                hasDueDateValue
-                                  ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-                              )}
-                              title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
-                            >
-                              <Calendar className="h-3 w-3" />
-                              {dueDateLabel && <span className="whitespace-nowrap">{dueDateLabel}</span>}
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="start"
-                            className="w-64"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <div className="p-2 space-y-2">
-                              <DateRangeCalendar
-                                range={{
-                                  start: effectiveDueDate?.start ?? null,
-                                  end: effectiveDueDate?.end ?? null,
-                                }}
-                                onChange={(nextRange) =>
-                                  setTaskProperties.mutate({
-                                    entityId: taskEntityId,
-                                    updates: { due_date: buildDueDateRange(nextRange.start, nextRange.end) },
-                                  })
-                                }
-                              />
-                              {hasDueDateValue && (
-                                <>
-                                  <DropdownMenuSeparator />
+                        {/* Inline Icons (Priority / Assignee / Due Date) driven by universal properties */}
+                        {canUseProperties && taskEntityId && showInlineIcons && (
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal">
+                            {effectivePriorityFields.map((priorityField) => {
+                              const priorityLabel = getPriorityDisplayLabel(priorityField);
+                              if (!priorityLabel || !priorityField.value) return null;
+                              return (
+                                <button
+                                  key={`${task.id}-priority-${priorityField.field_name.toLowerCase()}`}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPropertiesTarget({
+                                      type: "task",
+                                      id: taskEntityId,
+                                      title: task.text || "Task",
+                                    });
+                                    setPropertiesOpen(true);
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-opacity hover:opacity-90",
+                                    PRIORITY_COLORS[priorityField.value]
+                                  )}
+                                  title={priorityLabel}
+                                >
+                                  <Flag className="h-3 w-3" />
+                                  <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                </button>
+                              );
+                            })}
+
+                            {/* Assignees (multiple) */}
+                            {statusIsDerived ? (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]",
+                                  "cursor-not-allowed opacity-60"
+                                )}
+                                title="Assignees are derived from subtasks"
+                              >
+                                <Users className="h-3 w-3" />
+                                <span className="max-w-[140px] truncate">
+                                  {assigneeLabel || "Unassigned"}
+                                </span>
+                              </span>
+                            ) : (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
+                                      effectiveAssigneeIds.length
+                                        ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                                    )}
+                                    title={assigneeLabel ? `Assignees: ${assigneeLabel}` : "Assign"}
+                                  >
+                                    <Users className="h-3 w-3" />
+                                    {assigneeLabel && <span className="max-w-[140px] truncate">{assigneeLabel}</span>}
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
                                   <DropdownMenuItem
                                     onClick={() =>
                                       setTaskProperties.mutate({
                                         entityId: taskEntityId,
-                                        updates: { due_date: null },
+                                        updates: { assignee_ids: null },
                                       })
                                     }
-                                    className="text-red-600"
                                   >
-                                    Clear dates
+                                    Unassigned (clear all)
                                   </DropdownMenuItem>
-                                </>
-                              )}
-                            </div>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    )}
-                  </div>
+                                  <DropdownMenuSeparator />
+                                  {workspaceMembers.map((m) => {
+                                    const isAssigned = effectiveAssigneeIds.includes(m.user_id);
+                                    return (
+                                      <DropdownMenuItem
+                                        key={m.user_id}
+                                        onClick={() => {
+                                          const next = isAssigned
+                                            ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
+                                            : [...effectiveAssigneeIds, m.user_id];
+                                          setTaskProperties.mutate({
+                                            entityId: taskEntityId,
+                                            updates: { assignee_ids: next.length ? next : null },
+                                          });
+                                        }}
+                                      >
+                                        <span className="flex items-center gap-2">
+                                          {isAssigned ? "✓ " : ""}
+                                          {m.name || m.email}
+                                        </span>
+                                      </DropdownMenuItem>
+                                    );
+                                  })}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
 
-                  {/* When icons are hidden, show compact universal property badges instead */}
-                  {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
-                    <TaskPropertyBadges
-                      entityId={taskEntityId}
-                      workspaceId={workspaceId}
-                      onOpen={() => {
-                        setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                        setPropertiesOpen(true);
-                      }}
-                    />
-                  )}
-
-                  {/* Three-dot menu */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
-                        <MoreVertical className="h-3.5 w-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      {canUseProperties && taskEntityId && (
-                        <>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                              setPropertiesOpen(true);
-                            }}
-                          >
-                            <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
-                            Properties
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                        </>
-                      )}
-                      {/* Actions */}
-                      <DropdownMenuItem onClick={() => toggleTaskIcons(task.id)}>
-                        {task.hideIcons ? (
-                          <>
-                            <Eye className="mr-2 h-4 w-4" />
-                            Show Icons
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="mr-2 h-4 w-4" />
-                            Hide Icons
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => {
-                        if (!task.description) {
-                          updateTask(task.id, { description: "" });
-                        }
-                      }}>
-                        <AlignLeft className="mr-2 h-4 w-4" />
-                        Add Description
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => addSubtask(task.id)}>
-                        <CheckSquare className="mr-2 h-4 w-4" />
-                        Add Subtask
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
-                        <Paperclip className="mr-2 h-4 w-4" />
-                        Attachments
-                      </DropdownMenuItem>
-
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
-                        <X className="mr-2 h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                {/* Expanded Section */}
-                {hasAnyExpanded && (
-                  <div className="border-t border-[var(--border)] px-2.5 py-2 space-y-2 bg-[var(--surface-muted)]">
-                    <TaskReferences
-                      taskId={String(task.id)}
-                      onAdd={() => openReferencePicker(task.id)}
-                      disabled={!projectId || isTempBlock}
-                    />
-                    {/* Comments */}
-                    {taskSections.comments && (
-                      <div>
-                        <label className="text-xs font-medium text-[var(--muted-foreground)] mb-2 block">
-                          Comments {task.comments && task.comments.length > 0 && (
-                            <span className="text-[var(--tertiary-foreground)]">({task.comments.length})</span>
-                          )}
-                        </label>
-                        {task.comments && task.comments.length > 0 && (
-                          <div className="space-y-2 mb-2">
-                            {task.comments.map((comment) => (
-                              <div key={comment.id} className="rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-2 text-xs">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-medium text-[var(--foreground)]">{comment.author}</span>
-                                  <span className="text-xs text-[var(--tertiary-foreground)]">
-                                    {new Date(comment.timestamp).toLocaleString()}
-                                  </span>
+                            {/* Due Date */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
+                                    hasDueDateValue
+                                      ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                      : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                  )}
+                                  title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
+                                >
+                                  <Calendar className="h-3 w-3" />
+                                  {dueDateLabel && <span className="whitespace-nowrap">{dueDateLabel}</span>}
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="start"
+                                className="w-64"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="p-2 space-y-2">
+                                  <DateRangeCalendar
+                                    range={{
+                                      start: effectiveDueDate?.start ?? null,
+                                      end: effectiveDueDate?.end ?? null,
+                                    }}
+                                    onChange={(nextRange) =>
+                                      setTaskProperties.mutate({
+                                        entityId: taskEntityId,
+                                        updates: { due_date: buildDueDateRange(nextRange.start, nextRange.end) },
+                                      })
+                                    }
+                                  />
+                                  {hasDueDateValue && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          setTaskProperties.mutate({
+                                            entityId: taskEntityId,
+                                            updates: { due_date: null },
+                                          })
+                                        }
+                                        className="text-red-600"
+                                      >
+                                        Clear dates
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
                                 </div>
-                                <p className="text-xs text-[var(--muted-foreground)] leading-normal">{comment.text}</p>
-                              </div>
-                            ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         )}
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={newComment[task.id] || ""}
-                            onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                addComment(task.id);
-                              }
-                            }}
-                            placeholder="Add comment..."
-                            className="flex-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:outline-none"
-                          />
-                          <button
-                            onClick={() => addComment(task.id)}
-                            className="px-3 py-1.5 rounded-[4px] bg-[var(--primary)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
-                          >
-                            Send
+                      </div>
+
+                      {/* When icons are hidden, show compact universal property badges instead */}
+                      {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
+                        <TaskPropertyBadges
+                          entityId={taskEntityId}
+                          properties={entityPropertiesByTaskId[task.id]}
+                          workspaceId={workspaceId}
+                          onOpen={() => {
+                            setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                            setPropertiesOpen(true);
+                          }}
+                        />
+                      )}
+
+                      {/* Three-dot menu */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
+                            <MoreVertical className="h-3.5 w-3.5" />
                           </button>
-                        </div>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          {canUseProperties && taskEntityId && (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                                  setPropertiesOpen(true);
+                                }}
+                              >
+                                <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
+                                Properties
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
+                          {/* Actions */}
+                          <DropdownMenuItem onClick={() => toggleTaskIcons(task.id)}>
+                            {task.hideIcons ? (
+                              <>
+                                <Eye className="mr-2 h-4 w-4" />
+                                Show Icons
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="mr-2 h-4 w-4" />
+                                Hide Icons
+                              </>
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            if (!task.description) {
+                              updateTask(task.id, { description: "" });
+                            }
+                          }}>
+                            <AlignLeft className="mr-2 h-4 w-4" />
+                            Add Description
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => addSubtask(task.id)}>
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Add Subtask
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
+                            <Paperclip className="mr-2 h-4 w-4" />
+                            Attachments
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
+                            <X className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    {/* Expanded Section */}
+                    {hasAnyExpanded && (
+                      <div className="border-t border-[var(--border)] px-2.5 py-2 space-y-2 bg-[var(--surface-muted)]">
+                        <TaskReferences
+                          taskId={String(task.id)}
+                          onAdd={() => openReferencePicker(task.id)}
+                          disabled={!projectId || isTempBlock}
+                        />
+                        {/* Comments */}
+                        {taskSections.comments && (
+                          <div>
+                            <label className="text-xs font-medium text-[var(--muted-foreground)] mb-2 block">
+                              Comments {task.comments && task.comments.length > 0 && (
+                                <span className="text-[var(--tertiary-foreground)]">({task.comments.length})</span>
+                              )}
+                            </label>
+                            {task.comments && task.comments.length > 0 && (
+                              <div className="space-y-2 mb-2">
+                                {task.comments.map((comment) => (
+                                  <div key={comment.id} className="rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-2 text-xs">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-xs font-medium text-[var(--foreground)]">{comment.author}</span>
+                                      <span className="text-xs text-[var(--tertiary-foreground)]">
+                                        {new Date(comment.timestamp).toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-[var(--muted-foreground)] leading-normal">{comment.text}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={newComment[task.id] || ""}
+                                onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    addComment(task.id);
+                                  }
+                                }}
+                                placeholder="Add comment..."
+                                className="flex-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:outline-none"
+                              />
+                              <button
+                                onClick={() => addComment(task.id)}
+                                className="px-3 py-1.5 rounded-[4px] bg-[var(--primary)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+                              >
+                                Send
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                </div>
+              );
+            })}
+          </div>
 
-          <TaskRollupBar
-            tasks={rollupTasks}
-            getMemberName={(id) => {
-              const m = workspaceMemberLookup.get(id);
-              return m?.name ?? m?.email;
-            }}
-          />
+          {showRollup && (
+            <TaskRollupBar
+              tasks={rollupTasks}
+              getMemberName={(id) => {
+                const m = workspaceMemberLookup.get(id);
+                return m?.name ?? m?.email;
+              }}
+            />
+          )}
 
           <button
             onClick={addTask}
@@ -3868,6 +3932,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
                             <TaskPropertyBadges
                               entityId={taskEntityId}
+                              properties={entityPropertiesByTaskId[task.id]}
                               workspaceId={workspaceId}
                               onOpen={() => {
                                 setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
@@ -4508,113 +4573,118 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
             <Plus className="h-3 w-3" /> Add task
           </button>
         </div>
-      )}
-      {projectId && !isTempBlock && (
-        <ReferencePicker
-          isOpen={isReferenceDialogOpen}
-          projectId={projectId}
-          workspaceId={workspaceId}
-          initialQuery={referenceInitialQuery}
-          variant={referenceAnchorRect ? "popover" : "dialog"}
-          anchorRect={referenceAnchorRect}
-          autoFocus={!referenceAnchorRect}
-          onQueryChange={setReferenceCurrentQuery}
-          onClose={() => {
-            setIsReferenceDialogOpen(false);
-            setInlineReference(null);
-            setReferenceInitialQuery("");
-            setReferenceCurrentQuery("");
-            setReferenceAnchorRect(null);
-            setReferenceTaskId(null);
-            setReferenceSubtaskId(null);
-          }}
-          onSelect={async (item) => {
-            if (referenceTaskId) {
-              const result = await createReferenceMutation.mutateAsync({
-                taskId: referenceTaskId,
-                referenceType: item.referenceType,
-                referenceId: item.id,
-                tableId: null,
-              });
-              if ("error" in result) {
-                console.error("Failed to create reference:", result.error);
-                return false;
-              }
-              if (inlineReference && String(referenceTaskId) === inlineReference.taskId) {
-                const href = getLinkableItemHref({
+      )
+      }
+      {
+        projectId && !isTempBlock && (
+          <ReferencePicker
+            isOpen={isReferenceDialogOpen}
+            projectId={projectId}
+            workspaceId={workspaceId}
+            initialQuery={referenceInitialQuery}
+            variant={referenceAnchorRect ? "popover" : "dialog"}
+            anchorRect={referenceAnchorRect}
+            autoFocus={!referenceAnchorRect}
+            onQueryChange={setReferenceCurrentQuery}
+            onClose={() => {
+              setIsReferenceDialogOpen(false);
+              setInlineReference(null);
+              setReferenceInitialQuery("");
+              setReferenceCurrentQuery("");
+              setReferenceAnchorRect(null);
+              setReferenceTaskId(null);
+              setReferenceSubtaskId(null);
+            }}
+            onSelect={async (item) => {
+              if (referenceTaskId) {
+                const result = await createReferenceMutation.mutateAsync({
+                  taskId: referenceTaskId,
                   referenceType: item.referenceType,
-                  id: item.id,
-                  tabId: item.tabId,
-                  projectId: item.projectId,
-                  isWorkflow: item.isWorkflow,
+                  referenceId: item.id,
+                  tableId: null,
                 });
-                if (href) {
-                  const label = `@${item.name}`;
-                  const markdown = `[${label}](${href})`;
-                  const start = inlineReference.cursor;
-                  // Replace "@" + search query (currentQuery or initialQuery as fallback)
-                  const query = referenceCurrentQuery || referenceInitialQuery || "";
-                  const end = start + 1 + query.length; // "@" + query length
-                  const next =
-                    editingTaskText.slice(0, start) +
-                    markdown +
-                    editingTaskText.slice(end);
-                  setEditingTaskText(next);
-                  requestAnimationFrame(() => {
-                    if (editingTaskInputRef.current) {
-                      const pos = start + markdown.length;
-                      editingTaskInputRef.current.focus();
-                      editingTaskInputRef.current.setSelectionRange(pos, pos);
-                    }
-                  });
+                if ("error" in result) {
+                  console.error("Failed to create reference:", result.error);
+                  return false;
                 }
-                setInlineReference(null);
-                setReferenceInitialQuery("");
-                setReferenceCurrentQuery("");
+                if (inlineReference && String(referenceTaskId) === inlineReference.taskId) {
+                  const href = getLinkableItemHref({
+                    referenceType: item.referenceType,
+                    id: item.id,
+                    tabId: item.tabId,
+                    projectId: item.projectId,
+                    isWorkflow: item.isWorkflow,
+                  });
+                  if (href) {
+                    const label = `@${item.name}`;
+                    const markdown = `[${label}](${href})`;
+                    const start = inlineReference.cursor;
+                    // Replace "@" + search query (currentQuery or initialQuery as fallback)
+                    const query = referenceCurrentQuery || referenceInitialQuery || "";
+                    const end = start + 1 + query.length; // "@" + query length
+                    const next =
+                      editingTaskText.slice(0, start) +
+                      markdown +
+                      editingTaskText.slice(end);
+                    setEditingTaskText(next);
+                    requestAnimationFrame(() => {
+                      if (editingTaskInputRef.current) {
+                        const pos = start + markdown.length;
+                        editingTaskInputRef.current.focus();
+                        editingTaskInputRef.current.setSelectionRange(pos, pos);
+                      }
+                    });
+                  }
+                  setInlineReference(null);
+                  setReferenceInitialQuery("");
+                  setReferenceCurrentQuery("");
+                }
+                return true;
               }
-              return true;
-            }
 
-            if (referenceSubtaskId) {
-              const result = await createSubtaskReferenceMutation.mutateAsync({
-                subtaskId: referenceSubtaskId,
-                referenceType: item.referenceType,
-                referenceId: item.id,
-                tableId: null,
-              });
-              if ("error" in result) {
-                console.error("Failed to create subtask reference:", result.error);
-                return false;
+              if (referenceSubtaskId) {
+                const result = await createSubtaskReferenceMutation.mutateAsync({
+                  subtaskId: referenceSubtaskId,
+                  referenceType: item.referenceType,
+                  referenceId: item.id,
+                  tableId: null,
+                });
+                if ("error" in result) {
+                  console.error("Failed to create subtask reference:", result.error);
+                  return false;
+                }
+                return true;
               }
-              return true;
-            }
 
-            return false;
-          }}
-        />
-      )}
-      {propertiesTarget && workspaceId && (
-        <PropertyMenu
-          open={propertiesOpen}
-          onOpenChange={(open) => {
-            setPropertiesOpen(open);
-            if (!open) {
-              setPropertiesTarget(null);
+              return false;
+            }}
+          />
+        )
+      }
+      {
+        propertiesTarget && workspaceId && (
+          <PropertyMenu
+            open={propertiesOpen}
+            onOpenChange={(open) => {
+              setPropertiesOpen(open);
+              if (!open) {
+                setPropertiesTarget(null);
+              }
+            }}
+            entityType={propertiesTarget.type}
+            entityId={propertiesTarget.id}
+            workspaceId={workspaceId}
+            entityTitle={propertiesTarget.title}
+            projectId={projectId}
+            disabledFields={
+              propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length
+                ? { status: true, assignees: true }
+                : undefined
             }
-          }}
-          entityType={propertiesTarget.type}
-          entityId={propertiesTarget.id}
-          workspaceId={workspaceId}
-          entityTitle={propertiesTarget.title}
-          projectId={projectId}
-          disabledFields={
-            propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length
-              ? { status: true, assignees: true }
-              : undefined
-          }
-        />
-      )}
-    </div>
+          />
+        )
+      }
+    </div >
   );
 }
 

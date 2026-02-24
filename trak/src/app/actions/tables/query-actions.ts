@@ -15,9 +15,11 @@ interface GetTableDataInput {
   tableId: string;
   viewId?: string | null;
   authContext?: AuthContext;
+  limit?: number;
+  offset?: number;
 }
 
-export async function getTableData(input: GetTableDataInput): Promise<ActionResult<{ rows: TableRow[]; view?: TableView | null }>> {
+export async function getTableData(input: GetTableDataInput): Promise<ActionResult<{ rows: TableRow[]; view?: TableView | null; hasMore?: boolean; nextOffset?: number | null; total?: number }>> {
   const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -47,15 +49,19 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
   const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
     supabase
       .from("table_rows")
-      .select("*")
+      .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by")
       .eq("table_id", input.tableId),
     filters
   );
 
   const sortedQuery = applyServerSorts(filteredQuery, sorts);
 
-  const { data: rows, error } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
-    .order("order", { ascending: true });
+  const limit = input.limit ?? 100;
+  const offset = input.offset ?? 0;
+
+  const { data: rows, error, count } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
+    .order("order", { ascending: true })
+    .range(offset, offset + limit - 1);
 
   if (error || !rows) {
     return { error: "Failed to load rows" };
@@ -67,7 +73,17 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
   // If sorts include unsupported pieces, fall back to in-memory; otherwise trust DB order
   const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
 
-  return { data: { rows: sorted, view } };
+  const total = count ?? (rows as any[]).length;
+
+  return {
+    data: {
+      rows: sorted,
+      view,
+      hasMore: offset + (rows as any[]).length < total,
+      nextOffset: offset + (rows as any[]).length < total ? offset + (rows as any[]).length : null,
+      total
+    }
+  };
 }
 
 export async function searchTableRows(tableId: string, query: string): Promise<ActionResult<TableRow[]>> {
@@ -75,20 +91,20 @@ export async function searchTableRows(tableId: string, query: string): Promise<A
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
+  // Server-side search: cast JSONB data to text and use ILIKE for matching.
+  // Stabilization fix — still seq scans on large tables; future: GIN/FTS indexes.
   const { data: rows, error } = await supabase
     .from("table_rows")
-    .select("*")
-    .eq("table_id", tableId);
+    .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by")
+    .eq("table_id", tableId)
+    .filter("data::text", "ilike", `%${query}%`)
+    .limit(50);
 
   if (error || !rows) {
     return { error: "Failed to search rows" };
   }
 
-  const lowered = query.toLowerCase();
-  const results = (rows as TableRow[]).filter((row) =>
-    Object.values(row.data || {}).some((v) => String(v ?? "").toLowerCase().includes(lowered))
-  );
-  return { data: results };
+  return { data: rows as TableRow[] };
 }
 
 export async function getFilteredRows(tableId: string, filters: FilterCondition[], opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow[]>> {
@@ -97,7 +113,7 @@ export async function getFilteredRows(tableId: string, filters: FilterCondition[
   const { supabase } = access;
 
   const { query, unsupportedFilters } = applyServerFilters(
-    supabase.from("table_rows").select("*").eq("table_id", tableId),
+    supabase.from("table_rows").select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by").eq("table_id", tableId),
     filters
   );
 
@@ -124,7 +140,7 @@ export async function getTableRows(
 
   const { data: rows, count, error } = await supabase
     .from("table_rows")
-    .select("*", { count: "exact" })
+    .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by", { count: "exact" })
     .eq("table_id", tableId)
     .order("order", { ascending: true })
     .range(offset, offset + limit - 1);
@@ -263,47 +279,67 @@ export type TableBootstrap = {
   fields: TableField[];
   view: TableView | null;
   rows: TableRow[];
+  totalRows: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 };
 
 export async function getTableBootstrap(
   tableId: string,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TableBootstrap>> {
+  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+
   const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase } = access;
+  const { supabase, table: authTable } = access;
 
-  const [tableRes, fieldsRes, viewRes] = await Promise.all([
-    supabase.from("tables").select("*").eq("id", tableId).single(),
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] getTableBootstrap auth tableId=${tableId} ms=${Math.round(performance.now() - _t0)}`);
+  }
+  const _tMeta = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+
+  // Reuse table from auth — only fetch fields + default view
+  const [fieldsRes, viewRes] = await Promise.all([
     supabase.from("table_fields").select("*").eq("table_id", tableId).order("order", { ascending: true }),
     supabase.from("table_views").select("*").eq("table_id", tableId).eq("is_default", true).maybeSingle(),
   ]);
 
-  if (tableRes.error || !tableRes.data) {
-    return { error: "Table not found" };
-  }
   if (fieldsRes.error || !fieldsRes.data) {
     return { error: "Failed to load fields" };
   }
 
-  const table = tableRes.data as Table;
+  if (process.env.PERF_DEBUG === '1') {
+    console.log(`[PERF] getTableBootstrap meta ms=${Math.round(performance.now() - _tMeta)} fields=${fieldsRes.data?.length}`);
+  }
+
+  const table = authTable as Table;
   const fields = (fieldsRes.data as TableField[]) ?? [];
   const view = (viewRes.data as TableView) || null;
   const filters = view?.config?.filters || [];
   const sorts = view?.config?.sorts || [];
 
+  const PAGE_LIMIT = 100;
+
+  const _tRows = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
   const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
-    supabase.from("table_rows").select("*").eq("table_id", tableId),
+    supabase.from("table_rows").select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by", { count: "exact", head: false }).eq("table_id", tableId),
     filters
   );
   const sortedQuery = applyServerSorts(filteredQuery, sorts);
-  const { data: rows, error: rowsError } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>).order(
-    "order",
-    { ascending: true }
-  );
+  const { data: rows, error: rowsError, count } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
+    .order("order", { ascending: true })
+    .limit(PAGE_LIMIT);
 
   if (rowsError || !rows) {
     return { error: "Failed to load rows" };
+  }
+
+  const totalRows = count ?? rows.length;
+
+  if (process.env.PERF_DEBUG === '1') {
+    const payloadBytes = Buffer.byteLength(JSON.stringify(rows), 'utf8');
+    console.log(`[PERF] getTableBootstrap rows ms=${Math.round(performance.now() - _tRows)} count=${rows.length} total=${totalRows} bytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
   }
 
   const filtered =
@@ -316,6 +352,9 @@ export async function getTableBootstrap(
       fields,
       view,
       rows: sorted,
+      totalRows,
+      hasMore: totalRows > PAGE_LIMIT,
+      nextOffset: totalRows > PAGE_LIMIT ? PAGE_LIMIT : null,
     },
   };
 }

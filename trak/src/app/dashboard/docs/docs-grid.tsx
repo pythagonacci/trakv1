@@ -81,7 +81,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId, folders }: Do
 
   const handleMoveToFolder = async (doc: Doc, folderId: string | null) => {
     const result = await moveDocToFolder(doc.id, folderId);
-    if (result.error) setToast({ message: result.error, type: "error" });
+    if ("error" in result) setToast({ message: result.error, type: "error" });
     else {
       setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, folder_id: folderId } : d)));
       setToast({ message: folderId ? "Document moved to folder" : "Document removed from folder", type: "success" });

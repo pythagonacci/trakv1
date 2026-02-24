@@ -2857,7 +2857,7 @@ function EventDetailsPanel({
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {effectivePriorities.length > 0 ? (
                 effectivePriorities.map((priorityField) => (
-                  <EventModalToneChip key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`} tone={priorityTone(priorityField.value) as "neutral" | "accent" | "warn" | "success"} title={getTimelinePriorityDisplayLabel(priorityField)}>
+                  <EventModalToneChip key={`${event.id}-details-priority-${priorityField.field_name.toLowerCase()}`} tone={priorityTone(priorityField.value) as "neutral" | "accent" | "warn" | "success"}>
                     <span className="font-semibold">{PRIORITY_LABELS[priorityField.value]}</span>
                     <span className="text-zinc-500 dark:text-zinc-400">•</span>
                     <span>{priorityField.field_name}</span>

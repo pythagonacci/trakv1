@@ -943,15 +943,21 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 range.collapse(true);
                 selection.removeAllRanges();
                 selection.addRange(range);
-                
+
                 // Get the cursor position (after the "@") for better positioning
                 const cursorRect = range.getBoundingClientRect();
                 // Use cursor position instead of "@" position for better alignment
                 const rect = cursorRect.width > 0 ? cursorRect : mentionRange.getBoundingClientRect();
-                
+
                 setMentionSearchQuery("");
-                referencePicker.openPicker({ 
-                  onSelect: insertInlineReference, 
+                referencePicker.openPicker({
+                  onSelect: insertInlineReference,
+                  onClose: () => {
+                    mentionStartRef.current = null;
+                    mentionEndRef.current = null;
+                    mentionRangeRef.current = null;
+                    setMentionSearchQuery("");
+                  },
                   anchorRect: rect,
                   initialQuery: ""
                 });
@@ -986,36 +992,35 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               const selection = window.getSelection();
               if (selection && selection.rangeCount > 0) {
                 const cursorRange = selection.getRangeAt(0);
-                const textContent = editableDiv.textContent || "";
-                
-                // Find "@" position
-                const atIndex = textContent.indexOf("@");
-                if (atIndex !== -1) {
-                  // Get text from "@" to cursor
-                  const cursorPos = getTextOffset(editableDiv, cursorRange.startContainer, cursorRange.startOffset);
-                  if (cursorPos > atIndex) {
-                    const query = textContent.slice(atIndex + 1, cursorPos);
-                    setMentionSearchQuery(query);
-                    
-                    // Update the end range to current cursor position
-                    mentionEndRef.current = {
-                      node: cursorRange.startContainer,
-                      offset: cursorRange.startOffset,
-                    };
-                    
-                    // Update the picker's search query
-                    if (referencePicker.updateQuery) {
-                      referencePicker.updateQuery(query);
-                    } else {
-                      // Fallback: re-open with new query
-                      const rect = mentionRangeRef.current?.getBoundingClientRect();
-                      referencePicker.openPicker({
-                        onSelect: insertInlineReference,
-                        anchorRect: rect || undefined,
-                        initialQuery: query,
-                      });
-                    }
+
+                // Compute query using DOM positions rather than textContent.indexOf("@"),
+                // which would incorrectly match "@" inside previously inserted mention links.
+                const atPos = getTextOffset(editableDiv, mentionStartRef.current.node, mentionStartRef.current.offset);
+                const cursorPos = getTextOffset(editableDiv, cursorRange.startContainer, cursorRange.startOffset);
+
+                if (cursorPos >= atPos + 1) {
+                  // Text between the "@" node and the current cursor (excludes the "@" itself)
+                  const fullText = editableDiv.textContent || "";
+                  const query = fullText.slice(atPos + 1, cursorPos);
+                  setMentionSearchQuery(query);
+
+                  // Update the end range to current cursor position
+                  mentionEndRef.current = {
+                    node: cursorRange.startContainer,
+                    offset: cursorRange.startOffset,
+                  };
+
+                  // Update the picker's search query
+                  if (referencePicker.updateQuery) {
+                    referencePicker.updateQuery(query);
                   }
+                } else {
+                  // Cursor moved before the "@" — cancel mention mode
+                  mentionStartRef.current = null;
+                  mentionEndRef.current = null;
+                  mentionRangeRef.current = null;
+                  setMentionSearchQuery("");
+                  referencePicker.closePicker();
                 }
               }
             }

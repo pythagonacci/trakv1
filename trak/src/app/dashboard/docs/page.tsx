@@ -52,7 +52,7 @@ export default async function DocsPage({ searchParams }: PageProps) {
   }
 
   const docs = docsResult.data || [];
-  const folders = foldersResult.error ? [] : (foldersResult.data || []);
+  const folders = "error" in foldersResult ? [] : (foldersResult.data || []);
 
   return (
     <div>

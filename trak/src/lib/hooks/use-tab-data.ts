@@ -14,15 +14,15 @@ import { queryKeys } from '@/lib/react-query/query-client';
  */
 export function useTabBlocks(tabId: string, initialBlocks?: Block[]) {
   const queryClient = useQueryClient();
-  
+
   // Check if we already have cached data for this tab
   const cachedData = queryClient.getQueryData<Block[]>(queryKeys.tabBlocks(tabId));
   const hasCache = !!cachedData;
-  
+
   // Only use initialData if we don't have cached data (first visit)
   // This allows cache to be used on subsequent visits
   const shouldUseInitialData = !hasCache && initialBlocks;
-  
+
   return useQuery({
     queryKey: queryKeys.tabBlocks(tabId),
     queryFn: async () => {
@@ -51,7 +51,7 @@ export function useProjectTabs(projectId: string, initialTabs?: TabWithChildren[
   const cachedData = queryClient.getQueryData(queryKeys.projectTabs(projectId));
   const hasCache = !!cachedData;
   const shouldUseInitialData = !hasCache && initialTabs;
-  
+
   return useQuery({
     queryKey: queryKeys.projectTabs(projectId),
     queryFn: async () => {
@@ -82,7 +82,7 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
     ? fileIds.every((id) => Boolean(initialUrls?.[id]))
     : false;
   const shouldUseInitialData = !hasCache && initialUrlsCoverAll;
-  
+
   return useQuery({
     queryKey: queryKeys.fileUrls(fileIds),
     queryFn: async () => {
@@ -96,8 +96,9 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
       return result.data || {};
     },
     initialData: shouldUseInitialData ? initialUrls : undefined,
-    refetchOnMount: false,
-    staleTime: 10 * 60 * 1000, // 10 minutes (file URLs are stable)
+    refetchOnMount: true, // Always refetch on mount to get fresh signed URLs
+    staleTime: 30 * 60 * 1000, // 30 min (half of 60-min signed URL TTL)
+    gcTime: 55 * 60 * 1000,    // GC just before signed URLs expire
     enabled: fileIds.length > 0, // Don't fetch if no file IDs
   });
 }
@@ -116,14 +117,14 @@ export function useInvalidateQueries() {
         queryKey: queryKeys.tabBlocks(tabId),
       });
     },
-    
+
     // Invalidate project tabs cache (after tab changes)
     invalidateProjectTabs: (projectId: string) => {
       return queryClient.invalidateQueries({
         queryKey: queryKeys.projectTabs(projectId),
       });
     },
-    
+
     // Invalidate all caches (nuclear option)
     invalidateAll: () => {
       return queryClient.invalidateQueries();

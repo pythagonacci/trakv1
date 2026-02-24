@@ -518,12 +518,12 @@ async function buildChartContext(params: {
       const tasksResult = await getTaskItemsByBlock(block.id);
       if ("error" in tasksResult) return;
       const title = (block.content as any)?.title ?? null;
-      const taskSample = tasksResult.data.slice(0, 6).map((task) => task.text).join(" ");
+      const taskSample = tasksResult.data.tasks.slice(0, 6).map((task) => task.text).join(" ");
       const matchScore = scoreTextMatch(`${title || ""} ${taskSample}`, tokens, phrases);
       taskBlocks.push({
         blockId: block.id,
         title,
-        tasks: tasksResult.data.map((task) => ({
+        tasks: tasksResult.data.tasks.map((task) => ({
           id: task.id,
           text: task.text,
           statuses: task.statuses ?? [],

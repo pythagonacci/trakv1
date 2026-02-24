@@ -4,7 +4,7 @@
 // - Existing table UI is block-scoped (table-block.tsx) and reads from blocks.content via useTabBlocks/getTabBlocks.
 // - No React Query hooks existed for the new Supabase-backed tables/fields/rows/views/comments; these hooks wrap the new server actions to ease migration.
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import { createTable, getTable, updateTable, deleteTable, duplicateTable, listWorkspaceTables } from "@/app/actions/tables/table-actions";
 import { createField, updateField, deleteField, reorderFields, updateFieldConfig } from "@/app/actions/tables/field-actions";
@@ -166,12 +166,12 @@ export function useReorderFields(tableId: string) {
     onMutate: async (orders) => {
       // Cancel outgoing refetches
       await qc.cancelQueries({ queryKey: queryKeys.table(tableId) });
-      
+
       // Snapshot previous value
       const previous = qc.getQueryData<{ table: Table; fields: TableField[] }>(
         queryKeys.table(tableId)
       );
-      
+
       // Optimistically update field order
       if (previous) {
         const orderMap = new Map(orders.map(o => [o.fieldId, o.order]));
@@ -180,13 +180,13 @@ export function useReorderFields(tableId: string) {
           const orderB = orderMap.get(b.id) ?? b.order;
           return orderA - orderB;
         });
-        
+
         qc.setQueryData(queryKeys.table(tableId), {
           ...previous,
           fields: reorderedFields,
         });
       }
-      
+
       return { previous };
     },
     onError: (err, orders, context) => {
@@ -260,7 +260,7 @@ export function useCreateRow(tableId: string, viewId?: string | null) {
         }
       }
       // Invalidate all tableRows queries for this table to ensure fresh data
-      qc.invalidateQueries({ 
+      qc.invalidateQueries({
         queryKey: ['tableRows', tableId],
         refetchType: 'active' // Only refetch active queries
       });
@@ -284,23 +284,23 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
   return useMutation({
     mutationFn: async (args: { rowId: string; fieldId: string; value: unknown }) => {
       const result = await updateCell(args.rowId, args.fieldId, args.value);
-      
+
       // Throw error if result contains error, so React Query's onError is called
       if ("error" in result) {
         throw new Error(result.error);
       }
-      
+
       return result;
     },
     onMutate: async (args) => {
       // Cancel outgoing refetches
       await qc.cancelQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
-      
+
       // Snapshot previous value
       const previous = qc.getQueryData<{ rows: TableRow[]; view?: any }>(
         queryKeys.tableRows(tableId, viewId)
       );
-      
+
       // Optimistically update
       if (previous) {
         qc.setQueryData(queryKeys.tableRows(tableId, viewId), {
@@ -312,7 +312,7 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
           ),
         });
       }
-      
+
       return { previous };
     },
     onError: (err, args, context) => {
@@ -339,14 +339,12 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
           });
         }
       }
-      // Invalidate to ensure consistency
-      qc.invalidateQueries({ 
+      // Invalidate to ensure consistency — scoped to current table only
+      qc.invalidateQueries({
         queryKey: queryKeys.tableRows(tableId, viewId),
         refetchType: 'active'
       });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
-      // Rollups/formulas can affect related tables; refresh any visible table rows.
-      qc.invalidateQueries({ queryKey: ['tableRows'] });
     },
   });
 }
@@ -441,6 +439,29 @@ export function useTableRows(
     },
     staleTime: 10_000,
     enabled: opts?.enabled !== false && Boolean(tableId),
+  });
+}
+
+export function useInfiniteTableRows(
+  tableId: string,
+  viewId?: string | null,
+  opts?: { enabled?: boolean; initialData?: any }
+) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.tableRows(tableId, viewId),
+    queryFn: async ({ pageParam = 0 }) => {
+      const result = await getTableData({ tableId, viewId, offset: pageParam as number, limit: 100 });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextOffset : null,
+    initialPageParam: 0,
+    staleTime: 10_000,
+    enabled: opts?.enabled !== false && Boolean(tableId),
+    initialData: opts?.initialData ? {
+      pages: [opts.initialData],
+      pageParams: [0]
+    } : undefined,
   });
 }
 

@@ -17,7 +17,7 @@ import {
   deleteSubtaskReference,
   listSubtaskReferenceSummaries,
 } from "@/app/actions/tasks/subtask-reference-actions";
-import type { TaskItemView } from "@/app/actions/tasks/query-actions";
+import type { TaskItemView, TaskBlockBundle } from "@/app/actions/tasks/query-actions";
 
 const taskKeys = {
   items: (blockId: string) => ["taskItems", blockId] as const,
@@ -31,7 +31,7 @@ export function useTaskItems(blockId: string, options?: { enabled?: boolean }) {
     queryFn: async () => {
       const result = await getTaskItemsByBlock(blockId);
       if ("error" in result) throw new Error(result.error);
-      return result.data as TaskItemView[];
+      return result.data as TaskBlockBundle;
     },
     enabled: options?.enabled ?? true,
   });
@@ -41,7 +41,26 @@ export function useCreateTaskItem(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: Parameters<typeof createTaskItem>[0]) => createTaskItem(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+      const previous = qc.getQueryData<TaskItemView[]>(taskKeys.items(blockId));
+      const optimistic: TaskItemView = {
+        id: `optimistic-${Date.now()}`,
+        text: input.title ?? "New task",
+        statuses: [{ field_name: "Status", value: input.status ?? "todo" }],
+        priorities: [],
+        subtasks: [],
+        comments: [],
+      };
+      qc.setQueryData<TaskItemView[]>(taskKeys.items(blockId), (old) => [...(old ?? []), optimistic]);
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
 
@@ -50,7 +69,32 @@ export function useUpdateTaskItem(blockId: string) {
   return useMutation({
     mutationFn: (input: { taskId: string; updates: Parameters<typeof updateTaskItem>[1] }) =>
       updateTaskItem(input.taskId, input.updates),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onMutate: async ({ taskId, updates }) => {
+      await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+      const previous = qc.getQueryData<TaskItemView[]>(taskKeys.items(blockId));
+      qc.setQueryData<TaskItemView[]>(taskKeys.items(blockId), (old) =>
+        old?.map((t) =>
+          t.id === taskId
+            ? {
+              ...t,
+              ...(updates.title !== undefined ? { text: updates.title } : {}),
+              ...(updates.status !== undefined
+                ? { statuses: [{ field_name: "Status", value: updates.status }] }
+                : {}),
+              ...(updates.description !== undefined ? { description: updates.description ?? undefined } : {}),
+            }
+            : t
+        ) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      }
+    },
+    // No invalidation needed — onMutate already updates the cache optimistically.
+    // Keeping invalidation only for structural mutations (create/delete/reorder).
   });
 }
 
@@ -58,7 +102,20 @@ export function useDeleteTaskItem(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (taskId: string) => deleteTaskItem(taskId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onMutate: async (taskId) => {
+      await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+      const previous = qc.getQueryData<TaskItemView[]>(taskKeys.items(blockId));
+      qc.setQueryData<TaskItemView[]>(taskKeys.items(blockId), (old) =>
+        old?.filter((t) => t.id !== taskId) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
 
@@ -89,7 +146,23 @@ export function useTaskSubtasks(blockId: string) {
     update: useMutation({
       mutationFn: (input: { subtaskId: string; updates: Parameters<typeof updateTaskSubtask>[1] }) =>
         updateTaskSubtask(input.subtaskId, input.updates),
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) => ({
+              ...t,
+              subtasks: t.subtasks?.map((s) => s.id === input.subtaskId ? { ...s, ...input.updates } : s),
+            })),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
     }),
     remove: useMutation({
       mutationFn: (subtaskId: string) => deleteTaskSubtask(subtaskId),
@@ -98,7 +171,25 @@ export function useTaskSubtasks(blockId: string) {
     reorder: useMutation({
       mutationFn: (input: { taskId: string; orderedSubtaskIds: string[] }) =>
         reorderSubtasks(input.taskId, input.orderedSubtaskIds),
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) => {
+              if (t.id !== input.taskId) return t;
+              const subtaskMap = new Map(t.subtasks?.map(s => [s.id, s]) || []);
+              const newSubtasks = input.orderedSubtaskIds.map(id => subtaskMap.get(id)).filter(Boolean) as typeof t.subtasks;
+              return { ...t, subtasks: newSubtasks };
+            }),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
     }),
   };
 }
@@ -113,7 +204,23 @@ export function useTaskComments(blockId: string) {
     update: useMutation({
       mutationFn: (input: { commentId: string; updates: Parameters<typeof updateTaskComment>[1] }) =>
         updateTaskComment(input.commentId, input.updates),
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) => ({
+              ...t,
+              comments: t.comments?.map((c) => c.id === input.commentId ? { ...c, ...input.updates } : c),
+            })),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
     }),
     remove: useMutation({
       mutationFn: deleteTaskComment,
@@ -126,7 +233,20 @@ export function useTaskTags(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { taskId: string; tags: string[] }) => setTaskTags(input.taskId, input.tags),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+      const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+      if (previous) {
+        qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+          ...previous,
+          tasks: previous.tasks.map((t) => t.id === input.taskId ? { ...t, tags: input.tags } : t),
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+    },
   });
 }
 
@@ -135,7 +255,20 @@ export function useTaskAssignees(blockId: string) {
   return useMutation({
     mutationFn: (input: { taskId: string; assignees: Array<{ id?: string | null; name?: string | null }> }) =>
       setTaskAssignees(input.taskId, input.assignees),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+      const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+      if (previous) {
+        qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+          ...previous,
+          tasks: previous.tasks.map((t) => t.id === input.taskId ? { ...t, assignees: input.assignees.map(a => a.name || a.id).filter(Boolean) as string[] } : t),
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+    },
   });
 }
 
