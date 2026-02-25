@@ -374,6 +374,7 @@ export default function ReferencePicker({
               <button
                 key={option.type}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setSelectedType((prev) => (prev === option.type ? null : option.type))}
                 className={cn(
                   "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
@@ -547,6 +548,7 @@ function ResultRow({
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onSelect}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition",
