@@ -3236,7 +3236,7 @@ export async function searchTimelineEvents(params: {
     let query = supabase
       .from("timeline_events")
       .select(`
-        id, title, start_date, end_date, status, priorities, progress, notes, color,
+        id, title, start_date, end_date, statuses, priorities, progress, notes, color,
         is_milestone, workspace_id, timeline_block_id,
         created_at, updated_at,
         blocks:timeline_block_id(tab_id, tabs(project_id, projects(name)))

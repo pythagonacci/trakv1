@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import AttachedFilesList from "./attached-files-list";
 import { cn } from "@/lib/utils";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
 import { useBlockReferences, useDeleteBlockReference } from "@/lib/hooks/use-block-references";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
@@ -135,11 +135,7 @@ const formatText = (text: string): string => {
   const html = formattedLines.join("");
 
   // SECURITY: Sanitize HTML to prevent XSS attacks
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['strong', 'em', 'code', 'u', 'h1', 'h2', 'h3', 'p', 'div', 'span', 'br', 'a'],
-    ALLOWED_ATTR: ['class', 'href', 'title', 'data-ref-link', 'data-ref-id', 'target', 'rel'],
-    KEEP_CONTENT: true,
-  });
+  return sanitizeHtml(html);
 };
 
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {

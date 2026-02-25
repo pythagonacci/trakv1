@@ -49,7 +49,7 @@ import {
 import { TaskRollupBar, type RollupTask } from "@/components/tasks/task-rollup-bar";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import { getLinkableItemHref } from "@/lib/references/navigation";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { PropertyBadges, PropertyMenu } from "@/components/properties";
 import { DateRangeCalendar } from "@/components/due-date-calendar";
 import {
@@ -349,11 +349,7 @@ const formatTaskText = (text: string) => {
     return `<a href="${safeUrl}" title="${safeLabel}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${safeLabel}</a>`;
   });
 
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ["a", "span"],
-    ALLOWED_ATTR: ["href", "title", "data-ref-link", "class"],
-    KEEP_CONTENT: true,
-  });
+  return sanitizeHtml(html);
 };
 
 function getInputCaretRect(input: HTMLInputElement) {

@@ -1015,7 +1015,7 @@ export async function getTimelineEventWithContext(params: {
     const { data: event, error: eventError } = await supabase
       .from("timeline_events")
       .select(
-        "id, timeline_block_id, workspace_id, title, start_date, end_date, status, priorities, assignee_id, source_entity_type, source_entity_id, source_sync_mode, progress, notes, color, is_milestone, created_at"
+        "id, timeline_block_id, workspace_id, title, start_date, end_date, statuses, priorities, assignee_id, source_entity_type, source_entity_id, source_sync_mode, progress, notes, color, is_milestone, created_at"
       )
       .eq("id", params.eventId)
       .eq("workspace_id", workspaceId)

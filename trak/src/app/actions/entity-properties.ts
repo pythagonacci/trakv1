@@ -441,10 +441,13 @@ async function syncParentTaskPropertiesFromSubtasks(
           ? "todo"
           : "todo";
 
+  // Update both legacy status and statuses jsonb so task list/refetch see the correct value
+  const taskStatuses = [{ field_name: "Status", value: status }];
   await supabase
     .from("task_items")
     .update({
       status: legacyStatus,
+      statuses: taskStatuses,
       assignee_id: assigneeIds[0] ?? null,
     })
     .eq("id", taskId);

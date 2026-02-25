@@ -3,6 +3,8 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import DashboardClient from "./dashboard-client";
 import { getServerUser } from "@/lib/auth/get-server-user";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const workspaceId = await getCurrentWorkspaceId();
 

@@ -3,6 +3,8 @@ import { getServerUser } from "@/lib/auth/get-server-user";
 import { getUserWorkspaces } from "@/app/actions/workspace";
 import ProfileContent from "./profile-content";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProfilePage() {
   const authResult = await getServerUser();
 
