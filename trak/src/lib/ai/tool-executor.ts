@@ -236,8 +236,7 @@ export interface ToolExecutionContext {
   searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
 }
 
-const shouldUseTestContext =
-  process.env.NODE_ENV === "test" || process.env.ENABLE_TEST_MODE === "true";
+const shouldUseTestContext = () => process.env.NODE_ENV === "test";
 
 function summarizeToolArgs(args: Record<string, unknown>) {
   const keys = Object.keys(args || {});
@@ -825,7 +824,7 @@ export async function executeTool(
     }
 
     // If context is provided (test mode), set it globally for server actions to use
-    if (shouldUseTestContext && context?.workspaceId && context?.userId) {
+    if (shouldUseTestContext() && context?.workspaceId && context?.userId) {
       await setTestContext(context.workspaceId, context.userId);
     }
 
@@ -4006,7 +4005,7 @@ export async function executeTool(
   } finally {
     aiDebug("executeTool:done", { tool: requestedToolName, resolvedTool: toolName, ms: Math.round(performance.now() - t0) });
     // Clear test context if it was set
-    if (shouldUseTestContext && context?.workspaceId && context?.userId) {
+    if (shouldUseTestContext() && context?.workspaceId && context?.userId) {
       await clearTestContext();
     }
   }

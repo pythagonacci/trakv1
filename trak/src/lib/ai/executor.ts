@@ -1107,6 +1107,12 @@ export async function executeAICommand(
   const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
   const commandForModel = cleanedCommand;
   let timingLogged = false;
+  // Initialize source-tracking state before any early-return paths call withTiming().
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+    ...(options.initialSearchedEntities ?? []),
+  ];
+  const searchToolsUsed = new Set<string>();
+
   const logTiming = () => {
     if (!timing || timingLogged) return;
     timingLogged = true;
@@ -1369,9 +1375,6 @@ export async function executeAICommand(
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   // Track searched entities (id + title) for deterministic source metadata annotation
   // Seed with entities from previous conversation turns if available
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
-    ...(options.initialSearchedEntities ?? []),
-  ];
   if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
     aiDebug("sourceTracking:seededFromHistory", {
       count: options.initialSearchedEntities.length,
@@ -1379,7 +1382,6 @@ export async function executeAICommand(
     });
   }
   // Track which search tools were called in this execution (for search manifest)
-  const searchToolsUsed = new Set<string>();
   const updatedItemIds = new Set<string>();
   let sawTaskMutationTool = false;
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);

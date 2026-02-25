@@ -18,10 +18,14 @@ export function getEnv(name: string) {
 }
 
 export function getSupabaseEnv() {
+  if (process.env.NODE_ENV === "production" && process.env.ENABLE_TEST_MODE) {
+    console.error("ENABLE_TEST_MODE must not be set in production.");
+    throw new Error("ENABLE_TEST_MODE is set in production. Refusing to start.");
+  }
+
   return {
     url: getEnv("NEXT_PUBLIC_SUPABASE_URL"),
     anonKey: getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
     serviceRoleKey: getEnv("SUPABASE_SERVICE_ROLE_KEY"),
   };
 }
-

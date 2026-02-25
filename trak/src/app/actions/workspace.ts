@@ -15,6 +15,9 @@ let testWorkspaceContext: { workspaceId: string; userId: string } | null = null;
 
 // Set test context (used by test harness)
 export async function setTestContext(workspaceId: string, userId: string) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("setTestContext is only allowed when NODE_ENV === \"test\".");
+  }
   testWorkspaceContext = { workspaceId, userId };
   await setTestUserContext(userId); // For auth-utils.ts
   setServerUserTestContext(userId); // For get-server-user.ts
@@ -24,6 +27,9 @@ export async function setTestContext(workspaceId: string, userId: string) {
 
 // Clear test context
 export async function clearTestContext() {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("clearTestContext is only allowed when NODE_ENV === \"test\".");
+  }
   testWorkspaceContext = null;
   await clearTestUserContext(); // For auth-utils.ts
   clearServerUserTestContext(); // For get-server-user.ts
@@ -33,7 +39,7 @@ export async function clearTestContext() {
 // Safe revalidation that works in both normal and test contexts
 export async function safeRevalidatePath(path: string) {
   // Skip revalidation in test mode (only in test/dev environments)
-  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  const isTestEnvironment = process.env.NODE_ENV === "test";
   if (testWorkspaceContext && isTestEnvironment) {
     return;
   }
@@ -51,7 +57,7 @@ export async function safeRevalidatePath(path: string) {
 export const getCurrentWorkspaceId = cache(async (): Promise<string | null> => {
   const _t0 = performance.now();
   // Check if running in test context first (only in test/dev environments)
-  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  const isTestEnvironment = process.env.NODE_ENV === "test";
   if (testWorkspaceContext && isTestEnvironment) {
     console.log(`[PERF] getCurrentWorkspaceId fromTest=1 ms=${Math.round(performance.now() - _t0)}`);
     return testWorkspaceContext.workspaceId;

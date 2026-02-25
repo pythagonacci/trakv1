@@ -1,5 +1,3 @@
-"use server";
-
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
@@ -7,13 +5,21 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 // Test context for running outside of Next.js request scope
 let testUserContext: { userId: string } | null = null;
 
+function assertTestEnvironment(caller: string) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(`${caller} is only allowed when NODE_ENV === "test".`);
+  }
+}
+
 // Set test user context (used by test harness)
 export async function setTestUserContext(userId: string) {
+  assertTestEnvironment("setTestUserContext");
   testUserContext = { userId };
 }
 
 // Clear test user context
 export async function clearTestUserContext() {
+  assertTestEnvironment("clearTestUserContext");
   testUserContext = null;
 }
 
@@ -24,7 +30,7 @@ export async function clearTestUserContext() {
 
 export const getAuthenticatedUser = cache(async () => {
   // Check if running in test context first (only in test/dev environments)
-  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  const isTestEnvironment = process.env.NODE_ENV === "test";
   if (testUserContext && isTestEnvironment) {
     // In test mode, create a service client to fetch user data
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -192,4 +198,3 @@ export async function requireProjectAccess(projectId: string) {
 
   return { user, membership, project, permissions };
 }
-
