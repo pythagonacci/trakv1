@@ -317,7 +317,11 @@ function createSlackScopedServiceClient(params: {
       ? memberUserIds
       : ["00000000-0000-0000-0000-000000000000"];
 
-  const wrapBuilder = (builder: any, table: string, scopeMode: "workspace" | "custom" = "custom") => {
+  const wrapBuilder = (
+    builder: any,
+    table: string,
+    scopeMode: "workspace" | "profiles" | "custom" = "custom"
+  ) => {
     const taskScopeState: TaskScopeState = {
       taskIds: new Set(),
       projectIds: new Set(),
@@ -439,6 +443,9 @@ function createSlackScopedServiceClient(params: {
                 }
                 return { ...row, workspace_id: workspaceId };
               }
+              if (scopeMode === "profiles") {
+                throw new Error("Slack scoped client blocks profile writes.");
+              }
               return row;
             });
             scopedRows.forEach((row) => {
@@ -457,7 +464,9 @@ function createSlackScopedServiceClient(params: {
             const result = (target as any)[prop](...args);
             const scopedResult = scopeMode === "workspace"
               ? result.eq("workspace_id", workspaceId)
-              : result;
+              : scopeMode === "profiles"
+                ? result.in("id", profileIds)
+                : result;
             return new Proxy(scopedResult, handler);
           };
         }
@@ -467,7 +476,9 @@ function createSlackScopedServiceClient(params: {
             const result = (target as any)[prop](...args);
             const scopedResult = scopeMode === "workspace"
               ? result.eq("workspace_id", workspaceId)
-              : result;
+              : scopeMode === "profiles"
+                ? result.in("id", profileIds)
+                : result;
             return new Proxy(scopedResult, handler);
           };
         }
@@ -502,7 +513,7 @@ function createSlackScopedServiceClient(params: {
     }
 
     if (table === "profiles") {
-      return wrapBuilder(base.from(table).in("id", profileIds), table, "custom");
+      return wrapBuilder(base.from(table), table, "profiles");
     }
 
     if (SLACK_WORKSPACE_SCOPED_TABLES.has(table)) {

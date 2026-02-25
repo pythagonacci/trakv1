@@ -9,7 +9,7 @@ import { parseDeterministicCommand } from "./deterministic-parser";
 import { executeTool } from "./tool-executor";
 import type { ExecutionContext } from "./executor";
 
-process.env.NODE_ENV = "test";
+(process.env as Record<string, string | undefined>).NODE_ENV = "test";
 
 const WORKSPACE_ID = "4e52f23e-915d-4673-aac2-b4b485eeb276";
 const USER_ID = "af951fd0-523f-41bb-a35e-08e17dccda03";
