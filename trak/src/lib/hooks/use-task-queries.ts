@@ -47,7 +47,7 @@ export function useCreateTaskItem(blockId: string) {
     mutationFn: (input: Parameters<typeof createTaskItem>[0]) => createTaskItem(input),
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
-      const previous = qc.getQueryData<TaskItemView[]>(taskKeys.items(blockId));
+      const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
       const optimistic: TaskItemView = {
         id: `optimistic-${Date.now()}`,
         text: input.title ?? "New task",
@@ -56,7 +56,13 @@ export function useCreateTaskItem(blockId: string) {
         subtasks: [],
         comments: [],
       };
-      qc.setQueryData<TaskItemView[]>(taskKeys.items(blockId), (old) => [...(old ?? []), optimistic]);
+      qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (old) => {
+        const base: TaskBlockBundle = old ?? { tasks: [], entityPropertiesByTaskId: {} };
+        return {
+          ...base,
+          tasks: [...base.tasks, optimistic],
+        };
+      });
       return { previous };
     },
     onError: (_err, _input, ctx) => {
@@ -75,21 +81,25 @@ export function useUpdateTaskItem(blockId: string) {
       updateTaskItem(input.taskId, input.updates),
     onMutate: async ({ taskId, updates }) => {
       await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
-      const previous = qc.getQueryData<TaskItemView[]>(taskKeys.items(blockId));
-      qc.setQueryData<TaskItemView[]>(taskKeys.items(blockId), (old) =>
-        old?.map((t) =>
-          t.id === taskId
-            ? {
-              ...t,
-              ...(updates.title !== undefined ? { text: updates.title } : {}),
-              ...(updates.status !== undefined
-                ? { statuses: [{ field_name: "Status", value: updates.status }] }
-                : {}),
-              ...(updates.description !== undefined ? { description: updates.description ?? undefined } : {}),
-            }
-            : t
-        ) ?? []
-      );
+      const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+      qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          tasks: old.tasks.map((t) =>
+            t.id === taskId
+              ? {
+                ...t,
+                ...(updates.title !== undefined ? { text: updates.title } : {}),
+                ...(updates.status !== undefined
+                  ? { statuses: [{ field_name: "Status", value: updates.status }] }
+                  : {}),
+                ...(updates.description !== undefined ? { description: updates.description ?? undefined } : {}),
+              }
+              : t
+          ),
+        };
+      });
       return { previous };
     },
     onError: (_err, _input, ctx) => {
@@ -108,10 +118,14 @@ export function useDeleteTaskItem(blockId: string) {
     mutationFn: (taskId: string) => deleteTaskItem(taskId),
     onMutate: async (taskId) => {
       await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
-      const previous = qc.getQueryData<TaskItemView[]>(taskKeys.items(blockId));
-      qc.setQueryData<TaskItemView[]>(taskKeys.items(blockId), (old) =>
-        old?.filter((t) => t.id !== taskId) ?? []
-      );
+      const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+      qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          tasks: old.tasks.filter((t) => t.id !== taskId),
+        };
+      });
       return { previous };
     },
     onError: (_err, _input, ctx) => {

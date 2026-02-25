@@ -166,8 +166,7 @@ ORDER BY c.relname;
 ### Direct SQL execution
 - No raw SQL execution found in app code; all DB access via Supabase client (PostgREST). RPCs called via `supabase.rpc(...)`.
 
-### RPC functions and SECURITY DEFINER
-- **Actual SECURITY DEFINER functions (from live DB query):**
+### RPC functions and SECURITY DEFINER- **Actual SECURITY DEFINER functions (from live DB query):**
 
 | Schema            | Function name                         | Notes |
 |-------------------|----------------------------------------|--------|
