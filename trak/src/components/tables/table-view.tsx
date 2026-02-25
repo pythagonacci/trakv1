@@ -45,8 +45,7 @@ import { SyncEditedRowsDialog, type SyncResolution } from "./sync-edited-rows-di
 import { RelationConfigModal } from "./relation-config-modal";
 import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
-import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, TableField, TableRow as TableRowType } from "@/types/table";
-import { getWorkspaceMembers } from "@/app/actions/workspace";
+import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, Table, TableField, TableView, TableRow as TableRowType } from "@/types/table";
 import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -207,7 +206,8 @@ export function TableView({ tableId }: Props) {
   const [collapsedSubtasks, setCollapsedSubtasks] = useState<Set<string>>(new Set());
   const hasInitializedSubtaskCollapse = useRef(false);
 
-  const tableData = bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : tableDataFallback ?? undefined;
+  const tableData: { table: Table; fields: TableField[] } | undefined =
+    bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : (tableDataFallback ?? undefined);
   const defaultViewId = bootstrap?.view?.id ?? null;
   const isDefaultView = activeViewId === null || activeViewId === defaultViewId;
   const rowDataFromQuery = useInfiniteTableRows(
@@ -226,11 +226,14 @@ export function TableView({ tableId }: Props) {
   );
 
   const queryPages = rowDataFromQuery.data?.pages || [];
-  const queryRows = useMemo(() => queryPages.flatMap(p => p?.rows || []), [queryPages]);
+  const queryRows = useMemo<TableRowType[]>(
+    () => queryPages.flatMap((p) => (p?.rows || []) as TableRowType[]),
+    [queryPages]
+  );
 
-  const rowData = {
+  const rowData: { rows: TableRowType[]; view: TableView | null } = {
     rows: queryRows,
-    view: queryPages[0]?.view || bootstrap?.view || null,
+    view: (queryPages[0]?.view || bootstrap?.view || null) as TableView | null,
   };
   const view = rowData?.view;
   const effectiveViewId = activeViewId || view?.id || undefined;
@@ -261,15 +264,20 @@ export function TableView({ tableId }: Props) {
   }, [rowDataFromQuery.hasNextPage, rowDataFromQuery.isFetchingNextPage, rowDataFromQuery.fetchNextPage]);
 
   // Fetch workspace members only when table has person/assignee fields (defer for new tables)
-  const allFieldsForMembers = tableData?.fields ?? [];
+  const allFieldsForMembers: TableField[] = tableData?.fields ?? [];
   const hasPersonField = allFieldsForMembers.some((f) => f.type === "person");
   const { data: workspaceMembers } = useQuery({
     queryKey: ['workspaceMembers', tableData?.table.workspace_id],
     queryFn: async () => {
       if (!tableData?.table.workspace_id) return [];
-      const result = await getWorkspaceMembers(tableData.table.workspace_id);
-      if ('error' in result) return [];
-      return result.data || [];
+      console.log(`[PERF] client table getWorkspaceMembers workspaceId=${tableData.table.workspace_id}`);
+      const response = await fetch(
+        `/api/workspaces/members?workspaceId=${encodeURIComponent(tableData.table.workspace_id)}`,
+        { cache: "no-store" }
+      );
+      const json = await response.json();
+      if (!response.ok || json?.error) return [];
+      return json.data || [];
     },
     enabled: Boolean(tableData?.table.workspace_id && hasPersonField),
     staleTime: 5 * 60 * 1000,
@@ -300,7 +308,7 @@ export function TableView({ tableId }: Props) {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [syncDialogResolving, setSyncDialogResolving] = useState(false);
 
-  const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
+  const allFields = useMemo<TableField[]>(() => tableData?.fields ?? [], [tableData]);
   const subtaskField = useMemo(() => {
     const typed = allFields.find((field) => field.type === "subtask");
     if (typed) return typed;
@@ -314,9 +322,9 @@ export function TableView({ tableId }: Props) {
       ),
     [allFields]
   );
-  const hiddenFields = useMemo(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
-  const pinnedFields = useMemo(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
-  const dateFields = useMemo(() => allFields.filter((f) => f.type === "date"), [allFields]);
+  const hiddenFields = useMemo<string[]>(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
+  const pinnedFields = useMemo<string[]>(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
+  const dateFields = useMemo<TableField[]>(() => allFields.filter((f) => f.type === "date"), [allFields]);
 
   // Order fields: pinned first, then others
   const fields = useMemo(() => {
@@ -354,7 +362,9 @@ export function TableView({ tableId }: Props) {
     });
     return acc;
   }, [fields, getWidthForField]);
-  const rows = search ? (searchResult.data ?? []) : (rowData?.rows ?? []);
+  const rows: TableRowType[] = search
+    ? ((searchResult.data ?? []) as TableRowType[])
+    : (rowData?.rows ?? []);
 
   const [sorts, setSorts] = useState<SortCondition[]>(view?.config?.sorts || []);
   const [filters, setFilters] = useState<FilterCondition[]>(view?.config?.filters || []);

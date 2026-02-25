@@ -43,17 +43,18 @@ import BlockComments from "./block-comments";
 import { MessageSquare } from "lucide-react";
 import { PropertyMenu, PropertyBadges } from "@/components/properties";
 import {
-  useEntityPropertiesWithInheritance,
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
 import { useAI } from "@/components/ai";
 import BlockReferencesPanel from "@/components/blocks/block-references-panel";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { EntityProperties } from "@/types/properties";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
   workspaceId?: string;
   projectId?: string;
+  properties?: EntityProperties | null;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: Block["type"], content?: Record<string, unknown>) => void;
   onUpdate?: () => void;
@@ -69,6 +70,7 @@ export default function BlockWrapper({
   children,
   workspaceId,
   projectId,
+  properties,
   onDelete,
   onConvert,
   onUpdate,
@@ -85,10 +87,8 @@ export default function BlockWrapper({
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
   const referencePicker = useBlockReferencePicker();
 
-  // Fetch properties for this block
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
-  const direct = propertiesResult?.direct;
+  const direct = properties ?? null;
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -864,18 +864,14 @@ export default function BlockWrapper({
           <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3")}>
             {children}
 
-            {/* Property Badges — container always rendered when workspace exists to prevent CLS */}
-            {workspaceId && (
-              <div className="min-h-[28px]">
-                {hasProperties && direct && (
-                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
-                    <PropertyBadges
-                      properties={direct}
-                      onClick={() => setPropertiesOpen(true)}
-                      memberNames={getMemberNames(direct)}
-                    />
-                  </div>
-                )}
+            {/* Property Badges */}
+            {workspaceId && hasProperties && direct && (
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
+                <PropertyBadges
+                  properties={direct}
+                  onClick={() => setPropertiesOpen(true)}
+                  memberNames={getMemberNames(direct)}
+                />
               </div>
             )}
 

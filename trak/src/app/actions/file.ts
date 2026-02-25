@@ -488,9 +488,10 @@ export async function getFileUrl(fileId: string) {
 export async function getBatchFileUrls(fileIds: string[]) {
   'use server';
 
-  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _t0 = performance.now();
 
   if (!fileIds || fileIds.length === 0) {
+    console.log(`[PERF] getBatchFileUrls fileCount=0 totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: {} };
   }
 
@@ -572,12 +573,7 @@ export async function getBatchFileUrls(fileIds: string[]) {
     }
   });
 
-  if (process.env.PERF_DEBUG === '1') {
-    console.log(`[PERF] getBatchFileUrls fileCount=${uniqueFileIds.length} urlsGenerated=${Object.keys(urlMap).length} totalMs=${Math.round(performance.now() - _t0)}`);
-  } else {
-    logger.log(`📦 Batch fetched ${Object.keys(urlMap).length} file URLs`);
-  }
-
+  console.log(`[PERF] getBatchFileUrls fileCount=${uniqueFileIds.length} urlsGenerated=${Object.keys(urlMap).length} totalMs=${Math.round(performance.now() - _t0)}`);
   return { data: urlMap };
 }
 

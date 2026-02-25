@@ -20,6 +20,8 @@ interface GetTableDataInput {
 }
 
 export async function getTableData(input: GetTableDataInput): Promise<ActionResult<{ rows: TableRow[]; view?: TableView | null; hasMore?: boolean; nextOffset?: number | null; total?: number }>> {
+  const _t0 = performance.now();
+  console.log(`[PERF] getTableData tableId=${input.tableId} viewId=${input.viewId ?? ""} limit=${input.limit ?? 100} offset=${input.offset ?? 0}`);
   const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -74,7 +76,8 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
   const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
 
   const total = count ?? (rows as any[]).length;
-
+  const rowCount = (rows as any[]).length;
+  console.log(`[PERF] getTableData tableId=${input.tableId} viewId=${input.viewId ?? ""} rows=${rowCount} total=${total} ms=${Math.round(performance.now() - _t0)}`);
   return {
     data: {
       rows: sorted,
@@ -87,6 +90,8 @@ export async function getTableData(input: GetTableDataInput): Promise<ActionResu
 }
 
 export async function searchTableRows(tableId: string, query: string): Promise<ActionResult<TableRow[]>> {
+  const _t0 = performance.now();
+  console.log(`[PERF] searchTableRows tableId=${tableId}`);
   const access = await requireTableAccess(tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -101,13 +106,16 @@ export async function searchTableRows(tableId: string, query: string): Promise<A
     .limit(50);
 
   if (error || !rows) {
+    console.log(`[PERF] searchTableRows tableId=${tableId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to search rows" };
   }
-
+  console.log(`[PERF] searchTableRows tableId=${tableId} count=${(rows as any[]).length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: rows as TableRow[] };
 }
 
 export async function getFilteredRows(tableId: string, filters: FilterCondition[], opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow[]>> {
+  const _t0 = performance.now();
+  console.log(`[PERF] getFilteredRows tableId=${tableId} filters=${filters.length}`);
   const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -125,6 +133,7 @@ export async function getFilteredRows(tableId: string, filters: FilterCondition[
   }
 
   const result = unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);
+  console.log(`[PERF] getFilteredRows tableId=${tableId} rows=${result.length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: result };
 }
 
@@ -132,11 +141,13 @@ export async function getTableRows(
   tableId: string,
   options?: { limit?: number; offset?: number; authContext?: AuthContext }
 ): Promise<ActionResult<{ rows: TableRow[]; total: number; hasMore: boolean }>> {
+  const _t0 = performance.now();
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+  console.log(`[PERF] getTableRows tableId=${tableId} limit=${limit} offset=${offset}`);
   const access = await requireTableAccess(tableId, { authContext: options?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
-  const limit = options?.limit ?? 50;
-  const offset = options?.offset ?? 0;
 
   const { data: rows, count, error } = await supabase
     .from("table_rows")
@@ -146,11 +157,13 @@ export async function getTableRows(
     .range(offset, offset + limit - 1);
 
   if (error || !rows) {
+    console.log(`[PERF] getTableRows tableId=${tableId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to load rows" };
   }
 
   const total = count ?? rows.length;
   const hasMore = offset + rows.length < total;
+  console.log(`[PERF] getTableRows tableId=${tableId} rows=${rows.length} total=${total} ms=${Math.round(performance.now() - _t0)}`);
   return { data: { rows: rows as TableRow[], total, hasMore } };
 }
 
@@ -288,16 +301,15 @@ export async function getTableBootstrap(
   tableId: string,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TableBootstrap>> {
-  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _t0 = performance.now();
+  console.log(`[PERF] getTableBootstrap tableId=${tableId}`);
 
   const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table: authTable } = access;
 
-  if (process.env.PERF_DEBUG === '1') {
-    console.log(`[PERF] getTableBootstrap auth tableId=${tableId} ms=${Math.round(performance.now() - _t0)}`);
-  }
-  const _tMeta = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  console.log(`[PERF] getTableBootstrap auth tableId=${tableId} ms=${Math.round(performance.now() - _t0)}`);
+  const _tMeta = performance.now();
 
   // Reuse table from auth — only fetch fields + default view
   const [fieldsRes, viewRes] = await Promise.all([
@@ -306,12 +318,11 @@ export async function getTableBootstrap(
   ]);
 
   if (fieldsRes.error || !fieldsRes.data) {
+    console.log(`[PERF] getTableBootstrap tableId=${tableId} error=fields ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to load fields" };
   }
 
-  if (process.env.PERF_DEBUG === '1') {
-    console.log(`[PERF] getTableBootstrap meta ms=${Math.round(performance.now() - _tMeta)} fields=${fieldsRes.data?.length}`);
-  }
+  console.log(`[PERF] getTableBootstrap meta tableId=${tableId} ms=${Math.round(performance.now() - _tMeta)} fields=${fieldsRes.data?.length}`);
 
   const table = authTable as Table;
   const fields = (fieldsRes.data as TableField[]) ?? [];
@@ -321,7 +332,7 @@ export async function getTableBootstrap(
 
   const PAGE_LIMIT = 100;
 
-  const _tRows = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _tRows = performance.now();
   const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
     supabase.from("table_rows").select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by", { count: "exact", head: false }).eq("table_id", tableId),
     filters
@@ -332,15 +343,13 @@ export async function getTableBootstrap(
     .limit(PAGE_LIMIT);
 
   if (rowsError || !rows) {
+    console.log(`[PERF] getTableBootstrap tableId=${tableId} error=rows ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to load rows" };
   }
 
   const totalRows = count ?? rows.length;
-
-  if (process.env.PERF_DEBUG === '1') {
-    const payloadBytes = Buffer.byteLength(JSON.stringify(rows), 'utf8');
-    console.log(`[PERF] getTableBootstrap rows ms=${Math.round(performance.now() - _tRows)} count=${rows.length} total=${totalRows} bytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
-  }
+  const payloadBytes = Buffer.byteLength(JSON.stringify(rows), 'utf8');
+  console.log(`[PERF] getTableBootstrap rows tableId=${tableId} ms=${Math.round(performance.now() - _tRows)} count=${rows.length} total=${totalRows} bytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
 
   const filtered =
     unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);

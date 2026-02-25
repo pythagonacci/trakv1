@@ -5,7 +5,6 @@ import { type Block } from "@/app/actions/block";
 import dynamic from "next/dynamic";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { getTableBootstrap } from "@/app/actions/tables/query-actions";
 
 function TableLoadingState() {
   return (
@@ -40,9 +39,14 @@ export default function TableBlock({ block }: TableBlockProps) {
     queryClient.prefetchQuery({
       queryKey: queryKeys.tableBootstrap(connectedTableId),
       queryFn: async () => {
-        const result = await getTableBootstrap(connectedTableId);
-        if ("error" in result) throw new Error(result.error);
-        return result.data;
+        const response = await fetch(`/api/tables/bootstrap?tableId=${encodeURIComponent(connectedTableId)}`, {
+          credentials: "include",
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to load table bootstrap");
+        }
+        return payload;
       },
       staleTime: 30_000,
     });

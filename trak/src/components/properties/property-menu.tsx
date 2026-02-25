@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { X, User, Tag as TagIcon } from "lucide-react";
 import { normalizeDueDateRange } from "@/lib/due-date";
 import {
-  useEntityPropertiesWithInheritance,
+  useEntityProperties,
   useSetEntityProperties,
   useAddTag,
   useRemoveTag,
@@ -260,14 +260,12 @@ export function PropertyMenu({
   const assigneeDraftsRef = React.useRef<AssigneeFieldDraft[]>([]);
   const dueDateDraftsRef = React.useRef<DueDateFieldDraft[]>([]);
 
-  const { data: propertiesResult, isLoading } =
-    useEntityPropertiesWithInheritance(entityType, entityId);
+  const { data: direct, isLoading } =
+    useEntityProperties(entityType, entityId);
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
   const setProperties = useSetEntityProperties(entityType, entityId, workspaceId);
   const addTagMutation = useAddTag(entityType, entityId, workspaceId);
   const removeTagMutation = useRemoveTag(entityType, entityId);
-
-  const direct = propertiesResult?.direct;
   const statusDisabled = Boolean(disabledFields?.status);
   const assigneesDisabled = Boolean(disabledFields?.assignees);
 

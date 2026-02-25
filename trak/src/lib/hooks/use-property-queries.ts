@@ -7,13 +7,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import {
   getEntityProperties,
-  getEntitiesProperties,
-  getEntityPropertiesWithInheritance,
   setEntityProperties,
   addTag,
   removeTag,
   clearEntityProperties,
-  getWorkspaceMembers,
   createEntityLink,
   removeEntityLink,
   getEntityLinks,
@@ -58,35 +55,30 @@ export function useEntitiesProperties(
   entityIds: string[],
   workspaceId?: string
 ) {
-  return useQuery({
-    queryKey: ["entitiesProperties", entityType, workspaceId ?? "", entityIds],
-    queryFn: async () => {
-      if (!workspaceId || entityIds.length === 0) return {} as Record<string, EntityProperties>;
-      const result = await getEntitiesProperties(entityType, entityIds, workspaceId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: Boolean(workspaceId) && entityIds.length > 0,
-    staleTime: 30_000,
-  });
-}
+  const normalizedIds = Array.from(
+    new Set(entityIds.filter((id) => id))
+  ).sort();
+  const idsKey = normalizedIds.join(",");
 
-/**
- * Fetch properties with inheritance (direct + inherited from linked entities)
- */
-export function useEntityPropertiesWithInheritance(
-  entityType: EntityType,
-  entityId?: string
-) {
   return useQuery({
-    queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId ?? ""),
+    queryKey: ["entitiesProperties", entityType, workspaceId ?? "", idsKey],
     queryFn: async () => {
-      if (!entityId) return { direct: null, inherited: [] };
-      const result = await getEntityPropertiesWithInheritance(entityType, entityId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      if (!workspaceId || normalizedIds.length === 0) {
+        return {} as Record<string, EntityProperties>;
+      }
+      const params = new URLSearchParams({
+        entityType,
+        ids: idsKey,
+        workspaceId,
+      });
+      const response = await fetch(`/api/entities/properties?${params.toString()}`);
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to fetch entity properties");
+      }
+      return json.data ?? {};
     },
-    enabled: Boolean(entityId),
+    enabled: Boolean(workspaceId) && normalizedIds.length > 0,
     staleTime: 30_000,
   });
 }
@@ -144,7 +136,7 @@ export function useSetEntityProperties(
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       // Invalidate any bulk queries for this entity type/workspace
       qc.invalidateQueries({
@@ -173,7 +165,7 @@ export function useSetEntityPropertiesForType(entityType: EntityType, workspaceI
         queryKey: queryKeys.entityProperties(entityType, args.entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, args.entityId),
+        queryKey: queryKeys.entityProperties(entityType, args.entityId),
       });
       qc.invalidateQueries({
         queryKey: ["entitiesProperties", entityType, workspaceId],
@@ -204,7 +196,7 @@ export function useAddTag(
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
     },
   });
@@ -262,7 +254,7 @@ export function useRemoveTag(entityType: EntityType, entityId: string) {
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
     },
   });
@@ -280,7 +272,7 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
     },
   });
@@ -294,13 +286,19 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
  * Fetch all members of a workspace
  */
 export function useWorkspaceMembers(workspaceId?: string) {
-  return useQuery({
+  return useQuery<WorkspaceMember[]>({
     queryKey: ["workspaceMembers", "properties", workspaceId],
     queryFn: async () => {
       if (!workspaceId) return [];
-      const result = await getWorkspaceMembers(workspaceId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      console.log(`[PERF] client useWorkspaceMembers workspaceId=${workspaceId}`);
+      const response = await fetch(`/api/workspaces/members?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to fetch workspace members");
+      }
+      return json.data || [];
     },
     enabled: Boolean(workspaceId),
     staleTime: 60_000,
@@ -356,7 +354,7 @@ export function useCreateEntityLink(
       });
       // Invalidate target's properties with inheritance
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(
+        queryKey: queryKeys.entityProperties(
           args.targetEntityType,
           args.targetEntityId
         ),
@@ -391,7 +389,7 @@ export function useRemoveEntityLink(
       });
       // Invalidate target's properties with inheritance
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(
+        queryKey: queryKeys.entityProperties(
           args.targetEntityType,
           args.targetEntityId
         ),
@@ -399,4 +397,3 @@ export function useRemoveEntityLink(
     },
   });
 }
-

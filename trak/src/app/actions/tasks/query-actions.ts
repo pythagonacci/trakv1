@@ -44,16 +44,14 @@ export interface TaskItemView {
 }
 
 export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionResult<TaskBlockBundle>> {
-  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _t0 = performance.now();
   const access = await requireTaskBlockAccess(taskBlockId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
 
-  if (process.env.PERF_DEBUG === '1') {
-    console.log(`[PERF] getTaskItemsByBlock auth ms=${Math.round(performance.now() - _t0)}`);
-  }
+  console.log(`[PERF] getTaskItemsByBlock auth ms=${Math.round(performance.now() - _t0)} taskBlockId=${taskBlockId}`);
 
-  const _tItems = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _tItems = performance.now();
   // P0-2: Column projection — only fetch fields used in TaskItemView
   const { data: items, error: itemsError } = await supabase
     .from("task_items")
@@ -63,20 +61,16 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
 
   if (itemsError) return { error: "Failed to load tasks" };
   if (!items || items.length === 0) {
-    if (process.env.PERF_DEBUG === '1') {
-      console.log(`[PERF] getTaskItemsByBlock taskBlockId=${taskBlockId} items=0 totalMs=${Math.round(performance.now() - _t0)}`);
-    }
+    console.log(`[PERF] getTaskItemsByBlock taskBlockId=${taskBlockId} items=0 totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: { tasks: [], entityPropertiesByTaskId: {} } };
   }
 
-  if (process.env.PERF_DEBUG === '1') {
-    console.log(`[PERF] getTaskItemsByBlock items query ms=${Math.round(performance.now() - _tItems)} count=${items.length}`);
-  }
+  console.log(`[PERF] getTaskItemsByBlock items query ms=${Math.round(performance.now() - _tItems)} count=${items.length}`);
 
   const taskIds = items.map((item: any) => item.id);
 
   // --- Single parallel batch: subtasks, comments, tags (joined), assignees, AND entity_properties ---
-  const _tParallel = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _tParallel = performance.now();
   const [subtasksResult, commentsResult, tagLinksResult, assigneesResult, entityPropsResult] = await Promise.all([
     supabase
       .from("task_subtasks")
@@ -97,7 +91,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
       .from("task_assignees")
       .select("task_id, assignee_id, assignee_name")
       .in("task_id", taskIds),
-    // P0-1: Bulk entity properties — eliminates N+1 useEntityPropertiesWithInheritance calls
+    // P0-1: Bulk entity properties — eliminates N+1 useEntityProperties calls
     supabase
       .from("entity_properties")
       .select("id, entity_id, entity_type, field_name, field_type, value, workspace_id, created_at, updated_at")
@@ -105,9 +99,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
       .in("entity_id", taskIds),
   ]);
 
-  if (process.env.PERF_DEBUG === '1') {
-    console.log(`[PERF] getTaskItemsByBlock parallel ms=${Math.round(performance.now() - _tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}`);
-  }
+  console.log(`[PERF] getTaskItemsByBlock parallel ms=${Math.round(performance.now() - _tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}`);
 
   const subtasks = subtasksResult.data || [];
   const comments = commentsResult.data || [];
@@ -243,15 +235,13 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     };
   });
 
-  if (process.env.PERF_DEBUG === '1') {
-    const payloadBytes = Buffer.byteLength(JSON.stringify({ tasks: taskViews, entityPropertiesByTaskId }), 'utf8');
-    console.log(`[PERF] getTaskItemsByBlock taskBlockId=${taskBlockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
-  }
-
+  const payloadBytes = Buffer.byteLength(JSON.stringify({ tasks: taskViews, entityPropertiesByTaskId }), 'utf8');
+  console.log(`[PERF] getTaskItemsByBlock taskBlockId=${taskBlockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
   return { data: { tasks: taskViews, entityPropertiesByTaskId } };
 }
 
 export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<TaskItem[]>> {
+  const _t0 = performance.now();
   const access = await requireWorkspaceAccessForTasks(workspaceId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -265,7 +255,11 @@ export async function getWorkspaceTasksWithDueDates(workspaceId: string, opts?: 
     .not("due_date", "is", null)
     .order("updated_at", { ascending: false });
 
-  if (error || !data) return { error: "Failed to load tasks" };
+  if (error || !data) {
+    console.log(`[PERF] getWorkspaceTasksWithDueDates workspaceId=${workspaceId} error ms=${Math.round(performance.now() - _t0)}`);
+    return { error: "Failed to load tasks" };
+  }
+  console.log(`[PERF] getWorkspaceTasksWithDueDates workspaceId=${workspaceId} count=${data.length} totalMs=${Math.round(performance.now() - _t0)}`);
   return { data: data as TaskItem[] };
 }
 
@@ -287,6 +281,7 @@ export async function getTaskSubtasksWithProperties(
   taskId: string,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<TaskSubtaskWithProperties[]>> {
+  const _t0 = performance.now();
   const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -297,8 +292,14 @@ export async function getTaskSubtasksWithProperties(
     .eq("task_id", taskId)
     .order("display_order", { ascending: true });
 
-  if (stError) return { error: "Failed to load subtasks" };
-  if (!subtasks?.length) return { data: [] };
+  if (stError) {
+    console.log(`[PERF] getTaskSubtasksWithProperties taskId=${taskId} error ms=${Math.round(performance.now() - _t0)}`);
+    return { error: "Failed to load subtasks" };
+  }
+  if (!subtasks?.length) {
+    console.log(`[PERF] getTaskSubtasksWithProperties taskId=${taskId} count=0 totalMs=${Math.round(performance.now() - _t0)}`);
+    return { data: [] };
+  }
 
   const subtaskIds = subtasks.map((s: any) => s.id);
   const { data: propRows } = await supabase
@@ -331,6 +332,7 @@ export async function getTaskSubtasksWithProperties(
     due_date: dueDateBySubtask.get(s.id) ?? null,
   }));
 
+  console.log(`[PERF] getTaskSubtasksWithProperties taskId=${taskId} count=${result.length} totalMs=${Math.round(performance.now() - _t0)}`);
   return { data: result };
 }
 
@@ -342,7 +344,11 @@ export async function getTaskSubtasksWithPropertiesBatch(
   taskIds: string[],
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<Record<string, TaskSubtaskWithProperties[]>>> {
-  if (taskIds.length === 0) return { data: {} };
+  const _t0 = performance.now();
+  if (taskIds.length === 0) {
+    console.log(`[PERF] getTaskSubtasksWithPropertiesBatch taskIds=0 totalMs=${Math.round(performance.now() - _t0)}`);
+    return { data: {} };
+  }
   const first = await requireTaskItemAccess(taskIds[0], { authContext: opts?.authContext });
   if ("error" in first) return { error: first.error ?? "Unknown error" };
   const { supabase } = first;
@@ -355,8 +361,14 @@ export async function getTaskSubtasksWithPropertiesBatch(
     .in("task_id", uniqueIds)
     .order("display_order", { ascending: true });
 
-  if (stError) return { error: "Failed to load subtasks" };
-  if (!subtasks?.length) return { data: Object.fromEntries(uniqueIds.map((id) => [id, []])) };
+  if (stError) {
+    console.log(`[PERF] getTaskSubtasksWithPropertiesBatch taskIds=${uniqueIds.length} error ms=${Math.round(performance.now() - _t0)}`);
+    return { error: "Failed to load subtasks" };
+  }
+  if (!subtasks?.length) {
+    console.log(`[PERF] getTaskSubtasksWithPropertiesBatch taskIds=${uniqueIds.length} count=0 totalMs=${Math.round(performance.now() - _t0)}`);
+    return { data: Object.fromEntries(uniqueIds.map((id) => [id, []])) };
+  }
 
   const subtaskIds = subtasks.map((s: any) => s.id);
   const { data: propRows } = await supabase
@@ -397,5 +409,7 @@ export async function getTaskSubtasksWithPropertiesBatch(
   for (const id of uniqueIds) {
     data[id] = byTask.get(id) ?? [];
   }
+  const totalSubtasks = (subtasks as any[]).length;
+  console.log(`[PERF] getTaskSubtasksWithPropertiesBatch taskIds=${uniqueIds.length} subtasks=${totalSubtasks} totalMs=${Math.round(performance.now() - _t0)}`);
   return { data };
 }

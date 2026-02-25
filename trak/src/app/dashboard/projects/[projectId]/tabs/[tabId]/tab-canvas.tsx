@@ -31,6 +31,7 @@ import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
 import { Undo2, FileText, CheckSquare, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { EntityProperties } from "@/types/properties";
 import {
   Tooltip,
   TooltipContent,
@@ -56,6 +57,7 @@ interface TabCanvasProps {
   onThemeChange?: (theme: string) => void;
   currentTheme?: string;
   initialFileUrls?: Record<string, string>;
+  initialBlockPropertiesById?: Record<string, EntityProperties>;
 }
 
 interface BlockRow {
@@ -64,7 +66,7 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {} }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {}, initialBlockPropertiesById = {} }: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
@@ -81,6 +83,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const tabContents = useTabContents();
   const tocExpanded = tabContents?.tocExpanded ?? false;
   const setTocExpanded = tabContents?.setTocExpanded ?? (() => { });
+  const blockPropertiesById = initialBlockPropertiesById;
 
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
@@ -1299,6 +1302,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                             workspaceId={workspaceId}
                             projectId={projectId}
                             tabId={tabId}
+                            blockProperties={blockPropertiesById[block.id]}
+                            propertiesById={blockPropertiesById}
                             onUpdate={handleUpdate}
                             scrollToTaskId={scrollToTaskId}
                             onDelete={handleDelete}
@@ -1363,6 +1368,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                                   workspaceId={workspaceId}
                                   projectId={projectId}
                                   tabId={tabId}
+                                  blockProperties={blockPropertiesById[block.id]}
+                                  propertiesById={blockPropertiesById}
                                   onUpdate={handleUpdate}
                                   scrollToTaskId={scrollToTaskId}
                                   onDelete={handleDelete}

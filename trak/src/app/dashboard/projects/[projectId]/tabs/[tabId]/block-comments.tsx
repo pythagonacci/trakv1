@@ -5,7 +5,6 @@ import { ChevronDown, ChevronUp, X, Plus, Reply } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
-import { getCurrentUser } from "@/app/actions/auth";
 import { BlockComment } from "@/types/block-comment";
 
 interface BlockCommentsProps {
@@ -38,8 +37,10 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
     const loadUserAndComments = async () => {
       try {
         // Load current user
-        const userResult = await getCurrentUser();
-        if (userResult.data) {
+        console.log("[PERF] client block-comments getCurrentUser");
+        const response = await fetch("/api/auth/current-user", { cache: "no-store" });
+        const userResult = await response.json();
+        if (response.ok && userResult?.data) {
           setCurrentUser({
             id: userResult.data.id,
             email: userResult.data.email || undefined,
@@ -67,8 +68,10 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
     let user = currentUser;
     if (!user) {
       try {
-        const userResult = await getCurrentUser();
-        if (userResult.data) {
+        console.log("[PERF] client block-comments getCurrentUser");
+        const response = await fetch("/api/auth/current-user", { cache: "no-store" });
+        const userResult = await response.json();
+        if (response.ok && userResult?.data) {
           user = {
             id: userResult.data.id,
             email: userResult.data.email || undefined,
@@ -415,4 +418,3 @@ function getTimeAgo(date: Date): string {
   // For older comments, show date
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
 }
-

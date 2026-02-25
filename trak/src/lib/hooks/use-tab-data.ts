@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getTabBlocks, type Block } from '@/app/actions/block';
-import { getProjectTabs, type TabWithChildren } from '@/app/actions/tab';
-import { getBatchFileUrls } from '@/app/actions/file';
+import { type Block } from '@/app/actions/block';
+import { type TabWithChildren } from '@/app/actions/tab';
 import { queryKeys } from '@/lib/react-query/query-client';
 
 /**
@@ -26,11 +25,15 @@ export function useTabBlocks(tabId: string, initialBlocks?: Block[]) {
   return useQuery({
     queryKey: queryKeys.tabBlocks(tabId),
     queryFn: async () => {
-      const result = await getTabBlocks(tabId);
-      if (result.error) {
-        throw new Error(result.error);
+      console.log(`[PERF] client getTabBlocks via route tabId=${tabId}`);
+      const response = await fetch(`/api/blocks/tab?tabId=${encodeURIComponent(tabId)}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to fetch blocks");
       }
-      return result.data || [];
+      return json.data || [];
     },
     initialData: shouldUseInitialData ? initialBlocks : undefined,
     // Don't set initialDataUpdatedAt - let React Query handle it
@@ -55,11 +58,14 @@ export function useProjectTabs(projectId: string, initialTabs?: TabWithChildren[
   return useQuery({
     queryKey: queryKeys.projectTabs(projectId),
     queryFn: async () => {
-      const result = await getProjectTabs(projectId);
-      if (result.error) {
-        throw new Error(result.error);
+      const response = await fetch(`/api/tabs/project?projectId=${encodeURIComponent(projectId)}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to fetch tabs");
       }
-      return result.data || [];
+      return json.data || [];
     },
     initialData: shouldUseInitialData ? initialTabs : undefined,
     refetchOnMount: false,
@@ -89,11 +95,16 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
       if (fileIds.length === 0) {
         return {};
       }
-      const result = await getBatchFileUrls(fileIds);
-      if (result.error) {
-        throw new Error(result.error);
+      console.log(`[PERF] client useBatchFileUrls ids=${fileIds.length}`);
+      const params = new URLSearchParams({ ids: fileIds.join(",") });
+      const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to load file URLs");
       }
-      return result.data || {};
+      return json.data || {};
     },
     initialData: shouldUseInitialData ? initialUrls : undefined,
     refetchOnMount: true, // Always refetch on mount to get fresh signed URLs

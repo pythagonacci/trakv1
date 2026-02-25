@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { type Block } from "@/app/actions/block";
-import { getBatchFileUrls, getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
-import { deleteFileAnalysisComment, getFileAnalysisComments } from "@/app/actions/file-analysis";
-import { getCurrentUser } from "@/app/actions/auth";
+import { detachFileFromBlock } from "@/app/actions/file";
+import { deleteFileAnalysisComment } from "@/app/actions/file-analysis";
 import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -342,10 +341,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   const loadComments = useCallback(async (fileIds: string[]) => {
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
-    const commentsResult = await getFileAnalysisComments({ fileIds: uniqueIds });
-    if ("data" in commentsResult) {
+    const params = new URLSearchParams({ fileIds: uniqueIds.join(",") });
+    console.log(`[PERF] client file-block getFileAnalysisComments ids=${uniqueIds.length}`);
+    const response = await fetch(`/api/file-analysis/comments?${params.toString()}`, {
+      cache: "no-store",
+    });
+    const commentsResult = await response.json();
+    if (response.ok && commentsResult?.data) {
       const grouped: Record<string, FileComment[]> = {};
-      commentsResult.data.forEach((comment) => {
+      commentsResult.data.forEach((comment: FileComment) => {
         if (!grouped[comment.file_id]) grouped[comment.file_id] = [];
         grouped[comment.file_id].push(comment);
       });
@@ -365,12 +369,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
 
   useEffect(() => {
     let isMounted = true;
-    getCurrentUser().then((result) => {
-      if (!isMounted) return;
-      if ("data" in result && result.data) {
-        setCurrentUserId(result.data.id);
-      }
-    });
+    console.log("[PERF] client file-block getCurrentUser");
+    fetch("/api/auth/current-user", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((result) => {
+        if (!isMounted) return;
+        if (result?.data) {
+          setCurrentUserId(result.data.id);
+        }
+      });
     return () => {
       isMounted = false;
     };
@@ -403,7 +410,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     const combinedUrls = { ...fileUrls, ...resolvedFileUrls };
     const missingIds = blockFiles
       .map((blockFile) => blockFile.file?.id)
-      .filter((id): id is string => Boolean(id))
+      .filter((id: string | null | undefined): id is string => Boolean(id))
       .filter((id) => !combinedUrls[id]);
 
     if (missingIds.length === 0) return;
@@ -414,12 +421,19 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
       return next;
     });
 
-    const result = await getBatchFileUrls(missingIds);
-    if (result.data) {
+    console.log(`[PERF] client file-block getBatchFileUrls ids=${missingIds.length}`);
+    const params = new URLSearchParams({ ids: missingIds.join(",") });
+    const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
+    if (response.ok && result?.data) {
       setResolvedFileUrls((prev) => ({
         ...prev,
         ...result.data,
       }));
+    } else if (result?.error) {
+      console.error("Failed to load file URLs:", result.error);
     }
 
     setLoadingFileIds((prev) => {
@@ -438,9 +452,13 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     }
     
     setLoading(true);
-    const result = await getBlockFiles(block.id);
+    console.log(`[PERF] client file-block getBlockFiles blockId=${block.id}`);
+    const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(block.id)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
     
-    if (result.data) {
+    if (response.ok && result.data) {
       // Handle Supabase foreign key returning array vs object
       const normalizedFiles = result.data.map((item: any) => ({
         ...item,
@@ -451,8 +469,8 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
       await ensureFileUrls(normalizedFiles);
 
       const fileIds = normalizedFiles
-        .map((item) => item.file?.id)
-        .filter((id): id is string => Boolean(id));
+        .map((item: BlockFile) => item.file?.id)
+        .filter((id: string | null | undefined): id is string => Boolean(id));
       await loadComments(fileIds);
     }
     setLoading(false);

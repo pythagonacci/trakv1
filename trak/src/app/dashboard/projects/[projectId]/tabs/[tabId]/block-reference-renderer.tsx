@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { Link, ExternalLink } from "lucide-react";
-import { getSingleBlock } from "@/app/actions/block-templates";
 import { type Block } from "@/app/actions/block";
 import TextBlock from "./text-block";
 import TaskBlock from "./task-block";
@@ -48,9 +47,12 @@ export default function BlockReferenceRenderer({
     setIsLoading(true);
     setError(null);
 
-    const result = await getSingleBlock(originalBlockId);
+    const response = await fetch(`/api/blocks/single?blockId=${encodeURIComponent(originalBlockId)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
 
-    if (result.error || !result.data) {
+    if (!response.ok || result.error || !result.data) {
       setError("Could not load referenced block");
       setIsLoading(false);
       return;

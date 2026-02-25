@@ -10,7 +10,6 @@ import { createTaskSubtask, updateTaskSubtask, deleteTaskSubtask, reorderSubtask
 import { createTaskComment, updateTaskComment, deleteTaskComment } from "@/app/actions/tasks/comment-actions";
 import { setTaskTags } from "@/app/actions/tasks/tag-actions";
 import { setTaskAssignees } from "@/app/actions/tasks/assignee-actions";
-import { getTaskItemsByBlock } from "@/app/actions/tasks/query-actions";
 import { createTaskReference, deleteTaskReference, listTaskReferenceSummaries } from "@/app/actions/tasks/reference-actions";
 import {
   createSubtaskReference,
@@ -29,11 +28,16 @@ export function useTaskItems(blockId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: taskKeys.items(blockId),
     queryFn: async () => {
-      const result = await getTaskItemsByBlock(blockId);
-      if ("error" in result) throw new Error(result.error);
+      const response = await fetch(`/api/task-blocks/${blockId}/items`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok || ("error" in result && result.error)) {
+        throw new Error(result?.error ?? "Failed to load tasks");
+      }
       return result.data as TaskBlockBundle;
     },
-    enabled: options?.enabled ?? true,
+    enabled: (options?.enabled ?? true) && Boolean(blockId),
   });
 }
 

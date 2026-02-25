@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Search, FileText, X, Copy, Table, CheckSquare, Link2, Calendar, Upload, Image, Images, Video, Maximize2, Layout } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getTemplateBlocks } from "@/app/actions/block-templates";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import { createBlock } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
@@ -91,9 +90,12 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
     if (!currentWorkspace) return;
     
     setIsLoading(true);
-    const result = await getTemplateBlocks(currentWorkspace.id);
+    const response = await fetch(`/api/blocks/templates?workspaceId=${encodeURIComponent(currentWorkspace.id)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
 
-    if (!result.error && result.data) {
+    if (response.ok && !result.error && result.data) {
       setBlocks(result.data as TemplateBlock[]);
       setFilteredBlocks(result.data as TemplateBlock[]);
     }
@@ -223,5 +225,4 @@ export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlock
     </Dialog>
   );
 }
-
 

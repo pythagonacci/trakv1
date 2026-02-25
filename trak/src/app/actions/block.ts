@@ -43,7 +43,7 @@ const BLOCKS_PER_TAB_LIMIT = 500;
 // ============================================================================
 
 export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthContext }) {
-  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+  const _t0 = performance.now();
   try {
     let supabase: Awaited<ReturnType<typeof createClient>>;
     let userId: string;
@@ -58,9 +58,10 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     }
 
     // 🔒 Verify tab access + get workspace in one query
-    const _tAuth0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+    const _tAuth0 = performance.now();
     const tab = await getTabMetadata(tabId);
     if (!tab) {
+      console.log(`[PERF] getTabBlocks tabId=${tabId} error=TabNotFound ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Tab not found" };
     }
 
@@ -69,15 +70,14 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     // 🔒 Verify workspace membership BEFORE fetching blocks
     const member = await checkWorkspaceMembership(workspaceId, userId);
     if (!member) {
+      console.log(`[PERF] getTabBlocks tabId=${tabId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Not a member of this workspace" };
     }
-    if (process.env.PERF_DEBUG === '1') {
-      console.log(`[PERF] getTabBlocks auth ms=${Math.round(performance.now() - _tAuth0)}`);
-    }
+    console.log(`[PERF] getTabBlocks auth ms=${Math.round(performance.now() - _tAuth0)}`);
 
     // ✅ Auth verified - NOW safe to fetch blocks
     // 🚀 Select specific fields + add limit for safety
-    const _tQuery0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
+    const _tQuery0 = performance.now();
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
       .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
@@ -89,18 +89,17 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
 
     if (blocksError) {
       console.error("Get blocks error:", blocksError);
+      console.log(`[PERF] getTabBlocks tabId=${tabId} error=Query ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Failed to fetch blocks" };
     }
 
-    if (process.env.PERF_DEBUG === '1') {
-      const blockCount = (blocks || []).length;
-      const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
-      console.log(`[PERF] getTabBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
-    }
-
+    const blockCount = (blocks || []).length;
+    const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
+    console.log(`[PERF] getTabBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: blocks || [] };
   } catch (error) {
     console.error("Get tab blocks exception:", error);
+    console.log(`[PERF] getTabBlocks tabId=${tabId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch blocks" };
   }
 }

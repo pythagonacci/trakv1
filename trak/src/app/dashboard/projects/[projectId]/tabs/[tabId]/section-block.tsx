@@ -2,20 +2,22 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { type Block, type BlockType, createBlock, getChildBlocks, updateBlock } from "@/app/actions/block";
+import { type Block, type BlockType, createBlock, updateBlock } from "@/app/actions/block";
 import BlockRenderer from "./block-renderer";
 import AddBlockButton from "./add-block-button";
 import { cn } from "@/lib/utils";
+import type { EntityProperties } from "@/types/properties";
 
 interface SectionBlockProps {
   block: Block;
   workspaceId: string;
   projectId: string;
   tabId: string;
+  propertiesById?: Record<string, EntityProperties>;
   onUpdate?: () => void;
 }
 
-export default function SectionBlock({ block, workspaceId, projectId, tabId, onUpdate }: SectionBlockProps) {
+export default function SectionBlock({ block, workspaceId, projectId, tabId, propertiesById, onUpdate }: SectionBlockProps) {
   const router = useRouter();
   const [childBlocks, setChildBlocks] = useState<Block[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,8 +40,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
   useEffect(() => {
     const fetchChildBlocks = async () => {
       setIsLoading(true);
-      const result = await getChildBlocks(block.id);
-      if (result.error) {
+      const response = await fetch(`/api/blocks/children?parentBlockId=${encodeURIComponent(block.id)}`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) {
         console.error("Failed to fetch child blocks:", result.error);
         setChildBlocks([]);
       } else {
@@ -62,8 +67,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
   const handleUpdate = () => {
     // Refresh child blocks
     const fetchChildBlocks = async () => {
-      const result = await getChildBlocks(block.id);
-      if (result.error) {
+      const response = await fetch(`/api/blocks/children?parentBlockId=${encodeURIComponent(block.id)}`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) {
         console.error("Failed to fetch child blocks:", result.error);
       } else {
         setChildBlocks(result.data || []);
@@ -452,6 +460,8 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                     workspaceId={workspaceId}
                     projectId={projectId}
                     tabId={tabId}
+                    blockProperties={propertiesById?.[childBlock.id]}
+                    propertiesById={propertiesById}
                     onUpdate={handleUpdate}
                     onDelete={handleDelete}
                     onConvert={handleConvert}

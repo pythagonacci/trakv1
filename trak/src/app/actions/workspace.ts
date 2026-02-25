@@ -48,22 +48,27 @@ export async function safeRevalidatePath(path: string) {
 }
 
 // Get current workspace ID from cookie (or test context if set)
-export async function getCurrentWorkspaceId(): Promise<string | null> {
+export const getCurrentWorkspaceId = cache(async (): Promise<string | null> => {
+  const _t0 = performance.now();
   // Check if running in test context first (only in test/dev environments)
   const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
   if (testWorkspaceContext && isTestEnvironment) {
+    console.log(`[PERF] getCurrentWorkspaceId fromTest=1 ms=${Math.round(performance.now() - _t0)}`);
     return testWorkspaceContext.workspaceId;
   }
 
   // Try to get from cookies (normal Next.js request)
   try {
     const cookieStore = await cookies();
-    return cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value || null;
+    const value = cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value || null;
+    console.log(`[PERF] getCurrentWorkspaceId hasValue=${Boolean(value)} ms=${Math.round(performance.now() - _t0)}`);
+    return value;
   } catch (error) {
     // If cookies() fails (not in request context), return null
+    console.log(`[PERF] getCurrentWorkspaceId error ms=${Math.round(performance.now() - _t0)}`);
     return null;
   }
-}
+});
 
 // Update current workspace cookie
 export async function updateCurrentWorkspace(workspaceId: string) {

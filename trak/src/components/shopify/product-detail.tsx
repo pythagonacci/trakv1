@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { getProductDetails, refreshProduct } from "@/app/actions/shopify-products";
 import { createProjectFromProduct } from "@/app/actions/project";
-import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { UnitsSoldWidget } from "./units-sold-widget";
 
 interface ProductDetailProps {
@@ -55,7 +54,10 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
 
   const handleCreateProject = () => {
     startCreateTransition(async () => {
-      const workspaceId = await getCurrentWorkspaceId();
+      console.log("[PERF] client getCurrentWorkspaceId via route (shopify)");
+      const response = await fetch("/api/workspaces/current", { cache: "no-store" });
+      const json = await response.json();
+      const workspaceId = json?.data?.workspaceId || null;
       if (!workspaceId) {
         alert("No workspace selected");
         return;

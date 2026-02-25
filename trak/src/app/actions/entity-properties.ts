@@ -11,7 +11,6 @@ import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import type {
   EntityType,
   EntityProperties,
-  EntityPropertiesWithInheritance,
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
@@ -613,6 +612,8 @@ export async function getEntityProperties(
   entityType: EntityType,
   entityId: string
 ): Promise<ActionResult<EntityProperties | null>> {
+  const _t0 = performance.now();
+  console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId}`);
   const access = await requireEntityAccess(entityType, entityId);
   if ("error" in access) return { error: access.error };
   const { supabase, workspaceId } = access;
@@ -625,10 +626,14 @@ export async function getEntityProperties(
 
   if (error) {
     console.error("getEntityProperties error:", error);
+    console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch entity properties" };
   }
 
-  if (!data || data.length === 0) return { data: null };
+  if (!data || data.length === 0) {
+    console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId} rows=0 ms=${Math.round(performance.now() - _t0)}`);
+    return { data: null };
+  }
 
   const props = await buildEntityPropertiesFromRows(
     entityType,
@@ -637,6 +642,7 @@ export async function getEntityProperties(
     data
   );
 
+  console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId} rows=${data.length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: props };
 }
 
@@ -659,7 +665,12 @@ export async function getEntitiesProperties(
   entityIds: string[],
   workspaceId: string
 ): Promise<ActionResult<Record<string, EntityProperties>>> {
-  if (entityIds.length === 0) return { data: {} };
+  const _t0 = performance.now();
+  if (entityIds.length === 0) {
+    console.log(`[PERF] getEntitiesProperties entity-properties type=${entityType} ids=0 workspaceId=${workspaceId} ms=${Math.round(performance.now() - _t0)}`);
+    return { data: {} };
+  }
+  console.log(`[PERF] getEntitiesProperties entity-properties type=${entityType} ids=${entityIds.length} workspaceId=${workspaceId}`);
 
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
@@ -698,24 +709,9 @@ export async function getEntitiesProperties(
     );
   }
 
+  const rowsCount = data?.length ?? 0;
+  console.log(`[PERF] getEntitiesProperties entity-properties type=${entityType} ids=${entityIds.length} rows=${rowsCount} ms=${Math.round(performance.now() - _t0)}`);
   return { data: result };
-}
-
-/**
- * Get properties (direct only; inheritance removed).
- */
-export async function getEntityPropertiesWithInheritance(
-  entityType: EntityType,
-  entityId: string
-): Promise<ActionResult<EntityPropertiesWithInheritance>> {
-  const directResult = await getEntityProperties(entityType, entityId);
-  if ("error" in directResult) return directResult;
-  return {
-    data: {
-      direct: directResult.data ?? null,
-      inherited: [],
-    },
-  };
 }
 
 /**
@@ -724,6 +720,8 @@ export async function getEntityPropertiesWithInheritance(
 export async function setEntityProperties(
   input: SetEntityPropertiesInput
 ): Promise<ActionResult<EntityProperties>> {
+  const _t0 = performance.now();
+  console.log(`[PERF] setEntityProperties entity-properties type=${input.entity_type} entityId=${input.entity_id}`);
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
   if ("error" in access) return { error: access.error };
   const { supabase, workspaceId } = access;
@@ -1240,14 +1238,18 @@ export async function clearEntityProperties(
 export async function getWorkspaceMembers(
   workspaceId: string
 ): Promise<ActionResult<WorkspaceMember[]>> {
+  const _t0 = performance.now();
+  console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId}`);
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) {
+    console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Unauthorized" };
   }
 
   const membership = await checkWorkspaceMembership(workspaceId, user.id);
   if (!membership) {
+    console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Not a member of this workspace" };
   }
 
@@ -1258,10 +1260,12 @@ export async function getWorkspaceMembers(
 
   if (error) {
     console.error("getWorkspaceMembers error:", error);
+    console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} error=Query ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch workspace members" };
   }
 
   if (!members || members.length === 0) {
+    console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} count=0 ms=${Math.round(performance.now() - _t0)}`);
     return { data: [] };
   }
 
@@ -1308,6 +1312,7 @@ export async function getWorkspaceMembers(
     };
   });
 
+  console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} count=${transformed.length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: transformed };
 }
 

@@ -8,13 +8,12 @@ import { parseLocalDate, parseDateSafe } from "@/lib/due-date";
 import { Plus, User, ChevronDown, ChevronRight, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block, getBlockLocation, updateBlock } from "@/app/actions/block";
-import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { getAllTeams } from "@/app/actions/workspace-teams";
 import type { WorkspaceTeam } from "@/app/actions/workspace-teams";
 import { PropertyBadges, PropertyMenu } from "@/components/properties";
 import {
   useEntitiesProperties,
-  useEntityPropertiesWithInheritance,
+  useEntityProperties,
   useSetEntityPropertiesForType,
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
@@ -712,11 +711,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
 
     const loadMembers = async () => {
-      const result = await getWorkspaceMembers(workspaceId);
-      if (result.data) {
-        setMembers(result.data);
-      } else if (result.error) {
-        console.error('❌ Error loading members:', result.error);
+      console.log(`[PERF] client timeline getWorkspaceMembers workspaceId=${workspaceId}`);
+      const response = await fetch(`/api/workspaces/members?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (response.ok && json?.data) {
+        setMembers(json.data);
+      } else {
+        console.error('❌ Error loading members:', json?.error || 'Failed to fetch workspace members');
         setMembers([]);
       }
     };
@@ -2333,7 +2336,7 @@ function EventDetailsPanel({
   onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
   variant?: "sidebar" | "modal";
 }) {
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
+  const { data: direct } = useEntityProperties("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const { data: teams = [] } = useQuery({
     queryKey: ["workspaceTeams", workspaceId],
@@ -2346,7 +2349,6 @@ function EventDetailsPanel({
     enabled: Boolean(workspaceId),
     staleTime: 60_000,
   });
-  const direct = propertiesResult?.direct;
   const eventPriorities = useMemo(
     () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
     [event.priorities]
@@ -3216,8 +3218,7 @@ function EditEventDialog({
     () => normalizeTimelinePrioritiesClient(event.priorities ?? []),
     [event.priorities]
   );
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("timeline_event", event.id);
-  const direct = propertiesResult?.direct;
+  const { data: direct } = useEntityProperties("timeline_event", event.id);
   const directPriorities = useMemo(
     () => normalizeTimelinePrioritiesClient(direct?.priorities ?? []),
     [direct?.priorities]

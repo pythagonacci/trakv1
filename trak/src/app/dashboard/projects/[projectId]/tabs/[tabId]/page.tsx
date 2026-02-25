@@ -5,6 +5,7 @@ import { getProjectTabs } from "@/app/actions/tab";
 import { getTabBlocks } from "@/app/actions/block";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { getBatchFileUrls } from "@/app/actions/file";
+import { getEntitiesProperties } from "@/app/actions/entity-properties";
 import TabPageLayout from "./tab-page-layout";
 import TabCanvasWrapper from "./tab-canvas-wrapper";
 import WorkflowPageLayout from "@/app/dashboard/workflow/[workflowPageId]/workflow-page-layout";
@@ -21,9 +22,11 @@ export default async function TabPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const supabase = await createClient();
+  const renderId = Math.random().toString(36).slice(2, 10);
 
   // Await params in Next.js 15
   const { projectId, tabId } = await params;
+  console.log(`[PERF] TAB_PAGE_RENDER id=${renderId} projectId=${projectId} tabId=${tabId}`);
   const searchParamsData = await searchParams;
   const taskId = typeof searchParamsData.taskId === 'string' ? searchParamsData.taskId : null;
 
@@ -104,6 +107,14 @@ export default async function TabPage({
   const hierarchicalTabs = tabsData;
   const blocks = blocksData as Block[];
   const isWorkflowTab = Boolean(tab?.is_workflow_page);
+
+  const blockIds = blocks.map((block) => String(block.id));
+  const blockPropertiesResult =
+    blockIds.length > 0
+      ? await getEntitiesProperties("block", blockIds, workspaceId)
+      : { data: {} };
+  const blockPropertiesById =
+    "data" in blockPropertiesResult ? blockPropertiesResult.data : {};
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
@@ -252,6 +263,7 @@ export default async function TabPage({
           projectId={projectId}
           workspaceId={workspaceId}
           blocks={blocks}
+          initialBlockPropertiesById={blockPropertiesById}
           scrollToTaskId={taskId}
           initialFileUrls={initialFileUrls}
         />

@@ -1,6 +1,7 @@
 "use client";
 
 import { type Block } from "@/app/actions/block";
+import type { EntityProperties } from "@/types/properties";
 import dynamic from "next/dynamic";
 import BlockWrapper from "./block-wrapper";
 import LazyBlockWrapper from "./lazy-block-wrapper";
@@ -99,6 +100,8 @@ interface BlockRendererProps {
   workspaceId: string;
   projectId: string;
   tabId?: string;
+  blockProperties?: EntityProperties | null;
+  propertiesById?: Record<string, EntityProperties>;
   onUpdate?: (updatedBlock?: Block) => void;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: Block["type"], content?: Record<string, unknown>) => void;
@@ -109,7 +112,7 @@ interface BlockRendererProps {
   scrollToTaskId?: string | null;
 }
 
-export default function BlockRenderer({ block, workspaceId, projectId, tabId, onUpdate, onDelete, onConvert, onAddBlockAbove, onAddBlockBelow, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
+export default function BlockRenderer({ block, workspaceId, projectId, tabId, blockProperties, propertiesById, onUpdate, onDelete, onConvert, onAddBlockAbove, onAddBlockBelow, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
   // Ensure block type exists - critical validation
   if (!block.type) {
     console.error("BlockRenderer: Block missing type property:", block);
@@ -129,6 +132,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
             block={block}
             workspaceId={workspaceId}
             projectId={projectId}
+            properties={blockProperties}
             onDelete={onDelete}
             onConvert={onConvert}
             onUpdate={onUpdate}
@@ -179,7 +183,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
         return <ChartBlock block={block} />;
       case "section":
         return tabId ? (
-          <SectionBlock block={block} workspaceId={workspaceId} projectId={projectId} tabId={tabId} onUpdate={onUpdate} />
+          <SectionBlock block={block} workspaceId={workspaceId} projectId={projectId} tabId={tabId} onUpdate={onUpdate} propertiesById={propertiesById} />
         ) : (
           <div className="p-5 text-sm text-neutral-500">Section requires tabId</div>
         );
@@ -197,12 +201,13 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, on
   };
 
   return (
-    <LazyBlockWrapper blockId={block.id} blockType={block.type}>
-      <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
+      <LazyBlockWrapper blockId={block.id} blockType={block.type}>
+        <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
         <BlockWrapper
           block={block}
           workspaceId={workspaceId}
           projectId={projectId}
+          properties={blockProperties}
           onDelete={onDelete}
           onConvert={onConvert}
           onUpdate={onUpdate}

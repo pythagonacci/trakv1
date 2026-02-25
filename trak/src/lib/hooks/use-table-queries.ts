@@ -22,7 +22,7 @@ import {
 } from "@/app/actions/tables/row-actions";
 import { createView, getView, updateView, deleteView, setDefaultView, listViews } from "@/app/actions/tables/view-actions";
 import { createComment, updateComment, deleteComment, resolveComment, getRowComments } from "@/app/actions/tables/comment-actions";
-import { getTableData, getTableBootstrap, searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
+import { searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/tables/query-actions";
 import { getRelatedRows, configureRelationField } from "@/app/actions/tables/relation-actions";
 import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows, bulkInsertRows } from "@/app/actions/tables/bulk-actions";
 import type { Table, TableField, TableRow, TableView, TableComment, FilterCondition } from "@/types/table";
@@ -50,9 +50,14 @@ export function useTableBootstrap(tableId: string) {
   return useQuery({
     queryKey: queryKeys.tableBootstrap(tableId),
     queryFn: async () => {
-      const result = await getTableBootstrap(tableId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      const response = await fetch(`/api/tables/bootstrap?tableId=${encodeURIComponent(tableId)}`, {
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load table bootstrap");
+      }
+      return payload;
     },
     staleTime: 30_000,
     enabled: Boolean(tableId),
@@ -433,9 +438,14 @@ export function useTableRows(
   return useQuery({
     queryKey: queryKeys.tableRows(tableId, viewId),
     queryFn: async () => {
-      const result = await getTableData({ tableId, viewId });
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      const params = new URLSearchParams({ tableId });
+      if (viewId) params.set("viewId", viewId);
+      const response = await fetch(`/api/tables/data?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) throw new Error(json?.error || "Failed to load rows");
+      return json.data;
     },
     staleTime: 10_000,
     enabled: opts?.enabled !== false && Boolean(tableId),
@@ -450,9 +460,18 @@ export function useInfiniteTableRows(
   return useInfiniteQuery({
     queryKey: queryKeys.tableRows(tableId, viewId),
     queryFn: async ({ pageParam = 0 }) => {
-      const result = await getTableData({ tableId, viewId, offset: pageParam as number, limit: 100 });
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      const params = new URLSearchParams({
+        tableId,
+        limit: "100",
+        offset: String(pageParam as number),
+      });
+      if (viewId) params.set("viewId", viewId);
+      const response = await fetch(`/api/tables/data?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) throw new Error(json?.error || "Failed to load rows");
+      return json.data;
     },
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextOffset : null,
     initialPageParam: 0,
