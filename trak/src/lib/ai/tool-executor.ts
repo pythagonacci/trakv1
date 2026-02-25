@@ -1164,13 +1164,24 @@ export async function executeTool(
             // EXECUTION: Create -> Assign -> Tag
             // ------------------------------------------------------------------
 
-            const rpcResult = await createTaskFullRpc({
-              ...payload,
-              assignees: resolvedAssignees,
-              tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
-              authContext: authContext ?? undefined,
-            });
-            if (!("error" in rpcResult)) {
+            let rpcResult:
+              | Awaited<ReturnType<typeof createTaskFullRpc>>
+              | null = null;
+            try {
+              rpcResult = await createTaskFullRpc({
+                ...payload,
+                assignees: resolvedAssignees,
+                tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+                authContext: authContext ?? undefined,
+              });
+            } catch (error) {
+              aiDebug("createTaskItem:rpcFallback", {
+                reason: "rpc_call_threw",
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+
+            if (rpcResult && !("error" in rpcResult)) {
               const out: ToolCallResult = { success: true, data: rpcResult.data };
               if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
               return out;

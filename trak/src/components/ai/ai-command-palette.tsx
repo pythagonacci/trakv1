@@ -20,7 +20,7 @@ import {
   saveFileAnalysisAsComment,
   getFileAnalysisContextFiles,
 } from "@/app/actions/file-analysis";
-import { convertFileAnalysisToWorkflowPage, createWorkflowPage } from "@/app/actions/workflow-page";
+import { convertFileAnalysisToWorkflowPage } from "@/app/actions/workflow-page";
 import { createFileRecord } from "@/app/actions/file";
 import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
@@ -66,11 +66,6 @@ interface PendingWriteConfirmation extends WriteConfirmationRequest {
   originalCommand: string;
 }
 
-interface PendingWorkflowPageSuggestion {
-  command: string;
-  title: string;
-}
-
 const isSearchLikeToolName = (name: string) =>
   name.startsWith("search") ||
   name.startsWith("get") ||
@@ -90,23 +85,6 @@ const hasSuccessfulWriteToolCall = (toolCallsMade: unknown) => {
   });
 };
 
-const shouldSuggestWorkflowPage = (command: string) => {
-  const lower = command.toLowerCase();
-  if (lower.length < 20) return false;
-  if (/(across\s+(projects|tabs)|across\s+the\s+workspace|workspace-?wide|all\s+projects|compare|aggregate|cross-?project|cross-?tab)/.test(lower)) {
-    return true;
-  }
-  if (/(show|list|find)\s+all\s+.*\s+(across|in)\s+(projects|workspace)/.test(lower)) {
-    return true;
-  }
-  return false;
-};
-
-const defaultWorkflowTitleFromCommand = (command: string) => {
-  const trimmed = command.trim().replace(/\s+/g, " ");
-  if (trimmed.length <= 48) return trimmed;
-  return `${trimmed.slice(0, 45)}…`;
-};
 
 export function AICommandPalette() {
   const {
@@ -143,7 +121,6 @@ export function AICommandPalette() {
   const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
   const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
   const [writeClarificationInput, setWriteClarificationInput] = useState("");
-  const [pendingWorkflowPageSuggestion, setPendingWorkflowPageSuggestion] = useState<PendingWorkflowPageSuggestion | null>(null);
   const [contextFiles, setContextFiles] = useState<Array<{ id: string; file_name: string }>>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -154,6 +131,7 @@ export function AICommandPalette() {
   const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([]);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initializedModeRef = useRef(false);
@@ -164,22 +142,16 @@ export function AICommandPalette() {
 
     // Match tab ID anywhere after /tabs/
     const tabMatch = pathname.match(/\/tabs\/([^/]+)/);
+    // Workflow pages use /dashboard/workflow/[workflowPageId]
+    const workflowMatch = pathname.match(/\/dashboard\/workflow\/([^/]+)/);
 
     return {
       projectId: projectMatch ? projectMatch[1] : null,
-      tabId: tabMatch ? tabMatch[1] : null,
+      tabId: tabMatch ? tabMatch[1] : workflowMatch ? workflowMatch[1] : null,
     };
   }, [pathname]);
 
   const workspaceId = currentWorkspace?.id || null;
-  const scrollBackground = (deltaY: number, deltaX?: number) => {
-    const scroller = document.getElementById("dashboard-content");
-    if (scroller) {
-      scroller.scrollBy({ top: deltaY, left: deltaX ?? 0, behavior: "auto" });
-      return;
-    }
-    window.scrollBy({ top: deltaY, left: deltaX ?? 0, behavior: "auto" });
-  };
 
   const loadSession = async () => {
     if (!workspaceId) return;
@@ -251,7 +223,6 @@ export function AICommandPalette() {
       initializedModeRef.current = false;
       setPendingWriteConfirmation(null);
       setWriteClarificationInput("");
-      setPendingWorkflowPageSuggestion(null);
       return;
     }
     if (initializedModeRef.current) return;
@@ -266,7 +237,9 @@ export function AICommandPalette() {
   }, [isOpen, mode, workspaceId, pathMatch.projectId, pathMatch.tabId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [messages, isLoading, isSyncing, assistantMessages, assistantLoading, searchEntries, searchLoading]);
 
   useEffect(() => {
@@ -279,7 +252,6 @@ export function AICommandPalette() {
     if (mode !== "assistant") {
       setPendingWriteConfirmation(null);
       setWriteClarificationInput("");
-      setPendingWorkflowPageSuggestion(null);
     }
   }, [mode]);
 
@@ -610,23 +582,9 @@ export function AICommandPalette() {
     if (assistantLoading) return;
     const messageText = input.trim();
 
-    if (mode === "assistant" && shouldSuggestWorkflowPage(messageText) && workspaceId) {
-      setInput("");
-      setAssistantMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: "user" as const, content: messageText },
-      ]);
-      setPendingWorkflowPageSuggestion({
-        command: messageText,
-        title: defaultWorkflowTitleFromCommand(messageText),
-      });
-      return;
-    }
-
     setInput("");
     setPendingWriteConfirmation(null);
     setWriteClarificationInput("");
-    setPendingWorkflowPageSuggestion(null);
     await runAssistantCommand({
       command: messageText,
       appendUserMessage: true,
@@ -683,49 +641,6 @@ export function AICommandPalette() {
 
     await runAssistantCommand({
       command: `For my previous request "${pending.originalCommand}", use this clarification before any changes: ${clarification}`,
-      appendUserMessage: true,
-      confirmation: null,
-    });
-  };
-
-  const handleCreateWorkflowPage = async () => {
-    if (!pendingWorkflowPageSuggestion || !workspaceId || assistantLoading) return;
-    const suggestion = pendingWorkflowPageSuggestion;
-    setPendingWorkflowPageSuggestion(null);
-    setAssistantLoading(true);
-
-    try {
-      const created = await createWorkflowPage({
-        isWorkspaceLevel: true,
-        title: suggestion.title,
-      });
-      if ("error" in created) {
-        setToast({ message: created.error, type: "error" });
-        return;
-      }
-
-      const tabId = created.data.tabId;
-      sessionStorage.setItem(
-        `trak-workflow-autorun:${tabId}`,
-        JSON.stringify({ command: suggestion.command })
-      );
-      closeCommandPalette();
-      router.push(`/dashboard/workflow/${tabId}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create workflow page";
-      setToast({ message, type: "error" });
-    } finally {
-      setAssistantLoading(false);
-    }
-  };
-
-  const handleContinueInChat = async () => {
-    if (!pendingWorkflowPageSuggestion || assistantLoading) return;
-    const suggestion = pendingWorkflowPageSuggestion;
-    setPendingWorkflowPageSuggestion(null);
-
-    await runAssistantCommand({
-      command: suggestion.command,
       appendUserMessage: true,
       confirmation: null,
     });
@@ -1058,27 +973,15 @@ export function AICommandPalette() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex justify-end">
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/20"
-        onClick={closeCommandPalette}
-        onWheel={(event) => {
-          event.preventDefault();
-          scrollBackground(event.deltaY, event.deltaX);
-        }}
-      />
-
-      {/* Sidebar */}
-      <div
-        className={cn(
-          "relative h-full w-full max-w-[480px] bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl flex flex-col",
-          isDragging && "ring-2 ring-[var(--primary)]/40"
-        )}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+    <aside
+      className={cn(
+        "relative z-40 h-full w-full max-w-[480px] min-w-[360px] bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl flex flex-col",
+        isDragging && "ring-2 ring-[var(--primary)]/40"
+      )}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]">
           <div className="flex items-center gap-3">
@@ -1209,7 +1112,7 @@ export function AICommandPalette() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {mode === "file" ? (
             messages.map((message) => {
               const isUser = message.role === "user";
@@ -1549,32 +1452,6 @@ export function AICommandPalette() {
             </div>
           )}
 
-          {mode === "assistant" && pendingWorkflowPageSuggestion && !assistantLoading && (
-            <div className="flex justify-start">
-              <div className="max-w-[90%] rounded-lg px-3 py-3 text-sm space-y-3 bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)]">
-                <p className="whitespace-pre-wrap">
-                  This looks like a workspace-wide request. Would you like to create a workflow page to keep the analysis as a permanent document?
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCreateWorkflowPage}
-                    className="rounded-md border border-[var(--secondary)] bg-[var(--secondary)] px-3 py-1 text-xs text-white hover:bg-[var(--secondary)]/90"
-                  >
-                    Create workflow page
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleContinueInChat}
-                    className="rounded-md border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
-                  >
-                    Continue in chat
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {mode === "file" && isLoading && (
             <div className="flex justify-start">
               <div className="rounded-lg bg-[var(--muted)] px-3 py-2 text-sm flex items-center gap-2">
@@ -1693,7 +1570,6 @@ export function AICommandPalette() {
         )}
 
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      </div>
-    </div>
+    </aside>
   );
 }

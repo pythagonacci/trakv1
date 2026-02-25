@@ -528,7 +528,7 @@ function BoardTaskCard(props: BoardTaskCardProps) {
         "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow",
         "hover:border-[var(--secondary)]/30 hover:shadow-sm",
         isDragging && "opacity-60",
-        isSubtask && "border-l-2 border-l-[var(--primary)]/40 bg-[var(--surface)]/80"
+        isSubtask && "border-l-[3px] border-l-[var(--primary)]/40 bg-[var(--surface)]/80"
       )}
       {...attributes}
       {...listeners}

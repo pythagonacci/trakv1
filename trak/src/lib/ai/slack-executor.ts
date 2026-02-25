@@ -70,6 +70,9 @@ const SLACK_TASK_SCOPED_TABLES = new Set<string>([
 ]);
 
 const SLACK_COMMENT_TABLES = new Set<string>(["comments"]);
+const SLACK_ALLOWED_READONLY_RPCS = new Set<string>([
+  "match_unstructured_parents",
+]);
 
 type TaskScopeState = {
   taskIds: Set<string>;
@@ -528,8 +531,22 @@ function createSlackScopedServiceClient(params: {
       if (typeof prop === "symbol") return Reflect.get(target, prop, receiver);
       if (prop === "from") return from;
       if (prop === "rpc") {
-        return () => {
-          throw new Error("Slack scoped client blocks rpc() access.");
+        return (fn: string, args?: Record<string, unknown>) => {
+          if (typeof fn === "string" && SLACK_ALLOWED_READONLY_RPCS.has(fn)) {
+            return (target as any).rpc(fn, args);
+          }
+
+          const blockedFn = typeof fn === "string" && fn.length > 0 ? fn : "unknown";
+          const message = `Slack scoped client blocks rpc() access for function: ${blockedFn}`;
+          return Promise.resolve({
+            data: null,
+            error: {
+              message,
+              code: "SLACK_RPC_BLOCKED",
+              details: null,
+              hint: null,
+            },
+          });
         };
       }
       if (prop === "auth" || prop === "storage" || prop === "functions" || prop === "realtime") {
@@ -548,6 +565,7 @@ export interface SlackExecutionResult {
     type: "project" | "tab";
     options: Array<{ id: string; name: string }>;
     originalCommand?: string;
+    contextId?: string;
   };
   error?: string;
 }
@@ -639,11 +657,11 @@ export async function executeSlackAICommand(
     const userName = profile?.name || profile?.email;
 
     // 2. Detect if command needs project/tab context
-    const needsProjectContext = /\b(create|add|new)\s+(task|table|doc|timeline)\b/i.test(
+    const requiresProjectAndTabContext = /\b(create|add|new)\b/i.test(
       params.command
     );
 
-    if (needsProjectContext && !params.projectId) {
+    if (requiresProjectAndTabContext && !params.projectId) {
       // Fetch projects and ask user to select
       const { data: projects } = await supabase
         .from("projects")
@@ -668,6 +686,45 @@ export async function executeSlackAICommand(
         needsContext: {
           type: "project",
           options: projects.map((p) => ({ id: p.id, name: p.name })),
+          originalCommand: params.command,
+        },
+      };
+    }
+
+    if (requiresProjectAndTabContext && params.projectId && !params.tabId) {
+      const { data: tabs, error: tabsError } = await supabase
+        .from("tabs")
+        .select("id, name")
+        .eq("project_id", params.projectId)
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (tabsError) {
+        return {
+          success: false,
+          response: "Unable to load tabs for the selected project.",
+          toolCallsMade: [],
+          error: tabsError.message,
+        };
+      }
+
+      if (!tabs || tabs.length === 0) {
+        return {
+          success: false,
+          response: "No tabs found in that project. Please create a tab in TWOD first.",
+          toolCallsMade: [],
+          error: "No tabs available",
+        };
+      }
+
+      return {
+        success: false,
+        response: "Which tab should I use?",
+        toolCallsMade: [],
+        needsContext: {
+          type: "tab",
+          options: tabs.map((t) => ({ id: t.id, name: t.name })),
           originalCommand: params.command,
         },
       };
@@ -719,7 +776,9 @@ REMEMBER: Be concise. This is Slack, not a detailed report.`,
     };
 
     // 5. Execute AI command with restricted tool groups and read-only by default
-    const allowMutations = needsProjectContext || /\b(update|edit|change|set|mark|complete)\b/i.test(params.command);
+    const allowMutations =
+      requiresProjectAndTabContext ||
+      /\b(create|add|new|update|edit|change|set|mark|complete|delete|remove|archive)\b/i.test(params.command);
 
     const allowedWriteTools = allowMutations
       ? ["createTaskItem", "updateTaskItem", "createProject", "updateProject", "createDoc"]

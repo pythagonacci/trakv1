@@ -26,7 +26,7 @@ const DialogPortal = ({
   className?: string;
 }) => (
   <DialogPrimitive.Portal {...props}>
-    <div className={cn("fixed inset-0 z-50 flex items-center justify-center p-4", className)}>
+    <div className={cn("fixed inset-0 z-[100] flex items-center justify-center p-4", className)}>
       {children}
     </div>
   </DialogPrimitive.Portal>
@@ -60,7 +60,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 w-full max-w-lg",
+        "relative z-[100] w-full max-w-lg",
         // Normalized radius and tokenized styling
         "rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-6",
         // Diffuse shadow (exception for modals)

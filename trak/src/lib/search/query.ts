@@ -15,6 +15,14 @@ export interface SearchResult {
     score: number; // Parent score
 }
 
+interface ParentMatchRow {
+    id: string;
+    source_id: string;
+    source_type: string;
+    summary: string;
+    similarity: number;
+}
+
 // Parent Gating Threshold - heuristic
 const MIN_PARENT_SCORE = 0.15;
 const MIN_CHUNK_SCORE = 0.15;
@@ -58,33 +66,11 @@ export class UnstructuredSearch {
 
         // Let's assume I will call `rpc('match_unstructured_parents', { query_embedding, match_threshold, match_count })`.
 
-        let { data: parents, error: parentError } = await this.supabase.rpc('match_unstructured_parents', {
-            match_embedding: queryVector,
-            match_threshold: MIN_PARENT_SCORE,
-            match_count: MAX_PARENT_COUNT,
-            filter_workspace_id: workspaceId
-        });
-
-        if (parentError) {
-            console.error('[Search] RPC match_unstructured_parents failed:', parentError);
-            logger.error('Parent match error', parentError);
-            parents = null;
-        }
+        let parents = await this.matchParentsViaRpc(workspaceId, queryVector, MIN_PARENT_SCORE, MAX_PARENT_COUNT);
 
         if (!parents || parents.length === 0) {
             // Retry with a looser threshold before falling back
-            const retry = await this.supabase.rpc('match_unstructured_parents', {
-                match_embedding: queryVector,
-                match_threshold: 0,
-                match_count: MAX_PARENT_COUNT,
-                filter_workspace_id: workspaceId
-            });
-            if (retry.error) {
-                console.error('[Search] RPC match_unstructured_parents retry failed:', retry.error);
-                logger.error('Parent match retry error', retry.error);
-            } else {
-                parents = retry.data;
-            }
+            parents = await this.matchParentsViaRpc(workspaceId, queryVector, 0, MAX_PARENT_COUNT);
         }
 
         if (!parents || parents.length === 0) {
@@ -169,7 +155,49 @@ export class UnstructuredSearch {
         return finalResults;
     }
 
-    private async matchParentsClientSide(workspaceId: string, normalizedQuery: number[], limit: number) {
+    private async matchParentsViaRpc(
+        workspaceId: string,
+        queryVector: number[],
+        threshold: number,
+        limit: number
+    ): Promise<ParentMatchRow[] | null> {
+        try {
+            const { data, error } = await this.supabase.rpc("match_unstructured_parents", {
+                match_embedding: queryVector,
+                match_threshold: threshold,
+                match_count: limit,
+                filter_workspace_id: workspaceId,
+            });
+
+            if (error) {
+                console.error("[Search] RPC match_unstructured_parents failed:", error);
+                logger.error("Parent match error", error);
+                return null;
+            }
+
+            return Array.isArray(data) ? (data as ParentMatchRow[]) : null;
+        } catch (error) {
+            if (this.isRpcBlockedInScopedClient(error)) {
+                console.log("[Search] RPC blocked in scoped client; using client-side parent matching fallback.");
+                return null;
+            }
+
+            console.error("[Search] RPC match_unstructured_parents threw:", error);
+            logger.error("Parent match throw", error);
+            return null;
+        }
+    }
+
+    private isRpcBlockedInScopedClient(error: unknown): boolean {
+        if (!(error instanceof Error)) return false;
+        return error.message.includes("blocks rpc() access");
+    }
+
+    private async matchParentsClientSide(
+        workspaceId: string,
+        normalizedQuery: number[],
+        limit: number
+    ): Promise<ParentMatchRow[]> {
         const { data: parentRows, error } = await this.supabase
             .from("unstructured_parents")
             .select("id, source_type, source_id, summary, summary_embedding")
@@ -195,7 +223,7 @@ export class UnstructuredSearch {
                     similarity: cosineSimilarity(normalizedQuery, normalizeEmbedding(embedding))
                 };
             })
-            .filter(Boolean)
+            .filter((parent): parent is ParentMatchRow => parent !== null)
             .sort((a: any, b: any) => b.similarity - a.similarity)
             .slice(0, limit);
 

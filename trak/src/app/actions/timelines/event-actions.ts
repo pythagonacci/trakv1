@@ -15,6 +15,7 @@ import {
   normalizeTimelineStatuses,
   syncTimelineStatusFieldsToEntityProperties,
 } from "@/lib/timeline-status-sync";
+import { updateTaskItem } from "@/app/actions/tasks/item-actions";
 import type { AuthContext } from "@/lib/auth-context";
 import type {
   TimelineEvent,
@@ -439,6 +440,44 @@ export async function updateTimelineEvent(
   // Sync status and priority to entity_properties if either was updated
   if (updates.status !== undefined || updates.statuses !== undefined || updates.priority !== undefined || updates.priorities !== undefined) {
     await syncTimelineEventToEntityProperties(supabase, eventId, event.workspace_id, normalized.statuses, normalized.priorities);
+  }
+
+  // If this event is live-synced to a task, propagate status/priority back to the source task
+  if (
+    (updates.status !== undefined || updates.statuses !== undefined || updates.priority !== undefined || updates.priorities !== undefined) &&
+    event.source_entity_type === "task" &&
+    event.source_entity_id &&
+    event.source_sync_mode === "live"
+  ) {
+    try {
+      const taskUpdates: Record<string, unknown> = {};
+
+      if (updates.status !== undefined || updates.statuses !== undefined) {
+        taskUpdates.statuses = normalizeTimelineStatuses((normalized as any).statuses).map((entry) => ({
+          field_name: entry.field_name,
+          value: entry.value,
+        }));
+      }
+
+      if (updates.priority !== undefined || updates.priorities !== undefined) {
+        taskUpdates.priorities = normalizeTimelinePriorities((normalized as any).priorities).map((entry) => ({
+          field_name: entry.field_name,
+          value: entry.value,
+        }));
+      }
+
+      if (Object.keys(taskUpdates).length > 0) {
+        await updateTaskItem(event.source_entity_id, taskUpdates as any, {
+          authContext: { supabase, userId },
+        });
+      }
+    } catch (syncError) {
+      console.error("Failed to sync timeline event properties back to source task", {
+        eventId,
+        sourceTaskId: event.source_entity_id,
+        error: syncError,
+      });
+    }
   }
 
   return { data: normalized };

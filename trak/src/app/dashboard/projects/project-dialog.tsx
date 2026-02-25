@@ -222,7 +222,7 @@ export default function ProjectDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-3">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--overlay)] p-3" aria-modal="true">
       <div className="w-full max-w-md overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_16px_rgba(0,0,0,0.05)]">
         {/* Dialog Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
-import ProjectHeader from "./project-header";
+import ProjectHeaderWrapper from "./project-header-wrapper";
 import TabBar from "./tab-bar";
 
 export const dynamic = "force-dynamic";
@@ -54,10 +54,10 @@ export default async function ProjectLayout({
     const hierarchicalTabs = tabsResult.data || [];
 
     return (
-        <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col">
+        <div className="flex-1 min-h-0 bg-neutral-50 dark:bg-neutral-950 flex flex-col">
             <div className="w-full px-2 md:px-3 lg:px-4 shrink-0">
                 <div className="pt-2 pb-1">
-                    <ProjectHeader project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
+                    <ProjectHeaderWrapper project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
                 </div>
 
                 {hierarchicalTabs.length > 0 && (
@@ -72,7 +72,7 @@ export default async function ProjectLayout({
                 )}
             </div>
 
-            <div className="flex-1 w-full relative">
+            <div className="flex-1 min-h-0 w-full relative">
                 {children}
             </div>
         </div>

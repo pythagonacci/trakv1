@@ -1226,6 +1226,8 @@ export async function* executeWorkflowAICommandStream(params: {
   command: string;
   confirmation?: WriteConfirmationApproval | null;
   resumeFromConfirmation?: boolean;
+  conversationHistory?: AIMessage[];
+  persistSession?: boolean;
 }): AsyncGenerator<{
   type:
     | "thinking"
@@ -1238,49 +1240,75 @@ export async function* executeWorkflowAICommandStream(params: {
   data?: unknown;
 }> {
   const workflowUndoTracker = createUndoTracker();
+  const persistSession = params.persistSession !== false;
   const user = await getAuthenticatedUser();
   if (!user) {
     yield { type: "response", content: "Unauthorized", data: { error: "Unauthorized" } };
     return;
   }
 
-  const sessionResult = await getOrCreateWorkflowSession({ tabId: params.tabId });
-  if ("error" in sessionResult) {
-    yield { type: "response", content: sessionResult.error, data: { error: sessionResult.error } };
-    return;
+  let sessionId: string | null = null;
+  let workspaceId: string | null = null;
+  let history: WorkflowMessageRecord[] = [];
+  let conversationHistory: AIMessage[] = [];
+
+  if (persistSession) {
+    const sessionResult = await getOrCreateWorkflowSession({ tabId: params.tabId });
+    if ("error" in sessionResult) {
+      yield { type: "response", content: sessionResult.error, data: { error: sessionResult.error } };
+      return;
+    }
+
+    const session = sessionResult.data;
+    sessionId = session.id;
+    workspaceId = session.workspace_id;
+
+    const historyResult = await getWorkflowSessionMessages({ sessionId: session.id });
+    history = "data" in historyResult ? historyResult.data : [];
+    conversationHistory = history.map((message) => ({
+      role: message.role,
+      content: safeTextFromContent(message.content),
+    }));
+  } else {
+    conversationHistory = Array.isArray(params.conversationHistory)
+      ? params.conversationHistory.filter((message) => message.role !== "system")
+      : [];
   }
 
-  const session = sessionResult.data;
-
-  const historyResult = await getWorkflowSessionMessages({ sessionId: session.id });
-  const history = "data" in historyResult ? historyResult.data : [];
-  const conversationHistory: AIMessage[] = history.map((message) => ({
-    role: message.role,
-    content: safeTextFromContent(message.content),
-  }));
   const recentHistoryText = conversationHistory.slice(-6).map((m) => m.content ?? "").join(" ");
 
   // Build search history context from previous turns for source data propagation (streaming path)
-  const { searchHistory: streamSearchHistory, hasSearchHistory: streamHasSearchHistory } = buildSearchHistoryContext(history);
+  const { searchHistory: streamSearchHistory, hasSearchHistory: streamHasSearchHistory } = persistSession
+    ? buildSearchHistoryContext(history)
+    : { searchHistory: "", hasSearchHistory: false };
   const streamInitialSearchedEntities = streamHasSearchHistory ? extractInitialSearchedEntities(history) : [];
 
-  if (!params.resumeFromConfirmation) {
+  if (persistSession && sessionId && !params.resumeFromConfirmation) {
     await addWorkflowMessage({
-      sessionId: session.id,
+      sessionId,
       role: "user",
       content: { text: params.command },
     });
   }
 
   const supabase = await createClient();
-  const [workspaceResult, profileResult, tabResult] = await Promise.all([
-    supabase.from("workspaces").select("id, name").eq("id", session.workspace_id).single(),
+  const tabResult = await supabase
+    .from("tabs")
+    .select("id, project_id, name, projects!inner(id, workspace_id)")
+    .eq("id", params.tabId)
+    .single();
+
+  const tabProject = tabResult.data?.projects as { workspace_id?: string } | { workspace_id?: string }[] | null;
+  const tabWorkspaceId = Array.isArray(tabProject) ? tabProject[0]?.workspace_id : tabProject?.workspace_id;
+  const effectiveWorkspaceId = workspaceId || tabWorkspaceId || null;
+  if (!effectiveWorkspaceId) {
+    yield { type: "response", content: "Unable to resolve workspace for this tab.", data: { error: "Missing workspace context" } };
+    return;
+  }
+
+  const [workspaceResult, profileResult] = await Promise.all([
+    supabase.from("workspaces").select("id, name").eq("id", effectiveWorkspaceId).single(),
     supabase.from("profiles").select("name, email").eq("id", user.id).single(),
-    supabase
-      .from("tabs")
-      .select("id, project_id, name, projects!inner(id, workspace_id)")
-      .eq("id", params.tabId)
-      .single(),
   ]);
 
   const workspaceName = workspaceResult.data?.name || undefined;
@@ -1288,7 +1316,7 @@ export async function* executeWorkflowAICommandStream(params: {
   const currentProjectId = tabResult.data?.project_id || undefined;
 
   // Auto-generate title from first query (streaming version)
-  if (!params.resumeFromConfirmation && history.length === 0 && tabResult.data) {
+  if (persistSession && !params.resumeFromConfirmation && history.length === 0 && tabResult.data) {
     const currentName = tabResult.data.name;
     if (currentName === "Workflow Page" || !currentName || currentName.trim() === "") {
       // Generate a title from the command
@@ -1421,7 +1449,7 @@ RESPONSE PATTERN:
   const stream = executeAICommandStream(
     params.command,
     {
-      workspaceId: session.workspace_id,
+      workspaceId: effectiveWorkspaceId,
       workspaceName,
       userId: user.id,
       userName,
@@ -1552,7 +1580,7 @@ RESPONSE PATTERN:
 
         if (tasks.length > 0) {
           const tableResult = await createOverdueTasksTable({
-            workspaceId: session.workspace_id,
+            workspaceId: effectiveWorkspaceId,
             projectId: currentProjectId,
             tabId: params.tabId,
             tasks,
@@ -1605,7 +1633,7 @@ RESPONSE PATTERN:
     const tasks = getSuccessfulSearchTasks(toolCallsMade);
     if (tasks.length > 0) {
       const tableResult = await createTaskSearchFallbackTable({
-        workspaceId: session.workspace_id,
+        workspaceId: effectiveWorkspaceId,
         projectId: currentProjectId,
         tabId: params.tabId,
         command: params.command,
@@ -1633,7 +1661,7 @@ RESPONSE PATTERN:
     if (dataset && dataset.rows.length > 0) {
       const fallbackTitle = `Search Results (${dataset.rows.length})`;
       const tableResult = await createGenericSearchFallbackTable({
-        workspaceId: session.workspace_id,
+        workspaceId: effectiveWorkspaceId,
         projectId: currentProjectId,
         tabId: params.tabId,
         title: fallbackTitle,
@@ -1684,24 +1712,26 @@ RESPONSE PATTERN:
     mergedSkipped.push(...workflowUndoTracker.skippedTools);
   }
 
-  await addWorkflowMessage({
-    sessionId: session.id,
-    role: "assistant",
-    content: {
-      text: finalResponse,
-      toolCallsMade,
-      undoBatches: mergedUndoBatches,
-      undoSkippedTools: mergedSkipped,
-      searchManifest: streamSearchManifest ?? null,
-    },
-    createdBlockIds,
-  });
-  if (streamSearchManifest) {
-    aiDebug("sourceTracking:manifestPersisted:stream", {
-      sessionId: session.id,
-      entityCount: streamSearchManifest.entities.length,
-      searchTools: streamSearchManifest.searchTools,
+  if (persistSession && sessionId) {
+    await addWorkflowMessage({
+      sessionId,
+      role: "assistant",
+      content: {
+        text: finalResponse,
+        toolCallsMade,
+        undoBatches: mergedUndoBatches,
+        undoSkippedTools: mergedSkipped,
+        searchManifest: streamSearchManifest ?? null,
+      },
+      createdBlockIds,
     });
+    if (streamSearchManifest) {
+      aiDebug("sourceTracking:manifestPersisted:stream", {
+        sessionId,
+        entityCount: streamSearchManifest.entities.length,
+        searchTools: streamSearchManifest.searchTools,
+      });
+    }
   }
 
   yield {
@@ -1712,7 +1742,7 @@ RESPONSE PATTERN:
       undoBatches: mergedUndoBatches,
       undoSkippedTools: mergedSkipped,
       createdBlockIds,
-      sessionId: session.id,
+      sessionId,
     },
   };
 }
