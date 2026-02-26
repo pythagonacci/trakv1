@@ -1,4 +1,5 @@
 import { type TableField, type TableRow, type FieldType } from "@/types/table";
+import { TABLE_PRIORITY_LEVELS, TABLE_STATUS_OPTIONS } from "@/lib/tables/universal-property";
 
 export interface GroupedData {
   groupId: string;
@@ -97,17 +98,30 @@ function getAllGroups(field: TableField, members?: Member[]): Option[] {
   const { type, config } = field;
 
   if (type === "select" || type === "multi_select" || type === "status") {
-    return Array.isArray((config as any)?.options) ? (config as any).options : [];
+    const options = Array.isArray((config as any)?.options) ? (config as any).options : [];
+    if (type === "status" && options.length === 0) {
+      return TABLE_STATUS_OPTIONS.map((option) => ({
+        id: option.id,
+        label: option.label,
+        color: option.color,
+      }));
+    }
+    return options;
   }
 
   if (type === "priority") {
-    return Array.isArray((config as any)?.levels)
-      ? (config as any).levels.map((lvl: any) => ({
+    if (Array.isArray((config as any)?.levels)) {
+      return (config as any).levels.map((lvl: any) => ({
           id: lvl.id,
           label: lvl.label,
           color: lvl.color,
-        }))
-      : [];
+      }));
+    }
+    return TABLE_PRIORITY_LEVELS.map((level) => ({
+      id: level.id,
+      label: level.label,
+      color: level.color,
+    }));
   }
 
   if (type === "person" && members) {

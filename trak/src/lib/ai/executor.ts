@@ -2623,6 +2623,7 @@ export async function* executeAICommandStream(
   const toolCallsMade: ExecutionResult["toolCallsMade"] = [];
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
   let autoUnstructuredFallbackUsed = false;
+  let hallucinatedWriteRetries = 0;
   const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
   const commandForModel = cleanedCommand;
 
@@ -3556,6 +3557,31 @@ export async function* executeAICommandStream(
         });
 
         autoUnstructuredFallbackUsed = true;
+        continue;
+      }
+
+      // Guard: LLM hallucinated a write completion without actually calling any write tools.
+      // tool_choice="auto" intermittently lets the model respond with plain text instead of
+      // making tool calls — even after search tools ran. Detect this and force a retry by
+      // reminding the model it must call a tool, not just describe the action.
+      const hasNoWriteToolsCalled = toolCallsMade.every((c) => isSearchLikeToolName(c.tool));
+      if (
+        hasWriteIntent &&
+        hasNoWriteToolsCalled &&
+        streamedContent.length > 0 &&
+        hallucinatedWriteRetries < 1
+      ) {
+        hallucinatedWriteRetries += 1;
+        aiDebug("executeAICommandStream:hallucinatedWriteResponse", {
+          iteration: iterations,
+          contentPreview: streamedContent.slice(0, 120),
+          intent: intent.actions,
+          searchToolsCalledSoFar: toolCallsMade.map((c) => c.tool),
+        });
+        messages.push({
+          role: "user",
+          content: `You responded with text but did not call any write tools to complete the action. You MUST call the appropriate tool now — do not describe the action, actually perform it: "${commandForModel}"`,
+        });
         continue;
       }
 

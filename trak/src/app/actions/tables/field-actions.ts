@@ -10,6 +10,10 @@ import { recomputeFormulaField } from "./formula-actions";
 import { recomputeRollupField } from "./rollup-actions";
 import { extractDependencies } from "@/lib/formula-parser";
 import type { FieldType, TableField } from "@/types/table";
+import {
+  getCanonicalConfigForUniversalPropertyType,
+  isUniversalPropertyFieldType,
+} from "@/lib/tables/universal-property";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -29,30 +33,9 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table } = access;
 
-  let config = input.config || {};
-
-  // Ensure priority/status fields have canonical options in config if not provided
-  if ((input.type === "priority" || input.type === "status") && !Object.keys(config).length) {
-    if (input.type === "priority") {
-      config = {
-        levels: [
-          { id: "low", label: "Low", color: "#6b7280", order: 0 },
-          { id: "medium", label: "Medium", color: "#f59e0b", order: 1 },
-          { id: "high", label: "High", color: "#f97316", order: 2 },
-          { id: "urgent", label: "Urgent", color: "#ef4444", order: 3 },
-        ],
-      };
-    } else {
-      config = {
-        options: [
-          { id: "todo", label: "To Do", color: "#6b7280" },
-          { id: "in_progress", label: "In Progress", color: "#3b82f6" },
-          { id: "done", label: "Done", color: "#10b981" },
-          { id: "blocked", label: "Blocked", color: "#ef4444" },
-        ],
-      };
-    }
-  }
+  const config = isUniversalPropertyFieldType(input.type)
+    ? getCanonicalConfigForUniversalPropertyType(input.type)
+    : (input.config || {});
 
   const { data, error } = await supabase
     .from("table_fields")
@@ -107,31 +90,11 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
     width: updates.width,
   };
 
-  if (updates.config !== undefined) {
+  const targetType = (updates.type ?? field.type) as string;
+  if (isUniversalPropertyFieldType(targetType)) {
+    updatePayload.config = getCanonicalConfigForUniversalPropertyType(targetType);
+  } else if (updates.config !== undefined) {
     updatePayload.config = nextConfig;
-  }
-
-  // Ensure priority/status fields have canonical options in config when type changes
-  if ((updates.type === "priority" || updates.type === "status") && updates.config === undefined) {
-    if (updates.type === "priority") {
-      updatePayload.config = {
-        levels: [
-          { id: "low", label: "Low", color: "#6b7280", order: 0 },
-          { id: "medium", label: "Medium", color: "#f59e0b", order: 1 },
-          { id: "high", label: "High", color: "#f97316", order: 2 },
-          { id: "urgent", label: "Urgent", color: "#ef4444", order: 3 },
-        ],
-      };
-    } else {
-      updatePayload.config = {
-        options: [
-          { id: "todo", label: "To Do", color: "#6b7280" },
-          { id: "in_progress", label: "In Progress", color: "#3b82f6" },
-          { id: "done", label: "Done", color: "#10b981" },
-          { id: "blocked", label: "Blocked", color: "#ef4444" },
-        ],
-      };
-    }
   }
 
   const { data, error: updateError } = await supabase
@@ -248,7 +211,11 @@ export async function reorderFields(tableId: string, orders: Array<{ fieldId: st
 export async function updateFieldConfig(fieldId: string, config: Record<string, unknown>): Promise<ActionResult<TableField>> {
   const access = await getFieldContext(fieldId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase, table } = access;
+  const { supabase, table, field } = access;
+
+  if (isUniversalPropertyFieldType(field.type)) {
+    return { error: `${field.type} field config is server-managed and cannot be updated directly` };
+  }
 
   const { data, error: updateError } = await supabase
     .from("table_fields")

@@ -7,6 +7,10 @@ import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import { recomputeFormulasForRow } from "./formula-actions";
 import { recomputeRollupsForRow, recomputeRollupsForTargetRowChanged } from "./rollup-actions";
+import {
+  isUniversalPropertyFieldType,
+  normalizeUniversalPropertyValue,
+} from "@/lib/tables/universal-property";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -34,6 +38,37 @@ function sanitizeRowData(rowData: Record<string, unknown>, validIds: Set<string>
     }
   });
   return cleaned;
+}
+
+function normalizeUniversalPropertyValuesForRow(
+  rowData: Record<string, unknown>,
+  fieldTypeById: Map<string, string>
+): { data: Record<string, unknown>; invalidValues: string[] } {
+  const normalized: Record<string, unknown> = {};
+  const invalidValues: string[] = [];
+
+  for (const [fieldId, rawValue] of Object.entries(rowData || {})) {
+    const fieldType = fieldTypeById.get(fieldId);
+    if (!isUniversalPropertyFieldType(fieldType)) {
+      normalized[fieldId] = rawValue;
+      continue;
+    }
+
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      normalized[fieldId] = null;
+      continue;
+    }
+
+    const canonical = normalizeUniversalPropertyValue(fieldType, rawValue);
+    if (!canonical) {
+      invalidValues.push(`${fieldId}: ${String(rawValue)}`);
+      normalized[fieldId] = null;
+      continue;
+    }
+    normalized[fieldId] = canonical;
+  }
+
+  return { data: normalized, invalidValues };
 }
 
 export async function bulkUpdateRows(input: {
@@ -66,11 +101,30 @@ export async function bulkUpdateRows(input: {
 
   if (input.rowIds.length === 0) return { data: null };
 
+  const fetchFieldsStart = timingEnabled ? Date.now() : 0;
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, type, config")
+    .eq("table_id", input.tableId);
+  if (timingEnabled) t_fetch_fields_ms = Date.now() - fetchFieldsStart;
+
+  const fieldTypeById = new Map((fields || []).map((field) => [field.id, String(field.type)]));
+  const normalizedUpdatesResult = normalizeUniversalPropertyValuesForRow(input.updates || {}, fieldTypeById);
+  if (normalizedUpdatesResult.invalidValues.length > 0) {
+    return {
+      error:
+        `Invalid priority/status update value(s): ${normalizedUpdatesResult.invalidValues.join(", ")}. ` +
+        "Allowed priority: low|medium|high|urgent. Allowed status: todo|in_progress|done|blocked.",
+    };
+  }
+  const normalizedUpdates = normalizedUpdatesResult.data;
+  const validIds = new Set((fields || []).map((f) => f.id));
+
   if (!RPC_DISABLED) {
     const rpcResult = await supabase.rpc(RPC_BULK_UPDATE_ROWS, {
       p_table_id: input.tableId,
       p_row_ids: input.rowIds,
-      p_updates: input.updates,
+      p_updates: normalizedUpdates,
       p_updated_by: userId,
     });
     aiDebug("rpc:result", { name: RPC_BULK_UPDATE_ROWS, ok: !rpcResult.error, table: "table_rows" });
@@ -80,14 +134,6 @@ export async function bulkUpdateRows(input: {
   } else {
     aiDebug("rpc:skip", { name: RPC_BULK_UPDATE_ROWS, reason: "disabled" });
   }
-
-  const fetchFieldsStart = timingEnabled ? Date.now() : 0;
-  const { data: fields } = await supabase
-    .from("table_fields")
-    .select("id, type, config")
-    .eq("table_id", input.tableId);
-  if (timingEnabled) t_fetch_fields_ms = Date.now() - fetchFieldsStart;
-  const validIds = new Set((fields || []).map((f) => f.id));
 
   const fetchRowsStart = timingEnabled ? Date.now() : 0;
   const { data: rows } = await supabase
@@ -105,7 +151,7 @@ export async function bulkUpdateRows(input: {
       table_id: input.tableId,
       data: {
         ...cleanedData,
-        ...input.updates,
+        ...normalizedUpdates,
       },
       updated_by: user.id,
     };
@@ -118,7 +164,7 @@ export async function bulkUpdateRows(input: {
     return updateItem;
   });
 
-  const changedFieldIds = Object.keys(input.updates || {}).filter((key) => key.length > 0);
+  const changedFieldIds = Object.keys(normalizedUpdates || {}).filter((key) => key.length > 0);
   const changedFieldIdSet = new Set(changedFieldIds);
   let shouldRecomputeFormulas = false;
   let shouldRecomputeRollups = false;
@@ -400,14 +446,40 @@ export async function bulkInsertRows(input: {
 
   if (!input.rows.length) return { data: { insertedIds: [] } };
 
-  const hasSourceMetadata = input.rows.some(
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, type")
+    .eq("table_id", input.tableId);
+  const fieldTypeById = new Map((fields || []).map((field) => [field.id, String(field.type)]));
+
+  const normalizedRows = input.rows.map((row) => {
+    const normalized = normalizeUniversalPropertyValuesForRow(row.data || {}, fieldTypeById);
+    return { ...row, data: normalized.data, _invalidValues: normalized.invalidValues };
+  });
+  const normalizedRowsForInsert = normalizedRows.map((row) => ({
+    data: row.data,
+    order: row.order,
+    source_entity_type: row.source_entity_type,
+    source_entity_id: row.source_entity_id,
+    source_sync_mode: row.source_sync_mode,
+  }));
+  const invalidValues = normalizedRows.flatMap((row) => row._invalidValues);
+  if (invalidValues.length > 0) {
+    return {
+      error:
+        `Invalid priority/status value(s): ${invalidValues.join(", ")}. ` +
+        "Allowed priority: low|medium|high|urgent. Allowed status: todo|in_progress|done|blocked.",
+    };
+  }
+
+  const hasSourceMetadata = normalizedRowsForInsert.some(
     (row) => Boolean(row.source_entity_type && row.source_entity_id)
   );
 
   if (!RPC_DISABLED && !hasSourceMetadata) {
     const rpcResult = await supabase.rpc(RPC_BULK_INSERT_ROWS, {
       p_table_id: input.tableId,
-      p_rows: input.rows,
+      p_rows: normalizedRowsForInsert,
       p_created_by: userId,
     });
     aiDebug("rpc:result", { name: RPC_BULK_INSERT_ROWS, ok: !rpcResult.error, table: "table_rows" });
@@ -419,11 +491,6 @@ export async function bulkInsertRows(input: {
   } else {
     aiDebug("rpc:skip", { name: RPC_BULK_INSERT_ROWS, reason: "disabled" });
   }
-
-  const { data: fields } = await supabase
-    .from("table_fields")
-    .select("id, type")
-    .eq("table_id", input.tableId);
 
   const readOnlyTypes = new Set([
     "rollup",
@@ -437,7 +504,7 @@ export async function bulkInsertRows(input: {
     (fields || []).filter((field) => !readOnlyTypes.has(field.type)).map((field) => field.id)
   );
 
-  const cleanedRows = input.rows.map((row) => {
+  const cleanedRows = normalizedRowsForInsert.map((row) => {
     const sourceEntityId = normalizeSourceEntityId(row.source_entity_id);
     return {
       table_id: input.tableId,

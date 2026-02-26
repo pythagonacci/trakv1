@@ -2720,10 +2720,10 @@ function EventDetailsPanel({
   if (!isOpen) return null;
 
   const isModal = variant === "modal";
-  const statusDisplay = (local.status === "todo" || !local.status) ? "Not started" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
+  const statusDisplay = (local.status === "todo" || !local.status) ? "Todo" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
   const statusTone = (s: string | null) => (s === "done" ? "success" : s === "blocked" ? "warn" : s === "in_progress" ? "accent" : "neutral");
   const priorityTone = (v: string) => (v === "high" || v === "urgent" ? "warn" : v === "medium" ? "accent" : "neutral");
-  const statusLabel = (local.status === "todo" || !local.status) ? "To Do" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
+  const statusLabel = (local.status === "todo" || !local.status) ? "Todo" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
   const formatSubEventRange = (child: TimelineEvent) => {
     const start = format(parseDateSafe(child.start) || new Date(child.start), "MMM d");
     const end = format(parseDateSafe(child.end) || new Date(child.end), "MMM d");

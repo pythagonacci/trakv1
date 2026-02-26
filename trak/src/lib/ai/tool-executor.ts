@@ -192,6 +192,11 @@ import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
 import { createClient as createSupabaseClient } from "@/lib/supabase/server";
 import type { UndoStep, UndoTracker } from "@/lib/ai/undo";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  isUniversalPropertyFieldType,
+  normalizeUniversalPropertyValue,
+  sanitizeUniversalPropertyFieldDefinition,
+} from "@/lib/tables/universal-property";
 
 // ============================================================================
 // IMPORTS - Shopify Actions
@@ -820,7 +825,28 @@ export async function executeTool(
   const t0 = performance.now();
 
   try {
-    aiDebug("executeTool:start", { tool: requestedToolName, resolvedTool: toolName, ...summarizeToolArgs(args) });
+    aiDebug("executeTool:start", {
+      tool: requestedToolName,
+      resolvedTool: toolName,
+      ...summarizeToolArgs(args),
+    });
+
+    // In-depth argument logging for debugging: log the full argument payload
+    // the AI passed into this tool invocation so we can see exactly what data
+    // was sent for every create/update/read tool call. Use JSON.stringify so
+    // nested objects/arrays are fully expanded instead of printing as [Object].
+    aiDebug(
+      "executeTool:args",
+      JSON.stringify(
+        {
+          tool: requestedToolName,
+          resolvedTool: toolName,
+          args,
+        },
+        null,
+        2
+      )
+    );
     if (requestedToolName !== toolName) {
       aiDebug("executeTool:alias", { requestedTool: requestedToolName, resolvedTool: toolName });
     }
@@ -2030,6 +2056,7 @@ export async function executeTool(
               universeTotal:     args.universeTotal as number | undefined,
               title:             args.title as string | undefined,
               prompt:            args.prompt as string | undefined,
+              dataSource:        args.dataSource as import("@/types/chart").ChartDataSource | undefined,
               isSimulation:      args.isSimulation as boolean | undefined,
               originalChartId:   args.originalChartId as string | undefined,
               simulationDescription: args.simulationDescription as string | undefined,
@@ -2136,7 +2163,9 @@ export async function executeTool(
             const tableId = args.tableId as string;
             const name = args.name as string;
             const type = args.type as string;
-            const config = args.config as Record<string, unknown> | undefined;
+            const config = isUniversalPropertyFieldType(type)
+              ? undefined
+              : (args.config as Record<string, unknown> | undefined);
             const isPrimary = args.isPrimary as boolean | undefined;
 
             const existing = await findFieldByName(tableId, name);
@@ -2168,12 +2197,20 @@ export async function executeTool(
         case "bulkCreateFields":
           {
             const tableId = args.tableId as string;
-            const fields = args.fields as Array<{
+            const requestedFields = args.fields as Array<{
               name: string;
               type: string;
               config?: Record<string, unknown>;
               isPrimary?: boolean;
             }>;
+            const fields = requestedFields.map((field) =>
+              sanitizeFieldDefinitionForUniversalProperties(field as unknown as Record<string, unknown>) as {
+                name: string;
+                type: string;
+                config?: Record<string, unknown>;
+                isPrimary?: boolean;
+              }
+            );
 
             if (!Array.isArray(fields) || fields.length === 0) {
               return { success: false, error: "fields must be a non-empty array" };
@@ -2201,23 +2238,16 @@ export async function executeTool(
               }
             }
 
-            // Build a set of available default columns that can be reused by renaming.
-            // Include both the primary "Name" field and default non-primary columns
-            // ("Column 2", "Column 3") when the table is empty.
-            // We consume them in order so each field gets a unique candidate.
+            // Build reusable default columns.
+            // Keep primary "Name" separate so only an explicit primary field can claim it.
             const defaultCandidates = isEmpty
-              ? existingFields.filter((f) => {
-                // Include primary field only if it has the default name "Name"
-                if (f.is_primary) {
-                  return normalizeFieldName(f.name) === "name";
-                }
-                // Include non-primary default columns (Column 2, Column 3)
-                return isDefaultFieldName(f.name);
-              })
+              ? existingFields.filter((f) => (f.is_primary ? normalizeFieldName(f.name) === "name" : isDefaultFieldName(f.name)))
               : [];
-            const availableDefaults = new Map(
-              defaultCandidates.map((f) => [normalizeFieldName(f.name), f])
-            );
+            let primaryDefault = defaultCandidates.find((f) => f.is_primary && normalizeFieldName(f.name) === "name");
+            const nonPrimaryDefaults = defaultCandidates
+              .filter((f) => !f.is_primary)
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            const hasExplicitPrimary = fields.some((field) => field.isPrimary === true);
 
             // Plan each field: resolve to existing | reuse default | create new
             type FieldPlan =
@@ -2237,20 +2267,22 @@ export async function executeTool(
                 continue;
               }
 
-              // Try to claim a default column for reuse
-              if (isEmpty && !field.isPrimary && !(CONFIG_REQUIRED_TYPES.has(field.type) && !field.config)) {
-                // For text fields, prioritize: "name" (primary) > "column 2" > "column 3"
-                // For other types, prioritize: "column 3" > "column 2" > "name"
-                // This ensures the first custom field typically reuses "Name" instead of leaving it empty
-                const preferred = field.type === "text"
-                  ? ["name", "column 2", "column 3"]
-                  : ["column 3", "column 2", "name"];
-                const candidate = preferred
-                  .map((name) => availableDefaults.get(name))
-                  .find(Boolean) ?? [...availableDefaults.values()][0];
+              // Try to claim a default column for reuse while preserving requested order.
+              if (isEmpty && !(CONFIG_REQUIRED_TYPES.has(field.type) && !field.config)) {
+                let candidate: (typeof existingFields)[number] | undefined;
+                if (field.isPrimary && primaryDefault) {
+                  candidate = primaryDefault;
+                  primaryDefault = undefined;
+                } else if (!field.isPrimary) {
+                  candidate = nonPrimaryDefaults.shift();
+                  // If no explicit primary field is requested, allow one non-primary field to claim Name.
+                  if (!candidate && !hasExplicitPrimary && primaryDefault) {
+                    candidate = primaryDefault;
+                    primaryDefault = undefined;
+                  }
+                }
 
                 if (candidate) {
-                  availableDefaults.delete(normalizeFieldName(candidate.name));
                   plans.push({
                     kind: "reuse",
                     candidateId: candidate.id,
@@ -2266,62 +2298,63 @@ export async function executeTool(
               plans.push({ kind: "create", name: field.name, type: field.type, config: field.config, isPrimary: field.isPrimary });
             }
 
-            // Execute all writes in parallel — each targets a distinct field
-            const results = await Promise.all(
-              plans.map(async (plan, index) => {
-                try {
-                  if (plan.kind === "existing") {
-                    return { success: true, data: plan.data };
-                  }
-                  if (plan.kind === "reuse") {
-                    const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
-                    const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
-                    if (nextConfig !== undefined) payload.config = nextConfig;
-                    const result = await wrapResult(updateField(plan.candidateId, payload));
-                    if (!result.success) {
-                      aiDebug("bulkCreateFields:reuseFailed", {
-                        fieldIndex: index,
-                        fieldName: plan.name,
-                        candidateId: plan.candidateId,
-                        error: result.error,
-                      });
-                    }
-                    return result;
-                  }
-                  // kind === "create"
-                  const result = await wrapResult(
-                    createField({
-                      tableId,
-                      name: plan.name,
-                      type: plan.type as any,
-                      config: plan.config as any,
-                      isPrimary: plan.isPrimary,
-                    })
-                  );
+            // Execute writes sequentially to preserve deterministic order for newly created fields.
+            const results: Array<{ success: boolean; data?: unknown; error?: string }> = [];
+            for (let index = 0; index < plans.length; index += 1) {
+              const plan = plans[index];
+              try {
+                if (plan.kind === "existing") {
+                  results.push({ success: true, data: plan.data });
+                  continue;
+                }
+                if (plan.kind === "reuse") {
+                  const nextConfig = applyDefaultFieldConfig(plan.type, plan.config);
+                  const payload: Record<string, unknown> = { name: plan.name, type: plan.type };
+                  if (nextConfig !== undefined) payload.config = nextConfig;
+                  const result = await wrapResult(updateField(plan.candidateId, payload));
                   if (!result.success) {
-                    aiDebug("bulkCreateFields:createFailed", {
+                    aiDebug("bulkCreateFields:reuseFailed", {
                       fieldIndex: index,
                       fieldName: plan.name,
-                      fieldType: plan.type,
+                      candidateId: plan.candidateId,
                       error: result.error,
                     });
                   }
-                  return result;
-                } catch (error) {
-                  const fieldName = plan.kind === "create" ? plan.name : plan.kind === "reuse" ? plan.name : "unknown";
-                  aiDebug("bulkCreateFields:exception", {
-                    fieldIndex: index,
-                    fieldName,
-                    planKind: plan.kind,
-                    error: error instanceof Error ? error.message : String(error),
-                  });
-                  return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                  };
+                  results.push(result);
+                  continue;
                 }
-              })
-            );
+                const result = await wrapResult(
+                  createField({
+                    tableId,
+                    name: plan.name,
+                    type: plan.type as any,
+                    config: plan.config as any,
+                    isPrimary: plan.isPrimary,
+                  })
+                );
+                if (!result.success) {
+                  aiDebug("bulkCreateFields:createFailed", {
+                    fieldIndex: index,
+                    fieldName: plan.name,
+                    fieldType: plan.type,
+                    error: result.error,
+                  });
+                }
+                results.push(result);
+              } catch (error) {
+                const fieldName = plan.kind === "create" ? plan.name : plan.kind === "reuse" ? plan.name : "unknown";
+                aiDebug("bulkCreateFields:exception", {
+                  fieldIndex: index,
+                  fieldName,
+                  planKind: plan.kind,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+                results.push({
+                  success: false,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }
 
             const allSuccessful = results.every((r) => r.success);
             const failures = results
@@ -2570,6 +2603,17 @@ export async function executeTool(
             for (const [fieldId, rawValue] of Object.entries(args.updates as Record<string, unknown>)) {
               const field = fieldById.get(fieldId);
               if (!field) continue;
+              if (isUniversalPropertyFieldType(field.type)) {
+                const normalized = normalizeUniversalPropertyValue(field.type, rawValue);
+                if (rawValue !== null && rawValue !== undefined && rawValue !== "" && !normalized) {
+                  return {
+                    success: false,
+                    error: `bulkUpdateRows: "${field.name}" must be canonical (${field.type === "priority" ? "low|medium|high|urgent" : "todo|in_progress|done|blocked"}).`,
+                  };
+                }
+                (args.updates as Record<string, unknown>)[fieldId] = normalized;
+                continue;
+              }
               if (!isSelectLike(field.type)) continue;
 
               const { kind, options } = getOptionEntries(field);
@@ -2669,6 +2713,21 @@ export async function executeTool(
               return { success: false, error: `Unknown field "${fieldKey}" in updates.` };
             }
             const resolved = resolveUpdateValue(field, rawValue, true);
+            if (
+              isUniversalPropertyFieldType(field.type) &&
+              rawValue !== null &&
+              rawValue !== undefined &&
+              rawValue !== "" &&
+              resolved.value === null
+            ) {
+              return {
+                success: false,
+                error: `Invalid ${field.type} value for "${field.name}". ` +
+                  (field.type === "priority"
+                    ? "Use: low|medium|high|urgent."
+                    : "Use: todo|in_progress|done|blocked."),
+              };
+            }
             updatesByFieldId[field.id] = resolved.value;
             if (resolved.updatedConfig) {
               pendingConfigUpdates.set(field.id, resolved.updatedConfig);
@@ -2913,6 +2972,7 @@ export async function executeTool(
             const tabId = (args.tabId as string | undefined) ?? context?.currentTabId;
             let fields = Array.isArray(args.fields) ? (args.fields as Array<Record<string, unknown>>) : [];
             let rows = Array.isArray(args.rows) ? (args.rows as Array<Record<string, unknown>>) : [];
+            fields = sanitizeFieldDefinitionsForUniversalProperties(fields);
 
             if (!workspaceId || !title) {
               const missing = [];
@@ -2951,6 +3011,9 @@ export async function executeTool(
             // Enhance field types with smart inference from row data
             fields = enhanceFieldsWithInference(fields, rows);
             rows = normalizeRowsForSelectFields(fields, rows);
+            if (hasSourceMetadata) {
+              fields = pruneEmptySourceColumns(fields, rows);
+            }
 
             if (!hasSourceMetadata) {
               // RPC fast-path: create table + fields + rows in one DB transaction
@@ -3112,6 +3175,14 @@ export async function executeTool(
               (args.insertRows as Array<Record<string, unknown>>).some((row) =>
                 hasValidRowSourceMetadata(row?.source_entity_type, row?.source_entity_id)
               );
+            const sanitizedAddFields = Array.isArray(args.addFields)
+              ? sanitizeFieldDefinitionsForUniversalProperties(args.addFields as Array<Record<string, unknown>>)
+              : undefined;
+            const sanitizedUpdateFields = Array.isArray(args.updateFields)
+              ? (args.updateFields as Array<Record<string, unknown>>).map((field) =>
+                sanitizeFieldDefinitionForUniversalProperties(field)
+              )
+              : undefined;
 
             if (hasRpcOps && !context?.undoTracker && !hasSourceMetadataInInsertRows) {
               // RPC fast-path: apply all operations in one DB transaction
@@ -3119,8 +3190,8 @@ export async function executeTool(
                 tableId,
                 title: args.title as string | undefined,
                 description: (args.description as string | null | undefined) ?? undefined,
-                addFields: Array.isArray(args.addFields) ? (args.addFields as Array<Record<string, unknown>>) : undefined,
-                updateFields: Array.isArray(args.updateFields) ? (args.updateFields as Array<Record<string, unknown>>) : undefined,
+                addFields: sanitizedAddFields,
+                updateFields: sanitizedUpdateFields,
                 deleteFields: Array.isArray(args.deleteFields) ? (args.deleteFields as string[]) : undefined,
                 insertRows: Array.isArray(args.insertRows) ? (args.insertRows as Array<Record<string, unknown>>) : undefined,
                 updateRows: args.updateRows && typeof args.updateRows === "object"
@@ -3159,7 +3230,7 @@ export async function executeTool(
             // Add fields
             if (Array.isArray(args.addFields) && args.addFields.length > 0) {
               const fieldsResult = await executeTool(
-                { name: "bulkCreateFields", arguments: { tableId, fields: args.addFields } },
+                { name: "bulkCreateFields", arguments: { tableId, fields: sanitizedAddFields ?? args.addFields } },
                 context
               );
               if (!fieldsResult.success) {
@@ -3170,7 +3241,7 @@ export async function executeTool(
 
             // Update fields
             if (Array.isArray(args.updateFields) && args.updateFields.length > 0) {
-              for (const fieldUpdate of args.updateFields as Array<Record<string, unknown>>) {
+              for (const fieldUpdate of (sanitizedUpdateFields ?? (args.updateFields as Array<Record<string, unknown>>))) {
                 let fieldId = fieldUpdate.fieldId as string | undefined;
 
                 if (!fieldId && fieldUpdate.fieldName) {
@@ -3959,7 +4030,7 @@ export async function executeTool(
             { name: "Vendor", type: "text" },
             { name: "Type", type: "text" },
             {
-              name: "Status", type: "status", config: {
+              name: "Status", type: "select", config: {
                 options: [
                   { id: "opt-active", label: "Active", color: "#10b981", order: 0 },
                   { id: "opt-draft", label: "Draft", color: "#f59e0b", order: 1 },
@@ -4299,7 +4370,7 @@ function inferFieldTypeFromData(
 
   // If config exists but is invalid (e.g., AI provided options without proper IDs),
   // we need to fix it by extracting labels and regenerating with proper IDs
-  if (existingConfig && (normalizedType === "select" || normalizedType === "multi_select" || normalizedType === "status")) {
+  if (existingConfig && (normalizedType === "select" || normalizedType === "multi_select")) {
     const existingOptions = (existingConfig as any)?.options;
     if (Array.isArray(existingOptions) && existingOptions.length > 0) {
       const options: Array<{ id: string; label: string; color: string; order: number }> = [];
@@ -4320,29 +4391,11 @@ function inferFieldTypeFromData(
     }
   }
 
-  if (existingConfig && normalizedType === "priority") {
-    const existingLevels = (existingConfig as any)?.levels;
-    if (Array.isArray(existingLevels) && existingLevels.length > 0) {
-      const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
-
-      existingLevels.forEach((level: any, index: number) => {
-        const label = level.label || level.name || String(level);
-        const normalized = normalizeOptionId(label);
-        let colorName = "gray";
-        if (normalized === "high" || normalized === "urgent" || normalized === "critical") colorName = "red";
-        else if (normalized === "medium") colorName = "yellow";
-        else if (normalized === "low") colorName = "green";
-
-        levels.push({
-          id: generateOptionId(),
-          label: String(label).trim(),
-          color: colorNameToHex(colorName),
-          order: index
-        });
-      });
-
-      return { type: "priority", config: { levels } };
-    }
+  if (normalizedType === "priority") {
+    return { type: "priority" };
+  }
+  if (normalizedType === "status") {
+    return { type: "status" };
   }
 
   // Respect explicit non-text, non-select-like types
@@ -4357,67 +4410,7 @@ function inferFieldTypeFromData(
   // If type is specified but no config, infer config from data
   // This handles cases where AI specifies type but not config
 
-  // If fieldType is "priority" but no config, generate from data
-  if (normalizedType === "priority") {
-    const uniqueValues = new Map<string, string>();
-    nonNullValues.forEach((v) => {
-      const raw = String(v).trim();
-      if (!raw) return;
-      const normalized = normalizeOptionId(raw);
-      if (!uniqueValues.has(normalized)) uniqueValues.set(normalized, raw);
-    });
-    const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
-
-    Array.from(uniqueValues.entries()).forEach(([normalized, raw], index) => {
-      const label = raw.charAt(0).toUpperCase() + raw.slice(1);
-      let colorName = "gray";
-      if (normalized === "high" || normalized === "urgent" || normalized === "critical") colorName = "red";
-      else if (normalized === "medium") colorName = "yellow";
-      else if (normalized === "low") colorName = "green";
-
-      levels.push({
-        id: generateOptionId(),
-        label,
-        color: colorNameToHex(colorName),
-        order: index
-      });
-    });
-
-    return { type: "priority", config: { levels } };
-  }
-
-  // If fieldType is "status" but no config, generate from data
-  if (normalizedType === "status") {
-    const uniqueValues = new Map<string, string>();
-    nonNullValues.forEach((v) => {
-      const raw = String(v).trim();
-      if (!raw) return;
-      const normalized = normalizeOptionId(raw);
-      if (!uniqueValues.has(normalized)) uniqueValues.set(normalized, raw);
-    });
-    const options: Array<{ id: string; label: string; color: string; order: number }> = [];
-
-    Array.from(uniqueValues.entries()).forEach(([normalized, raw], index) => {
-      const label = raw
-        .split(/[\s-]+/)
-        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-        .join(" ");
-      let colorName = "gray";
-      if (normalized === "done" || normalized === "complete" || normalized === "completed") colorName = "green";
-      else if (normalized === "in-progress") colorName = "blue";
-      else if (normalized === "blocked") colorName = "red";
-      else if (normalized === "cancelled") colorName = "gray";
-
-      options.push({
-        id: generateOptionId(),
-        label,
-        color: colorNameToHex(colorName),
-        order: index
-      });
-    });
-
-    return { type: "status", config: { options } };
-  }
+  // Priority/status field configs are server-owned canonical configs.
 
   // If fieldType is "select" but no config, generate from data
   if (normalizedType === "select" || normalizedType === "multi_select") {
@@ -4452,29 +4445,7 @@ function inferFieldTypeFromData(
     const isPriority = uniqueValues.every((v) => priorityPatterns.includes(v));
 
     if (isPriority) {
-      const levels: Array<{ id: string; label: string; color: string; order: number }> = [];
-      const seenLabels = new Set<string>();
-
-      uniqueValues.forEach((value, index) => {
-        const normalized = value.toLowerCase();
-        if (!seenLabels.has(normalized)) {
-          seenLabels.add(normalized);
-          const label = value.charAt(0).toUpperCase() + value.slice(1);
-          let colorName = "gray";
-          if (normalized === "high" || normalized === "urgent" || normalized === "critical") colorName = "red";
-          else if (normalized === "medium") colorName = "yellow";
-          else if (normalized === "low") colorName = "green";
-
-          levels.push({
-            id: generateOptionId(),
-            label,
-            color: colorNameToHex(colorName),
-            order: index
-          });
-        }
-      });
-
-      return { type: "priority", config: { levels } };
+      return { type: "priority" };
     }
   }
 
@@ -4485,30 +4456,7 @@ function inferFieldTypeFromData(
     const isStatus = uniqueValues.length >= 2 && uniqueValues.length <= 10;
 
     if (isStatus) {
-      const options: Array<{ id: string; label: string; color: string; order: number }> = [];
-      const seenLabels = new Set<string>();
-
-      uniqueValues.forEach((value, index) => {
-        const normalized = value.toLowerCase().replace(/\s+/g, "-");
-        if (!seenLabels.has(normalized)) {
-          seenLabels.add(normalized);
-          const label = value.split(/[\s-]+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-          let colorName = "gray";
-          if (normalized === "done" || normalized === "complete" || normalized === "completed") colorName = "green";
-          else if (normalized === "in-progress" || normalized === "in-progress") colorName = "blue";
-          else if (normalized === "blocked") colorName = "red";
-          else if (normalized === "cancelled") colorName = "gray";
-
-          options.push({
-            id: generateOptionId(),
-            label,
-            color: colorNameToHex(colorName),
-            order: index
-          });
-        }
-      });
-
-      return { type: "status", config: { options } };
+      return { type: "status" };
     }
   }
 
@@ -4683,9 +4631,22 @@ function normalizeRowsForSelectFields(
       if (!isSelectLike(fieldType)) continue;
 
       // Status/Priority are universal properties with fixed canonical values.
-      // Do not remap them using temporary field config options, or canonical values
-      // like "todo"/"high" get converted into transient option IDs.
-      if (fieldType === "status" || fieldType === "priority") continue;
+      // Normalize incoming labels/synonyms to canonical string values.
+      if (fieldType === "status" || fieldType === "priority") {
+        if (rawValue === null || rawValue === undefined || rawValue === "") {
+          if (nextData[key] !== null) {
+            nextData[key] = null;
+            changed = true;
+          }
+          continue;
+        }
+        const canonical = normalizeUniversalPropertyValue(fieldType, rawValue);
+        if (canonical && nextData[key] !== canonical) {
+          nextData[key] = canonical;
+          changed = true;
+        }
+        continue;
+      }
 
       const config = field.config as Record<string, unknown> | undefined;
       if (!config) continue;
@@ -4729,12 +4690,69 @@ function normalizeRowsForSelectFields(
   });
 }
 
+function pruneEmptySourceColumns(
+  fields: Array<Record<string, unknown>>,
+  rows: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  if (fields.length === 0 || rows.length === 0) return fields;
+
+  const isEmptyValue = (value: unknown): boolean => {
+    if (value === null || value === undefined) return true;
+    if (typeof value === "string" && value.trim() === "") return true;
+    if (Array.isArray(value) && value.length === 0) return true;
+    return false;
+  };
+
+  const keep: Array<Record<string, unknown>> = [];
+  for (const field of fields) {
+    const fieldName = String(field.name ?? "").trim();
+    if (!fieldName) continue;
+
+    const isPrimary = field.isPrimary === true || field.is_primary === true;
+    if (isPrimary) {
+      keep.push(field);
+      continue;
+    }
+
+    let hasAnyValue = false;
+    for (const row of rows) {
+      const data = (row.data || {}) as Record<string, unknown>;
+      if (!isEmptyValue(data[fieldName])) {
+        hasAnyValue = true;
+        break;
+      }
+    }
+
+    if (hasAnyValue) {
+      keep.push(field);
+    }
+  }
+
+  if (keep.length === 0 && fields.length > 0) {
+    keep.push(fields[0]);
+  }
+
+  return keep;
+}
+
 const DEFAULT_FIELD_NAMES = new Set(["column 2", "column 3"]);
 const CONFIG_REQUIRED_TYPES = new Set(["formula", "rollup", "relation"]);
 const PRIMARY_FIELD_ALIASES = new Set(["name", "title", "state", "state name", "state_name"]);
 
 function normalizeFieldName(value?: string | null): string {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function sanitizeFieldDefinitionForUniversalProperties(
+  field: Record<string, unknown>
+): Record<string, unknown> {
+  return sanitizeUniversalPropertyFieldDefinition(field);
+}
+
+function sanitizeFieldDefinitionsForUniversalProperties(
+  fields: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  return fields.map((field) => sanitizeFieldDefinitionForUniversalProperties(field));
 }
 
 function isDefaultFieldName(value?: string | null): boolean {
@@ -4745,33 +4763,8 @@ function applyDefaultFieldConfig(
   type: string,
   config?: Record<string, unknown>
 ): Record<string, unknown> | undefined {
-  if (type === "priority") {
-    const levels = (config as any)?.levels;
-    if (!Array.isArray(levels) || levels.length === 0) {
-      return {
-        ...(config || {}),
-        levels: [
-          { id: crypto.randomUUID(), label: "Critical", color: "#ef4444", order: 4 },
-          { id: crypto.randomUUID(), label: "High", color: "#f97316", order: 3 },
-          { id: crypto.randomUUID(), label: "Medium", color: "#3b82f6", order: 2 },
-          { id: crypto.randomUUID(), label: "Low", color: "#6b7280", order: 1 },
-        ],
-      };
-    }
-  }
-
-  if (type === "status") {
-    const options = (config as any)?.options;
-    if (!Array.isArray(options) || options.length === 0) {
-      return {
-        ...(config || {}),
-        options: [
-          { id: crypto.randomUUID(), label: "Not Started", color: "#6b7280" },
-          { id: crypto.randomUUID(), label: "In Progress", color: "#3b82f6" },
-          { id: crypto.randomUUID(), label: "Complete", color: "#10b981" },
-        ],
-      };
-    }
+  if (isUniversalPropertyFieldType(type)) {
+    return undefined;
   }
 
   return config;
@@ -5554,6 +5547,15 @@ function resolveSelectValues(
     return { ids: [], missing: false };
   }
 
+  if (isUniversalPropertyFieldType(field.type)) {
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    const normalized = values
+      .map((value) => normalizeUniversalPropertyValue(field.type, value))
+      .filter((value): value is string => Boolean(value));
+    if (normalized.length === 0) return { ids: [], missing: true };
+    return { ids: normalized, missing: false };
+  }
+
   // All select-like fields: use field config options
   const { kind, options } = getOptionEntries(field);
   if (!kind) {
@@ -5615,6 +5617,14 @@ function resolveUpdateValue(
   rawValue: unknown,
   allowCreateOptions: boolean
 ): { value: unknown; updatedConfig?: Record<string, unknown> } {
+  if (isUniversalPropertyFieldType(field.type)) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      return { value: null };
+    }
+    const canonical = normalizeUniversalPropertyValue(field.type, rawValue);
+    return { value: canonical };
+  }
+
   if (isSelectLike(field.type)) {
     if (rawValue === null || rawValue === undefined) {
       return { value: null };
@@ -5665,6 +5675,7 @@ async function enhanceFieldsAndNormalizeSelectValues(
 
   for (const field of fields) {
     if (!isSelectLike(field.type)) continue;
+    if (isUniversalPropertyFieldType(field.type)) continue;
 
     const config = (field.config || {}) as Record<string, unknown>;
     const { options } = getOptionEntries({ type: field.type, config });
@@ -5693,9 +5704,7 @@ async function enhanceFieldsAndNormalizeSelectValues(
   if ("error" in updatedTableResult || !updatedTableResult.data?.fields) return rows;
 
   const updatedFields = updatedTableResult.data.fields;
-  const selectFieldsById = new Map(
-    updatedFields.filter((f) => isSelectLike(f.type)).map((f) => [f.id, f])
-  );
+  const fieldsById = new Map(updatedFields.map((f) => [f.id, f]));
 
   // Now normalize the row values to option IDs
   return rows.map((row) => {
@@ -5703,8 +5712,23 @@ async function enhanceFieldsAndNormalizeSelectValues(
     const normalized: Record<string, unknown> = {};
 
     for (const [fieldId, rawValue] of Object.entries(data)) {
-      const field = selectFieldsById.get(fieldId);
+      const field = fieldsById.get(fieldId);
       if (!field) {
+        normalized[fieldId] = rawValue;
+        continue;
+      }
+
+      if (isUniversalPropertyFieldType(field.type)) {
+        if (rawValue === null || rawValue === undefined || rawValue === "") {
+          normalized[fieldId] = null;
+        } else {
+          const canonical = normalizeUniversalPropertyValue(field.type, rawValue);
+          normalized[fieldId] = canonical ?? null;
+        }
+        continue;
+      }
+
+      if (!isSelectLike(field.type)) {
         normalized[fieldId] = rawValue;
         continue;
       }

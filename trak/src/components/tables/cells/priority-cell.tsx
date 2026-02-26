@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { type TableField, type PriorityFieldConfig, type PriorityLevelConfig } from "@/types/table";
+import { getCanonicalPriorityOption } from "@/lib/tables/universal-property";
 
 interface Props {
   field: TableField;
@@ -100,13 +101,19 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
     };
   }, [dropdownOpen, levels.length]);
 
-  // Match by id - case-insensitive to handle AI-stored values like "High" vs canonical "high"
+  // Match by label (new format) or ID (backward compat for rows stored before this change)
   const valueStr = typeof value === "string" ? value : String(value ?? "");
-  const selectedLevel = levels.find(
+  const matchedLevel = levels.find(
     (level) =>
+      level.label === value ||
+      level.label.toLowerCase() === valueStr.toLowerCase() ||
       level.id === value ||
-      (valueStr && level.id.toLowerCase() === valueStr.toLowerCase())
+      level.id.toLowerCase() === valueStr.toLowerCase()
   );
+  const fallbackLevel = getCanonicalPriorityOption(value);
+  const selectedLevel = matchedLevel ?? (fallbackLevel
+    ? { id: fallbackLevel.id, label: fallbackLevel.label, color: fallbackLevel.color, order: fallbackLevel.order }
+    : null);
   const sortedLevels = [...levels].sort((a, b) => (b.order || 0) - (a.order || 0));
 
   if (editing && dropdownOpen) {

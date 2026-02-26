@@ -23,6 +23,10 @@ import { setEntityProperties } from "@/app/actions/entity-properties";
 import { parseDateSafe } from "@/lib/due-date";
 import type { Status, Priority } from "@/types/properties";
 import type { TimelineNamedPriority } from "@/types/timeline";
+import {
+  isUniversalPropertyFieldType,
+  normalizeUniversalPropertyValue,
+} from "@/lib/tables/universal-property";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -36,18 +40,66 @@ interface CreateRowInput {
   authContext?: AuthContext;
 }
 
+function normalizeUniversalPropertyRowData(
+  inputData: Record<string, unknown> | undefined,
+  fields: Array<Pick<TableField, "id" | "name" | "type">>
+): { data: Record<string, unknown>; invalidValues: string[] } {
+  const data = inputData || {};
+  const fieldById = new Map(fields.map((field) => [field.id, field]));
+  const normalized: Record<string, unknown> = {};
+  const invalidValues: string[] = [];
+
+  for (const [fieldId, rawValue] of Object.entries(data)) {
+    const field = fieldById.get(fieldId);
+    if (!field || !isUniversalPropertyFieldType(field.type)) {
+      normalized[fieldId] = rawValue;
+      continue;
+    }
+
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      normalized[fieldId] = null;
+      continue;
+    }
+
+    const canonical = normalizeUniversalPropertyValue(field.type, rawValue);
+    if (!canonical) {
+      invalidValues.push(`${field.name}: ${String(rawValue)}`);
+      normalized[fieldId] = null;
+      continue;
+    }
+    normalized[fieldId] = canonical;
+  }
+
+  return { data: normalized, invalidValues };
+}
+
 export async function createRow(input: CreateRowInput): Promise<ActionResult<TableRow>> {
   const access = await requireTableAccess(input.tableId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
   const sourceEntityId = isUuidString(input.sourceEntityId) ? input.sourceEntityId : null;
   const sourceEntityType = sourceEntityId ? input.sourceEntityType ?? null : null;
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type")
+    .eq("table_id", input.tableId);
+  const normalizedInput = normalizeUniversalPropertyRowData(
+    input.data,
+    (fields ?? []) as Array<Pick<TableField, "id" | "name" | "type">>
+  );
+  if (normalizedInput.invalidValues.length > 0) {
+    return {
+      error:
+        `Invalid priority/status value(s): ${normalizedInput.invalidValues.join(", ")}. ` +
+        "Allowed priority: low|medium|high|urgent. Allowed status: todo|in_progress|done|blocked.",
+    };
+  }
 
   const { data, error } = await supabase
     .from("table_rows")
     .insert({
       table_id: input.tableId,
-      data: input.data || {},
+      data: normalizedInput.data,
       order: input.order ?? null,
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
@@ -80,11 +132,26 @@ export async function updateRow(rowId: string, updates: { data?: Record<string, 
   const { supabase, userId, row } = access;
 
   const mergedData = { ...(row?.data || {}), ...(updates.data || {}) };
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type")
+    .eq("table_id", row.table_id);
+  const normalizedInput = normalizeUniversalPropertyRowData(
+    mergedData,
+    (fields ?? []) as Array<Pick<TableField, "id" | "name" | "type">>
+  );
+  if (normalizedInput.invalidValues.length > 0) {
+    return {
+      error:
+        `Invalid priority/status value(s): ${normalizedInput.invalidValues.join(", ")}. ` +
+        "Allowed priority: low|medium|high|urgent. Allowed status: todo|in_progress|done|blocked.",
+    };
+  }
 
   const { data, error } = await supabase
     .from("table_rows")
     .update({
-      data: mergedData,
+      data: normalizedInput.data,
       updated_by: userId,
     })
     .eq("id", rowId)
@@ -136,20 +203,22 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     return { error: "This field is read-only" };
   }
 
-  // Validate canonical IDs for priority/status fields against field config options
-  if ((field.type === "priority" || field.type === "status") && value) {
-    const fieldConfig = (field.config || {}) as Record<string, unknown>;
-    const rawOptions = (field.type === "priority"
-      ? fieldConfig.levels
-      : fieldConfig.options) as Array<{ id: string }> | undefined;
-    if (rawOptions && rawOptions.length > 0) {
-      const validIds = rawOptions.map((opt) => opt.id);
-      if (!validIds.includes(String(value))) {
-        const fieldTypeName = field.type === "priority" ? "Priority" : "Status";
+  let normalizedCellValue = value;
+  if (isUniversalPropertyFieldType(field.type)) {
+    if (value === null || value === undefined || value === "") {
+      normalizedCellValue = null;
+    } else {
+      const canonical = normalizeUniversalPropertyValue(field.type, value);
+      if (!canonical) {
         return {
-          error: `Invalid ${fieldTypeName.toLowerCase()} value "${value}". Must be one of: ${validIds.join(", ")}`,
+          error:
+            `Invalid ${field.type} value "${String(value)}". ` +
+            (field.type === "priority"
+              ? "Allowed: low, medium, high, urgent."
+              : "Allowed: todo, in_progress, done, blocked."),
         };
       }
+      normalizedCellValue = canonical;
     }
   }
 
@@ -168,7 +237,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   }
 
   // Add/update the field being edited
-  const mergedData = { ...filteredData, [fieldId]: value };
+  const mergedData = { ...filteredData, [fieldId]: normalizedCellValue };
 
   if (field.type === "relation") {
     /**
@@ -187,10 +256,10 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
         return { error: "Relation field is not properly configured. Please reconfigure the relation field." };
       }
 
-      const nextRowIds = Array.isArray(value)
-        ? value.filter((v): v is string => typeof v === "string" && v.length > 0)
-        : typeof value === "string" && value.length > 0
-          ? [value]
+      const nextRowIds = Array.isArray(normalizedCellValue)
+        ? normalizedCellValue.filter((v): v is string => typeof v === "string" && v.length > 0)
+        : typeof normalizedCellValue === "string" && normalizedCellValue.length > 0
+          ? [normalizedCellValue]
           : [];
 
       const syncResult = await syncRelationLinks({
@@ -295,7 +364,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
 
     if (tableData?.workspace_id) {
       // Upsert to entity_properties
-      if (value === null || value === undefined || value === "") {
+      if (normalizedCellValue === null || normalizedCellValue === undefined || normalizedCellValue === "") {
         // Delete entity_property if value is cleared
         await supabase
           .from("entity_properties")
@@ -312,7 +381,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
             entity_id: rowId,
             field_name: field.name,
             field_type: field.type,
-            value: value,
+            value: normalizedCellValue,
             workspace_id: tableData.workspace_id,
           }, {
             onConflict: "entity_type,entity_id,field_name"
@@ -325,7 +394,7 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
   await syncTableRowEditToSource({
     row,
     field,
-    value,
+    value: normalizedCellValue,
     authContext: { supabase, userId },
   });
 

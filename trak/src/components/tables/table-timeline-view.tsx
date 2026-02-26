@@ -23,6 +23,7 @@ import type {
   TableRow,
 } from "@/types/table";
 import { canGroupByField, groupRows } from "@/lib/table-grouping";
+import { getCanonicalPriorityOption, getCanonicalStatusOption } from "@/lib/tables/universal-property";
 import { formatUserDisplay } from "@/lib/field-utils";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
@@ -285,11 +286,19 @@ export function TableTimelineView({
     if (!field || value === null || value === undefined) return null;
     if (field.type === "priority") {
       const levels = ((field.config || {}) as PriorityFieldConfig).levels || [];
-      return levels.find((level) => level.id === value) || null;
+      const matched = levels.find((level) => level.id === value || level.label === value);
+      if (matched) return matched;
+      const fallback = getCanonicalPriorityOption(value);
+      return fallback
+        ? { id: fallback.id, label: fallback.label, color: fallback.color, order: fallback.order }
+        : null;
     }
     if (field.type === "status") {
       const options = ((field.config || {}) as StatusFieldConfig).options || [];
-      return options.find((opt) => opt.id === value) || null;
+      const matched = options.find((opt) => opt.id === value || opt.label === value);
+      if (matched) return matched;
+      const fallback = getCanonicalStatusOption(value);
+      return fallback ? { id: fallback.id, label: fallback.label, color: fallback.color } : null;
     }
     if (field.type === "select") {
       const options = ((field.config || {}) as SelectFieldConfig).options || [];

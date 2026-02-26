@@ -478,6 +478,27 @@ function coerceTaskRowsForWorkflowFallback(tasks: Array<Record<string, unknown>>
   }));
 }
 
+function pruneEmptyColumnsForRows(
+  fields: Array<{ name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean }>,
+  rows: Array<{ data?: Record<string, unknown> }>
+): Array<{ name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean }> {
+  if (fields.length === 0 || rows.length === 0) return fields;
+
+  const isEmptyValue = (value: unknown): boolean => {
+    if (value === null || value === undefined) return true;
+    if (typeof value === "string" && value.trim() === "") return true;
+    if (Array.isArray(value) && value.length === 0) return true;
+    return false;
+  };
+
+  const kept = fields.filter((field) => {
+    if (field.isPrimary) return true;
+    return rows.some((row) => !isEmptyValue((row.data || {})[field.name]));
+  });
+
+  return kept.length > 0 ? kept : [fields[0]];
+}
+
 function extractTaskAssigneeFromCommand(command: string): string | null {
   const m = command.match(/\bassigned to\s+([a-z0-9 _.'-]+)/i);
   if (!m?.[1]) return null;
@@ -680,6 +701,18 @@ async function createTaskSearchFallbackTable(params: {
   undoTracker?: ReturnType<typeof createUndoTracker>;
 }) {
   const title = buildFallbackTaskTableTitle(params.command, params.tasks.length);
+  const rows = coerceTaskRowsForWorkflowFallback(params.tasks);
+  const fields = pruneEmptyColumnsForRows([
+    { name: "Task Title", type: "text", isPrimary: true },
+    { name: "Status", type: "status" },
+    { name: "Priority", type: "priority" },
+    { name: "Due Date", type: "date", config: { includeTime: false } },
+    { name: "Assignee", type: "person" },
+    { name: "Project", type: "text" },
+    { name: "Tab", type: "text" },
+    { name: "Created At", type: "date" },
+    { name: "Updated At", type: "date" },
+  ], rows);
   return executeTool(
     {
       name: "createTableFull",
@@ -688,18 +721,8 @@ async function createTaskSearchFallbackTable(params: {
         projectId: params.projectId,
         tabId: params.tabId,
         title,
-        fields: [
-          { name: "Task Title", type: "text" },
-          { name: "Status", type: "status" },
-          { name: "Priority", type: "priority" },
-          { name: "Due Date", type: "date", config: { includeTime: false } },
-          { name: "Assignee", type: "person" },
-          { name: "Project", type: "text" },
-          { name: "Tab", type: "text" },
-          { name: "Created At", type: "date" },
-          { name: "Updated At", type: "date" },
-        ],
-        rows: coerceTaskRowsForWorkflowFallback(params.tasks),
+        fields,
+        rows,
       },
     },
     {
@@ -721,6 +744,16 @@ async function createOverdueTasksTable(params: {
   undoTracker?: ReturnType<typeof createUndoTracker>;
 }) {
   const title = `Overdue Tasks (${params.tasks.length})`;
+  const rows = coerceTaskRows(params.tasks);
+  const fields = pruneEmptyColumnsForRows([
+    { name: "Task Title", type: "text", isPrimary: true },
+    { name: "Status", type: "status" },
+    { name: "Priority", type: "priority" },
+    { name: "Due Date", type: "date", config: { includeTime: false } },
+    { name: "Assignee", type: "person" },
+    { name: "Project", type: "text" },
+    { name: "Tab", type: "text" },
+  ], rows);
   const toolResult = await executeTool(
     {
       name: "createTableFull",
@@ -729,16 +762,8 @@ async function createOverdueTasksTable(params: {
         projectId: params.projectId,
         tabId: params.tabId,
         title,
-        fields: [
-          { name: "Task Title", type: "text" },
-          { name: "Status", type: "status" },
-          { name: "Priority", type: "priority" },
-          { name: "Due Date", type: "date", config: { includeTime: false } },
-          { name: "Assignee", type: "person" },
-          { name: "Project", type: "text" },
-          { name: "Tab", type: "text" },
-        ],
-        rows: coerceTaskRows(params.tasks),
+        fields,
+        rows,
       },
     },
     {
@@ -885,7 +910,7 @@ BLOCK CREATION:
 - Priority fields → type: "priority" (NOT text). Value must be normalized: "low", "medium", "high", "urgent"
 - Assignee fields → type: "person". Value must be an array of user ID strings (from assignees.map(a => a.id) in search results), e.g. ["user-id-1", "user-id-2"]
 - Date fields → type: "date". Value must be YYYY-MM-DD format
-- INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
+- Include only source entity fields that have at least one non-null value across the rows; omit columns that would be all-null (e.g., Due Date when absent for all rows)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
 🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
@@ -1375,7 +1400,7 @@ BLOCK CREATION:
 - Priority fields → type: "priority" (NOT text). Value must be normalized: "low", "medium", "high", "urgent"
 - Assignee fields → type: "person". Value must be an array of user ID strings (from assignees.map(a => a.id) in search results), e.g. ["user-id-1", "user-id-2"]
 - Date fields → type: "date". Value must be YYYY-MM-DD format
-- INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
+- Include only source entity fields that have at least one non-null value across the rows; omit columns that would be all-null (e.g., Due Date when absent for all rows)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
 🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:

@@ -70,9 +70,9 @@ export function PropertyBadges({
     <div className={cn("flex flex-wrap gap-1.5", className)}>
       {/* Status */}
       {hasNamedStatuses
-        ? properties.statuses.map((f) => (
+        ? properties.statuses.map((f, i) => (
             <StatusBadge
-              key={f.id}
+              key={f.id ?? `status-${i}`}
               status={f.value}
               label={f.field_name}
               inherited={inherited}
@@ -97,9 +97,9 @@ export function PropertyBadges({
 
       {/* Priority */}
       {hasNamedPriorities
-        ? properties.priorities.map((priorityField) => (
+        ? properties.priorities.map((priorityField, i) => (
             <PriorityBadge
-              key={priorityField.id}
+              key={priorityField.id ?? `priority-${i}`}
               priority={priorityField.value}
               label={priorityField.field_name}
               inherited={inherited}
@@ -124,9 +124,9 @@ export function PropertyBadges({
 
       {/* Assignees */}
       {hasNamedAssignees
-        ? properties.assignees.map((f) => (
+        ? properties.assignees.map((f, i) => (
             <AssigneeBadge
-              key={f.id}
+              key={f.id ?? `assignee-${i}`}
               label={f.field_name}
               memberNames={f.value.length > 0 ? undefined : undefined /* resolved externally if needed */}
               inherited={inherited}
@@ -151,9 +151,9 @@ export function PropertyBadges({
 
       {/* Due dates */}
       {hasNamedDueDates
-        ? properties.due_dates.map((f) => (
+        ? properties.due_dates.map((f, i) => (
             <DueDateBadge
-              key={f.id}
+              key={f.id ?? `due_date-${i}`}
               dueDate={f.value}
               label={f.field_name}
               inherited={inherited}
@@ -178,9 +178,9 @@ export function PropertyBadges({
 
       {/* Tags */}
       {properties.tags &&
-        properties.tags.map((tag) => (
+        properties.tags.map((tag, i) => (
           <TagBadge
-            key={tag}
+            key={tag ? `${tag}-${i}` : `tag-${i}`}
             tag={tag}
             inherited={inherited}
             onClick={

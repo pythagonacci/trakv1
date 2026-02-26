@@ -67,6 +67,10 @@ import {
   findOptionByLabel,
   normalizeHeaderName,
 } from "@/lib/table-import";
+import {
+  normalizeCanonicalPriorityValue,
+  normalizeCanonicalStatusValue,
+} from "@/lib/tables/universal-property";
 
 function TableViewLoadingState() {
   return (
@@ -847,7 +851,7 @@ export function TableView({ tableId }: Props) {
           if (mapping.mode !== "field" || !mapping.fieldId) return;
           const field = fieldMap.get(mapping.fieldId);
           if (!field) return;
-          if (!["select", "multi_select", "status"].includes(field.type)) return;
+          if (!["select", "multi_select"].includes(field.type)) return;
 
           const config = (field.config || {}) as { options?: Array<{ id: string; label: string; color: string }> };
           const options = [...(config.options || [])];
@@ -910,7 +914,7 @@ export function TableView({ tableId }: Props) {
               data[field.id] = null;
               return;
             }
-            if (field.type === "select" || field.type === "status") {
+            if (field.type === "select") {
               const lookup = optionLookup.get(field.id);
               if (lookup) {
                 const id = lookup.get(rawValue.trim().toLowerCase());
@@ -918,6 +922,14 @@ export function TableView({ tableId }: Props) {
               } else {
                 data[field.id] = rawValue.trim();
               }
+              return;
+            }
+            if (field.type === "status") {
+              data[field.id] = normalizeCanonicalStatusValue(rawValue.trim());
+              return;
+            }
+            if (field.type === "priority") {
+              data[field.id] = normalizeCanonicalPriorityValue(rawValue.trim());
               return;
             }
             if (field.type === "multi_select") {
@@ -994,19 +1006,19 @@ export function TableView({ tableId }: Props) {
       case "status":
         return {
           options: [
-            { id: "status_1", label: "Not Started", color: "#6b7280" },
-            { id: "status_2", label: "In Progress", color: "#3b82f6" },
-            { id: "status_3", label: "Completed", color: "#10b981" },
-            { id: "status_4", label: "Blocked", color: "#ef4444" },
+            { id: "todo", label: "Todo", color: "#6b7280" },
+            { id: "in_progress", label: "In Progress", color: "#3b82f6" },
+            { id: "done", label: "Done", color: "#10b981" },
+            { id: "blocked", label: "Blocked", color: "#ef4444" },
           ],
         };
       case "priority":
         return {
           levels: [
-            { id: "pri_1", label: "Critical", color: "#ef4444", order: 4 },
-            { id: "pri_2", label: "High", color: "#f59e0b", order: 3 },
-            { id: "pri_3", label: "Medium", color: "#3b82f6", order: 2 },
-            { id: "pri_4", label: "Low", color: "#6b7280", order: 1 },
+            { id: "urgent", label: "Urgent", color: "#ef4444", order: 4 },
+            { id: "high", label: "High", color: "#f59e0b", order: 3 },
+            { id: "medium", label: "Medium", color: "#3b82f6", order: 2 },
+            { id: "low", label: "Low", color: "#6b7280", order: 1 },
           ],
         };
       default:
