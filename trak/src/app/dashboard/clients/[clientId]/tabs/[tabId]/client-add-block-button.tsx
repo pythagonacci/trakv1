@@ -176,7 +176,6 @@ export default function ClientAddBlockButton({
           hideIcons: false,
           viewMode: "list",
           boardGroupBy: "status",
-          tasks: [{ id: Date.now(), text: "New task", statuses: [{ field_name: "Status", value: "todo" }] }],
         };
       case "link":
         return { title: "", url: "", description: "" };

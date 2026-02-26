@@ -466,6 +466,12 @@ export async function createBlock(data: {
       content = { tableId: tableResult.data.table.id };
     }
 
+    // Task blocks: never persist tasks in content — they live in task_items only
+    if (data.type === "task" && content && typeof content === "object" && !Array.isArray(content)) {
+      const { tasks: _tasks, ...taskContent } = content as Record<string, unknown>;
+      content = taskContent;
+    }
+
     // 8. Create the block
     const { data: block, error: createError } = await supabase
       .from("blocks")
@@ -662,7 +668,15 @@ export async function updateBlock(data: {
     const updates: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
-    if (data.content !== undefined) updates.content = data.content;
+    if (data.content !== undefined) {
+      let contentToStore = data.content;
+      // Task blocks: never persist tasks in content — they live in task_items only
+      if (block.type === "task" && contentToStore && typeof contentToStore === "object" && !Array.isArray(contentToStore)) {
+        const { tasks: _tasks, ...taskContent } = contentToStore as Record<string, unknown>;
+        contentToStore = taskContent;
+      }
+      updates.content = contentToStore;
+    }
     if (data.type !== undefined) updates.type = data.type;
     if (data.position !== undefined) updates.position = data.position;
     if (data.column !== undefined) {

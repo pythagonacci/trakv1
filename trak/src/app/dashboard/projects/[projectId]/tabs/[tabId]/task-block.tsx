@@ -1442,7 +1442,9 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       return;
     }
 
-    const result = await updateBlock({ blockId: block.id, content: nextContent });
+    // Never persist tasks in block content — they live in task_items only
+    const { tasks: _tasks, ...contentToPersist } = nextContent;
+    const result = await updateBlock({ blockId: block.id, content: contentToPersist });
     if (result.data) {
       onUpdate?.(result.data);
     } else if (result.error) {

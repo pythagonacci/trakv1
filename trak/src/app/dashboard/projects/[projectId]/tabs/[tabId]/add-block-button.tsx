@@ -211,7 +211,6 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         hideIcons: false,
         viewMode: "list",
         boardGroupBy: "status",
-        tasks: [{ id: Date.now(), text: "New task", statuses: [{ field_name: "Status", value: "todo" }] }],
       };
       case "link": return { title: null, url: null, caption: "" };
       case "divider": return {};
