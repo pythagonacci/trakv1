@@ -1,6 +1,7 @@
 // Trak Universal Properties - Component Exports (Simplified)
 
 export { PropertyMenu } from "./property-menu";
+export { PropertyFieldDropdown } from "./property-field-dropdown";
 export {
   PropertyBadges,
   StatusBadge,

@@ -1,21 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import TabCanvas from "./tab-canvas";
 import { type Block } from "@/app/actions/block";
+import type { EntityProperties } from "@/types/properties";
 import { TAB_THEMES } from "./tab-themes";
 import { useTabBlocks, useBatchFileUrls } from "@/lib/hooks/use-tab-data";
+import { useEntitiesProperties } from "@/lib/hooks/use-property-queries";
 
 interface TabCanvasWrapperProps {
   tabId: string;
   projectId: string;
   workspaceId: string;
   blocks: Block[];
+  initialBlockPropertiesById?: Record<string, EntityProperties>;
   scrollToTaskId?: string | null;
   initialFileUrls?: Record<string, string>;
 }
 
-export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, initialFileUrls = {} }: TabCanvasWrapperProps) {
+export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks: initialBlocks, initialBlockPropertiesById = {}, scrollToTaskId, initialFileUrls = {} }: TabCanvasWrapperProps) {
   const [tabTheme, setTabTheme] = useState<string>("default");
 
   // 🚀 NEW: Use React Query for cached blocks
@@ -40,7 +43,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
   });
 
   // 🚀 NEW: Use React Query for cached file URLs
-  const fileIds = blocks?.flatMap(block => {
+  const fileIds = blocks?.flatMap((block: Block) => {
     const ids: string[] = [];
     if (block.type === 'image' && block.content?.fileId) {
       ids.push(block.content.fileId as string);
@@ -80,6 +83,18 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
     queryEnabled: fileIds.length > 0, // Shows if query is enabled
     note: fileIds.length === 0 ? 'Query disabled (no file IDs)' : 'Query active'
   });
+
+  const blockIds = useMemo(
+    () => (blocks || []).map((block) => block.id),
+    [blocks]
+  );
+  const {
+    data: queriedBlockPropertiesById = {},
+    isSuccess: hasLoadedBlockProperties,
+  } = useEntitiesProperties("block", blockIds, workspaceId);
+  const blockPropertiesById = hasLoadedBlockProperties
+    ? queriedBlockPropertiesById
+    : initialBlockPropertiesById;
 
   // Load theme from localStorage
   useEffect(() => {
@@ -123,6 +138,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
       projectId={projectId}
       workspaceId={workspaceId}
       blocks={blocks || []}
+      initialBlockPropertiesById={blockPropertiesById}
       scrollToTaskId={scrollToTaskId}
       onThemeChange={handleThemeChange}
       currentTheme={tabTheme}

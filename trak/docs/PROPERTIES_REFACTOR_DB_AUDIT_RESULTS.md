@@ -1882,7 +1882,7 @@ execute FUNCTION set_edited_flag_on_task_item_update ();
             {
               "id": "pri_1",
               "color": "#ef4444",
-              "label": "Critical",
+              "label": "Urgent",
               "order": 4
             },
             {
@@ -1920,7 +1920,7 @@ execute FUNCTION set_edited_flag_on_task_item_update ();
             {
               "id": "pri_1",
               "color": "#ef4444",
-              "label": "Critical",
+              "label": "Urgent",
               "order": 4
             },
             {

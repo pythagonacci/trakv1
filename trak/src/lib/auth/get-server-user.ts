@@ -6,10 +6,16 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 let testUserContext: { userId: string } | null = null;
 
 export function setTestUserContext(userId: string) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("setTestUserContext is only allowed when NODE_ENV === \"test\".");
+  }
   testUserContext = { userId };
 }
 
 export function clearTestUserContext() {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("clearTestUserContext is only allowed when NODE_ENV === \"test\".");
+  }
   testUserContext = null;
 }
 
@@ -19,7 +25,7 @@ export function clearTestUserContext() {
  */
 export const getServerUser = cache(async () => {
   // Check if running in test context first (only in test/dev environments)
-  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  const isTestEnvironment = process.env.NODE_ENV === "test";
   if (testUserContext && isTestEnvironment) {
     // In test mode, create a service client to fetch user data
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

@@ -11,7 +11,6 @@ import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import type {
   EntityType,
   EntityProperties,
-  EntityPropertiesWithInheritance,
   SetEntityPropertiesInput,
   AddTagInput,
   RemoveTagInput,
@@ -19,9 +18,40 @@ import type {
   FieldType,
   Status,
   WorkspaceMember,
+  DueDateRange,
 } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+// ============================================================================
+// Subtask date range validation (must fall within parent task's date range)
+// ============================================================================
+
+function isSubtaskDateRangeWithinTask(
+  subtaskRange: DueDateRange | null,
+  taskStartDate: string | null,
+  taskDueDate: string | null
+): { valid: true } | { valid: false; error: string } {
+  if (!subtaskRange || (!subtaskRange.start && !subtaskRange.end)) return { valid: true };
+  if (!taskStartDate && !taskDueDate) return { valid: true };
+
+  const subStart = subtaskRange.start ?? subtaskRange.end;
+  const subEnd = subtaskRange.end ?? subtaskRange.start;
+
+  if (taskStartDate && subStart !== null && subStart < taskStartDate) {
+    return { valid: false, error: "Subtask date range must start on or after the parent task's start date." };
+  }
+  if (taskStartDate && subEnd !== null && subEnd < taskStartDate) {
+    return { valid: false, error: "Subtask date range must fall within the parent task's date range." };
+  }
+  if (taskDueDate && subStart !== null && subStart > taskDueDate) {
+    return { valid: false, error: "Subtask date range must fall within the parent task's date range." };
+  }
+  if (taskDueDate && subEnd !== null && subEnd > taskDueDate) {
+    return { valid: false, error: "Subtask date range must end on or before the parent task's due date." };
+  }
+  return { valid: true };
+}
 
 // ============================================================================
 // Helper Functions
@@ -62,12 +92,12 @@ async function loadFixedPropertyDefinitions(
   };
 }
 
-function buildEntityPropertiesFromRows(
+export async function buildEntityPropertiesFromRows(
   entityType: EntityType,
   entityId: string,
   workspaceId: string,
   rows: any[]
-): EntityProperties {
+): Promise<EntityProperties> {
   let createdAt = rows[0]?.created_at ?? new Date().toISOString();
   let updatedAt = rows[0]?.updated_at ?? createdAt;
 
@@ -314,7 +344,14 @@ async function computeSubtaskAggregates(
     .from("task_subtasks")
     .select("id, completed")
     .eq("task_id", taskId);
-  if (error || !subtasks || subtasks.length === 0) return null;
+  if (error) {
+    console.error("[computeSubtaskAggregates] task_subtasks select error:", error, "taskId=", taskId);
+    return null;
+  }
+  if (!subtasks || subtasks.length === 0) {
+    console.warn("[computeSubtaskAggregates] no subtasks for taskId=", taskId);
+    return null;
+  }
 
   const subtaskIds = subtasks.map((subtask: any) => subtask.id);
   const { data: propertyRows } = await supabase
@@ -378,56 +415,74 @@ async function syncParentTaskPropertiesFromSubtasks(
   workspaceId: string,
   taskId: string,
   definitions: FixedPropertyMaps
-) {
-  const aggregates = await computeSubtaskAggregates(supabase, workspaceId, taskId, definitions);
-  if (!aggregates) return;
+): Promise<{ error?: string }> {
+  const taskIdStr = String(taskId);
+  const aggregates = await computeSubtaskAggregates(supabase, workspaceId, taskIdStr, definitions);
+  if (!aggregates) {
+    console.warn("[syncParentTaskPropertiesFromSubtasks] no aggregates for taskId=", taskIdStr);
+    return {};
+  }
+  console.log("[syncParentTaskPropertiesFromSubtasks] taskId=", taskIdStr, "computed status=", aggregates.status);
 
   const { status, assigneeIds, assigneePayload } = aggregates;
 
-  await upsertEntityPropertyValue(
+  const statusUpsert = await upsertEntityPropertyValue(
     supabase,
     workspaceId,
     "task",
-    taskId,
+    taskIdStr,
     definitions.byKey.status,
     status
   );
+  if (statusUpsert?.error) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] entity_properties status upsert failed:", statusUpsert.error);
+    return { error: "Failed to sync parent task status" };
+  }
 
-  await upsertEntityPropertyValue(
+  const assigneeUpsert = await upsertEntityPropertyValue(
     supabase,
     workspaceId,
     "task",
-    taskId,
+    taskIdStr,
     definitions.byKey.assignee_id,
     assigneePayload.length > 0 ? assigneePayload : null
   );
+  if (assigneeUpsert?.error) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] entity_properties assignee upsert failed:", assigneeUpsert.error);
+    return { error: "Failed to sync parent task assignees" };
+  }
 
-  const legacyStatus =
-    status === "done"
-      ? "done"
-      : status === "in_progress"
-        ? "in-progress"
-        : status === "blocked"
-          ? "todo"
-          : "todo";
-
-  await supabase
+  // Keep task_items in sync with derived parent properties
+  const taskStatuses = [{ field_name: "Status", value: status }];
+  const { error: taskItemsError } = await supabase
     .from("task_items")
     .update({
-      status: legacyStatus,
+      statuses: taskStatuses,
       assignee_id: assigneeIds[0] ?? null,
     })
-    .eq("id", taskId);
+    .eq("id", taskIdStr);
+  if (taskItemsError) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] task_items update failed:", taskItemsError);
+    return { error: "Failed to update parent task in database" };
+  }
+  console.log("[syncParentTaskPropertiesFromSubtasks] task_items updated for taskId=", taskIdStr, "status=", status);
 
-  await supabase.from("task_assignees").delete().eq("task_id", taskId);
+  const { error: deleteAssigneesError } = await supabase.from("task_assignees").delete().eq("task_id", taskIdStr);
+  if (deleteAssigneesError) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] task_assignees delete failed:", deleteAssigneesError);
+  }
   if (assigneePayload.length > 0) {
     const payload = assigneePayload.map((assignee) => ({
-      task_id: taskId,
+      task_id: taskIdStr,
       assignee_id: assignee.id,
       assignee_name: assignee.name || assignee.id || "Unknown",
     }));
-    await supabase.from("task_assignees").insert(payload);
+    const { error: insertAssigneesError } = await supabase.from("task_assignees").insert(payload);
+    if (insertAssigneesError) {
+      console.error("[syncParentTaskPropertiesFromSubtasks] task_assignees insert failed:", insertAssigneesError);
+    }
   }
+  return {};
 }
 
 /**
@@ -582,6 +637,8 @@ export async function getEntityProperties(
   entityType: EntityType,
   entityId: string
 ): Promise<ActionResult<EntityProperties | null>> {
+  const _t0 = performance.now();
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId}`);
   const access = await requireEntityAccess(entityType, entityId);
   if ("error" in access) return { error: access.error };
   const { supabase, workspaceId } = access;
@@ -594,18 +651,23 @@ export async function getEntityProperties(
 
   if (error) {
     console.error("getEntityProperties error:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch entity properties" };
   }
 
-  if (!data || data.length === 0) return { data: null };
+  if (!data || data.length === 0) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId} rows=0 ms=${Math.round(performance.now() - _t0)}`);
+    return { data: null };
+  }
 
-  const props = buildEntityPropertiesFromRows(
+  const props = await buildEntityPropertiesFromRows(
     entityType,
     entityId,
     workspaceId,
     data
   );
 
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties entity-properties type=${entityType} entityId=${entityId} rows=${data.length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: props };
 }
 
@@ -628,7 +690,12 @@ export async function getEntitiesProperties(
   entityIds: string[],
   workspaceId: string
 ): Promise<ActionResult<Record<string, EntityProperties>>> {
-  if (entityIds.length === 0) return { data: {} };
+  const _t0 = performance.now();
+  if (entityIds.length === 0) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntitiesProperties entity-properties type=${entityType} ids=0 workspaceId=${workspaceId} ms=${Math.round(performance.now() - _t0)}`);
+    return { data: {} };
+  }
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntitiesProperties entity-properties type=${entityType} ids=${entityIds.length} workspaceId=${workspaceId}`);
 
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
@@ -659,7 +726,7 @@ export async function getEntitiesProperties(
   }
 
   for (const [id, rows] of grouped.entries()) {
-    result[id] = buildEntityPropertiesFromRows(
+    result[id] = await buildEntityPropertiesFromRows(
       entityType,
       id,
       workspaceId,
@@ -667,24 +734,9 @@ export async function getEntitiesProperties(
     );
   }
 
+  const rowsCount = data?.length ?? 0;
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntitiesProperties entity-properties type=${entityType} ids=${entityIds.length} rows=${rowsCount} ms=${Math.round(performance.now() - _t0)}`);
   return { data: result };
-}
-
-/**
- * Get properties (direct only; inheritance removed).
- */
-export async function getEntityPropertiesWithInheritance(
-  entityType: EntityType,
-  entityId: string
-): Promise<ActionResult<EntityPropertiesWithInheritance>> {
-  const directResult = await getEntityProperties(entityType, entityId);
-  if ("error" in directResult) return directResult;
-  return {
-    data: {
-      direct: directResult.data ?? null,
-      inherited: [],
-    },
-  };
 }
 
 /**
@@ -693,6 +745,8 @@ export async function getEntityPropertiesWithInheritance(
 export async function setEntityProperties(
   input: SetEntityPropertiesInput
 ): Promise<ActionResult<EntityProperties>> {
+  const _t0 = performance.now();
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] setEntityProperties entity-properties type=${input.entity_type} entityId=${input.entity_id}`);
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
   if ("error" in access) return { error: access.error };
   const { supabase, workspaceId } = access;
@@ -865,6 +919,28 @@ export async function setEntityProperties(
       ? normalizeDueDateRange(updates.due_date)
       : undefined;
 
+  // Enforce subtask date range within parent task's date range
+  if (input.entity_type === "subtask" && updates.due_date !== undefined) {
+    const { data: subtaskRow } = await supabase
+      .from("task_subtasks")
+      .select("task_id")
+      .eq("id", input.entity_id)
+      .maybeSingle();
+    if (subtaskRow?.task_id) {
+      const { data: taskRow } = await supabase
+        .from("task_items")
+        .select("start_date, due_date")
+        .eq("id", subtaskRow.task_id)
+        .maybeSingle();
+      const taskStart = (taskRow?.start_date as string) ?? null;
+      const taskDue = (taskRow?.due_date as string) ?? null;
+      const validation = isSubtaskDateRangeWithinTask(normalizedDueDate ?? null, taskStart, taskDue);
+      if (!validation.valid) {
+        return { error: validation.error };
+      }
+    }
+  }
+
   let assigneePayloadForTask: Array<{ id: string; name: string }> | null = null;
   if (assigneeIdsToSet !== null) {
     const assigneePayload: Array<{ id: string; name: string }> = [];
@@ -944,7 +1020,15 @@ export async function setEntityProperties(
     const assigneeId = (data as any).assignee_id as string | null;
     const priorities = Array.isArray((data as any).priorities) ? (data as any).priorities : [];
 
-    const taskStatuses = (data as any).statuses ?? [];
+    const taskStatuses = ((data as any).statuses ?? [])
+      .map((field: any) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value:
+          field?.value === "todo" || field?.value === "in_progress" || field?.value === "blocked" || field?.value === "done"
+            ? field.value
+            : null,
+      }))
+      .filter((field: any) => field.field_name.length > 0 && field.value);
     const taskPriorities = priorities
       .map((field: any) => ({
         field_name: String(field?.field_name || "").trim(),
@@ -959,6 +1043,7 @@ export async function setEntityProperties(
       statuses: taskStatuses,
       priorities: taskPriorities,
       assignee_id: assigneeId ?? null,
+      is_placeholder: false, // User edited via property menu; no longer a placeholder
     };
     if (updates.due_date !== undefined) {
       taskItemUpdates.due_date = dueDate ?? null;
@@ -978,31 +1063,46 @@ export async function setEntityProperties(
   }
 
   if (input.entity_type === "subtask") {
-    if (updates.status !== undefined) {
-      await supabase
+    const statusUpdated = updates.status !== undefined || updates.statuses !== undefined;
+    if (statusUpdated) {
+      const resolvedStatus = (data as any)?.status as Status | null;
+      const { error: stErr } = await supabase
         .from("task_subtasks")
-        .update({ completed: updates.status === "done" })
+        .update({ completed: resolvedStatus === "done" })
         .eq("id", input.entity_id);
+      if (stErr) console.error("[setEntityProperties] task_subtasks update failed:", stErr);
     }
 
     const shouldSyncParent =
-      updates.status !== undefined ||
+      statusUpdated ||
+      updates.assignees !== undefined ||
       updates.assignee_ids !== undefined ||
       updates.assignee_id !== undefined;
 
     if (shouldSyncParent) {
-      const { data: subtask } = await supabase
+      const { data: subtask, error: subErr } = await supabase
         .from("task_subtasks")
         .select("task_id")
         .eq("id", input.entity_id)
         .maybeSingle();
-      if (subtask?.task_id) {
-        await syncParentTaskPropertiesFromSubtasks(
-          supabase,
+      if (subErr) console.error("[setEntityProperties] task_subtasks select task_id failed:", subErr);
+      if (!subtask?.task_id) {
+        console.warn("[setEntityProperties] subtask block: no task_id for entity_id=", input.entity_id);
+      } else {
+        console.log("[setEntityProperties] syncing parent task_id=", subtask.task_id);
+        const { createServiceClient } = await import("@/lib/supabase/service");
+        const serviceSupabase = await createServiceClient();
+        const syncResult = await syncParentTaskPropertiesFromSubtasks(
+          serviceSupabase,
           workspaceId,
           subtask.task_id,
           definitions as FixedPropertyMaps
         );
+        if (syncResult.error) {
+          console.error("[setEntityProperties] syncParent failed:", syncResult.error);
+          return { error: syncResult.error };
+        }
+        console.log("[setEntityProperties] syncParent completed for task_id=", subtask.task_id);
       }
     }
   }
@@ -1040,7 +1140,10 @@ export async function recomputeTaskPropertiesFromSubtasks(
   const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
   if ("error" in definitions) return { error: definitions.error };
 
-  await syncParentTaskPropertiesFromSubtasks(supabase, workspaceId, taskId, definitions);
+  const { createServiceClient } = await import("@/lib/supabase/service");
+  const serviceSupabase = await createServiceClient();
+  const syncResult = await syncParentTaskPropertiesFromSubtasks(serviceSupabase, workspaceId, taskId, definitions);
+  if (syncResult.error) return { error: syncResult.error };
   return { data: null };
 }
 
@@ -1161,12 +1264,12 @@ export async function clearEntityProperties(
     return { error: "Failed to clear entity properties" };
   }
 
-  // Best-effort sync for tasks: reset legacy fields to defaults
+  // Best-effort sync for tasks: reset task_items fields to defaults
   if (entityType === "task") {
     await supabase
       .from("task_items")
       .update({
-        status: "todo",
+        statuses: [{ field_name: "Status", value: "todo" }],
         priorities: [],
         due_date: null,
       })
@@ -1186,14 +1289,18 @@ export async function clearEntityProperties(
 export async function getWorkspaceMembers(
   workspaceId: string
 ): Promise<ActionResult<WorkspaceMember[]>> {
+  const _t0 = performance.now();
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId}`);
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Unauthorized" };
   }
 
   const membership = await checkWorkspaceMembership(workspaceId, user.id);
   if (!membership) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Not a member of this workspace" };
   }
 
@@ -1204,10 +1311,12 @@ export async function getWorkspaceMembers(
 
   if (error) {
     console.error("getWorkspaceMembers error:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} error=Query ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch workspace members" };
   }
 
   if (!members || members.length === 0) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} count=0 ms=${Math.round(performance.now() - _t0)}`);
     return { data: [] };
   }
 
@@ -1254,6 +1363,7 @@ export async function getWorkspaceMembers(
     };
   });
 
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getWorkspaceMembers workspaceId=${workspaceId} count=${transformed.length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: transformed };
 }
 

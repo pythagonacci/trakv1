@@ -12,6 +12,7 @@ import {
   DragEndEvent,
   DragOverEvent,
   DragStartEvent,
+  DragOverlay,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -23,11 +24,14 @@ import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
 import DocSidebar from "./doc-sidebar";
+import TableOfContents from "./table-of-contents";
+import { useTabContents } from "./tab-contents-context";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { Undo2 } from "lucide-react";
+import { Undo2, FileText, CheckSquare, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { EntityProperties } from "@/types/properties";
 import {
   Tooltip,
   TooltipContent,
@@ -53,6 +57,7 @@ interface TabCanvasProps {
   onThemeChange?: (theme: string) => void;
   currentTheme?: string;
   initialFileUrls?: Record<string, string>;
+  initialBlockPropertiesById?: Record<string, EntityProperties>;
 }
 
 interface BlockRow {
@@ -61,19 +66,24 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {} }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {}, initialBlockPropertiesById = {} }: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [draggedBlock, setDraggedBlock] = useState<Block | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [isCreatingBlock, setIsCreatingBlock] = useState(false);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
   const [tabTheme, setTabTheme] = useState<string>(propTheme || "default");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [isUndoing, setIsUndoing] = useState(false);
+  const tabContents = useTabContents();
+  const tocExpanded = tabContents?.tocExpanded ?? false;
+  const setTocExpanded = tabContents?.setTocExpanded ?? (() => { });
+  const blockPropertiesById = initialBlockPropertiesById;
 
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
@@ -94,6 +104,14 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       lastDragTimeRef.current = 0;
     }
   }, [tabId, initialBlocks]);
+
+  // Prefetch table chunks when this tab has table blocks so table block renders faster
+  useEffect(() => {
+    const hasTableBlock = blocks.some((b) => b.type === "table");
+    if (!hasTableBlock) return;
+    void import("./table-block");
+    void import("@/components/tables/table-view");
+  }, [blocks]);
 
   useEffect(() => {
     if (prevTabIdRef.current !== tabId) return;
@@ -250,6 +268,29 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     return rows;
   }, [blocks]);
 
+  // Compute drop preview info: which row the block will land in and whether to show a ghost
+  const previewInfo = useMemo(() => {
+    if (!isDragging || !overId || !draggedBlock) return null;
+    const overBlock = blocks.find(b => b.id === overId);
+    if (!overBlock || overBlock.id === draggedBlock.id) return null;
+
+    const sourceRowIndex = Math.floor(draggedBlock.position);
+    const targetRowIndex = Math.floor(overBlock.position);
+
+    if (sourceRowIndex === targetRowIndex) {
+      return { targetRowIndex, showGhost: false };
+    }
+
+    const targetRow = blockRows.find(r => r.rowIndex === targetRowIndex);
+    const targetBlockCount = targetRow
+      ? targetRow.blocks.filter(b => b.id !== draggedBlock.id).length
+      : 0;
+    const showGhost = targetBlockCount < 3;
+    const ghostColumns = Math.min(3, targetBlockCount + 1);
+
+    return { targetRowIndex, showGhost, ghostColumns };
+  }, [isDragging, overId, draggedBlock, blocks, blockRows]);
+
   const handleUpdate = (updatedBlock?: Block) => {
     if (updatedBlock) {
       const updateBlockList = (prevBlocks?: Block[]) => {
@@ -272,9 +313,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       return;
     }
 
-    // Fallback: refetch blocks when no updated block is provided.
+    // Fallback: refetch blocks via targeted cache invalidation (no full page refresh).
     queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
-    router.refresh();
   };
 
   const handleDelete = async (blockId: string) => {
@@ -307,7 +347,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           return next.slice(-UNDO_STACK_MAX);
         });
       }
-      router.refresh();
+      // Invalidate tab blocks cache so useTabBlocks refetches; prevents deleted block reappearing from stale cache
+      queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
     } catch (error) {
       console.error("Failed to delete block:", error);
       alert(
@@ -371,7 +412,6 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           next.splice(insertionIndex, 0, newBlock);
           return next;
         });
-        router.refresh();
       }
     } catch (error) {
       console.error("Undo failed:", error);
@@ -395,10 +435,11 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [undoStack.length, isUndoing, handleUndo]);
 
-  const handleConvert = async (blockId: string, newType: BlockType) => {
-    // Determine default content for the new type
-    let newContent: Record<string, unknown> = {};
-    if (newType === "text") {
+  const handleConvert = async (blockId: string, newType: BlockType, contentOverride?: Record<string, unknown>) => {
+    let newContent: Record<string, unknown>;
+    if (contentOverride !== undefined) {
+      newContent = contentOverride;
+    } else if (newType === "text") {
       newContent = { text: "" };
     } else if (newType === "task") {
       newContent = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
@@ -444,6 +485,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       newContent = { doc_id: "", doc_title: "" };
     } else if (newType === "chart") {
       newContent = { code: "", chartType: "bar", title: "Chart" };
+    } else {
+      newContent = {};
     }
 
     const result = await updateBlock({
@@ -457,7 +500,19 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       alert(`Error converting block: ${result.error}`);
       return;
     }
-    router.refresh();
+
+    // Update local state and cache with the converted block (no full page refresh)
+    if (result.data) {
+      setBlocks((prev) =>
+        prev.map((b) => (b.id === blockId ? result.data! : b))
+      );
+      queryClient.setQueryData(
+        queryKeys.tabBlocks(tabId),
+        (old: Block[] | undefined) =>
+          old?.map((b) => (b.id === blockId ? result.data! : b)) ?? old
+      );
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
   };
 
   const getDefaultContent = (type: BlockType) => {
@@ -564,6 +619,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     targetBlockId: string,
     direction: "above" | "below",
     type: BlockType = "text",
+    contentOverride?: Record<string, unknown>,
   ) => {
     const targetBlock = blocks.find((b) => b.id === targetBlockId);
     if (!targetBlock) return;
@@ -573,13 +629,14 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
     await shiftRowsForInsertion(insertionRow);
 
+    const content = contentOverride ?? getDefaultContent(type);
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock = {
       id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: null,
       type,
-      content: getDefaultContent(type),
+      content,
       position: insertionRow,
       column: 0,
       is_template: false,
@@ -594,6 +651,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     createBlock({
       tabId,
       type,
+      content,
       position: insertionRow,
       column: 0,
     })
@@ -611,18 +669,22 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       });
   };
 
-  const handleAddBlockAbove = (targetBlockId: string, type?: BlockType) =>
-    handleAddBlockAtRow(targetBlockId, "above", type);
+  const handleAddBlockAbove = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
+    handleAddBlockAtRow(targetBlockId, "above", type ?? "text", content);
 
-  const handleAddBlockBelow = (targetBlockId: string, type?: BlockType) =>
-    handleAddBlockAtRow(targetBlockId, "below", type);
+  const handleAddBlockBelow = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
+    handleAddBlockAtRow(targetBlockId, "below", type ?? "text", content);
 
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
-    console.log("Drag started for block:", event.active.id);
     setIsDragging(true);
     const block = blocks.find((b) => b.id === event.active.id);
     setDraggedBlock(block || null);
+  };
+
+  // Handle drag over - track which block the cursor is hovering over
+  const handleDragOver = (event: DragOverEvent) => {
+    setOverId((event.over?.id as string) ?? null);
   };
 
   // Handle drag end - reorder blocks or move between rows/columns
@@ -630,10 +692,10 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     try {
       const { active, over } = event;
       setIsDragging(false);
+      setOverId(null);
 
       // Allow dropping on the same block (no change needed)
       if (!over || active.id === over.id) {
-        console.log("No valid drop target or dropped on same block, cancelling drag");
         setDraggedBlock(null);
         return;
       }
@@ -655,18 +717,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
         return;
       }
 
-      console.log("Found dragged block:", draggedBlock.id, "Type:", draggedBlock.type, "Position:", draggedBlock.position, "Column:", draggedBlock.column);
-
       // Try to find the over block
       const overBlock = blocks.find((b) => b.id === over.id);
-      console.log("Looking for over block:", over.id, "Found:", overBlock ? `${overBlock.id} (pos: ${overBlock.position}, col: ${overBlock.column})` : "not found");
-
-      // Determine drag type based on overBlock position (if found)
-      if (overBlock) {
-        const isSameRow = Math.floor(draggedBlock.position) === Math.floor(overBlock.position);
-        const isSameColumn = draggedBlock.column === overBlock.column;
-        console.log("Drag analysis:", { isSameRow, isSameColumn, draggedPos: draggedBlock.position, overPos: overBlock.position, draggedCol: draggedBlock.column, overCol: overBlock.column });
-      }
 
       if (!overBlock) {
         console.warn("Over target not found in blocks array. Over ID:", over.id, "Available block IDs:", blocks.map(b => b.id));
@@ -1155,6 +1207,11 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     }
   };
 
+  // Sorted blocks for ToC (flat, by position)
+  const tocBlocks = useMemo(() => {
+    return [...blocks].sort((a, b) => a.position - b.position);
+  }, [blocks]);
+
   return (
     <FileUrlContext.Provider value={initialFileUrls}>
       <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
@@ -1194,7 +1251,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
             <div
               className={cn(
                 "pl-4 pr-6 pt-2 pb-6 transition-all duration-300 relative min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
-                !currentTheme.containerBg && "bg-[var(--surface)]/40"
+                !currentTheme.containerBg && "bg-[var(--surface)]/50"
               )}
               style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
             >
@@ -1239,12 +1296,14 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                       )}
                     >
                       {row.blocks.map((block) => (
-                        <div key={`${block.id}-${block.type}`} className={cn("min-w-0", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
+                        <div key={`${block.id}-${block.type}`} id={`block-${block.id}`} className={cn("min-w-0 scroll-mt-24", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
                           <BlockRenderer
                             block={block}
                             workspaceId={workspaceId}
                             projectId={projectId}
                             tabId={tabId}
+                            blockProperties={blockPropertiesById[block.id]}
+                            propertiesById={blockPropertiesById}
                             onUpdate={handleUpdate}
                             scrollToTaskId={scrollToTaskId}
                             onDelete={handleDelete}
@@ -1275,52 +1334,59 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                   sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
                   onDragEnd={handleDragEnd}
                 >
                   <div className="space-y-5 w-full">
-                    {blockRows.map((row, rowIdx) => (
-                      <SortableContext
-                        key={rowIdx}
-                        items={row.blocks.map((b) => b.id)}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        <div
-                          className={cn(
-                            "grid gap-4",
-                            row.blocks.length === 1
-                              ? "grid-cols-1"
-                              : row.maxColumns === 2
-                                ? "grid-cols-1 md:grid-cols-2"
-                                : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
-                          )}
+                    {blockRows.map((row, rowIdx) => {
+                      const isTargetRow = previewInfo?.showGhost && row.rowIndex === previewInfo.targetRowIndex;
+                      const effectiveCount = isTargetRow ? row.blocks.length + 1 : row.blocks.length;
+                      const gridClass =
+                        effectiveCount === 1
+                          ? "grid-cols-1"
+                          : effectiveCount === 2
+                            ? "grid-cols-1 md:grid-cols-2"
+                            : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+                      return (
+                        <SortableContext
+                          key={rowIdx}
+                          items={row.blocks.map((b) => b.id)}
+                          strategy={verticalListSortingStrategy}
                         >
-                          {row.blocks.map((block) => (
-                            <div
-                              key={`${block.id}-${block.type}`}
-                              className={cn(
-                                "min-w-0",
-                                newBlockIds.has(block.id) && "animate-block-swoosh-in",
-                              )}
-                            >
-                              <BlockRenderer
-                                block={block}
-                                workspaceId={workspaceId}
-                                projectId={projectId}
-                                tabId={tabId}
-                                onUpdate={handleUpdate}
-                                scrollToTaskId={scrollToTaskId}
-                                onDelete={handleDelete}
-                                onConvert={handleConvert}
-                                onAddBlockAbove={handleAddBlockAbove}
-                                onAddBlockBelow={handleAddBlockBelow}
-                                onOpenDoc={setOpenDocId}
-                                isDragging={isDragging && draggedBlock?.id === block.id}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </SortableContext>
-                    ))}
+                          <div className={cn("grid gap-4", gridClass)}>
+                            {row.blocks.map((block) => (
+                              <div
+                                key={`${block.id}-${block.type}`}
+                                id={`block-${block.id}`}
+                                className={cn(
+                                  "min-w-0 scroll-mt-24",
+                                  newBlockIds.has(block.id) && "animate-block-swoosh-in",
+                                )}
+                              >
+                                <BlockRenderer
+                                  block={block}
+                                  workspaceId={workspaceId}
+                                  projectId={projectId}
+                                  tabId={tabId}
+                                  blockProperties={blockPropertiesById[block.id]}
+                                  propertiesById={blockPropertiesById}
+                                  onUpdate={handleUpdate}
+                                  scrollToTaskId={scrollToTaskId}
+                                  onDelete={handleDelete}
+                                  onConvert={handleConvert}
+                                  onAddBlockAbove={handleAddBlockAbove}
+                                  onAddBlockBelow={handleAddBlockBelow}
+                                  onOpenDoc={setOpenDocId}
+                                  isDragging={isDragging && draggedBlock?.id === block.id}
+                                />
+                              </div>
+                            ))}
+                            {/* Ghost drop placeholder in target row */}
+                            {isTargetRow && <BlockDropGhost blockType={draggedBlock?.type} />}
+                          </div>
+                        </SortableContext>
+                      );
+                    })}
                     {/* Add block button appears right after the last block row */}
                     <div className="flex gap-3 pt-2">
                       <AddBlockButton
@@ -1333,15 +1399,115 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                       />
                     </div>
                   </div>
+                  {/* Compact drag card that follows the cursor */}
+                  <DragOverlay dropAnimation={null}>
+                    {isDragging && draggedBlock ? (
+                      <BlockDragCard block={draggedBlock} />
+                    ) : null}
+                  </DragOverlay>
                 </DndContext>
               )}
             </div>
           )}
         </div>
+
+        <TableOfContents
+          blocks={tocBlocks}
+          isExpanded={tocExpanded}
+          onToggle={() => setTocExpanded((prev) => !prev)}
+          projectId={projectId}
+        />
       </div>
 
       {/* Doc Sidebar */}
       <DocSidebar docId={openDocId} onClose={() => setOpenDocId(null)} />
     </FileUrlContext.Provider>
   );
+}
+
+// ─── Drag & Drop helpers ────────────────────────────────────────────────────
+
+/** Compact card that follows the cursor while dragging a block. */
+function BlockDragCard({ block }: { block: Block }) {
+  const iconMap: Partial<Record<Block["type"], React.ReactNode>> = {
+    text: <FileText className="h-4 w-4" />,
+    task: <CheckSquare className="h-4 w-4" />,
+    link: <Link2 className="h-4 w-4" />,
+    divider: <Minus className="h-4 w-4" />,
+    table: <Table className="h-4 w-4" />,
+    timeline: <Calendar className="h-4 w-4" />,
+    file: <Paperclip className="h-4 w-4" />,
+    video: <Video className="h-4 w-4" />,
+    image: <Image className="h-4 w-4" />,
+    gallery: <Images className="h-4 w-4" />,
+    embed: <Maximize2 className="h-4 w-4" />,
+    section: <Layout className="h-4 w-4" />,
+    chart: <BarChart2 className="h-4 w-4" />,
+    doc_reference: <BookOpen className="h-4 w-4" />,
+    shopify_product: <ShoppingBag className="h-4 w-4" />,
+    pdf: <Paperclip className="h-4 w-4" />,
+  };
+  const labelMap: Partial<Record<Block["type"], string>> = {
+    text: "Text", task: "Task list", link: "Link", divider: "Divider",
+    table: "Table", timeline: "Timeline", file: "File", video: "Video",
+    image: "Image", gallery: "Gallery", embed: "Embed", section: "Section",
+    chart: "Chart", doc_reference: "Doc reference", shopify_product: "Product",
+    pdf: "PDF",
+  };
+
+  return (
+    <div className="w-44 flex items-center gap-2.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--surface)] px-3 py-2.5 shadow-xl cursor-grabbing select-none">
+      <span className="flex-shrink-0 text-[var(--primary)]/70">
+        {iconMap[block.type] ?? <Layout className="h-4 w-4" />}
+      </span>
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-[var(--foreground)] truncate">
+          {labelMap[block.type] ?? block.type}
+        </div>
+        <div className="text-[10px] text-[var(--muted-foreground)] truncate">
+          {getDragBlockTitle(block)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Dashed ghost placeholder shown in the target row while dragging. */
+function BlockDropGhost({ blockType }: { blockType?: Block["type"] }) {
+  return (
+    <div
+      className={cn(
+        "min-h-[80px] rounded-[var(--radius-sm)]",
+        "border-2 border-dashed border-[var(--primary)]/30",
+        "bg-[var(--primary)]/5",
+        "flex items-center justify-center",
+        "text-[var(--primary)]/40 text-xs font-medium",
+        "transition-all duration-150 pointer-events-none",
+      )}
+    >
+      Drop here
+    </div>
+  );
+}
+
+/** Minimal title for display inside the compact drag card. */
+function getDragBlockTitle(block: Block): string {
+  const content = (block.content ?? {}) as Record<string, unknown>;
+  switch (block.type) {
+    case "text": {
+      const text = (content.text ?? content.content ?? "") as string;
+      return typeof text === "string" && text.trim() ? text.slice(0, 40) : "Text block";
+    }
+    case "task": return (content.title as string) ?? "Task block";
+    case "table": return (content.title as string) ?? "Table";
+    case "image": return (content.alt as string) ?? (content.filename as string) ?? "Image";
+    case "file": return (content.filename as string) ?? "File";
+    case "video": return (content.title as string) ?? "Video";
+    case "embed": return (content.title as string) ?? "Embed";
+    case "link": return (content.title as string) ?? (content.url as string) ?? "Link";
+    case "section": return (content.title as string) ?? "Section";
+    case "chart": return (content.title as string) ?? "Chart";
+    case "pdf": return (content.filename as string) ?? "PDF";
+    default: return `${block.type} block`;
+  }
 }

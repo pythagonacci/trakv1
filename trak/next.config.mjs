@@ -42,6 +42,11 @@ const nextConfig = {
   // Production optimizations
   poweredByHeader: false,
   compress: true,
+
+  // Reduce noisy dev server logs for incoming HTTP requests
+  logging: {
+    incomingRequests: false,
+  },
 };
 
 export default withBundleAnalyzer(nextConfig);

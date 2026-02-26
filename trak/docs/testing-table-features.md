@@ -17,10 +17,10 @@ Create two tables:
 **Tasks**
 - Title (text)
 - Hours (number)
-- Status (select: Not Started, In Progress, Done)
+- Status (select: Todo, In Progress, Done, Blocked)
 - Due Date (date)
 - Completed (checkbox)
-- Priority (select: Low, Medium, High)
+- Priority (select: Low, Medium, High, Urgent)
 - Notes (long_text)
 
 **Projects**

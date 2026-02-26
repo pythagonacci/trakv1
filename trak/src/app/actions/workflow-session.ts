@@ -28,12 +28,11 @@ async function assertWorkflowTab(tabId: string) {
   const supabase = await createClient();
   const { data: tab, error } = await supabase
     .from("tabs")
-    .select("id, is_workflow_page, workflow_metadata, project:projects!inner(id, workspace_id)")
+    .select("id, project:projects!inner(id, workspace_id)")
     .eq("id", tabId)
     .single();
 
   if (error || !tab) return { error: "Tab not found" } as const;
-  if (!tab.is_workflow_page) return { error: "Tab is not a workflow page" } as const;
 
   const project = tab.project as { workspace_id: string } | { workspace_id: string }[] | null;
   const workspaceId = Array.isArray(project) ? project[0]?.workspace_id : project?.workspace_id;

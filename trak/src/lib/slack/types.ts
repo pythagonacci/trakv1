@@ -72,7 +72,7 @@ export interface SlackBlock {
   text?: SlackTextObject;
   fields?: SlackTextObject[];
   accessory?: SlackBlockElement;
-  elements?: SlackBlockElement[];
+  elements?: Array<SlackBlockElement | SlackTextObject>;
   image_url?: string;
   alt_text?: string;
   title?: SlackTextObject;

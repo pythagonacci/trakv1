@@ -14,6 +14,9 @@ type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
 // Type for project type
 type ProjectType = 'project' | 'internal'
 
+// Project priority (optional, same idea as due date)
+export type ProjectPriority = 'low' | 'medium' | 'high' | 'urgent' | null
+
 // Type for project data
 type ProjectData = {
   name: string
@@ -23,8 +26,10 @@ type ProjectData = {
   status?: ProjectStatus
   due_date_date?: string | null  // ISO date string
   due_date_text?: string | null
+  priority?: ProjectPriority
   member_ids?: string[] | 'all'  // Project permissions: 'all' or array of user IDs
-  tags?: string[]  // Optional initial tags for the project's tag bank
+  assigned_tags?: string[]  // Tags on the project itself (stored in projects.tags)
+  tag_bank?: string[]  // Initial tag bank for tasks (inserted into project_tags, create only)
 }
 
 // Type for project filters
@@ -353,7 +358,9 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
       client_id: finalClientId || null,
       status: projectData.status || 'not_started',
       due_date_date: projectData.due_date_date || null,
-      due_date_text: projectData.due_date_text || null
+      due_date_text: projectData.due_date_text || null,
+      priority: projectData.priority ?? null,
+      tags: projectData.assigned_tags ?? [],
     })
     .select('*, client:clients(name)')
     .single()
@@ -409,15 +416,15 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
   }
   // If member_ids === 'all' or undefined, don't insert any rows (= accessible to all)
 
-  // Insert initial project tags if provided
-  const tagNames = (projectData.tags || [])
+  // Insert initial tag bank (for tasks) if provided
+  const tagBankNames = (projectData.tag_bank || [])
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
-  if (tagNames.length > 0) {
-    const tagRows = tagNames.map((name) => ({ project_id: project.id, name }))
+  if (tagBankNames.length > 0) {
+    const tagRows = tagBankNames.map((name) => ({ project_id: project.id, name }))
     const { error: tagsError } = await supabase.from('project_tags').insert(tagRows)
     if (tagsError) {
-      console.error('Failed to add initial project tags:', tagsError)
+      console.error('Failed to add initial tag bank:', tagsError)
     }
   }
 
@@ -473,6 +480,38 @@ export async function addProjectTag(
     if (error.code === '23505') return { data: null }
     return { error: error.message }
   }
+  return { data: null }
+}
+
+/** Remove a tag from a project's tag bank (case-insensitive match). */
+export async function removeProjectTag(
+  projectId: string,
+  name: string,
+  opts?: { authContext?: AuthContext }
+): Promise<{ data: null } | { error: string }> {
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+  }
+
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Tag name cannot be empty' }
+
+  const { data: rows, error: selectError } = await supabase
+    .from('project_tags')
+    .select('id, name')
+    .eq('project_id', projectId)
+
+  if (selectError) return { error: selectError.message }
+  const toDelete = (rows || []).find((r: { name: string }) => r.name.trim().toLowerCase() === trimmed.toLowerCase())
+  if (!toDelete) return { data: null }
+
+  const { error } = await supabase.from('project_tags').delete().eq('id', toDelete.id)
+  if (error) return { error: error.message }
   return { data: null }
 }
 
@@ -1003,13 +1042,17 @@ export async function updateProject(projectId: string, updates: Partial<ProjectD
     }
   }
 
+  // Map assigned_tags to DB column "tags"
+  const dbUpdates = { ...updates, updated_at: new Date().toISOString() }
+  if ('assigned_tags' in dbUpdates) {
+    (dbUpdates as Record<string, unknown>).tags = dbUpdates.assigned_tags
+    delete (dbUpdates as Record<string, unknown>).assigned_tags
+  }
+
   // Update the project (including updated_at)
   const { data: updatedProject, error: updateError } = await supabase
     .from('projects')
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString()
-    })
+    .update(dbUpdates)
     .eq('id', projectId)
     .select()
     .single()

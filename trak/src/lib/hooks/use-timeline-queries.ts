@@ -60,7 +60,7 @@ export function useCreateTimelineEvent(blockId: string) {
       // Invalidate entity properties for the newly created event
       if ("data" in result && result.data?.id) {
         qc.invalidateQueries({
-          queryKey: queryKeys.entityPropertiesWithInheritance("timeline_event", result.data.id),
+          queryKey: queryKeys.entityProperties("timeline_event", result.data.id),
         });
       }
     },
@@ -76,7 +76,7 @@ export function useUpdateTimelineEvent(blockId: string) {
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
       // Invalidate entity properties to refresh the Properties section
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance("timeline_event", variables.eventId),
+        queryKey: queryKeys.entityProperties("timeline_event", variables.eventId),
       });
     },
   });

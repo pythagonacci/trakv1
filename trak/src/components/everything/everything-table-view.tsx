@@ -56,10 +56,10 @@ export function EverythingTableView({
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
-        <thead className="bg-[var(--secondary)]/10 text-[var(--tertiary-foreground)] border-b border-[var(--secondary)]">
+        <thead className="bg-[var(--primary)]/10 text-[var(--tertiary-foreground)] border-b border-[var(--primary)]/30">
           <tr>
             {/* Name Column */}
-            <th className="sticky left-0 z-10 h-10 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)] bg-[var(--secondary)]/10">
+            <th className="sticky left-0 z-10 h-10 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)] bg-[var(--primary)]/10">
               <button
                 onClick={() => handleSort("name")}
                 className="flex items-center gap-2 hover:text-[var(--foreground)]"

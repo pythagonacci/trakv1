@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { parseDateSafe } from "@/lib/due-date";
 import type { BlockType } from "@/app/actions/block";
 
 interface Project {
@@ -88,6 +89,9 @@ interface FormData {
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
   tags?: string[];
+  priority?: string | null;
+  assigned_tags?: string[];
+  tag_bank?: string[];
 }
 
 interface TabPreviewBlock {
@@ -275,9 +279,9 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
     setProjects((prev) => prev.filter((p) => p.id !== deletingProject.id));
     const result = await deleteProject(deletingProject.id);
 
-    if (result.error) {
+    if ("error" in result) {
       setProjects(previousProjects);
-      setToast({ message: result.error, type: "error" });
+      setToast({ message: result.error ?? "Failed to delete project", type: "error" });
     } else {
       setToast({ message: "Project deleted successfully", type: "success" });
       startTransition(() => {
@@ -290,8 +294,8 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   };
 
   const handleCreateSubmit = async (formData: FormData) => {
-    let due_date_date = null;
-    let due_date_text = null;
+    let due_date_date: string | null = null;
+    let due_date_text: string | null = null;
 
     if (formData.due_date.trim()) {
       const dateTest = new Date(formData.due_date);
@@ -323,13 +327,15 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
       status: formData.status,
       due_date_date,
       due_date_text,
-      tags: formData.tags,
+      priority: (formData.priority && ["low", "medium", "high", "urgent"].includes(formData.priority) ? formData.priority : null) as "low" | "medium" | "high" | "urgent" | null,
+      assigned_tags: formData.assigned_tags ?? [],
+      tag_bank: formData.tag_bank,
     });
 
-    if (result.error) {
+    if ("error" in result) {
       setProjects(projects);
-      setToast({ message: result.error, type: "error" });
-      throw new Error(result.error);
+      setToast({ message: result.error ?? "Failed to create project", type: "error" });
+      throw new Error(result.error ?? "Failed to create project");
     } else {
       const createdProject = {
         ...result.data,
@@ -359,8 +365,8 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   const handleEditSubmit = async (formData: FormData) => {
     if (!editingProject) return;
 
-    let due_date_date = null;
-    let due_date_text = null;
+    let due_date_date: string | null = null;
+    let due_date_text: string | null = null;
 
     if (formData.due_date.trim()) {
       const dateTest = new Date(formData.due_date);
@@ -394,10 +400,11 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
 
     const result = await updateProject(editingProject.id, updates);
 
-    if (result.error) {
+    if ("error" in result) {
+      const errMsg = result.error ?? "Failed to update project";
       setProjects(previousProjects);
-      setToast({ message: result.error, type: "error" });
-      throw new Error(result.error);
+      setToast({ message: errMsg, type: "error" });
+      throw new Error(errMsg);
     } else {
       setToast({ message: "Project updated", type: "success" });
       handleCloseDialog();
@@ -427,7 +434,8 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
     }
 
     if (dateString) {
-      const date = new Date(dateString);
+      const date = parseDateSafe(dateString);
+      if (!date) return { text: null, isOverdue: false };
       const now = new Date();
       now.setHours(0, 0, 0, 0);
       const isOverdue = date < now && date.toDateString() !== now.toDateString();

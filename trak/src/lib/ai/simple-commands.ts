@@ -47,9 +47,11 @@ export async function tryDeterministicCommand(
         workspaceId: context.workspaceId,
         userId: context.userId,
         contextTableId: context.contextTableId,
+        contextBlockId: context.contextBlockId,
         currentTabId: context.currentTabId,
         currentProjectId: context.currentProjectId,
         undoTracker: options.undoTracker,
+        authContext: context.authContext,
       }
     );
 

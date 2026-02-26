@@ -30,12 +30,14 @@ const CLIENT_TAB_BLOCKS_PER_TAB_LIMIT = 500;
 // ============================================================================
 
 export async function getClientTabBlocks(tabId: string) {
+  const _t0 = performance.now();
   try {
     const supabase = await createClient();
 
     // Auth check
     const user = await getAuthenticatedUser();
     if (!user) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlocks tabId=${tabId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Unauthorized" };
     }
 
@@ -75,12 +77,16 @@ export async function getClientTabBlocks(tabId: string) {
 
     if (blocksError) {
       console.error("Get client tab blocks error:", blocksError);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlocks tabId=${tabId} error=Query ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Failed to fetch blocks" };
     }
 
+    const blocksCount = (blocks || []).length;
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlocks tabId=${tabId} blocks=${blocksCount} totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: blocks || [] };
   } catch (error) {
     console.error("Get client tab blocks exception:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlocks tabId=${tabId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch blocks" };
   }
 }
@@ -335,12 +341,15 @@ export async function deleteClientTabBlock(blockId: string) {
 // ============================================================================
 
 export async function getClientTabBlockFileUrls(fileIds: string[], tabId: string) {
+  const _t0 = performance.now();
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlockFileUrls tabId=${tabId} fileIds=${fileIds.length}`);
   try {
     const supabase = await createClient();
 
     // Auth check
     const user = await getAuthenticatedUser();
     if (!user) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlockFileUrls tabId=${tabId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Unauthorized", data: {} };
     }
 
@@ -357,6 +366,7 @@ export async function getClientTabBlockFileUrls(fileIds: string[], tabId: string
       .single();
 
     if (tabError || !tab) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlockFileUrls tabId=${tabId} error=TabNotFound ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Tab not found", data: {} };
     }
 
@@ -365,13 +375,18 @@ export async function getClientTabBlockFileUrls(fileIds: string[], tabId: string
     // Verify workspace membership
     const member = await checkWorkspaceMembership(workspaceId, user.id);
     if (!member) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlockFileUrls tabId=${tabId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Not a member of this workspace", data: {} };
     }
 
     // Use the existing getBatchFileUrls function
-    return await getBatchFileUrls(fileIds);
+    const result = await getBatchFileUrls(fileIds);
+    const urlsCount = "data" in result ? Object.keys(result.data).length : 0;
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlockFileUrls tabId=${tabId} fileIds=${fileIds.length} urlsResolved=${urlsCount} totalMs=${Math.round(performance.now() - _t0)}`);
+    return result;
   } catch (error) {
     console.error("Get client tab block file URLs exception:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getClientTabBlockFileUrls tabId=${tabId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch file URLs", data: {} };
   }
 }

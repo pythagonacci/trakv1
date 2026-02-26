@@ -5,7 +5,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { User, Calendar, Tag as TagIcon } from "lucide-react";
+import { User, Calendar, Tag as TagIcon, Flag, CheckCircle2, Circle, Clock, XCircle } from "lucide-react";
 import {
   STATUS_OPTIONS,
   PRIORITY_OPTIONS,
@@ -16,14 +16,23 @@ import {
   type Priority,
   type DueDateRange,
 } from "@/types/properties";
-import { formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
+import { formatDueDateRange, getDueDateEnd, hasDueDate, parseDateSafe } from "@/lib/due-date";
 
 interface PropertyBadgesProps {
   properties: EntityProperties | null;
   inherited?: boolean;
   className?: string;
   onClick?: () => void;
-  memberNames?: string[]; // For displaying assignee names (multiple) — used for the canonical single field fallback
+  /**
+   * Optional per-field click handler, used when callers want to open
+   * a focused editor for a specific property (status, priority, etc)
+   * rather than the full properties menu.
+   */
+  onFieldClick?: (info: {
+    group: "status" | "priority" | "assignees" | "due_date" | "tags";
+    fieldId?: string;
+  }) => void;
+  memberNames?: string[];
 }
 
 /**
@@ -34,6 +43,7 @@ export function PropertyBadges({
   inherited = false,
   className,
   onClick,
+  onFieldClick,
   memberNames,
 }: PropertyBadgesProps) {
   if (!properties) return null;
@@ -60,56 +70,125 @@ export function PropertyBadges({
     <div className={cn("flex flex-wrap gap-1.5", className)}>
       {/* Status */}
       {hasNamedStatuses
-        ? properties.statuses.map((f) => (
-            <StatusBadge key={f.id} status={f.value} label={f.field_name} inherited={inherited} onClick={onClick} />
+        ? properties.statuses.map((f, i) => (
+            <StatusBadge
+              key={f.id ?? `status-${i}`}
+              status={f.value}
+              label={f.field_name}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "status", fieldId: f.id })
+                  : onClick
+              }
+            />
           ))
         : properties.status && (
-            <StatusBadge status={properties.status} inherited={inherited} onClick={onClick} />
+            <StatusBadge
+              status={properties.status}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "status" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Priority */}
       {hasNamedPriorities
-        ? properties.priorities.map((priorityField) => (
+        ? properties.priorities.map((priorityField, i) => (
             <PriorityBadge
-              key={priorityField.id}
+              key={priorityField.id ?? `priority-${i}`}
               priority={priorityField.value}
               label={priorityField.field_name}
               inherited={inherited}
-              onClick={onClick}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "priority", fieldId: priorityField.id })
+                  : onClick
+              }
             />
           ))
         : properties.priority && (
-            <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
+            <PriorityBadge
+              priority={properties.priority}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "priority" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Assignees */}
       {hasNamedAssignees
-        ? properties.assignees.map((f) => (
+        ? properties.assignees.map((f, i) => (
             <AssigneeBadge
-              key={f.id}
+              key={f.id ?? `assignee-${i}`}
               label={f.field_name}
               memberNames={f.value.length > 0 ? undefined : undefined /* resolved externally if needed */}
               inherited={inherited}
-              onClick={onClick}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "assignees", fieldId: f.id })
+                  : onClick
+              }
             />
           ))
         : (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
-            <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
+            <AssigneeBadge
+              memberNames={memberNames}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "assignees" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Due dates */}
       {hasNamedDueDates
-        ? properties.due_dates.map((f) => (
-            <DueDateBadge key={f.id} dueDate={f.value} label={f.field_name} inherited={inherited} onClick={onClick} />
+        ? properties.due_dates.map((f, i) => (
+            <DueDateBadge
+              key={f.id ?? `due_date-${i}`}
+              dueDate={f.value}
+              label={f.field_name}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "due_date", fieldId: f.id })
+                  : onClick
+              }
+            />
           ))
         : hasDueDate(properties.due_date) && (
-            <DueDateBadge dueDate={properties.due_date as DueDateRange} inherited={inherited} onClick={onClick} />
+            <DueDateBadge
+              dueDate={properties.due_date as DueDateRange}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "due_date" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Tags */}
       {properties.tags &&
-        properties.tags.map((tag) => (
-          <TagBadge key={tag} tag={tag} inherited={inherited} onClick={onClick} />
+        properties.tags.map((tag, i) => (
+          <TagBadge
+            key={tag ? `${tag}-${i}` : `tag-${i}`}
+            tag={tag}
+            inherited={inherited}
+            onClick={
+              onFieldClick
+                ? () => onFieldClick({ group: "tags" })
+                : onClick
+            }
+          />
         ))}
     </div>
   );
@@ -136,19 +215,25 @@ export function StatusBadge({
     fieldLabel && fieldLabel.toLowerCase() !== "status"
       ? `${fieldLabel}: ${option.label}`
       : option.label;
+  const StatusIcon =
+    status === "done" ? CheckCircle2
+    : status === "blocked" ? XCircle
+    : status === "in_progress" ? Clock
+    : Circle;
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium transition-colors",
+        "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors",
         STATUS_COLORS[status],
         inherited && "border border-dashed opacity-75",
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {text}
+      <StatusIcon className="h-3 w-3 flex-shrink-0" />
+      <span>{text}</span>
     </button>
   );
 }
@@ -180,13 +265,14 @@ export function PriorityBadge({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium transition-colors",
+        "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors",
         PRIORITY_COLORS[priority],
         inherited && "border border-dashed opacity-75",
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      {text}
+      <Flag className="h-3 w-3 flex-shrink-0" />
+      <span>{text}</span>
     </button>
   );
 }
@@ -266,8 +352,8 @@ export function DueDateBadge({
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      <Calendar className="h-3 w-3" />
-      {text}
+      <Calendar className="h-3 w-3 flex-shrink-0" />
+      <span>{text}</span>
     </button>
   );
 }
@@ -310,8 +396,8 @@ export function TagBadge({
  */
 function formatDueDateValue(dateString: string): string {
   try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
+    const date = parseDateSafe(dateString);
+    if (!date || isNaN(date.getTime())) return dateString;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -341,7 +427,8 @@ function formatDueDateValue(dateString: string): string {
  */
 function isToday(dateString: string): boolean {
   try {
-    const date = new Date(dateString);
+    const date = parseDateSafe(dateString);
+    if (!date) return false;
     const today = new Date();
     return (
       date.getDate() === today.getDate() &&

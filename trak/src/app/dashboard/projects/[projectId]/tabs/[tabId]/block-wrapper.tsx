@@ -22,7 +22,6 @@ import {
   Plus,
   Tags,
   Sparkles,
-  SlidersHorizontal,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -44,25 +43,26 @@ import BlockComments from "./block-comments";
 import { MessageSquare } from "lucide-react";
 import { PropertyMenu, PropertyBadges } from "@/components/properties";
 import {
-  useEntityPropertiesWithInheritance,
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
 import { useAI } from "@/components/ai";
-import ChartCustomizeDialog from "@/components/blocks/chart-customize-dialog";
 import BlockReferencesPanel from "@/components/blocks/block-references-panel";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { EntityProperties } from "@/types/properties";
 interface BlockWrapperProps {
   block: Block;
   children: React.ReactNode;
   workspaceId?: string;
   projectId?: string;
+  properties?: EntityProperties | null;
   onDelete?: (blockId: string) => void;
-  onConvert?: (blockId: string, newType: Block["type"]) => void;
+  onConvert?: (blockId: string, newType: Block["type"], content?: Record<string, unknown>) => void;
   onUpdate?: () => void;
-  onAddBlockAbove?: (blockId: string, type?: Block["type"]) => void;
-  onAddBlockBelow?: (blockId: string, type?: Block["type"]) => void;
+  onAddBlockAbove?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
+  onAddBlockBelow?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
   isDragging?: boolean;
   readOnly?: boolean;
+  onOpenChartCustomize?: () => void;
 }
 
 export default function BlockWrapper({
@@ -70,6 +70,7 @@ export default function BlockWrapper({
   children,
   workspaceId,
   projectId,
+  properties,
   onDelete,
   onConvert,
   onUpdate,
@@ -77,19 +78,17 @@ export default function BlockWrapper({
   onAddBlockBelow,
   isDragging: externalIsDragging,
   readOnly = false,
+  onOpenChartCustomize,
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
-  const [chartCustomizeOpen, setChartCustomizeOpen] = useState(false);
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
   const referencePicker = useBlockReferencePicker();
 
-  // Fetch properties for this block
-  const { data: propertiesResult } = useEntityPropertiesWithInheritance("block", block.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
-  const direct = propertiesResult?.direct;
+  const direct = properties ?? null;
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -124,7 +123,7 @@ export default function BlockWrapper({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
+    opacity: isDraggingInternal ? 0 : 1,
   };
 
   const contextLabel = (() => {
@@ -165,14 +164,17 @@ export default function BlockWrapper({
     { type: "file", label: "File", icon: <Paperclip className="h-4 w-4" /> },
     { type: "video", label: "Video", icon: <Video className="h-4 w-4" /> },
     { type: "image", label: "Image", icon: <Image className="h-4 w-4" /> },
-    { type: "gallery", label: "Gallery", icon: <Images className="h-4 w-4" /> },
     { type: "embed", label: "Embed", icon: <Maximize2 className="h-4 w-4" /> },
     { type: "section", label: "Section", icon: <Layout className="h-4 w-4" /> },
   ];
+  const galleryLayouts = [
+    { layout: "collage" as const, label: "Collage" },
+    { layout: "3x3" as const, label: "3×3" },
+    { layout: "2x3" as const, label: "2×3" },
+  ];
 
-  // Only apply drag listeners to non-text blocks
   const isTextBlock = block.type === "text";
-  
+
   return (
     <div 
       ref={setNodeRef} 
@@ -190,7 +192,7 @@ export default function BlockWrapper({
         >
           <button
             {...(!readOnly ? attributes : {})}
-            {...(!readOnly && !isTextBlock ? listeners : {})}
+            {...(!readOnly ? listeners : {})}
             className="flex h-6 w-6 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] cursor-move"
             aria-label="Drag block"
             onClick={(e) => e.stopPropagation()}
@@ -211,8 +213,8 @@ export default function BlockWrapper({
               : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--primary)]/20"
         )}
         onDoubleClick={() => {
-          if (block.type === "chart" && !readOnly) {
-            setChartCustomizeOpen(true);
+          if (block.type === "chart" && !readOnly && onOpenChartCustomize) {
+            onOpenChartCustomize();
           }
         }}
         onMouseDown={(e) => {
@@ -274,28 +276,6 @@ export default function BlockWrapper({
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                 </button>
-                {block.type === "chart" && (
-                  <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setChartCustomizeOpen(true);
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                      title="Customize chart"
-                      aria-label="Customize chart"
-                    >
-                      <SlidersHorizontal className="h-3.5 w-3.5" />
-                    </button>
-                    <ChartCustomizeDialog
-                      block={block}
-                      isOpen={chartCustomizeOpen}
-                      onClose={() => setChartCustomizeOpen(false)}
-                      onSuccess={onUpdate}
-                    />
-                  </>
-                )}
                 {workspaceId && projectId && referencePicker && !isTempBlock && (
                   <button
                     onClick={(e) => {
@@ -513,6 +493,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-above-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -535,6 +534,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-below-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSeparator />
@@ -560,6 +578,27 @@ export default function BlockWrapper({
                             <span>{option.label}</span>
                           </DropdownMenuItem>
                         ))}
+                      {(block.type as Block["type"]) !== "gallery" && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Images className="h-4 w-4" />
+                            <span>Gallery</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="w-52">
+                            {galleryLayouts.map((g) => (
+                              <DropdownMenuItem
+                                key={`convert-gallery-${g.layout}`}
+                                onClick={() => {
+                                  onConvert?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                  setMenuOpen(false);
+                                }}
+                              >
+                                <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      )}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   
@@ -659,6 +698,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-above-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -681,6 +739,25 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`add-below-gallery-${g.layout}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 <DropdownMenuSeparator />
@@ -706,6 +783,27 @@ export default function BlockWrapper({
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
+                    {block.type !== "gallery" && (
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Images className="h-4 w-4" />
+                          <span>Gallery</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-52">
+                          {galleryLayouts.map((g) => (
+                            <DropdownMenuItem
+                              key={`convert-gallery-${g.layout}`}
+                              onClick={() => {
+                                onConvert?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                setMenuOpen(false);
+                              }}
+                            >
+                              <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 
@@ -767,15 +865,13 @@ export default function BlockWrapper({
             {children}
 
             {/* Property Badges */}
-            {hasProperties && (
+            {workspaceId && hasProperties && direct && (
               <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
-                {direct && (
-                  <PropertyBadges
-                    properties={direct}
-                    onClick={() => setPropertiesOpen(true)}
-                    memberNames={getMemberNames(direct)}
-                  />
-                )}
+                <PropertyBadges
+                  properties={direct}
+                  onClick={() => setPropertiesOpen(true)}
+                  memberNames={getMemberNames(direct)}
+                />
               </div>
             )}
 

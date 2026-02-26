@@ -4,8 +4,10 @@ import { verifySlackSignature } from "@/lib/slack/signature";
 import { checkBothRateLimits } from "@/lib/slack/rate-limiter";
 import { checkIdempotency, saveIdempotency, generateIdempotencyKey } from "@/lib/slack/idempotency";
 import { executeSlackAICommand } from "@/lib/ai/slack-executor";
+import type { SlackExecutionResult } from "@/lib/ai/slack-executor";
 import { logSlackCommand } from "@/lib/slack/audit";
 import { buildSlackResponse, buildProcessingMessage } from "@/lib/slack/block-kit";
+import { createInteractionContext } from "@/lib/slack/interaction-context";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -179,12 +181,75 @@ async function processSlackCommandAsync(params: {
   startTime: number;
 }) {
   try {
+    const isCreateFlow = /\b(create|add|new)\b/i.test(params.text);
+    if (isCreateFlow) {
+      const supabase = createServiceClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+      const { data: projects, error: projectsError } = await supabase
+        .from("projects")
+        .select("id, name")
+        .eq("workspace_id", params.workspaceId)
+        .order("updated_at", { ascending: false })
+        .limit(50);
+
+      const createFlowResult: SlackExecutionResult = projectsError || !projects || projects.length === 0
+        ? {
+          success: false,
+          response: "No projects found. Please create a project in TWOD first.",
+          toolCallsMade: [],
+          error: projectsError?.message ?? "No projects available",
+        }
+        : {
+          success: false,
+          response: "Which project should I create this in?",
+          toolCallsMade: [],
+          needsContext: {
+            type: "project" as const,
+            options: projects.map((p) => ({ id: p.id, name: p.name })),
+            originalCommand: params.text,
+          },
+        };
+
+      if ("needsContext" in createFlowResult && createFlowResult.needsContext?.originalCommand) {
+        const contextId = await createInteractionContext({
+          teamId: params.teamId,
+          slackUserId: params.slackUserId,
+          workspaceId: params.workspaceId,
+          trakUserId: params.trakUserId,
+          originalCommand: createFlowResult.needsContext.originalCommand,
+        });
+        if (contextId) {
+          createFlowResult.needsContext.contextId = contextId;
+        }
+      }
+
+      const createFlowResponse = buildSlackResponse(createFlowResult);
+      await fetch(params.responseUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createFlowResponse),
+      });
+      return;
+    }
+
     // Execute AI command
     const result = await executeSlackAICommand({
       command: params.text,
       workspaceId: params.workspaceId,
       userId: params.trakUserId,
     });
+
+    if (result.needsContext?.type && result.needsContext.originalCommand) {
+      const contextId = await createInteractionContext({
+        teamId: params.teamId,
+        slackUserId: params.slackUserId,
+        workspaceId: params.workspaceId,
+        trakUserId: params.trakUserId,
+        originalCommand: result.needsContext.originalCommand,
+      });
+      if (contextId) {
+        result.needsContext.contextId = contextId;
+      }
+    }
 
     // Build Slack Block Kit response
     const slackResponse = buildSlackResponse(result);

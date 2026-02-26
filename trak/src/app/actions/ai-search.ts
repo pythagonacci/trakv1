@@ -1022,6 +1022,7 @@ export async function searchTasks(params: {
   limit?: number;
   includeSubtasks?: boolean;
   includeWorkflowRepresentations?: boolean;
+  taskIds?: string[]; // When set, fetch only these task IDs (e.g. for chart fixed-scope refresh)
   authContext?: AuthContext; // For Slack and API calls without cookies
 }): Promise<SearchResponse<TaskResult>> {
   const ctx = await getSearchContext({ authContext: params.authContext });
@@ -1034,8 +1035,9 @@ export async function searchTasks(params: {
   const includeSubtasks = params.includeSubtasks ?? false;
 
   try {
-    // Determine if we need property-based filtering
-    const hasPropertyFilters = !!(
+    // When taskIds provided (e.g. chart fixed-scope refresh), skip property filters and filter by ID only
+    let matchingTaskIds: string[] | null = params.taskIds?.length ? params.taskIds : null;
+    const hasPropertyFilters = !matchingTaskIds && !!(
       params.assigneeId ||
       params.assigneeName ||
       params.tagId ||
@@ -1044,10 +1046,9 @@ export async function searchTasks(params: {
       params.priority
     );
 
-    let matchingTaskIds: string[] | null = null;
     let dueDatePropertyIds: string[] | null = null;
 
-    // Pre-filter by entity_properties if property filters are specified
+    // Pre-filter by entity_properties if property filters are specified (and not fetching by taskIds)
     if (hasPropertyFilters) {
       // Filter by assignee (via entity_properties field_type="assignee")
       if (params.assigneeName || params.assigneeId) {
@@ -1204,7 +1205,8 @@ export async function searchTasks(params: {
         projects(name),
         tabs(name)
       `)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .eq("is_placeholder", false);
 
     if (!params.includeWorkflowRepresentations) {
       query = query
@@ -1268,6 +1270,7 @@ export async function searchTasks(params: {
             tabs(name)
           `)
           .eq("workspace_id", workspaceId)
+          .eq("is_placeholder", false)
           .in("id", dueDateMatchIds);
 
         if (!params.includeWorkflowRepresentations) {
@@ -2892,6 +2895,7 @@ export async function searchTableRows(params: {
   projectId?: string | string[];
   fieldFilters?: Record<string, FieldFilter | string>; // Filter by field ID -> { op, value } or simple string (legacy)
   limit?: number;
+  rowIds?: string[]; // When set, fetch only these row IDs (e.g. for chart fixed-scope refresh)
   authContext?: AuthContext;
 }): Promise<SearchResponse<TableRowResult>> {
   const ctx = await getSearchContext({ authContext: params.authContext });
@@ -2903,9 +2907,10 @@ export async function searchTableRows(params: {
   // Determine if we need post-query filtering
   const projectFilter = normalizeArrayFilter(params.projectId);
   const hasPostFilters = !!(projectFilter || params.fieldFilters || params.searchText);
+  const hasRowIds = params.rowIds?.length;
 
-  // Overfetch when post-filtering is needed
-  const fetchLimit = hasPostFilters ? limit * 10 : limit;
+  // Overfetch when post-filtering is needed; when fetching by rowIds use at least that many
+  const fetchLimit = hasRowIds ? Math.max(limit, params.rowIds!.length) : hasPostFilters ? limit * 10 : limit;
 
   try {
     let query = supabase
@@ -2915,6 +2920,10 @@ export async function searchTableRows(params: {
         tables!inner(workspace_id, title, project_id, projects(name))
       `)
       .eq("tables.workspace_id", workspaceId);
+
+    if (hasRowIds) {
+      query = query.in("id", params.rowIds!);
+    }
 
     const tableFilter = normalizeArrayFilter(params.tableId);
     if (tableFilter) {
@@ -3154,6 +3163,7 @@ export async function searchTimelineEvents(params: {
   endDate?: DateFilter;
   isMilestone?: boolean;
   limit?: number;
+  eventIds?: string[]; // When set, fetch only these event IDs (e.g. for chart fixed-scope refresh)
   authContext?: AuthContext;
 }): Promise<SearchResponse<TimelineEventResult>> {
   const ctx = await getSearchContext({ authContext: params.authContext });
@@ -3165,16 +3175,15 @@ export async function searchTimelineEvents(params: {
   const limit = params.limit ?? 50;
 
   try {
-    // Determine if we need property-based filtering
-    const hasPropertyFilters = !!(
+    // When eventIds provided (e.g. chart fixed-scope refresh), skip property filters and filter by ID only
+    let matchingEventIds: string[] | null = params.eventIds?.length ? params.eventIds : null;
+    const hasPropertyFilters = !matchingEventIds && !!(
       params.assigneeId ||
       params.assigneeName ||
       params.status
     );
 
-    let matchingEventIds: string[] | null = null;
-
-    // Pre-filter by entity_properties if property filters are specified
+    // Pre-filter by entity_properties if property filters are specified (and not fetching by eventIds)
     if (hasPropertyFilters) {
       // Filter by assignee (via entity_properties field_type="assignee")
       if (params.assigneeName || params.assigneeId) {
@@ -3234,7 +3243,7 @@ export async function searchTimelineEvents(params: {
     let query = supabase
       .from("timeline_events")
       .select(`
-        id, title, start_date, end_date, status, priorities, progress, notes, color,
+        id, title, start_date, end_date, statuses, priorities, progress, notes, color,
         is_milestone, workspace_id, timeline_block_id,
         created_at, updated_at,
         blocks:timeline_block_id(tab_id, tabs(project_id, projects(name)))

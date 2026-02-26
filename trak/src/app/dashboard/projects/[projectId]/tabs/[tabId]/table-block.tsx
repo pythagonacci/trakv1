@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import { type Block } from "@/app/actions/block";
 import dynamic from "next/dynamic";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/react-query/query-client";
 
 function TableLoadingState() {
   return (
@@ -26,9 +29,29 @@ interface TableBlockProps {
 }
 
 export default function TableBlock({ block }: TableBlockProps) {
+  const queryClient = useQueryClient();
   const content = (block.content || {}) as Record<string, any>;
   const connectedTableId = content?.tableId;
-  
+
+  // Start loading table data as soon as we have tableId (runs in parallel with TableView chunk load)
+  useEffect(() => {
+    if (!connectedTableId) return;
+    queryClient.prefetchQuery({
+      queryKey: queryKeys.tableBootstrap(connectedTableId),
+      queryFn: async () => {
+        const response = await fetch(`/api/tables/bootstrap?tableId=${encodeURIComponent(connectedTableId)}`, {
+          credentials: "include",
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to load table bootstrap");
+        }
+        return payload;
+      },
+      staleTime: 30_000,
+    });
+  }, [connectedTableId, queryClient]);
+
   // New Supabase-backed table path: render the dedicated table view.
   if (connectedTableId) {
     return <TableView tableId={connectedTableId} />;

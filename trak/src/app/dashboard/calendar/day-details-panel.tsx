@@ -72,6 +72,8 @@ export default function DayDetailsPanel({
       router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}?taskId=${event.taskId}`);
     } else if (event.type === "project" && event.projectId) {
       router.push(`/dashboard/projects/${event.projectId}`);
+    } else if (event.type === "timeline" && event.projectId && event.tabId && event.blockId) {
+      router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}#block-${event.blockId}`);
     }
     onClose();
   };
@@ -158,6 +160,7 @@ export default function DayDetailsPanel({
                       event.type === "task" && event.priority === "high" && "border-orange-200/50 bg-orange-50/60 dark:bg-orange-950/30 dark:border-orange-800/30",
                       event.type === "task" && (!event.priority || event.priority === "none") && "border-blue-200/50 bg-blue-50/60 dark:bg-blue-950/30 dark:border-blue-800/30",
                       event.type === "project" && "border-purple-200/50 bg-purple-50/60 dark:bg-purple-950/30 dark:border-purple-800/30",
+                      event.type === "timeline" && "border-amber-200/50 bg-amber-50/60 dark:bg-amber-950/30 dark:border-amber-800/30",
                       event.type === "google" && "border-[#4285F4]/40 bg-[#4285F4]/5"
                     )}
                   >
@@ -185,7 +188,7 @@ export default function DayDetailsPanel({
                               : (event.time ?? event.timeEnd)}
                           </p>
                         )}
-                        {event.type === "task" && event.projectName && (
+                        {(event.type === "task" || event.type === "timeline") && event.projectName && (
                           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                             {event.projectName}
                             {event.tabName && ` · ${event.tabName}`}
@@ -196,7 +199,9 @@ export default function DayDetailsPanel({
                             ? "Task"
                             : event.type === "project"
                               ? "Project"
-                              : "Google Calendar"}
+                              : event.type === "timeline"
+                                ? "Timeline"
+                                : "Google Calendar"}
                         </p>
                       </div>
                     </div>

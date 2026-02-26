@@ -7,13 +7,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import {
   getEntityProperties,
-  getEntitiesProperties,
-  getEntityPropertiesWithInheritance,
   setEntityProperties,
   addTag,
   removeTag,
   clearEntityProperties,
-  getWorkspaceMembers,
   createEntityLink,
   removeEntityLink,
   getEntityLinks,
@@ -58,37 +55,68 @@ export function useEntitiesProperties(
   entityIds: string[],
   workspaceId?: string
 ) {
+  const normalizedIds = Array.from(
+    new Set(entityIds.filter((id) => id))
+  ).sort();
+  const idsKey = normalizedIds.join(",");
+
   return useQuery({
-    queryKey: ["entitiesProperties", entityType, workspaceId ?? "", entityIds],
+    queryKey: ["entitiesProperties", entityType, workspaceId ?? "", idsKey],
     queryFn: async () => {
-      if (!workspaceId || entityIds.length === 0) return {} as Record<string, EntityProperties>;
-      const result = await getEntitiesProperties(entityType, entityIds, workspaceId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      if (!workspaceId || normalizedIds.length === 0) {
+        return {} as Record<string, EntityProperties>;
+      }
+      const params = new URLSearchParams({
+        entityType,
+        ids: idsKey,
+        workspaceId,
+      });
+      const response = await fetch(`/api/entities/properties?${params.toString()}`);
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to fetch entity properties");
+      }
+      return json.data ?? {};
     },
-    enabled: Boolean(workspaceId) && entityIds.length > 0,
+    enabled: Boolean(workspaceId) && normalizedIds.length > 0,
     staleTime: 30_000,
   });
 }
 
-/**
- * Fetch properties with inheritance (direct + inherited from linked entities)
- */
-export function useEntityPropertiesWithInheritance(
-  entityType: EntityType,
-  entityId?: string
-) {
-  return useQuery({
-    queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId ?? ""),
-    queryFn: async () => {
-      if (!entityId) return { direct: null, inherited: [] };
-      const result = await getEntityPropertiesWithInheritance(entityType, entityId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: Boolean(entityId),
-    staleTime: 30_000,
-  });
+// Merge an optimistic property update into existing cached data, preserving real IDs
+// from the server on priorities/statuses arrays (updates often omit IDs, which causes
+// buildPriorityDrafts to generate index-based IDs that don't match bulk-cache IDs).
+function mergePropertiesOptimistic(
+  previous: EntityProperties | null | undefined,
+  updates: SetEntityPropertiesInput["updates"]
+): EntityProperties {
+  const base = previous ?? ({} as EntityProperties);
+  const merged = { ...base, ...updates } as EntityProperties;
+
+  // For priorities/statuses arrays, match by field_name to preserve existing IDs
+  if (updates.priorities && Array.isArray(base.priorities)) {
+    merged.priorities = (updates.priorities as Array<{ field_name?: string; value?: unknown; id?: string }>).map((upd) => {
+      const existing = (base.priorities as Array<{ field_name?: string; id?: string }> | undefined)?.find(
+        (p) => p.field_name === upd.field_name
+      );
+      return existing ? { ...existing, ...upd } : upd;
+    }) as EntityProperties["priorities"];
+  }
+  if (updates.statuses && Array.isArray(base.statuses)) {
+    merged.statuses = (updates.statuses as Array<{ field_name?: string; value?: unknown; id?: string }>).map((upd) => {
+      const existing = (base.statuses as Array<{ field_name?: string; id?: string }> | undefined)?.find(
+        (s) => s.field_name === upd.field_name
+      );
+      return existing ? { ...existing, ...upd } : upd;
+    }) as EntityProperties["statuses"];
+  }
+
+  return merged;
+}
+
+function idsKeyContainsEntity(idsKey: string, entityId: string): boolean {
+  if (!idsKey || !entityId) return false;
+  return idsKey.split(",").includes(entityId);
 }
 
 /**
@@ -101,34 +129,49 @@ export function useSetEntityProperties(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (updates: SetEntityPropertiesInput["updates"]) =>
-      setEntityProperties({
+    mutationFn: async (updates: SetEntityPropertiesInput["updates"]) => {
+      const result = await setEntityProperties({
         entity_type: entityType,
         entity_id: entityId,
         workspace_id: workspaceId,
         updates,
-      }),
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     onMutate: async (updates) => {
       // Optimistic update
       await qc.cancelQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
+      await qc.cancelQueries({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
 
       const previous = qc.getQueryData<EntityProperties | null>(
         queryKeys.entityProperties(entityType, entityId)
       );
+      const previousBulk = qc.getQueriesData<Record<string, EntityProperties>>({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
 
-      if (previous) {
-        qc.setQueryData(
-          queryKeys.entityProperties(entityType, entityId),
-          {
-            ...previous,
-            ...updates,
-          }
-        );
+      qc.setQueryData(
+        queryKeys.entityProperties(entityType, entityId),
+        mergePropertiesOptimistic(previous, updates)
+      );
+
+      for (const [queryKey, data] of previousBulk) {
+        if (!Array.isArray(queryKey)) continue;
+        const idsKey = typeof queryKey[3] === "string" ? queryKey[3] : "";
+        if (!idsKeyContainsEntity(idsKey, entityId)) continue;
+
+        qc.setQueryData<Record<string, EntityProperties>>(queryKey, {
+          ...(data ?? {}),
+          [entityId]: mergePropertiesOptimistic(data?.[entityId], updates),
+        });
       }
 
-      return { previous };
+      return { previous, previousBulk };
     },
     onError: (err, updates, context) => {
       // Rollback on error
@@ -138,13 +181,18 @@ export function useSetEntityProperties(
           context.previous
         );
       }
+      if (context?.previousBulk) {
+        for (const [queryKey, data] of context.previousBulk) {
+          qc.setQueryData(queryKey, data);
+        }
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       // Invalidate any bulk queries for this entity type/workspace
       qc.invalidateQueries({
@@ -161,19 +209,23 @@ export function useSetEntityProperties(
 export function useSetEntityPropertiesForType(entityType: EntityType, workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { entityId: string; updates: SetEntityPropertiesInput["updates"] }) =>
-      setEntityProperties({
+    mutationFn: async (args: { entityId: string; updates: SetEntityPropertiesInput["updates"] }) => {
+      const result = await setEntityProperties({
         entity_type: entityType,
         entity_id: args.entityId,
         workspace_id: workspaceId,
         updates: args.updates,
-      }),
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    // No onMutate here: this hook is used by task lists that read from the BULK
+    // entitiesProperties cache. Updating the per-entity cache optimistically would
+    // only trigger unexpected re-renders in PropertyFieldDropdown (which reads per-entity
+    // cache) without providing any visible benefit to the task list itself.
     onSuccess: (_result, args) => {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, args.entityId),
-      });
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, args.entityId),
       });
       qc.invalidateQueries({
         queryKey: ["entitiesProperties", entityType, workspaceId],
@@ -204,7 +256,7 @@ export function useAddTag(
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
     },
   });
@@ -262,7 +314,7 @@ export function useRemoveTag(entityType: EntityType, entityId: string) {
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
     },
   });
@@ -280,7 +332,7 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(entityType, entityId),
+        queryKey: queryKeys.entityProperties(entityType, entityId),
       });
     },
   });
@@ -294,13 +346,19 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
  * Fetch all members of a workspace
  */
 export function useWorkspaceMembers(workspaceId?: string) {
-  return useQuery({
+  return useQuery<WorkspaceMember[]>({
     queryKey: ["workspaceMembers", "properties", workspaceId],
     queryFn: async () => {
       if (!workspaceId) return [];
-      const result = await getWorkspaceMembers(workspaceId);
-      if ("error" in result) throw new Error(result.error);
-      return result.data;
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client useWorkspaceMembers workspaceId=${workspaceId}`);
+      const response = await fetch(`/api/workspaces/members?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || "Failed to fetch workspace members");
+      }
+      return json.data || [];
     },
     enabled: Boolean(workspaceId),
     staleTime: 60_000,
@@ -356,7 +414,7 @@ export function useCreateEntityLink(
       });
       // Invalidate target's properties with inheritance
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(
+        queryKey: queryKeys.entityProperties(
           args.targetEntityType,
           args.targetEntityId
         ),
@@ -391,7 +449,7 @@ export function useRemoveEntityLink(
       });
       // Invalidate target's properties with inheritance
       qc.invalidateQueries({
-        queryKey: queryKeys.entityPropertiesWithInheritance(
+        queryKey: queryKeys.entityProperties(
           args.targetEntityType,
           args.targetEntityId
         ),
@@ -399,4 +457,3 @@ export function useRemoveEntityLink(
     },
   });
 }
-

@@ -100,7 +100,7 @@ function buildSearchHistoryContext(
     return `--- Search ${idx + 1} (user asked: "${m.userQuery.slice(0, 120)}") ---\nSearched via: ${m.manifest.searchTools.join(", ")}\nEntities found:\n${entityLines.join("\n")}`;
   });
 
-  const searchHistory = `\n\n📋 SEARCH HISTORY — PREVIOUSLY SEARCHED ENTITIES\nThe following entities were found in your recent search tool calls. If you are about to create or render something that uses this data, you MUST include the correct source_entity_id, source_entity_type ("task" | "timeline_event" | "table_row" | "block"), and source_sync_mode ("live") for each entity that corresponds to a row/item you create.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
+  const searchHistory = `\n\n---\n📋 SOURCE ID REFERENCE — PRIOR TURNS ONLY (do NOT skip tool calls)\nThe entities below were found in PREVIOUS conversation turns, NOT in the current request. This section exists solely so you can supply the correct source_entity_id, source_entity_type, and source_sync_mode when you create table rows that map to these entities. You MUST still call the appropriate tools (searchTasks, createTableFull, etc.) to fulfill the current user request. Do NOT treat this reference as a substitute for tool use — always call tools first.\nIf you are creating NEW, summarized, or derived content that does NOT directly correspond to a specific entity below, do NOT include source metadata for that item.\n\n${sections.join("\n\n")}`;
 
   return { searchHistory, hasSearchHistory: true };
 }
@@ -151,7 +151,7 @@ function extractCreatedBlockIds(toolCallsMade: ExecutionResult["toolCallsMade"])
   for (const call of toolCallsMade || []) {
     if (!call?.result?.success) continue;
     const tool = call.tool;
-    if (!["createBlock", "createChartBlock", "createTaskBoardFromTasks", "createTableFull", "createTable"].includes(tool)) continue;
+    if (!["createBlock", "createSpecChartBlock", "createTaskBoardFromTasks", "createTableFull", "createTable"].includes(tool)) continue;
     const data = call.result.data;
     const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
     if (tool === "createTableFull") {
@@ -322,7 +322,11 @@ async function resolveLatestBlockContext(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   tabId: string;
   history: Array<{ created_block_ids?: string[] }>;
-}) {
+}): Promise<{
+  blockId?: string;
+  blockType?: string;
+  chartContent?: { spec: Record<string, unknown>; rows: Array<Record<string, unknown>>; universeTotal?: number };
+}> {
   for (let i = params.history.length - 1; i >= 0; i -= 1) {
     const ids = params.history[i]?.created_block_ids ?? [];
     if (!ids || ids.length === 0) continue;
@@ -336,21 +340,53 @@ async function resolveLatestBlockContext(params: {
     for (const id of orderedIds) {
       const block = byId.get(id);
       if (block) {
-        return { blockId: block.id as string, blockType: block.type as string };
+        const content = block.content as Record<string, unknown> | null;
+        const chartContent =
+          block.type === "chart" &&
+          content &&
+          typeof content.spec === "object" &&
+          Array.isArray(content.rows)
+            ? {
+                spec: content.spec as Record<string, unknown>,
+                rows: content.rows as Array<Record<string, unknown>>,
+                universeTotal: typeof content.universeTotal === "number" ? content.universeTotal : undefined,
+              }
+            : undefined;
+        return {
+          blockId: block.id as string,
+          blockType: block.type as string,
+          chartContent,
+        };
       }
     }
   }
 
   const { data: latestBlock } = await params.supabase
     .from("blocks")
-    .select("id, type")
+    .select("id, type, content")
     .eq("tab_id", params.tabId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (latestBlock?.id) {
-    return { blockId: latestBlock.id as string, blockType: latestBlock.type as string };
+    const content = (latestBlock as { content?: Record<string, unknown> }).content;
+    const chartContent =
+      latestBlock.type === "chart" &&
+      content &&
+      typeof content.spec === "object" &&
+      Array.isArray(content.rows)
+        ? {
+            spec: content.spec as Record<string, unknown>,
+            rows: content.rows as Array<Record<string, unknown>>,
+            universeTotal: typeof content.universeTotal === "number" ? content.universeTotal : undefined,
+          }
+        : undefined;
+    return {
+      blockId: latestBlock.id as string,
+      blockType: latestBlock.type as string,
+      chartContent,
+    };
   }
 
   return { blockId: undefined, blockType: undefined };
@@ -440,6 +476,27 @@ function coerceTaskRowsForWorkflowFallback(tasks: Array<Record<string, unknown>>
       "Updated At": toDateOnly(task.updated_at),
     },
   }));
+}
+
+function pruneEmptyColumnsForRows(
+  fields: Array<{ name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean }>,
+  rows: Array<{ data?: Record<string, unknown> }>
+): Array<{ name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean }> {
+  if (fields.length === 0 || rows.length === 0) return fields;
+
+  const isEmptyValue = (value: unknown): boolean => {
+    if (value === null || value === undefined) return true;
+    if (typeof value === "string" && value.trim() === "") return true;
+    if (Array.isArray(value) && value.length === 0) return true;
+    return false;
+  };
+
+  const kept = fields.filter((field) => {
+    if (field.isPrimary) return true;
+    return rows.some((row) => !isEmptyValue((row.data || {})[field.name]));
+  });
+
+  return kept.length > 0 ? kept : [fields[0]];
 }
 
 function extractTaskAssigneeFromCommand(command: string): string | null {
@@ -644,6 +701,18 @@ async function createTaskSearchFallbackTable(params: {
   undoTracker?: ReturnType<typeof createUndoTracker>;
 }) {
   const title = buildFallbackTaskTableTitle(params.command, params.tasks.length);
+  const rows = coerceTaskRowsForWorkflowFallback(params.tasks);
+  const fields = pruneEmptyColumnsForRows([
+    { name: "Task Title", type: "text", isPrimary: true },
+    { name: "Status", type: "status" },
+    { name: "Priority", type: "priority" },
+    { name: "Due Date", type: "date", config: { includeTime: false } },
+    { name: "Assignee", type: "person" },
+    { name: "Project", type: "text" },
+    { name: "Tab", type: "text" },
+    { name: "Created At", type: "date" },
+    { name: "Updated At", type: "date" },
+  ], rows);
   return executeTool(
     {
       name: "createTableFull",
@@ -652,18 +721,8 @@ async function createTaskSearchFallbackTable(params: {
         projectId: params.projectId,
         tabId: params.tabId,
         title,
-        fields: [
-          { name: "Task Title", type: "text" },
-          { name: "Status", type: "status" },
-          { name: "Priority", type: "priority" },
-          { name: "Due Date", type: "date", config: { includeTime: false } },
-          { name: "Assignee", type: "person" },
-          { name: "Project", type: "text" },
-          { name: "Tab", type: "text" },
-          { name: "Created At", type: "date" },
-          { name: "Updated At", type: "date" },
-        ],
-        rows: coerceTaskRowsForWorkflowFallback(params.tasks),
+        fields,
+        rows,
       },
     },
     {
@@ -685,6 +744,16 @@ async function createOverdueTasksTable(params: {
   undoTracker?: ReturnType<typeof createUndoTracker>;
 }) {
   const title = `Overdue Tasks (${params.tasks.length})`;
+  const rows = coerceTaskRows(params.tasks);
+  const fields = pruneEmptyColumnsForRows([
+    { name: "Task Title", type: "text", isPrimary: true },
+    { name: "Status", type: "status" },
+    { name: "Priority", type: "priority" },
+    { name: "Due Date", type: "date", config: { includeTime: false } },
+    { name: "Assignee", type: "person" },
+    { name: "Project", type: "text" },
+    { name: "Tab", type: "text" },
+  ], rows);
   const toolResult = await executeTool(
     {
       name: "createTableFull",
@@ -693,16 +762,8 @@ async function createOverdueTasksTable(params: {
         projectId: params.projectId,
         tabId: params.tabId,
         title,
-        fields: [
-          { name: "Task Title", type: "text" },
-          { name: "Status", type: "status" },
-          { name: "Priority", type: "priority" },
-          { name: "Due Date", type: "date", config: { includeTime: false } },
-          { name: "Assignee", type: "person" },
-          { name: "Project", type: "text" },
-          { name: "Tab", type: "text" },
-        ],
-        rows: coerceTaskRows(params.tasks),
+        fields,
+        rows,
       },
     },
     {
@@ -827,7 +888,8 @@ Keep conversational explanation, reasoning, and elaboration in chat.
 
 BLOCK CREATION:
 - Use createTableFull({ title: "...", rows: [...] }) for lists/comparisons/tabular data - the title IS the heading
-- Use createChartBlock() for visualizations
+- Use createSpecChartBlock() for visualizations
+- When the user asks to SEE, SHOW, or VISUALIZE a distribution/chart/graph (e.g. "let me see the distribution", "show me the breakdown"), you MUST call createSpecChartBlock to create the actual chart. NEVER respond with text-only descriptions of what a chart would show—always create the chart block.
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
@@ -848,7 +910,7 @@ BLOCK CREATION:
 - Priority fields → type: "priority" (NOT text). Value must be normalized: "low", "medium", "high", "urgent"
 - Assignee fields → type: "person". Value must be an array of user ID strings (from assignees.map(a => a.id) in search results), e.g. ["user-id-1", "user-id-2"]
 - Date fields → type: "date". Value must be YYYY-MM-DD format
-- INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
+- Include only source entity fields that have at least one non-null value across the rows; omit columns that would be all-null (e.g., Due Date when absent for all rows)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
 🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
@@ -872,6 +934,13 @@ IMPORTANT SAFETY:
 - If a field like Priority/Status is missing in source data, fill with "Unspecified" rather than leaving blanks.
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
+${blockContext.chartContent ? `
+CHART CONVERSION: The latest block is a chart. To convert it to a different type (e.g. "render as doughnut chart", "make it a pie chart"), you MUST call createSpecChartBlock with the SAME rows and a spec with the new type.
+Current chart data (use these rows and modify spec.type as needed):
+spec: ${JSON.stringify(blockContext.chartContent.spec)}
+rows: ${JSON.stringify(blockContext.chartContent.rows)}
+${typeof blockContext.chartContent.universeTotal === "number" ? `universeTotal: ${blockContext.chartContent.universeTotal}` : ""}
+Do NOT respond with text-only. Call createSpecChartBlock.` : ""}
 
 SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for comprehensive results. ALWAYS READ THE QUERY, AND DECIDE WHETHER ITS ASKING ABOUT STRUCTURED, UNSTRUCTURED, OR A COMBINATION OF BOTH:
 1. STRUCTURED SEARCH (searchTasks, searchSubtasks, searchProjects, searchDocs, searchTables, etc.)
@@ -897,7 +966,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? searchHistory : ""}`,
+   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? "\n" + searchHistory : ""}`,
     },
   ];
 
@@ -911,7 +980,7 @@ RESPONSE PATTERN:
     "bulkInsertRows",
     "bulkUpdateRows",
     "bulkUpdateRowsByFieldNames",
-    "createChartBlock",
+    "createSpecChartBlock",
   ];
   allowedWriteTools.push("createTableFull");
   allowedWriteTools.push("deleteTable");
@@ -1182,6 +1251,8 @@ export async function* executeWorkflowAICommandStream(params: {
   command: string;
   confirmation?: WriteConfirmationApproval | null;
   resumeFromConfirmation?: boolean;
+  conversationHistory?: AIMessage[];
+  persistSession?: boolean;
 }): AsyncGenerator<{
   type:
     | "thinking"
@@ -1194,49 +1265,75 @@ export async function* executeWorkflowAICommandStream(params: {
   data?: unknown;
 }> {
   const workflowUndoTracker = createUndoTracker();
+  const persistSession = params.persistSession !== false;
   const user = await getAuthenticatedUser();
   if (!user) {
     yield { type: "response", content: "Unauthorized", data: { error: "Unauthorized" } };
     return;
   }
 
-  const sessionResult = await getOrCreateWorkflowSession({ tabId: params.tabId });
-  if ("error" in sessionResult) {
-    yield { type: "response", content: sessionResult.error, data: { error: sessionResult.error } };
-    return;
+  let sessionId: string | null = null;
+  let workspaceId: string | null = null;
+  let history: WorkflowMessageRecord[] = [];
+  let conversationHistory: AIMessage[] = [];
+
+  if (persistSession) {
+    const sessionResult = await getOrCreateWorkflowSession({ tabId: params.tabId });
+    if ("error" in sessionResult) {
+      yield { type: "response", content: sessionResult.error, data: { error: sessionResult.error } };
+      return;
+    }
+
+    const session = sessionResult.data;
+    sessionId = session.id;
+    workspaceId = session.workspace_id;
+
+    const historyResult = await getWorkflowSessionMessages({ sessionId: session.id });
+    history = "data" in historyResult ? historyResult.data : [];
+    conversationHistory = history.map((message) => ({
+      role: message.role,
+      content: safeTextFromContent(message.content),
+    }));
+  } else {
+    conversationHistory = Array.isArray(params.conversationHistory)
+      ? params.conversationHistory.filter((message) => message.role !== "system")
+      : [];
   }
 
-  const session = sessionResult.data;
-
-  const historyResult = await getWorkflowSessionMessages({ sessionId: session.id });
-  const history = "data" in historyResult ? historyResult.data : [];
-  const conversationHistory: AIMessage[] = history.map((message) => ({
-    role: message.role,
-    content: safeTextFromContent(message.content),
-  }));
   const recentHistoryText = conversationHistory.slice(-6).map((m) => m.content ?? "").join(" ");
 
   // Build search history context from previous turns for source data propagation (streaming path)
-  const { searchHistory: streamSearchHistory, hasSearchHistory: streamHasSearchHistory } = buildSearchHistoryContext(history);
+  const { searchHistory: streamSearchHistory, hasSearchHistory: streamHasSearchHistory } = persistSession
+    ? buildSearchHistoryContext(history)
+    : { searchHistory: "", hasSearchHistory: false };
   const streamInitialSearchedEntities = streamHasSearchHistory ? extractInitialSearchedEntities(history) : [];
 
-  if (!params.resumeFromConfirmation) {
+  if (persistSession && sessionId && !params.resumeFromConfirmation) {
     await addWorkflowMessage({
-      sessionId: session.id,
+      sessionId,
       role: "user",
       content: { text: params.command },
     });
   }
 
   const supabase = await createClient();
-  const [workspaceResult, profileResult, tabResult] = await Promise.all([
-    supabase.from("workspaces").select("id, name").eq("id", session.workspace_id).single(),
+  const tabResult = await supabase
+    .from("tabs")
+    .select("id, project_id, name, projects!inner(id, workspace_id)")
+    .eq("id", params.tabId)
+    .single();
+
+  const tabProject = tabResult.data?.projects as { workspace_id?: string } | { workspace_id?: string }[] | null;
+  const tabWorkspaceId = Array.isArray(tabProject) ? tabProject[0]?.workspace_id : tabProject?.workspace_id;
+  const effectiveWorkspaceId = workspaceId || tabWorkspaceId || null;
+  if (!effectiveWorkspaceId) {
+    yield { type: "response", content: "Unable to resolve workspace for this tab.", data: { error: "Missing workspace context" } };
+    return;
+  }
+
+  const [workspaceResult, profileResult] = await Promise.all([
+    supabase.from("workspaces").select("id, name").eq("id", effectiveWorkspaceId).single(),
     supabase.from("profiles").select("name, email").eq("id", user.id).single(),
-    supabase
-      .from("tabs")
-      .select("id, project_id, name, projects!inner(id, workspace_id)")
-      .eq("id", params.tabId)
-      .single(),
   ]);
 
   const workspaceName = workspaceResult.data?.name || undefined;
@@ -1244,7 +1341,7 @@ export async function* executeWorkflowAICommandStream(params: {
   const currentProjectId = tabResult.data?.project_id || undefined;
 
   // Auto-generate title from first query (streaming version)
-  if (!params.resumeFromConfirmation && history.length === 0 && tabResult.data) {
+  if (persistSession && !params.resumeFromConfirmation && history.length === 0 && tabResult.data) {
     const currentName = tabResult.data.name;
     if (currentName === "Workflow Page" || !currentName || currentName.trim() === "") {
       // Generate a title from the command
@@ -1281,7 +1378,8 @@ Keep conversational explanation, reasoning, and elaboration in chat.
 
 BLOCK CREATION:
 - Use createTableFull({ title: "...", rows: [...] }) for lists/comparisons/tabular data - the title IS the heading
-- Use createChartBlock() for visualizations
+- Use createSpecChartBlock() for visualizations
+- When the user asks to SEE, SHOW, or VISUALIZE a distribution/chart/graph (e.g. "let me see the distribution", "show me the breakdown"), you MUST call createSpecChartBlock to create the actual chart. NEVER respond with text-only descriptions of what a chart would show—always create the chart block.
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
 - For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
@@ -1302,7 +1400,7 @@ BLOCK CREATION:
 - Priority fields → type: "priority" (NOT text). Value must be normalized: "low", "medium", "high", "urgent"
 - Assignee fields → type: "person". Value must be an array of user ID strings (from assignees.map(a => a.id) in search results), e.g. ["user-id-1", "user-id-2"]
 - Date fields → type: "date". Value must be YYYY-MM-DD format
-- INCLUDE ALL source entity fields: Task Title, Status, Priority, Due Date, Assignee, then add context fields (Project, Tab)
+- Include only source entity fields that have at least one non-null value across the rows; omit columns that would be all-null (e.g., Due Date when absent for all rows)
 - Field order: entity's own fields FIRST (title, status, priority, due date, assignee), then context/metadata fields (project, tab)
 
 🚨 TABLE SUBTASKS (when creating tables from tasks that have subtasks) - DO NOT put subtask names in a text column:
@@ -1326,6 +1424,13 @@ IMPORTANT SAFETY:
 - If a field like Priority/Status is missing in source data, fill with "Unspecified" rather than leaving blanks.
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
+${blockContext.chartContent ? `
+CHART CONVERSION: The latest block is a chart. To convert it to a different type (e.g. "render as doughnut chart", "make it a pie chart"), you MUST call createSpecChartBlock with the SAME rows and a spec with the new type.
+Current chart data (use these rows and modify spec.type as needed):
+spec: ${JSON.stringify(blockContext.chartContent.spec)}
+rows: ${JSON.stringify(blockContext.chartContent.rows)}
+${typeof blockContext.chartContent.universeTotal === "number" ? `universeTotal: ${blockContext.chartContent.universeTotal}` : ""}
+Do NOT respond with text-only. Call createSpecChartBlock.` : ""}
 
 SEARCH STRATEGY - Use BOTH STRUCTURED SEARCH AND UNSTRUCTURED/RAG search for comprehensive results. ALWAYS READ THE QUERY, AND DECIDE WHETHER ITS ASKING ABOUT STRUCTURED, UNSTRUCTURED, OR A COMBINATION OF BOTH:
 1. STRUCTURED SEARCH (searchTasks, searchSubtasks, searchProjects, searchDocs, searchTables, etc.)
@@ -1347,7 +1452,7 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? streamSearchHistory : ""}`,
+   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? "\n" + streamSearchHistory : ""}`,
     },
   ];
 
@@ -1361,7 +1466,7 @@ RESPONSE PATTERN:
     "bulkInsertRows",
     "bulkUpdateRows",
     "bulkUpdateRowsByFieldNames",
-    "createChartBlock",
+    "createSpecChartBlock",
   ];
   allowedWriteTools.push("createTableFull");
   allowedWriteTools.push("deleteTable");
@@ -1369,7 +1474,7 @@ RESPONSE PATTERN:
   const stream = executeAICommandStream(
     params.command,
     {
-      workspaceId: session.workspace_id,
+      workspaceId: effectiveWorkspaceId,
       workspaceName,
       userId: user.id,
       userName,
@@ -1421,6 +1526,7 @@ RESPONSE PATTERN:
   }
 
   if (!finalEvent) {
+    aiDebug("workflow:streamCompletedWithoutResponse", { command: params.command });
     yield { type: "response", content: "An error occurred while processing your command." };
     return;
   }
@@ -1499,7 +1605,7 @@ RESPONSE PATTERN:
 
         if (tasks.length > 0) {
           const tableResult = await createOverdueTasksTable({
-            workspaceId: session.workspace_id,
+            workspaceId: effectiveWorkspaceId,
             projectId: currentProjectId,
             tabId: params.tabId,
             tasks,
@@ -1552,7 +1658,7 @@ RESPONSE PATTERN:
     const tasks = getSuccessfulSearchTasks(toolCallsMade);
     if (tasks.length > 0) {
       const tableResult = await createTaskSearchFallbackTable({
-        workspaceId: session.workspace_id,
+        workspaceId: effectiveWorkspaceId,
         projectId: currentProjectId,
         tabId: params.tabId,
         command: params.command,
@@ -1580,7 +1686,7 @@ RESPONSE PATTERN:
     if (dataset && dataset.rows.length > 0) {
       const fallbackTitle = `Search Results (${dataset.rows.length})`;
       const tableResult = await createGenericSearchFallbackTable({
-        workspaceId: session.workspace_id,
+        workspaceId: effectiveWorkspaceId,
         projectId: currentProjectId,
         tabId: params.tabId,
         title: fallbackTitle,
@@ -1631,24 +1737,26 @@ RESPONSE PATTERN:
     mergedSkipped.push(...workflowUndoTracker.skippedTools);
   }
 
-  await addWorkflowMessage({
-    sessionId: session.id,
-    role: "assistant",
-    content: {
-      text: finalResponse,
-      toolCallsMade,
-      undoBatches: mergedUndoBatches,
-      undoSkippedTools: mergedSkipped,
-      searchManifest: streamSearchManifest ?? null,
-    },
-    createdBlockIds,
-  });
-  if (streamSearchManifest) {
-    aiDebug("sourceTracking:manifestPersisted:stream", {
-      sessionId: session.id,
-      entityCount: streamSearchManifest.entities.length,
-      searchTools: streamSearchManifest.searchTools,
+  if (persistSession && sessionId) {
+    await addWorkflowMessage({
+      sessionId,
+      role: "assistant",
+      content: {
+        text: finalResponse,
+        toolCallsMade,
+        undoBatches: mergedUndoBatches,
+        undoSkippedTools: mergedSkipped,
+        searchManifest: streamSearchManifest ?? null,
+      },
+      createdBlockIds,
     });
+    if (streamSearchManifest) {
+      aiDebug("sourceTracking:manifestPersisted:stream", {
+        sessionId,
+        entityCount: streamSearchManifest.entities.length,
+        searchTools: streamSearchManifest.searchTools,
+      });
+    }
   }
 
   yield {
@@ -1659,7 +1767,7 @@ RESPONSE PATTERN:
       undoBatches: mergedUndoBatches,
       undoSkippedTools: mergedSkipped,
       createdBlockIds,
-      sessionId: session.id,
+      sessionId,
     },
   };
 }

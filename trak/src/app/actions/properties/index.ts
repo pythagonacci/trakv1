@@ -5,7 +5,6 @@ export {
   getEntityProperties,
   setEntityProperty,
   removeEntityProperty,
-  getEntityPropertiesWithInheritance,
   getEntitiesProperties,
 } from "./entity-property-actions";
 

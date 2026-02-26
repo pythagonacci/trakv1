@@ -72,7 +72,11 @@ export default function AIOverviewBlock({
   const [isPending, startTransition] = useTransition();
   const [isExpanded, setIsExpanded] = useState(true);
   const refreshInFlight = useRef(false);
-  const autoRefreshMs = 3 * 60 * 60 * 1000;
+  const lastGeneratedAt = useRef<string | null>(
+    initialInsights?.generatedAt ?? null
+  );
+  const intervalMs = 15 * 60 * 1000; // 15 minutes
+  const staleThresholdMs = 5 * 60 * 1000; // consider stale after 5 min for visibility refresh
 
   // Handle regenerate button click
   const handleRegenerate = useCallback(() => {
@@ -91,6 +95,7 @@ export default function AIOverviewBlock({
           setError(result.error);
         } else if (result.data) {
           setInsights(result.data);
+          lastGeneratedAt.current = result.data.generatedAt;
         }
       } catch (err) {
         setError(String(err));
@@ -100,14 +105,36 @@ export default function AIOverviewBlock({
     });
   }, [startTransition, userId, userName, workspaceId]);
 
+  // Keep last generated time in sync with state
+  useEffect(() => {
+    if (insights?.generatedAt) lastGeneratedAt.current = insights.generatedAt;
+  }, [insights?.generatedAt]);
+
+  // Periodic refresh every 15 min (only when tab is visible)
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (document.hidden) return;
       handleRegenerate();
-    }, autoRefreshMs);
-
+    }, intervalMs);
     return () => window.clearInterval(interval);
-  }, [autoRefreshMs, handleRegenerate]);
+  }, [intervalMs, handleRegenerate]);
+
+  // Refresh when user returns to the tab if data is older than 5 min
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const at = lastGeneratedAt.current;
+      if (!at) {
+        handleRegenerate();
+        return;
+      }
+      const age = Date.now() - new Date(at).getTime();
+      if (age >= staleThresholdMs) handleRegenerate();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [handleRegenerate, staleThresholdMs]);
 
   // Loading state during regeneration
   if (isPending) {

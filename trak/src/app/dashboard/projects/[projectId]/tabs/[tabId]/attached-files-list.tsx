@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
-import { deleteFileAnalysisComment, getFileAnalysisComments } from "@/app/actions/file-analysis";
-import { getCurrentUser } from "@/app/actions/auth";
+import { detachFileFromBlock } from "@/app/actions/file";
+import { deleteFileAnalysisComment } from "@/app/actions/file-analysis";
 import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronDown, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -69,10 +68,15 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
   const loadComments = useCallback(async (fileIds: string[]) => {
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
-    const commentsResult = await getFileAnalysisComments({ fileIds: uniqueIds });
-    if ("data" in commentsResult) {
+    const params = new URLSearchParams({ fileIds: uniqueIds.join(",") });
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client attached-files getFileAnalysisComments ids=${uniqueIds.length}`);
+    const response = await fetch(`/api/file-analysis/comments?${params.toString()}`, {
+      cache: "no-store",
+    });
+    const commentsResult = await response.json();
+    if (response.ok && commentsResult?.data) {
       const grouped: Record<string, FileComment[]> = {};
-      commentsResult.data.forEach((comment) => {
+      commentsResult.data.forEach((comment: FileComment) => {
         if (!grouped[comment.file_id]) grouped[comment.file_id] = [];
         grouped[comment.file_id].push(comment);
       });
@@ -96,11 +100,15 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     }
     
     setLoading(true);
-    const result = await getBlockFiles(blockId);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client attached-files getBlockFiles blockId=${blockId}`);
+    const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(blockId)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
     console.log("📁 Attached Files List - Load files result:", result);
     console.log("📁 Raw result.data structure:", JSON.stringify(result.data, null, 2));
     
-    if (result.data) {
+    if (response.ok && result.data) {
       // Log first file structure to understand the data shape
       if (result.data.length > 0) {
         console.log("📁 First file item structure:", result.data[0]);
@@ -144,7 +152,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
       // Load comments for attached files
       const fileIds = processedFiles
         .map((item) => item.file?.id)
-        .filter((id): id is string => Boolean(id));
+        .filter((id: string | null | undefined): id is string => Boolean(id));
 
       await loadComments(fileIds);
 
@@ -188,7 +196,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
       // URLs are already loaded from context - no need to fetch them
       const imageFileIds = imageFiles
         .map(f => f.file?.id)
-        .filter((id): id is string => Boolean(id));
+        .filter((id: string | null | undefined): id is string => Boolean(id));
       
       const loadedUrlsCount = imageFileIds.filter(id => fileUrls[id]).length;
       console.log(`🖼️ Using ${loadedUrlsCount} prefetched URLs for ${imageFiles.length} images`);
@@ -196,7 +204,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
       if (loadedUrlsCount === 0 && imageFiles.length > 0) {
         console.warn("⚠️ No URLs found in context for images. They may not have been prefetched.");
       }
-    } else if (result.error) {
+    } else if (result?.error) {
       console.error("❌ Error loading files:", result.error);
     }
     setLoading(false);
@@ -212,12 +220,15 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
 
   useEffect(() => {
     let isMounted = true;
-    getCurrentUser().then((result) => {
-      if (!isMounted) return;
-      if ("data" in result && result.data) {
-        setCurrentUserId(result.data.id);
-      }
-    });
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client attached-files getCurrentUser");
+    fetch("/api/auth/current-user", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((result) => {
+        if (!isMounted) return;
+        if (result?.data) {
+          setCurrentUserId(result.data.id);
+        }
+      });
     return () => {
       isMounted = false;
     };

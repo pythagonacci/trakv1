@@ -80,7 +80,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
 
   const handleMoveToFolder = async (doc: Doc, folderId: string | null) => {
     const result = await moveDocToFolder(doc.id, folderId);
-    if (result.error) {
+    if ("error" in result) {
       setToast({ message: result.error, type: "error" });
     } else {
       setDocs((prev) =>
@@ -94,7 +94,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
 
   const handleDeleteFolder = async (folderId: string) => {
     const result = await deleteDocFolder(folderId);
-    if (result.error) {
+    if ("error" in result) {
       setToast({ message: result.error, type: "error" });
     } else {
       setFolders((prev) => prev.filter((f) => f.id !== folderId));
@@ -379,7 +379,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
       </div>
 
       <Table className="text-sm [&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
-        <TableHeader className="bg-[var(--secondary)]/10 border-b border-[var(--secondary)]">
+        <TableHeader className="bg-[var(--primary)]/10 border-b border-[var(--primary)]/30">
           <TableRow className="border-0 hover:bg-transparent">
             <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
               <button

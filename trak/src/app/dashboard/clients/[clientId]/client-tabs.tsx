@@ -49,16 +49,21 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
     }
   }, [editingTabId]);
 
-  const handleTabClick = (tabId: string, e?: React.MouseEvent) => {
+  const handleTabClick = (tab: ClientTab | { id: string; name: string }, e?: React.MouseEvent) => {
     if (editingTabId) return;
     if (e?.detail === 2) return;
 
-    // Handle fixed tabs (projects, details) with query params
-    if (tabId === "projects" || tabId === "details") {
-      router.push(`/dashboard/clients/${clientId}?tab=${tabId}`);
+    const isFixedTab = tab.id === "projects" || tab.id === "details";
+    if (!isFixedTab && activeTabId === tab.id) {
+      setEditingTabId(tab.id);
+      setEditName(tab.name);
+      return;
+    }
+
+    if (isFixedTab) {
+      router.push(`/dashboard/clients/${clientId}?tab=${tab.id}`);
     } else {
-      // Handle dynamic tabs with separate routes
-      router.push(`/dashboard/clients/${clientId}/tabs/${tabId}`);
+      router.push(`/dashboard/clients/${clientId}/tabs/${tab.id}`);
     }
     setMobileMenuOpen(false);
   };
@@ -129,7 +134,7 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
         ) : (
           <>
             <button
-              onClick={(e) => handleTabClick(tab.id, e)}
+              onClick={(e) => handleTabClick(tab, e)}
               onDoubleClick={(e) => handleDoubleClick(tab, e)}
               className={cn(
                 "relative whitespace-nowrap px-3 py-3 text-sm transition-colors",
@@ -193,7 +198,7 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
             {/* Projects tab - always first */}
             <div className="group relative flex items-center">
               <button
-                onClick={(e) => handleTabClick("projects", e)}
+                onClick={(e) => handleTabClick({ id: "projects", name: "Projects" }, e)}
                 className={cn(
                   "relative whitespace-nowrap px-3 py-3 text-sm transition-colors",
                   activeTabId === "projects"
@@ -208,7 +213,7 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
             {/* Client Details tab - always second */}
             <div className="group relative flex items-center">
               <button
-                onClick={(e) => handleTabClick("details", e)}
+                onClick={(e) => handleTabClick({ id: "details", name: "Details" }, e)}
                 className={cn(
                   "relative whitespace-nowrap px-3 py-3 text-sm transition-colors",
                   activeTabId === "details"
@@ -242,7 +247,7 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
         {mobileMenuOpen && (
           <div className="mt-2 space-y-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-card lg:hidden">
             <button
-              onClick={() => handleTabClick("projects")}
+              onClick={() => handleTabClick({ id: "projects", name: "Projects" })}
               className={cn(
                 "flex w-full items-center justify-between rounded-[6px] px-3 py-2 text-sm",
                 activeTabId === "projects"
@@ -253,7 +258,7 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
               Projects
             </button>
             <button
-              onClick={() => handleTabClick("details")}
+              onClick={() => handleTabClick({ id: "details", name: "Details" })}
               className={cn(
                 "flex w-full items-center justify-between rounded-[6px] px-3 py-2 text-sm",
                 activeTabId === "details"
@@ -267,7 +272,7 @@ export default function ClientTabs({ clientId, tabs, activeTabId }: ClientTabsPr
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => handleTabClick(tab.id)}
+                onClick={() => handleTabClick(tab)}
                 className={cn(
                   "flex w-full items-center justify-between rounded-[6px] px-3 py-2 text-sm",
                   activeTabId === tab.id

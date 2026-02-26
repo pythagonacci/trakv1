@@ -22,21 +22,24 @@ export async function getEntityProperties(
   entityType: EntityType,
   entityId: string
 ): Promise<ActionResult<NamedField[]>> {
+  const _t0 = performance.now();
   const access = await requireEntityAccess(entityType, entityId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties type=${entityType} entityId=${entityId}`);
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("*")
+    .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
     .eq("entity_type", entityType)
     .eq("entity_id", entityId);
 
   if (error) {
     console.error("getEntityProperties error:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties type=${entityType} entityId=${entityId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch entity properties" };
   }
-
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntityProperties type=${entityType} entityId=${entityId} rows=${(data ?? []).length} ms=${Math.round(performance.now() - _t0)}`);
   return { data: (data ?? []) as NamedField[] };
 }
 
@@ -53,6 +56,8 @@ export async function setEntityProperty(
     authContext?: AuthContext;
   }
 ): Promise<ActionResult<NamedField>> {
+  const _t0 = performance.now();
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] setEntityProperty type=${input.entity_type} entityId=${input.entity_id} field=${input.field_name}`);
   const access = await requireEntityAccess(input.entity_type, input.entity_id, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
@@ -72,14 +77,15 @@ export async function setEntityProperty(
         onConflict: "entity_type,entity_id,field_name",
       }
     )
-    .select("*")
+    .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
     .single();
 
   if (error || !data) {
     console.error("setEntityProperty error:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] setEntityProperty type=${input.entity_type} entityId=${input.entity_id} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to set entity property" };
   }
-
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] setEntityProperty type=${input.entity_type} entityId=${input.entity_id} ms=${Math.round(performance.now() - _t0)}`);
   return { data: data as NamedField };
 }
 
@@ -91,6 +97,8 @@ export async function removeEntityProperty(
   entityId: string,
   fieldName: string
 ): Promise<ActionResult<null>> {
+  const _t0 = performance.now();
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] removeEntityProperty type=${entityType} entityId=${entityId} field=${fieldName}`);
   const access = await requireEntityAccess(entityType, entityId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase } = access;
@@ -104,29 +112,11 @@ export async function removeEntityProperty(
 
   if (error) {
     console.error("removeEntityProperty error:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] removeEntityProperty type=${entityType} entityId=${entityId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to remove entity property" };
   }
-
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] removeEntityProperty type=${entityType} entityId=${entityId} ms=${Math.round(performance.now() - _t0)}`);
   return { data: null };
-}
-
-/**
- * Get properties (direct only; inheritance removed).
- */
-export async function getEntityPropertiesWithInheritance(
-  entityType: EntityType,
-  entityId: string,
-  opts?: { authContext?: AuthContext }
-): Promise<ActionResult<{ direct: NamedField[]; inherited: never[] }>> {
-  void opts;
-  const directResult = await getEntityProperties(entityType, entityId);
-  if ("error" in directResult) return directResult;
-  return {
-    data: {
-      direct: directResult.data ?? [],
-      inherited: [],
-    },
-  };
 }
 
 /**
@@ -136,7 +126,9 @@ export async function getEntitiesProperties(
   entityType: EntityType,
   entityIds: string[]
 ): Promise<ActionResult<Map<string, NamedField[]>>> {
+  const _t0 = performance.now();
   if (entityIds.length === 0) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntitiesProperties type=${entityType} ids=0 ms=${Math.round(performance.now() - _t0)}`);
     return { data: new Map() };
   }
 
@@ -144,12 +136,13 @@ export async function getEntitiesProperties(
 
   const { data, error } = await supabase
     .from("entity_properties")
-    .select("*")
+    .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
     .eq("entity_type", entityType)
     .in("entity_id", entityIds);
 
   if (error) {
     console.error("getEntitiesProperties error:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntitiesProperties type=${entityType} ids=${entityIds.length} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch entity properties" };
   }
 
@@ -165,5 +158,6 @@ export async function getEntitiesProperties(
     result.set(row.entity_id, props);
   }
 
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getEntitiesProperties type=${entityType} ids=${entityIds.length} rows=${data?.length ?? 0} ms=${Math.round(performance.now() - _t0)}`);
   return { data: result };
 }

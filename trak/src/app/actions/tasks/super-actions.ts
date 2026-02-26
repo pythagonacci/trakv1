@@ -96,7 +96,16 @@ export async function createTaskFullRpc(input: {
   });
   aiDebug("rpc:result", { name: RPC_CREATE_TASK_FULL, ok: !error, ms: Math.round(performance.now() - t0) });
 
-  if (error) return { error: error.message || "RPC create_task_full failed" };
+  if (error) {
+    aiDebug("rpc:error", {
+      name: RPC_CREATE_TASK_FULL,
+      message: error.message,
+      code: (error as any).code,
+      details: (error as any).details,
+      hint: (error as any).hint,
+    });
+    return { error: error.message || "RPC create_task_full failed" };
+  }
 
   const payload = unwrapRpcData<Record<string, unknown>>(data as any);
   if (!payload) return { error: "RPC create_task_full returned empty payload" };

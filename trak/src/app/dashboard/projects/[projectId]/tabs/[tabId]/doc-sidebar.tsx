@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { X, ExternalLink, Loader2 } from "lucide-react";
-import { getSingleDoc } from "@/app/actions/doc";
 import RichTextEditor from "@/components/editor/rich-text-editor";
 import { updateDoc } from "@/app/actions/doc";
 import { useRouter } from "next/navigation";
@@ -62,9 +61,12 @@ export default function DocSidebar({ docId, onClose }: DocSidebarProps) {
     if (!docId) return;
 
     setIsLoading(true);
-    const result = await getSingleDoc(docId);
+    const response = await fetch(`/api/docs/single?docId=${encodeURIComponent(docId)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
 
-    if (!result.error && result.data) {
+    if (response.ok && !result.error && result.data) {
       setDoc(result.data);
       setContent(result.data.content);
     }
@@ -161,4 +163,3 @@ export default function DocSidebar({ docId, onClose }: DocSidebarProps) {
     </>
   );
 }
-

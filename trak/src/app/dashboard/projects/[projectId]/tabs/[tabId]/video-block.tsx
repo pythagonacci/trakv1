@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { type Block } from "@/app/actions/block";
-import { getBlockFiles, detachFileFromBlock } from "@/app/actions/file";
+import { detachFileFromBlock } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
 import { Video, Download, Trash2, AlertTriangle, ExternalLink } from "lucide-react";
 import VideoPlayer from "./video-player";
@@ -142,24 +142,28 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
     }
     
     setLoading(true);
-    const result = await getBlockFiles(block.id);
-
-    if (result.data) {
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client video-block getBlockFiles blockId=${block.id}`);
+    const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(block.id)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
+    
+    if (response.ok && result.data) {
       // Handle Supabase foreign key returning array vs object
       const normalizedFiles = result.data.map((item: any) => ({
         ...item,
         file: Array.isArray(item.file) ? item.file[0] : item.file
       }));
       // Filter only video files
-      const videoFiles = normalizedFiles.filter((f) => f.file?.file_type?.startsWith("video/"));
+      const videoFiles = normalizedFiles.filter((f: BlockFile) => f.file?.file_type?.startsWith("video/"));
       setFiles(videoFiles);
 
       // URLs are already loaded from context - just extract them for video files
-      const videoFileIds = videoFiles.map(f => f.file.id).filter(Boolean);
+      const videoFileIds = videoFiles.map((f: BlockFile) => f.file.id).filter(Boolean);
       
       if (videoFileIds.length > 0) {
         // Generate thumbnails for all videos in parallel using URLs from context
-        const thumbPromises = videoFileIds.map(async (fileId) => {
+        const thumbPromises = videoFileIds.map(async (fileId: string) => {
           const url = fileUrls[fileId];
           if (!url) return { fileId, thumbnail: null };
           

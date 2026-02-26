@@ -24,7 +24,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   const fileUrls = useFileUrls();
   const fileId = block.content?.fileId as string;
   const imageUrl = fileId ? fileUrls[fileId] : null;
-  
+
   const [uploading, setUploading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [caption, setCaption] = useState((block.content?.caption as string) || "");
@@ -121,7 +121,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
       // Update block content with fileId
       const updateResult = await updateBlock({
         blockId: block.id,
-        content: { 
+        content: {
           fileId,
           caption: "",
           width: 400,
@@ -143,12 +143,12 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
 
   const handleCaptionChange = (value: string) => {
     setCaption(value);
-    
+
     // Clear existing timeout
     if (captionTimeoutRef.current) {
       clearTimeout(captionTimeoutRef.current);
     }
-    
+
     // Debounce save
     setSavingCaption(true);
     captionTimeoutRef.current = setTimeout(async () => {
@@ -175,7 +175,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   useEffect(() => {
     const handleResizeMove = (e: MouseEvent) => {
       if (!dragInfo) return;
-      
+
       const delta = e.clientX - dragInfo.startX;
       const newWidth = Math.max(100, Math.min(800, dragInfo.startWidth + delta));
       setWidth(newWidth);
@@ -183,7 +183,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
 
     const handleResizeEnd = () => {
       if (!dragInfo) return;
-      
+
       // Save width to block
       updateBlock({
         blockId: block.id,
@@ -196,14 +196,14 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
           onUpdate?.(result.data);
         }
       });
-      
+
       setDragInfo(null);
     };
 
     if (dragInfo) {
       document.addEventListener("mousemove", handleResizeMove);
       document.addEventListener("mouseup", handleResizeEnd);
-      
+
       return () => {
         document.removeEventListener("mousemove", handleResizeMove);
         document.removeEventListener("mouseup", handleResizeEnd);
@@ -268,7 +268,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
           style={{ width: `${width}px`, maxWidth: "100%" }}
         >
           {imageUrl ? (
-            <div className="relative w-full" style={{ minHeight: '200px' }}>
+            <div className="relative w-full" style={{ aspectRatio: `${width} / ${Math.round(width * 0.75)}` }}>
               <Image
                 src={imageUrl}
                 alt={caption || "Image"}
@@ -276,7 +276,11 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
                 height={Math.round(width * 0.75)}
                 onClick={() => setLightboxOpen(true)}
                 className="w-full h-auto rounded-lg cursor-pointer transition-opacity hover:opacity-90"
-                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+                loading="eager"
+                priority
                 unoptimized
               />
             </div>
@@ -285,7 +289,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
               <ImageIcon className="w-12 h-12 text-neutral-400" />
             </div>
           )}
-          
+
           {/* Resize Handle */}
           <div
             onMouseDown={handleResizeStart}
@@ -333,6 +337,9 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
             className="max-w-full max-h-full object-contain rounded-lg"
             width={1920}
             height={1080}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
             unoptimized
           />
         </div>

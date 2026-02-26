@@ -15,6 +15,7 @@ import {
   normalizeTimelineStatuses,
   syncTimelineStatusFieldsToEntityProperties,
 } from "@/lib/timeline-status-sync";
+import { updateTaskItem } from "@/app/actions/tasks/item-actions";
 import type { AuthContext } from "@/lib/auth-context";
 import type {
   TimelineEvent,
@@ -38,10 +39,10 @@ function normalizeTimelineEventRow(row: any): TimelineEvent {
 
 async function buildTimelinePrioritiesFromSourceEntity(
   supabase: any,
-  sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | null,
+  sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" | null,
   sourceEntityId: string | null
 ): Promise<TimelineNamedPriority[] | null> {
-  if (!sourceEntityType || !sourceEntityId || sourceEntityType === "block") return null;
+  if (!sourceEntityType || !sourceEntityId || sourceEntityType === "block" || sourceEntityType === "subtask") return null;
 
   if (sourceEntityType === "task") {
     const { data: sourceTask } = await supabase
@@ -103,10 +104,10 @@ async function buildTimelinePrioritiesFromSourceEntity(
 
 async function buildTimelineStatusesFromSourceEntity(
   supabase: any,
-  sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | null,
+  sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" | null,
   sourceEntityId: string | null
 ): Promise<TimelineNamedStatus[] | null> {
-  if (!sourceEntityType || !sourceEntityId || sourceEntityType === "block") return null;
+  if (!sourceEntityType || !sourceEntityId || sourceEntityType === "block" || sourceEntityType === "subtask") return null;
 
   if (sourceEntityType === "task") {
     const { data: sourceTask } = await supabase
@@ -172,6 +173,7 @@ async function buildTimelineStatusesFromSourceEntity(
 
 export async function createTimelineEvent(input: {
   timelineBlockId: string;
+  parentEventId?: string | null;
   title: string;
   startDate: string;
   endDate: string;
@@ -188,7 +190,7 @@ export async function createTimelineEvent(input: {
   displayOrder?: number;
   assigneeId?: string;
   assigneeTeamId?: string | null;
-  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block" | "subtask";
   sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   authContext?: AuthContext;
@@ -214,6 +216,23 @@ export async function createTimelineEvent(input: {
   }
 
   const { supabase, userId, block } = access;
+  let normalizedParentEventId: string | null = null;
+  if (input.parentEventId) {
+    const { data: parent, error: parentError } = await supabase
+      .from("timeline_events")
+      .select("id, parent_event_id, timeline_block_id")
+      .eq("id", input.parentEventId)
+      .maybeSingle();
+    if (parentError || !parent) return { error: "Parent event not found" };
+    if ((parent as any).parent_event_id) {
+      return { error: "Cannot nest sub-events more than 1 level deep" };
+    }
+    if ((parent as any).timeline_block_id !== block.id) {
+      return { error: "Sub-event must belong to the same timeline block as its parent" };
+    }
+    normalizedParentEventId = parent.id as string;
+  }
+
   const hasSourceMetadata = Boolean(input.sourceEntityType && input.sourceEntityId);
   const sourceEntityType = hasSourceMetadata ? input.sourceEntityType! : null;
   const sourceEntityId = hasSourceMetadata ? input.sourceEntityId! : null;
@@ -265,6 +284,7 @@ export async function createTimelineEvent(input: {
       end_date: input.endDate,
       statuses,
       priorities,
+      parent_event_id: normalizedParentEventId,
       progress: input.progress ?? 0,
       notes: input.notes ?? null,
       color: input.color ?? null,
@@ -441,6 +461,44 @@ export async function updateTimelineEvent(
     await syncTimelineEventToEntityProperties(supabase, eventId, event.workspace_id, normalized.statuses, normalized.priorities);
   }
 
+  // If this event is live-synced to a task, propagate status/priority back to the source task
+  if (
+    (updates.status !== undefined || updates.statuses !== undefined || updates.priority !== undefined || updates.priorities !== undefined) &&
+    event.source_entity_type === "task" &&
+    event.source_entity_id &&
+    event.source_sync_mode === "live"
+  ) {
+    try {
+      const taskUpdates: Record<string, unknown> = {};
+
+      if (updates.status !== undefined || updates.statuses !== undefined) {
+        taskUpdates.statuses = normalizeTimelineStatuses((normalized as any).statuses).map((entry) => ({
+          field_name: entry.field_name,
+          value: entry.value,
+        }));
+      }
+
+      if (updates.priority !== undefined || updates.priorities !== undefined) {
+        taskUpdates.priorities = normalizeTimelinePriorities((normalized as any).priorities).map((entry) => ({
+          field_name: entry.field_name,
+          value: entry.value,
+        }));
+      }
+
+      if (Object.keys(taskUpdates).length > 0) {
+        await updateTaskItem(event.source_entity_id, taskUpdates as any, {
+          authContext: { supabase, userId },
+        });
+      }
+    } catch (syncError) {
+      console.error("Failed to sync timeline event properties back to source task", {
+        eventId,
+        sourceTaskId: event.source_entity_id,
+        error: syncError,
+      });
+    }
+  }
+
   return { data: normalized };
 }
 
@@ -468,6 +526,7 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
     .insert({
       timeline_block_id: event.timeline_block_id,
       workspace_id: event.workspace_id,
+      parent_event_id: (event as any).parent_event_id ?? null,
       title: `${event.title} (Copy)`,
       start_date: event.start_date,
       end_date: event.end_date,
@@ -501,6 +560,169 @@ export async function duplicateTimelineEvent(eventId: string): Promise<ActionRes
   const normalized = normalizeTimelineEventRow(data);
   await syncTimelineEventToEntityProperties(supabase, normalized.id, normalized.workspace_id, normalized.statuses, normalized.priorities);
   return { data: normalized };
+}
+
+function parseSubtaskDueDateValue(value: unknown): { start: string; end: string } | null {
+  if (typeof value === "string") {
+    return { start: value, end: value };
+  }
+  if (!value || typeof value !== "object") return null;
+  const rawStart = typeof (value as any).start === "string" ? (value as any).start : null;
+  const rawEnd = typeof (value as any).end === "string" ? (value as any).end : null;
+  const start = rawStart ?? rawEnd;
+  const end = rawEnd ?? rawStart;
+  if (!start || !end) return null;
+  return { start, end };
+}
+
+function sortTimelineEventsByDisplayOrder(events: TimelineEvent[]): TimelineEvent[] {
+  return [...events].sort((a, b) => a.display_order - b.display_order);
+}
+
+export async function syncSubEventsForTaskEvent(input: {
+  parentEventId: string;
+  taskId: string;
+  timelineBlockId: string;
+  authContext?: AuthContext;
+}): Promise<ActionResult<TimelineEvent[]>> {
+  const access = await requireTimelineAccess(input.timelineBlockId, { authContext: input.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+
+  const { supabase, userId, block } = access;
+  const effectiveAuthContext: AuthContext = { supabase, userId };
+
+  const { data: parentEvent, error: parentError } = await supabase
+    .from("timeline_events")
+    .select("id, timeline_block_id, parent_event_id")
+    .eq("id", input.parentEventId)
+    .maybeSingle();
+  if (parentError || !parentEvent) return { error: "Parent timeline event not found" };
+  if ((parentEvent as any).timeline_block_id !== block.id) {
+    return { error: "Parent event does not belong to this timeline block" };
+  }
+  if ((parentEvent as any).parent_event_id) {
+    return { error: "Cannot nest sub-events more than 1 level deep" };
+  }
+
+  const { data: subtasks, error: subtasksError } = await supabase
+    .from("task_subtasks")
+    .select("id, title")
+    .eq("task_id", input.taskId);
+  if (subtasksError) return { error: "Failed to load task subtasks" };
+
+  const subtaskIds = (subtasks ?? []).map((s: any) => s.id as string);
+  const { data: dueRows, error: dueRowsError } = subtaskIds.length > 0
+    ? await supabase
+      .from("entity_properties")
+      .select("entity_id, value")
+      .eq("entity_type", "subtask")
+      .eq("field_type", "due_date")
+      .in("entity_id", subtaskIds)
+    : { data: [], error: null as any };
+  if (dueRowsError) return { error: "Failed to load subtask due dates" };
+
+  const dueDateBySubtaskId = new Map<string, { start: string; end: string }>();
+  for (const row of dueRows ?? []) {
+    const parsed = parseSubtaskDueDateValue((row as any).value);
+    if (parsed) dueDateBySubtaskId.set((row as any).entity_id, parsed);
+  }
+
+  const subtasksWithDates = (subtasks ?? [])
+    .map((subtask: any) => ({
+      id: subtask.id as string,
+      title: String(subtask.title ?? "Untitled"),
+      due: dueDateBySubtaskId.get(subtask.id as string) ?? null,
+    }))
+    .filter((subtask) => Boolean(subtask.due));
+
+  const { data: existingChildrenRaw, error: existingChildrenError } = await supabase
+    .from("timeline_events")
+    .select("*")
+    .eq("parent_event_id", input.parentEventId)
+    .order("display_order", { ascending: true });
+  if (existingChildrenError) return { error: "Failed to load existing sub-events" };
+  const existingChildren = ((existingChildrenRaw ?? []) as any[]).map(normalizeTimelineEventRow);
+
+  const existingBySourceSubtaskId = new Map<string, TimelineEvent>();
+  for (const child of existingChildren) {
+    if (child.source_entity_type === "subtask" && child.source_entity_id) {
+      existingBySourceSubtaskId.set(child.source_entity_id, child);
+    }
+  }
+
+  await Promise.all(
+    subtasksWithDates.map(async (subtask) => {
+      const existing = existingBySourceSubtaskId.get(subtask.id);
+      const startDate = subtask.due!.start;
+      const endDate = subtask.due!.end;
+      if (!existing) {
+        await createTimelineEvent({
+          timelineBlockId: block.id,
+          parentEventId: input.parentEventId,
+          title: subtask.title,
+          startDate,
+          endDate,
+          sourceEntityType: "subtask",
+          sourceEntityId: subtask.id,
+          sourceSyncMode: "live",
+          authContext: effectiveAuthContext,
+        });
+        return;
+      }
+
+      const titleChanged = existing.title !== subtask.title;
+      const startChanged = existing.start_date !== startDate;
+      const endChanged = existing.end_date !== endDate;
+      if (!titleChanged && !startChanged && !endChanged) return;
+      await updateTimelineEvent(
+        existing.id,
+        {
+          title: subtask.title,
+          startDate,
+          endDate,
+        },
+        { authContext: effectiveAuthContext }
+      );
+    })
+  );
+
+  const subtaskIdsWithDates = new Set(subtasksWithDates.map((subtask) => subtask.id));
+  const staleChildren = existingChildren.filter(
+    (child) => child.source_entity_type === "subtask" && child.source_entity_id && !subtaskIdsWithDates.has(child.source_entity_id)
+  );
+
+  if (staleChildren.length > 0) {
+    await Promise.all(
+      staleChildren.map((child) => deleteTimelineEvent(child.id, { authContext: effectiveAuthContext }))
+    );
+  }
+
+  const { data: finalChildrenRaw, error: finalChildrenError } = await supabase
+    .from("timeline_events")
+    .select("*")
+    .eq("parent_event_id", input.parentEventId)
+    .order("display_order", { ascending: true });
+  if (finalChildrenError) return { error: "Failed to load synced sub-events" };
+
+  return { data: sortTimelineEventsByDisplayOrder(((finalChildrenRaw ?? []) as any[]).map(normalizeTimelineEventRow)) };
+}
+
+export async function syncSubEventsForTaskEventsBatch(
+  pairs: Array<{ parentEventId: string; taskId: string; timelineBlockId: string }>,
+  authContext?: AuthContext
+): Promise<ActionResult<void>> {
+  if (pairs.length === 0) return { data: undefined };
+  const results = await Promise.all(
+    pairs.map((pair) =>
+      syncSubEventsForTaskEvent({
+        ...pair,
+        authContext,
+      })
+    )
+  );
+  const firstError = results.find((result) => "error" in result);
+  if (firstError && "error" in firstError) return { error: firstError.error };
+  return { data: undefined };
 }
 
 export async function setTimelineEventBaseline(eventId: string, baseline: { start: string | null; end: string | null }, opts?: { authContext?: AuthContext }): Promise<ActionResult<TimelineEvent>> {

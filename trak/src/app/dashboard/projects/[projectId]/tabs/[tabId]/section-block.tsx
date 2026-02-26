@@ -2,20 +2,22 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { type Block, type BlockType, createBlock, getChildBlocks, updateBlock } from "@/app/actions/block";
+import { type Block, type BlockType, createBlock, updateBlock } from "@/app/actions/block";
 import BlockRenderer from "./block-renderer";
 import AddBlockButton from "./add-block-button";
 import { cn } from "@/lib/utils";
+import type { EntityProperties } from "@/types/properties";
 
 interface SectionBlockProps {
   block: Block;
   workspaceId: string;
   projectId: string;
   tabId: string;
+  propertiesById?: Record<string, EntityProperties>;
   onUpdate?: () => void;
 }
 
-export default function SectionBlock({ block, workspaceId, projectId, tabId, onUpdate }: SectionBlockProps) {
+export default function SectionBlock({ block, workspaceId, projectId, tabId, propertiesById, onUpdate }: SectionBlockProps) {
   const router = useRouter();
   const [childBlocks, setChildBlocks] = useState<Block[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,8 +40,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
   useEffect(() => {
     const fetchChildBlocks = async () => {
       setIsLoading(true);
-      const result = await getChildBlocks(block.id);
-      if (result.error) {
+      const response = await fetch(`/api/blocks/children?parentBlockId=${encodeURIComponent(block.id)}`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) {
         console.error("Failed to fetch child blocks:", result.error);
         setChildBlocks([]);
       } else {
@@ -62,8 +67,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
   const handleUpdate = () => {
     // Refresh child blocks
     const fetchChildBlocks = async () => {
-      const result = await getChildBlocks(block.id);
-      if (result.error) {
+      const response = await fetch(`/api/blocks/children?parentBlockId=${encodeURIComponent(block.id)}`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) {
         console.error("Failed to fetch child blocks:", result.error);
       } else {
         setChildBlocks(result.data || []);
@@ -301,6 +309,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     targetBlockId: string,
     direction: "above" | "below",
     type: BlockType = "text",
+    contentOverride?: Record<string, unknown>,
   ) => {
     const targetBlock = childBlocks.find((child) => child.id === targetBlockId);
     if (!targetBlock) return;
@@ -310,13 +319,14 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
 
     await shiftChildRowsForInsertion(insertionRow);
 
+    const content = contentOverride ?? getDefaultContent(type);
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock: Block = {
       id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: block.id,
       type,
-      content: getDefaultContent(type),
+      content,
       position: insertionRow,
       column: 0,
       is_template: false,
@@ -331,6 +341,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
     createBlock({
       tabId,
       type,
+      content,
       position: insertionRow,
       parentBlockId: block.id,
     })
@@ -348,11 +359,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
       });
   };
 
-  const handleAddChildBlockAbove = (targetBlockId: string, type?: BlockType) =>
-    handleAddChildBlockAtRow(targetBlockId, "above", type);
+  const handleAddChildBlockAbove = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
+    handleAddChildBlockAtRow(targetBlockId, "above", type ?? "text", content);
 
-  const handleAddChildBlockBelow = (targetBlockId: string, type?: BlockType) =>
-    handleAddChildBlockAtRow(targetBlockId, "below", type);
+  const handleAddChildBlockBelow = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
+    handleAddChildBlockAtRow(targetBlockId, "below", type ?? "text", content);
 
 
   return (
@@ -449,6 +460,8 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, onU
                     workspaceId={workspaceId}
                     projectId={projectId}
                     tabId={tabId}
+                    blockProperties={propertiesById?.[childBlock.id]}
+                    propertiesById={propertiesById}
                     onUpdate={handleUpdate}
                     onDelete={handleDelete}
                     onConvert={handleConvert}

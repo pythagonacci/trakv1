@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Search, FileText, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getAllDocs } from "@/app/actions/doc";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 
 interface DocSelectorDialogProps {
@@ -47,13 +46,18 @@ export default function DocSelectorDialog({ isOpen, onClose, onSelectDoc }: DocS
     if (!currentWorkspace) return;
     
     setIsLoading(true);
-    const result = await getAllDocs(currentWorkspace.id, {
-      is_archived: false,
+    const params = new URLSearchParams({
+      workspaceId: currentWorkspace.id,
+      is_archived: "false",
       sort_by: "updated_at",
       sort_order: "desc",
     });
+    const response = await fetch(`/api/docs/all?${params.toString()}`, {
+      cache: "no-store",
+    });
+    const result = await response.json();
 
-    if (!result.error && result.data) {
+    if (response.ok && !result.error && result.data) {
       setDocs(result.data);
       setFilteredDocs(result.data);
     }
@@ -132,7 +136,6 @@ export default function DocSelectorDialog({ isOpen, onClose, onSelectDoc }: DocS
     </Dialog>
   );
 }
-
 
 
 

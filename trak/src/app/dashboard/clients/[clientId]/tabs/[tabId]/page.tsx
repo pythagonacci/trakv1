@@ -129,7 +129,7 @@ export default async function ClientTabPage({
   console.log(`🎯 Client Tab: Prefetched ${Object.keys(initialFileUrls).length} file URLs for ${blocks.length} blocks`);
 
   return (
-    <div className="min-h-0 bg-neutral-50 dark:bg-neutral-950">
+    <div className="min-h-0 bg-white dark:bg-neutral-900/95">
       <div className="w-full px-2 md:px-3 lg:px-4">
         <div className="pt-2 pb-1">
           <ClientHeader client={client} />

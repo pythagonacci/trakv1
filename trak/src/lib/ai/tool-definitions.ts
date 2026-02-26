@@ -473,7 +473,8 @@ const searchTools: ToolDefinition[] = [
       "When NOT to use:\n" +
       "- Before updateTableRowsByFieldNames (it resolves names automatically)\n" +
       "- Before bulkInsertRows with field names (it resolves names automatically)\n\n" +
-      "Tip: If you're updating rows and have field names/labels, use updateTableRowsByFieldNames directly instead of getTableSchema + bulkUpdateRows.",
+      "Tip: If you're updating rows and have field names/labels, use updateTableRowsByFieldNames directly instead of getTableSchema + bulkUpdateRows.\n\n" +
+      "⚠️ RESPONSE RULE: After calling this tool, do NOT narrate or list out the schema to the user (no field names, types, row counts, column lists, etc.). Use the schema silently as context to answer the user's actual question. Only describe schema details if the user explicitly asked 'what are the fields' or 'describe the table structure'.",
     category: "search",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
@@ -990,24 +991,50 @@ const tabActionTools: ToolDefinition[] = [
 
 const blockActionTools: ToolDefinition[] = [
   {
-    name: "createChartBlock",
+    name: "createSpecChartBlock",
     description:
-      "Create a chart block by generating React/Chart.js JSX and saving it to the blocks table. " +
-      "Use ONLY when the user explicitly asks for a chart/graph/visualization, or after they confirm an implicit suggestion. " +
-      "If the user asks a what-if scenario, set isSimulation=true and provide originalChartId plus a short simulationDescription.",
+      "PREFERRED chart tool. Create a spec-driven chart block. " +
+      "Use this when the user asks for a chart/graph/visualization over Trak entities (tasks, table rows, timeline events, etc.). " +
+      "Steps: (1) retrieve data using search tools, (2) normalise rows with consistent field names, (3) build a ChartSpec JSON, (4) call this tool. " +
+      "Do NOT generate JSX. Output a validated JSON spec and the data rows.\n\n" +
+      "CHART SPEC v1 reference:\n" +
+      "  version: 1\n" +
+      "  chartType: 'pie' | 'doughnut' | 'bar'\n" +
+      "  orientation: 'horizontal' (default) | 'vertical'  — vertical only valid with multi-series bar\n" +
+      "  breakdown: { field: string }  — primary grouping (e.g. 'status', 'priority', 'assignee', 'tags')\n" +
+      "  series?: { field: string }   — secondary grouping; enables multi-series bar\n" +
+      "  measure: { type: 'count' } | { type: 'sum', field: string } | { type: 'avg', field: string }\n" +
+      "  normalizeTo: 'focus' (default) | 'universe'\n" +
+      "  pieComposition: 'breakdownOnly' (default) | 'focusPlusRest'  — adds a remainder slice when normalizeTo='universe'\n" +
+      "  restLabel: string (default 'Rest')\n" +
+      "  topN?: number  — limit to top N categories\n" +
+      "  includeOtherBucket: boolean  — roll remainder into 'Other'\n" +
+      "  sort: 'value_desc' (default) | 'value_asc' | 'label_asc' | 'label_desc'\n" +
+      "  title?: string\n\n" +
+      "ROW FORMAT: each row must have an 'id' field plus any fields used in breakdown/series/measure. " +
+      "Use consistent field names: 'status', 'priority', 'assignee', 'tags' (array), 'type'. " +
+      "tags must be string[].\n\n" +
+      "UNIVERSE: to show 'Figma files by status out of all files', set normalizeTo='universe', pass only Figma rows as rows[], " +
+      "and set universeTotal to the count of ALL files. To add a 'Non-Figma' slice, set pieComposition='focusPlusRest'.\n\n" +
+      "DATA SOURCE (refresh + scope): When the chart data comes from searchTasks, searchTimelineEvents, or searchTableRows, " +
+      "pass dataSource so the chart can be refreshed and can track future matching items. Use dataSource: { mode: 'refreshable', scope: 'query', query: { type, params } } " +
+      "where type is 'tasks' | 'timeline_events' | 'table_rows' and params are the same serializable arguments you used for that search (e.g. searchText, status, projectId, limit). " +
+      "The user can later choose \"Track only these items\" in the UI to lock the chart to the current set. Omit dataSource for inline/mixed data (snapshot-only chart).",
     category: "block",
     parameters: {
-      tabId: { type: "string", description: "The tab ID to create the chart in. PREFER 'tabName' if target differs from current context." },
-      tabName: { type: "string", description: "Target Tab Name (e.g. 'Overview'). System finds fuzzy match." },
-      prompt: { type: "string", description: "The user's chart request (include any inline data or context needed)." },
-      chartType: { type: "string", description: "Optional chart type hint.", enum: ["bar", "line", "pie", "doughnut"] },
-      title: { type: "string", description: "Optional chart title override." },
-      explicitData: { type: "object", description: "Optional structured data to chart (labels/datasets or any JSON context)." },
-      isSimulation: { type: "boolean", description: "True if this is a what-if simulation (creates a new chart)." },
-      originalChartId: { type: "string", description: "Original chart block ID for simulations." },
-      simulationDescription: { type: "string", description: "Short description of the what-if change applied." },
+      tabId:    { type: "string", description: "Tab ID to create the chart in." },
+      tabName:  { type: "string", description: "Target Tab Name (fuzzy matched)." },
+      spec:     { type: "object", description: "ChartSpec v1 JSON object (see description)." },
+      rows:     { type: "array",  description: "Normalised data rows. Each must have an 'id' plus breakdown/series fields." },
+      universeTotal: { type: "number", description: "Total count of the full universe (denominator scope). Required when spec.normalizeTo='universe'." },
+      title:    { type: "string", description: "Chart title override (also settable in spec.title)." },
+      prompt:   { type: "string", description: "Original user request (stored for traceability)." },
+      dataSource: { type: "object", description: "Optional. When chart is from a single search: { mode: 'refreshable', scope: 'query', query: { type: 'tasks'|'timeline_events'|'table_rows', params: { ...same as search } } }. Enables Refresh and scope switching." },
+      isSimulation: { type: "boolean", description: "True for what-if simulations." },
+      originalChartId: { type: "string", description: "Source chart block ID for simulations." },
+      simulationDescription: { type: "string", description: "Brief description of the what-if change." },
     },
-    requiredParams: ["prompt"],
+    requiredParams: ["spec", "rows"],
   },
   {
     name: "createBlock",
@@ -1080,12 +1107,12 @@ const tableActionTools: ToolDefinition[] = [
       "Create a new field (column) in a table.\n\n" +
       "⚠️  CRITICAL: Use the CORRECT field TYPE\n\n" +
       "Field Type Rules:\n" +
-      "- Priority field (Critical/High/Medium/Low)? → type: \"priority\" (NOT \"select\" named \"Priority\")\n" +
-      "- Status field (Not Started/In Progress/Complete)? → type: \"status\" (NOT \"select\" named \"Status\")\n" +
+      "- Priority field (Urgent/High/Medium/Low)? → type: \"priority\" (NOT \"select\" named \"Priority\")\n" +
+      "- Status field (Todo/In Progress/Done/Blocked)? → type: \"status\" (NOT \"select\" named \"Status\")\n" +
       "- Custom dropdown? → type: \"select\" (only for truly custom options)\n\n" +
       "WHY THIS MATTERS:\n" +
       "- Priority/status fields have special UI rendering (badges, colors, proper ordering)\n" +
-      "- They use config.levels (priority) or config.options (status) with specific structure\n" +
+      "- Their config is server-owned and canonical (do not send custom config)\n" +
       "- Select fields don't have the same visual treatment\n" +
       "- Using the wrong type BREAKS the UI\n\n" +
       "Canonical Values (IMPORTANT):\n" +
@@ -1102,7 +1129,7 @@ const tableActionTools: ToolDefinition[] = [
         description: "Field type. Use 'priority' for priority fields, 'status' for status fields. Do NOT use 'select' and name it 'Priority' - use the actual 'priority' type.",
         enum: ["text", "long_text", "number", "select", "multi_select", "status", "priority", "date", "checkbox", "subtask", "url", "email", "phone", "currency", "percent", "rating", "formula", "relation", "rollup", "files", "person", "created_time", "last_edited_time", "created_by", "last_edited_by"],
       },
-      config: { type: "object", description: "Optional field configuration. For priority fields, config.levels should contain priority level definitions with id, label, color, and order. For status fields, config.options should contain status option definitions. If not provided, default values will be auto-generated." },
+      config: { type: "object", description: "Optional field configuration for custom field types. Do NOT provide config for priority/status; server applies canonical config automatically." },
       isPrimary: { type: "boolean", description: "Whether this is the primary field" },
     },
     requiredParams: ["tableId", "name", "type"],
@@ -1122,7 +1149,7 @@ const tableActionTools: ToolDefinition[] = [
       tableId: { type: "string", description: "The table ID" },
       fields: {
         type: "array",
-        description: "Array of field definitions. Each must have 'name' (string) and 'type' (string). Optional: 'config' (object) and 'isPrimary' (boolean).",
+        description: "Array of field definitions. Each must have 'name' (string) and 'type' (string). Optional: 'config' (object) and 'isPrimary' (boolean). For priority/status fields, do NOT provide config.",
         items: { type: "object" },
       },
     },
@@ -1130,7 +1157,7 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "updateField",
-    description: "UPDATE a table field/column's name or configuration. Use to rename columns or modify field config (like adding dropdown options). Required: fieldId. Returns: Updated field object.",
+    description: "UPDATE a table field/column's name or configuration. Use to rename columns or modify field config (like adding dropdown options). For priority/status fields, do NOT send config (server-managed canonical config). Required: fieldId. Returns: Updated field object.",
     category: "table",
     parameters: {
       fieldId: { type: "string", description: "The field ID" },
@@ -1171,12 +1198,12 @@ const tableActionTools: ToolDefinition[] = [
   },
   {
     name: "updateCell",
-    description: "UPDATE ONE cell in ONE existing row. ⚠️ Row must exist. For select/status/priority fields, value must be option ID (not label) - get from getTableSchema. ⚠️ If populating table, use bulkInsertRows, NOT this. Use for: Editing individual cells in existing rows. Required: rowId, fieldId (both UUIDs), value.",
+    description: "UPDATE ONE cell in ONE existing row. ⚠️ Row must exist. ⚠️ If populating table, use bulkInsertRows, NOT this. Use for: Editing individual cells in existing rows. Required: rowId, fieldId (both UUIDs), value.",
     category: "table",
     parameters: {
       rowId: { type: "string", description: "The row ID. Must be an existing row - get from searchTableRows or from the result of createRow/bulkInsertRows. If you don't have a rowId yet, the row doesn't exist - create it first." },
       fieldId: { type: "string", description: "The field ID (NOT field name). Get from getTableSchema." },
-      value: { type: "string", description: "New value. For text/number/date fields: the actual value. For select/priority/status fields: the option ID from field config (not the label!)." },
+      value: { type: "string", description: "New value. For text/number/date fields: actual value. For priority/status, use canonical values (priority: low|medium|high|urgent; status: todo|in_progress|done|blocked). For select fields, use labels." },
     },
     requiredParams: ["rowId", "fieldId", "value"],
   },
@@ -1232,18 +1259,18 @@ const tableActionTools: ToolDefinition[] = [
     name: "bulkUpdateRows",
     description:
       "⚠️  PREFER updateTableRowsByFieldNames INSTEAD\n\n" +
-      "Update multiple table rows with the same field values. ONLY use this if you already have field IDs and option IDs as UUIDs.\n\n" +
-      "IMPORTANT: The updates parameter must be an object with field IDs as keys (NOT field names). For select/multi_select/status/priority field types, values must be option IDs (NOT labels).\n\n" +
+      "Update multiple table rows with the same field values. ONLY use this if you already have field IDs.\n\n" +
+      "IMPORTANT: The updates parameter must be an object with field IDs as keys (NOT field names). For status/priority, use canonical values (status: todo|in_progress|done|blocked; priority: low|medium|high|urgent). For select/multi_select, use labels.\n\n" +
       "If you only have field names and option labels (e.g., 'Priority' = 'High'), use updateTableRowsByFieldNames instead - it's much easier and handles the resolution automatically.\n\n" +
       "This tool requires:\n" +
       "- Field IDs (UUIDs) as keys\n" +
-      "- Option IDs (UUIDs) as values for select-like fields\n" +
+      "- Option labels as values for select-like fields (e.g., 'High', 'In Progress', 'Todo')\n" +
       "- Row IDs (UUIDs) to update",
     category: "table",
     parameters: {
       tableId: { type: "string", description: "The table ID" },
       rowIds: { type: "array", description: "Array of row IDs (UUIDs) to update", items: { type: "string" } },
-      updates: { type: "object", description: "Field updates as { [fieldId]: value }. Keys must be field IDs (UUIDs), not field names. For select/priority/status fields, values must be option IDs from field config, not labels." },
+      updates: { type: "object", description: "Field updates as { [fieldId]: value }. Keys must be field IDs (UUIDs), not field names. For priority/status use canonical values; for select fields use labels." },
     },
     requiredParams: ["tableId", "rowIds", "updates"],
   },
@@ -1253,11 +1280,11 @@ const tableActionTools: ToolDefinition[] = [
       "★ PRIMARY TOOL FOR TABLE UPDATES ★ UPDATE rows using field names and values (NOT IDs).\n\n" +
       "Auto-resolves:\n" +
       "✓ Field names → field IDs\n" +
-      "✓ Option labels/values → canonical option IDs\n" +
+      "✓ Priority/status labels/synonyms normalize to canonical values\n" +
       "✓ Filters rows + updates them in ONE call\n\n" +
       "⚠️ CANONICAL VALUES for Priority/Status:\n" +
       "- Priority: 'low', 'medium', 'high', 'urgent' (or labels: 'Low', 'Medium', 'High', 'Urgent')\n" +
-      "- Status: 'todo', 'in_progress', 'done', 'blocked' (or labels: 'To Do', 'In Progress', 'Done', 'Blocked')\n" +
+      "- Status: 'todo', 'in_progress', 'done', 'blocked' (or labels: 'Todo', 'In Progress', 'Done', 'Blocked')\n" +
       "- Both canonical IDs and display labels are accepted and automatically resolved\n\n" +
       "Example: Mark all Republican states as High priority:\n" +
       "{ tableId: 'xxx', filters: { 'Party': 'Republican' }, updates: { 'Priority': 'high' } }\n" +
@@ -1276,7 +1303,7 @@ const tableActionTools: ToolDefinition[] = [
       updates: {
         type: "object",
         description:
-          "Field updates as { FieldName: value }. For select/status/priority, you can use labels (e.g., 'High', 'Complete') and they will be resolved to option IDs automatically.",
+          "Field updates as { FieldName: value }. For status/priority use canonical values (or labels/synonyms that normalize). For select, use labels.",
       },
       limit: { type: "number", description: "Max rows to scan when matching filters (default 500)" },
     },
@@ -1326,11 +1353,11 @@ const tableActionTools: ToolDefinition[] = [
       "🚨 CRITICAL: When creating tables FROM EXISTING DATA (tasks, timeline events, etc.):\n" +
       "- Status → type: 'status' (NOT text). Priority → type: 'priority' (NOT text)\n" +
       "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
-      "- Include ALL source fields (title, status, priority, due date, assignee) - do not omit any\n" +
+      "- Include only source fields that have at least one non-null value in the rows (omit all-null columns)\n" +
       "- PRESERVE field types - DO NOT convert to text!\n\n" +
       "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, searchBlocks, getEntityById table rows, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result or row), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Valid source_entity_type: \"task\", \"timeline_event\", \"table_row\", \"block\". For rows from another table use source_entity_type \"table_row\". For blocks use \"block\". Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
       "🚨 TABLE SUBTASKS (when tasks have subtasks): DO NOT put subtask names in a text/long_text column! Tables have native subtask support:\n" +
-      "- Add a field { name: \"Subtask\", type: \"subtask\" } (or type \"checkbox\") to the schema.\n" +
+      "- Add a field { name: \"Subtask\", type: \"subtask\" } to the schema. Do NOT use type \"checkbox\" for this.\n" +
       "- Each subtask is a SEPARATE ROW. Parent task = one row with Subtask=false. Each subtask = its own row with Subtask=true, placed directly under the parent.\n" +
       "- Order matters: Parent row first, then its subtask rows (Subtask=true), then next parent, etc.\n" +
       "- Each subtask row has the same columns (Title, Status, Priority, etc.) with the subtask's own values — fill all fields as for a regular row.\n" +
@@ -1347,7 +1374,7 @@ const tableActionTools: ToolDefinition[] = [
       tabId: { type: "string", description: "Optional tab ID. If provided, a table block will be created in this tab." },
       fields: {
         type: "array",
-        description: "Array of field definitions. Each must have 'name' (string) and 'type' (string). Optional: 'config' (object).",
+        description: "Array of field definitions. Each must have 'name' (string) and 'type' (string). Optional: 'config' (object). For priority/status fields, do NOT provide config.",
         items: { type: "object" },
       },
       rows: {
@@ -1437,6 +1464,10 @@ const timelineActionTools: ToolDefinition[] = [
     parameters: {
       timelineBlockId: { type: "string", description: "Optional: timeline block ID. PREFER 'timelineBlockName' for natural language." },
       timelineBlockName: { type: "string", description: "Target Timeline Block Name (e.g. 'Project Timeline'). System finds fuzzy match." },
+      parentEventId: {
+        type: "string",
+        description: "Optional parent timeline event ID to create a nested sub-event under. Sub-events are max 1 level deep.",
+      },
       title: { type: "string", description: "Event title" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
@@ -1500,7 +1531,7 @@ const timelineActionTools: ToolDefinition[] = [
       sourceEntityType: {
         type: "string",
         description: "CamelCase alias for source_entity_type.",
-        enum: ["task", "timeline_event", "table_row", "block"],
+        enum: ["task", "timeline_event", "table_row", "block", "subtask"],
       },
       sourceEntityId: { type: "string", description: "CamelCase alias for source_entity_id." },
       sourceSyncMode: {
@@ -1510,6 +1541,27 @@ const timelineActionTools: ToolDefinition[] = [
       },
     },
     requiredParams: ["title", "startDate", "endDate"],
+  },
+  {
+    name: "createTimelineSubEvent",
+    description:
+      "Create a sub-event nested under an existing parent timeline event. " +
+      "Use this when the user explicitly asks for nested timeline sub-events.",
+    category: "timeline",
+    parameters: {
+      parentEventId: { type: "string", description: "Parent timeline event ID" },
+      title: { type: "string", description: "Sub-event title" },
+      startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
+      endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
+      status: { type: "string", description: "Event status", enum: ["todo", "in_progress", "blocked", "done"] },
+      priority: { type: "string", description: "Priority value", enum: ["low", "medium", "high", "urgent"] },
+      assigneeId: { type: "string", description: "Assignee user ID. PREFER 'assigneeName'." },
+      assigneeName: { type: "string", description: "Assignee Name (e.g. 'Amna'). System resolves to ID." },
+      notes: { type: "string", description: "Event notes" },
+      color: { type: "string", description: "Event color (hex)" },
+      progress: { type: "number", description: "Progress percentage (0-100)" },
+    },
+    requiredParams: ["parentEventId", "title", "startDate", "endDate"],
   },
   {
     name: "updateTimelineEvent",
@@ -2033,6 +2085,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   timeline: pickTools([
     "searchTimelineEvents",
     "createTimelineEvent",
+    "createTimelineSubEvent",
     "updateTimelineEvent",
     "deleteTimelineEvent",
     "createTimelineDependency",

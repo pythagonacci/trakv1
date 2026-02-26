@@ -77,6 +77,7 @@ export default function ReferencePicker({
       anchorRect.width !== 0 ||
       anchorRect.height !== 0);
 
+  // Reset state when picker opens
   useEffect(() => {
     if (!isOpen) return;
     if (variant === "popover") {
@@ -93,14 +94,14 @@ export default function ReferencePicker({
     setResults([]);
     setActiveIndex(0);
     void loadRecent();
-  }, [isOpen, initialQuery]);
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update search query when initialQuery changes (even after mount, for syncing from external source)
+  // Sync search query when initialQuery is updated externally (e.g. typing after @)
   useEffect(() => {
-    if (isOpen && initialQuery !== undefined) {
-      setSearchQuery(initialQuery);
+    if (isOpen) {
+      setSearchQuery(initialQuery ?? "");
     }
-  }, [isOpen, initialQuery]);
+  }, [initialQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isOpen || variant !== "popover") return;
@@ -373,6 +374,7 @@ export default function ReferencePicker({
               <button
                 key={option.type}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setSelectedType((prev) => (prev === option.type ? null : option.type))}
                 className={cn(
                   "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
@@ -546,6 +548,7 @@ function ResultRow({
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onSelect}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition",

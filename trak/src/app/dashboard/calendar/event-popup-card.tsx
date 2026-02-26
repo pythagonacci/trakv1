@@ -34,6 +34,8 @@ export default function EventPopupCard({
       router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}?taskId=${event.taskId}`);
     } else if (event.type === "project" && event.projectId) {
       router.push(`/dashboard/projects/${event.projectId}`);
+    } else if (event.type === "timeline" && event.projectId && event.tabId && event.blockId) {
+      router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}#block-${event.blockId}`);
     } else if (event.type === "google" && event.externalUrl) {
       window.open(event.externalUrl, "_blank", "noopener,noreferrer");
     }
@@ -53,6 +55,7 @@ export default function EventPopupCard({
           event.type === "task" && event.priority === "high" && "border-orange-200/50",
           event.type === "task" && (!event.priority || event.priority === "none") && "border-blue-200/50",
           event.type === "project" && "border-purple-200/50",
+          event.type === "timeline" && "border-amber-200/50",
           event.type === "google" && "border-[#4285F4]/40"
         )}
       >
@@ -101,24 +104,20 @@ export default function EventPopupCard({
                 Type
               </p>
               <p className="mt-1 text-sm text-[var(--foreground)] capitalize">
-                {event.type === "google" ? "Google Calendar" : event.type}
+                {event.type === "google" ? "Google Calendar" : event.type === "timeline" ? "Timeline" : event.type}
               </p>
             </div>
 
-            {event.type === "task" && (
-              <>
-                {event.projectName && (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                      Project
-                    </p>
-                    <p className="mt-1 text-sm text-[var(--foreground)]">
-                      {event.projectName}
-                      {event.tabName && ` · ${event.tabName}`}
-                    </p>
-                  </div>
-                )}
-              </>
+            {(event.type === "task" || event.type === "timeline") && (event.projectName || event.tabName) && (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                  Project
+                </p>
+                <p className="mt-1 text-sm text-[var(--foreground)]">
+                  {event.projectName}
+                  {event.tabName && ` · ${event.tabName}`}
+                </p>
+              </div>
             )}
 
             {event.type === "google" && event.location && (
@@ -137,11 +136,13 @@ export default function EventPopupCard({
           <Button variant="outline" size="sm" onClick={onClose}>
             Close
           </Button>
-          {(event.type === "task" || event.type === "project" || event.externalUrl) && (
+          {(event.type === "task" || event.type === "project" || event.type === "timeline" || event.externalUrl) && (
             <Button size="sm" onClick={handleNavigate} className="gap-2">
               {event.type === "google"
                 ? "Open in Google Calendar"
-                : `Open ${event.type === "task" ? "Task" : "Project"}`}
+                : event.type === "timeline"
+                  ? "Open Timeline"
+                  : `Open ${event.type === "task" ? "Task" : "Project"}`}
               <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           )}

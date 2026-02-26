@@ -77,6 +77,8 @@ export async function createTaskItem(
     sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
     sourceEntityId?: string | null;
     sourceSyncMode?: TaskSourceSyncMode;
+    /** When true, task is excluded from search/Everything until the user edits it. Used for the default "New task" in new blocks. */
+    isPlaceholder?: boolean;
   },
   opts?: { timing?: TaskTimingSink; authContext?: AuthContext }
 ): Promise<ActionResult<TaskItem>> {
@@ -119,6 +121,7 @@ export async function createTaskItem(
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
       source_sync_mode: sourceSyncMode,
+      is_placeholder: input.isPlaceholder ?? false,
       created_by: userId,
       updated_by: userId,
     })
@@ -129,7 +132,10 @@ export async function createTaskItem(
     opts.timing.t_fetch_return_ms = 0; // return is part of insert round-trip
   }
 
-  if (error || !data) return { error: "Failed to create task" };
+  if (error || !data) {
+    const message = error?.message ?? "Unknown error";
+    return { error: message };
+  }
   return { data: normalizeTaskRow(data) };
 }
 
@@ -159,6 +165,8 @@ export async function updateTaskItem(
 
   const payload: Record<string, any> = {
     updated_by: userId,
+    // Clear placeholder on any edit so the task appears in search/Everything
+    is_placeholder: false,
   };
 
   if (updates.title !== undefined) payload.title = updates.title;
@@ -192,7 +200,10 @@ export async function updateTaskItem(
     .select("*")
     .single();
 
-  if (error || !data) return { error: "Failed to update task" };
+  if (error || !data) {
+    const msg = error?.message ?? "Unknown error";
+    return { error: `Failed to update task: ${msg}` };
+  }
   const normalizedTask = normalizeTaskRow(data);
 
   // Update entity_properties to keep status, priority, and due date in sync
@@ -473,7 +484,7 @@ export async function duplicateTasksToBlock(input: {
   const { data: tasks, error: tasksError } = await supabase
     .from("task_items")
     .select(
-      "id, title, status, priorities, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
+      "id, title, statuses, priorities, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
     )
     .in("id", taskIds)
     .eq("workspace_id", block.workspace_id);

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useTransition, useEffect } from "react";
-import { updateCurrentWorkspace, getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { updateCurrentWorkspace } from "@/app/actions/workspace";
 import { useRouter } from "next/navigation";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { logger } from "@/lib/logger";
@@ -35,17 +35,24 @@ export function WorkspaceProvider({
   // Set current workspace from cookie when workspaces load
   useEffect(() => {
     if (workspaces.length > 0 && !currentWorkspace) {
-      getCurrentWorkspaceId().then((workspaceId) => {
-        const workspace = workspaces.find((w) => w.id === workspaceId) || workspaces[0];
-        setCurrentWorkspace(workspace);
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client getCurrentWorkspaceId via route");
+      fetch("/api/workspaces/current", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((json) => {
+          const workspaceId = json?.data?.workspaceId || null;
+          const workspace = workspaces.find((w) => w.id === workspaceId) || workspaces[0];
+          setCurrentWorkspace(workspace);
 
-        // Keep server-rendered pages in sync when cookie is missing/stale.
-        if (workspace && workspace.id !== workspaceId) {
-          updateCurrentWorkspace(workspace.id).catch((error) => {
-            logger.error("Failed to persist initial workspace:", error);
-          });
-        }
-      });
+          // Keep server-rendered pages in sync when cookie is missing/stale.
+          if (workspace && workspace.id !== workspaceId) {
+            updateCurrentWorkspace(workspace.id).catch((error) => {
+              logger.error("Failed to persist initial workspace:", error);
+            });
+          }
+        })
+        .catch((error) => {
+          logger.error("Failed to load current workspace:", error);
+        });
     }
   }, [workspaces, currentWorkspace]);
 

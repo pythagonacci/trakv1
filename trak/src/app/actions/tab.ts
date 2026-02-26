@@ -5,6 +5,7 @@ import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } fr
 import { safeRevalidatePath } from "@/app/actions/workspace";
 import { revalidatePath } from "next/cache";
 import type { AuthContext } from "@/lib/auth-context";
+import { cache } from "react";
 
 // Limits to prevent unbounded queries
 const TABS_PER_PROJECT_LIMIT = 1000;
@@ -139,25 +140,29 @@ export async function createTab(data: {
 // 2. GET PROJECT TABS - OPTIMIZED
 // ============================================================================
 
-export async function getProjectTabs(projectId: string) {
+export const getProjectTabs = cache(async (projectId: string) => {
+  const _t0 = performance.now();
   try {
     const supabase = await createClient();
 
     // 🔒 Auth check FIRST
     const user = await getAuthenticatedUser();
     if (!user) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Unauthorized" };
     }
 
     // 🔒 Verify project access
     const project = await getProjectMetadata(projectId);
     if (!project) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=ProjectNotFound ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Project not found" };
     }
 
     // 🔒 Verify membership BEFORE fetching tabs
     const member = await checkWorkspaceMembership(project.workspace_id, user.id);
     if (!member) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Not a member of this workspace" };
     }
 
@@ -172,18 +177,21 @@ export async function getProjectTabs(projectId: string) {
 
     if (tabsError) {
       console.error("Get tabs error:", tabsError);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=Query ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Failed to fetch tabs" };
     }
 
     // Build hierarchy in memory (still fast for reasonable # of tabs)
     const tabsWithChildren = buildTabHierarchy(tabs || []);
-
+    const tabsCount = tabsWithChildren.length;
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} tabs=${tabsCount} totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: tabsWithChildren };
   } catch (error) {
     console.error("Get project tabs exception:", error);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch tabs" };
   }
-}
+});
 
 // Helper function to build tab hierarchy
 function buildTabHierarchy(tabs: Tab[]): TabWithChildren[] {

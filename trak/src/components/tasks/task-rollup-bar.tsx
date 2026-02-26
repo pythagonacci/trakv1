@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { ChevronDown, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,7 +73,8 @@ const PRIORITY_LABELS: Record<string, string> = {
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  none: "var(--muted-foreground)",
+  none: "white",
+  None: "white",
   low: "var(--muted-foreground)",
   medium: "var(--warning)",
   high: "var(--tile-orange)",
@@ -111,7 +112,10 @@ function getSegmentLabel(value: string, groupBy: GroupBy, getMemberName: (id: st
 
 function getSegmentColor(value: string, groupBy: GroupBy, assigneeIndex: number): string {
   if (groupBy === "status") return STATUS_COLORS[value as StatusValue] ?? "var(--muted-foreground)";
-  if (groupBy === "priority") return PRIORITY_COLORS[value] ?? "var(--muted-foreground)";
+  if (groupBy === "priority") {
+    const key = (value === "None" || value === "none" || !value) ? "none" : value;
+    return PRIORITY_COLORS[key] ?? "var(--muted-foreground)";
+  }
   if (groupBy === "assignee") return ASSIGNEE_COLORS[assigneeIndex % ASSIGNEE_COLORS.length];
   return "var(--muted-foreground)";
 }
@@ -593,6 +597,7 @@ function RollupBar({
 // ─── TaskRollupBar (root) ─────────────────────────────────────────────────────
 
 export function TaskRollupBar({ tasks, getMemberName }: Props) {
+  const [collapsed, setCollapsed] = useState(false);
   const [bars, setBars] = useState<BarConfig[]>([
     { id: "default", filters: [], currentGroupBy: "status", showAsPortionOfAll: false },
   ]);
@@ -614,26 +619,53 @@ export function TaskRollupBar({ tasks, getMemberName }: Props) {
 
   if (tasks.length === 0) return null;
 
+  const firstBar = bars[0];
+  const summaryLabel = firstBar?.currentGroupBy
+    ? `by ${GROUPBY_LABELS[firstBar.currentGroupBy]}`
+    : "roll-up";
+
   return (
-    <div className="mt-1 space-y-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
-      {bars.map((bar, i) => (
-        <RollupBar
-          key={bar.id}
-          config={bar}
-          tasks={tasks}
-          getMemberName={getMemberName}
-          onUpdate={(next) => updateBar(bar.id, next)}
-          onRemove={() => removeBar(bar.id)}
-          showRemove={i > 0}
-        />
-      ))}
+    <div className="mt-1 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
       <button
-        onClick={addBar}
-        className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[11px] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors"
+        aria-expanded={!collapsed}
       >
-        <Plus className="h-2.5 w-2.5" />
-        Add bar
+        <span className="inline-flex items-center gap-1.5">
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3 shrink-0" />
+          ) : (
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          )}
+          <span>Automatic roll-up</span>
+          <span className="text-[10px] text-[var(--tertiary-foreground)]">
+            {tasks.length} task{tasks.length !== 1 ? "s" : ""} {!collapsed ? ` · ${summaryLabel}` : ""}
+          </span>
+        </span>
       </button>
+      {!collapsed && (
+        <div className="space-y-3 px-2.5 pb-2 pt-0">
+          {bars.map((bar, i) => (
+            <RollupBar
+              key={bar.id}
+              config={bar}
+              tasks={tasks}
+              getMemberName={getMemberName}
+              onUpdate={(next) => updateBar(bar.id, next)}
+              onRemove={() => removeBar(bar.id)}
+              showRemove={i > 0}
+            />
+          ))}
+          <button
+            onClick={addBar}
+            className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            Add bar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@
  * Mirrors the formatting logic used in the editable text block so
  * read-only contexts can keep the same appearance.
  */
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 type FormatPreset = "default" | "compact";
 
@@ -93,9 +93,5 @@ export function formatBlockText(
 
   const html = formattedLines.join("");
 
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ["strong", "em", "code", "u", "h1", "h2", "h3", "p", "div", "span", "br"],
-    ALLOWED_ATTR: ["class"],
-    KEEP_CONTENT: true,
-  });
+  return sanitizeHtml(html);
 }

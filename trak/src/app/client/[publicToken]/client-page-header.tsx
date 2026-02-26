@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import StatusBadge from "@/app/dashboard/projects/status-badge";
 import { ClientPageProject } from "@/app/actions/client-page";
 import { cn } from "@/lib/utils";
+import { parseDateSafe } from "@/lib/due-date";
 
 interface ClientPageHeaderProps {
   project: ClientPageProject;
@@ -49,7 +50,8 @@ export default function ClientPageHeader({ project, tabId }: ClientPageHeaderPro
       return { text: project.due_date_text, isOverdue: false };
     }
     if (project.due_date_date) {
-      const date = new Date(project.due_date_date);
+      const date = parseDateSafe(project.due_date_date);
+      if (!date) return { text: "No due date", isOverdue: false };
       const now = new Date();
       const isOverdue = date < now && date.toDateString() !== now.toDateString();
       const formatted = date.toLocaleDateString("en-US", {

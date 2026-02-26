@@ -488,7 +488,10 @@ export async function getFileUrl(fileId: string) {
 export async function getBatchFileUrls(fileIds: string[]) {
   'use server';
 
+  const _t0 = performance.now();
+
   if (!fileIds || fileIds.length === 0) {
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getBatchFileUrls fileCount=0 totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: {} };
   }
 
@@ -537,7 +540,7 @@ export async function getBatchFileUrls(fileIds: string[]) {
     try {
       const { data: urlData, error: urlError } = await supabase.storage
         .from('files')
-        .createSignedUrl(file.storage_path, 300); // SECURITY: 5 minute expiry
+        .createSignedUrl(file.storage_path, 3600); // 60 minute expiry
 
       if (urlError) {
         logger.error(`Failed to generate signed URL for file ${file.id}:`, urlError);
@@ -570,8 +573,7 @@ export async function getBatchFileUrls(fileIds: string[]) {
     }
   });
 
-  logger.log(`📦 Batch fetched ${Object.keys(urlMap).length} file URLs`);
-
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getBatchFileUrls fileCount=${uniqueFileIds.length} urlsGenerated=${Object.keys(urlMap).length} totalMs=${Math.round(performance.now() - _t0)}`);
   return { data: urlMap };
 }
 
@@ -581,7 +583,7 @@ export async function getBatchFileUrls(fileIds: string[]) {
  */
 export async function getBatchFileUrlsPublic(fileIds: string[], publicToken: string) {
   'use server';
-  
+
   if (!fileIds || fileIds.length === 0) {
     return { data: {} };
   }
@@ -621,7 +623,7 @@ export async function getBatchFileUrlsPublic(fileIds: string[], publicToken: str
       try {
         const { data: urlData } = await supabase.storage
           .from('files')
-          .createSignedUrl(file.storage_path, 300); // SECURITY: 5 minute expiry
+          .createSignedUrl(file.storage_path, 3600); // 60 minute expiry
 
         return {
           fileId: file.id,
@@ -681,7 +683,7 @@ export async function detachFileFromBlock(attachmentId: string) {
   // Verify workspace membership
   const files = attachment.files as { workspace_id: string } | { workspace_id: string }[];
   const workspaceId = Array.isArray(files) ? files[0]?.workspace_id : files.workspace_id;
-  
+
   if (!workspaceId) {
     return { error: 'Workspace not found' };
   }

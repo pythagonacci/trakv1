@@ -7,6 +7,8 @@ interface AIContextValue {
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
   toggleCommandPalette: () => void;
+  suppressInlineSidebar: boolean;
+  setSuppressInlineSidebar: (suppress: boolean) => void;
   contextBlock: AIBlockContext | null;
   setContextBlock: (context: AIBlockContext | null) => void;
   pendingFileIds: string[];
@@ -36,6 +38,7 @@ export interface AIBlockContext {
 
 export function AIProvider({ children }: AIProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [suppressInlineSidebar, setSuppressInlineSidebar] = useState(false);
   const [contextBlock, setContextBlock] = useState<AIBlockContext | null>(null);
   const [pendingFileIds, setPendingFileIds] = useState<string[]>([]);
 
@@ -84,6 +87,8 @@ export function AIProvider({ children }: AIProviderProps) {
         openCommandPalette,
         closeCommandPalette,
         toggleCommandPalette,
+        suppressInlineSidebar,
+        setSuppressInlineSidebar,
         contextBlock,
         setContextBlock,
         pendingFileIds,

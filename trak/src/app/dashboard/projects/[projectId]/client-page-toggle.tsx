@@ -190,19 +190,19 @@ export default function ClientPageToggle({
         }}
         disabled={isLoading}
         className={cn(
-          "flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150",
+          "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 shadow-sm",
           isEnabled
-            ? "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-            : "bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] border border-[var(--border)]",
+            ? "bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
+            : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
           isLoading && "opacity-50 cursor-not-allowed"
         )}
       >
-        <Link2 className="h-4 w-4" />
+        <Link2 className="h-3 w-3 shrink-0" />
         <span>{isEnabled ? "Public Link" : "Enable Public Link"}</span>
       </button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-[380px] max-h-[90vh] flex flex-col p-4">
+        <DialogContent className="max-w-[520px] max-h-[90vh] flex flex-col p-4">
           <DialogHeader className="mb-3">
             <DialogTitle className="text-base">Public Link</DialogTitle>
           </DialogHeader>
@@ -303,58 +303,58 @@ export default function ClientPageToggle({
               </div>
             )}
 
-            {/* Client comment permissions */}
-            <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2 flex flex-col gap-1">
-              <div className="flex items-start justify-between gap-2">
-                <div className="space-y-0.5 flex-1">
-                  <div className="flex items-center gap-1 text-xs font-medium text-black">
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    Allow public comments
+            {/* Comments + Editing permissions side by side */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2 flex flex-col gap-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-0.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-1 text-xs font-medium text-black">
+                      <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+                      Allow public comments
+                    </div>
+                    <p className="text-[11px] text-[var(--muted-foreground)]">
+                      Let visitors leave comments. Comments sync back to the dashboard.
+                    </p>
                   </div>
-                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                    Let visitors leave block-level comments after signing their name. Comments sync back to the dashboard.
-                  </p>
-                </div>
-                <div className="flex items-center pt-0.5 shrink-0">
-                  <Switch
-                    checked={allowComments}
-                    disabled={!token || isUpdatingSettings}
-                    onCheckedChange={handleCommentsToggle}
-                  />
-                </div>
-              </div>
-              {!token && (
-                <p className="text-[10px] text-[var(--warning)]">
-                  Enable the public link to generate a URL before turning on comments.
-                </p>
-              )}
-            </div>
-
-            {/* Client editing permissions */}
-            <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2 flex flex-col gap-1">
-              <div className="flex items-start justify-between gap-2">
-                <div className="space-y-0.5 flex-1">
-                  <div className="flex items-center gap-1 text-xs font-medium text-black">
-                    <Edit3 className="h-3.5 w-3.5" />
-                    Allow public editing
+                  <div className="flex items-center pt-0.5 shrink-0">
+                    <Switch
+                      checked={allowComments}
+                      disabled={!token || isUpdatingSettings}
+                      onCheckedChange={handleCommentsToggle}
+                    />
                   </div>
-                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                    Let visitors edit blocks and make changes to the content. Use with caution.
+                </div>
+                {!token && (
+                  <p className="text-[10px] text-[var(--warning)]">
+                    Generate a URL first to enable comments.
                   </p>
-                </div>
-                <div className="flex items-center pt-0.5 shrink-0">
-                  <Switch
-                    checked={allowEditing}
-                    disabled={!token || isUpdatingSettings}
-                    onCheckedChange={handleEditingToggle}
-                  />
-                </div>
+                )}
               </div>
-              {!token && (
-                <p className="text-[10px] text-[var(--warning)]">
-                  Enable the public link to generate a URL before turning on editing.
-                </p>
-              )}
+              <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2 flex flex-col gap-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-0.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-1 text-xs font-medium text-black">
+                      <Edit3 className="h-3.5 w-3.5 shrink-0" />
+                      Allow public editing
+                    </div>
+                    <p className="text-[11px] text-[var(--muted-foreground)]">
+                      Let visitors edit blocks. Use with caution.
+                    </p>
+                  </div>
+                  <div className="flex items-center pt-0.5 shrink-0">
+                    <Switch
+                      checked={allowEditing}
+                      disabled={!token || isUpdatingSettings}
+                      onCheckedChange={handleEditingToggle}
+                    />
+                  </div>
+                </div>
+                {!token && (
+                  <p className="text-[10px] text-[var(--warning)]">
+                    Generate a URL first to enable editing.
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Instructions */}

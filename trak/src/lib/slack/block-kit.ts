@@ -1,4 +1,4 @@
-import type { SlackBlockKitMessage, SlackBlock, SlackOption } from "./types";
+import type { SlackBlockKitMessage, SlackBlock, SlackOption, SlackTextObject } from "./types";
 
 export interface SlackExecutionResult {
   success: boolean;
@@ -7,6 +7,7 @@ export interface SlackExecutionResult {
     type: "project" | "tab";
     options: Array<{ id: string; name: string }>;
     originalCommand?: string;
+    contextId?: string;
   };
   error?: string;
 }
@@ -39,7 +40,13 @@ function buildContextSelectionMessage(result: SlackExecutionResult): SlackBlockK
     return buildErrorMessage("Internal error: needsContext is missing");
   }
 
-  const { type, options, originalCommand } = result.needsContext;
+  const { type, options } = result.needsContext;
+  const actionId = result.needsContext.contextId
+    ? `select_${type}__ctx__${result.needsContext.contextId}`
+    : `select_${type}`;
+  const actionsBlockId = result.needsContext.contextId
+    ? `ctx__${result.needsContext.contextId}`
+    : undefined;
 
   const selectOptions: SlackOption[] = options.map((opt) => ({
     text: {
@@ -59,6 +66,7 @@ function buildContextSelectionMessage(result: SlackExecutionResult): SlackBlockK
     },
     {
       type: "actions",
+      block_id: actionsBlockId,
       elements: [
         {
           type: "static_select",
@@ -67,7 +75,7 @@ function buildContextSelectionMessage(result: SlackExecutionResult): SlackBlockK
             text: `Select a ${type}`,
           },
           options: selectOptions,
-          action_id: `select_${type}`,
+          action_id: actionId,
         },
       ],
     },
@@ -75,14 +83,13 @@ function buildContextSelectionMessage(result: SlackExecutionResult): SlackBlockK
 
   // Add a divider and hint if there are many options
   if (options.length > 5) {
+    const hintText: SlackTextObject = {
+      type: "plain_text",
+      text: `💡 Tip: You can specify the ${type} in your command next time, e.g., "/trak in the Marketing ${type}, create task..."`,
+    };
     blocks.push({
       type: "context",
-      elements: [
-        {
-          type: "plain_text",
-          text: `💡 Tip: You can specify the ${type} in your command next time, e.g., "/trak in the Marketing ${type}, create task..."`,
-        } as any,
-      ],
+      elements: [hintText],
     });
   }
 
@@ -183,14 +190,13 @@ export function buildListMessage(
   });
 
   if (hasMore) {
+    const moreText: SlackTextObject = {
+      type: "plain_text",
+      text: `... and ${items.length - maxItems} more. View all in TWOD.`,
+    };
     blocks.push({
       type: "context",
-      elements: [
-        {
-          type: "plain_text",
-          text: `... and ${items.length - maxItems} more. View all in TWOD.`,
-        } as any,
-      ],
+      elements: [moreText],
     });
   }
 

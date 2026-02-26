@@ -2,32 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { IndexingQueue } from "@/lib/search/job-queue";
 import { ResourceIndexer } from "@/lib/search/indexer";
-import {
-  isUnauthorizedApiError,
-  requireUser,
-  unauthorizedJsonResponse,
-} from "@/lib/auth/require-user";
+import { isUnauthorizedApiError, unauthorizedJsonResponse } from "@/lib/auth/require-user";
 
 export async function POST(req: NextRequest) {
-  // Security: Only allow Supabase cron or manual triggers from authenticated users.
+  // Security: Only allow Supabase cron requests with CRON_SECRET.
   const authHeader = req.headers.get("authorization");
-  const manualTrigger = req.headers.get("x-manual-trigger");
   const expectedAuth = process.env.CRON_SECRET;
 
   try {
-    const isCronRequest = Boolean(expectedAuth) && authHeader === `Bearer ${expectedAuth}`;
-    const isDevNoSecret = !expectedAuth;
-    const isManualTrigger = manualTrigger === "true";
+    if (process.env.NODE_ENV === "production" && !expectedAuth) {
+      console.error("CRON_SECRET not configured for indexing worker");
+      return NextResponse.json({ error: "Worker not configured" }, { status: 500 });
+    }
 
-    let supabase: Awaited<ReturnType<typeof createClient>>;
-    if (isCronRequest || isDevNoSecret) {
-      supabase = await createClient();
-    } else if (isManualTrigger) {
-      const auth = await requireUser();
-      supabase = auth.supabase;
-    } else {
+    const isCronRequest = Boolean(expectedAuth) && authHeader === `Bearer ${expectedAuth}`;
+    if (!isCronRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const supabase = await createClient();
 
     const queue = new IndexingQueue(supabase);
     const indexer = new ResourceIndexer(supabase);

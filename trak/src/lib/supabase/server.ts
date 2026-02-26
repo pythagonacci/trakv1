@@ -8,16 +8,25 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
 let isTestMode = false;
 let testUserId: string | null = null;
 
+function assertTestEnvironment(caller: string) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(`${caller} is only allowed when NODE_ENV === "test".`);
+  }
+}
+
 export function enableTestMode() {
+  assertTestEnvironment("enableTestMode");
   isTestMode = true;
 }
 
 export function disableTestMode() {
+  assertTestEnvironment("disableTestMode");
   isTestMode = false;
   testUserId = null;
 }
 
 export function setTestUserId(userId: string) {
+  assertTestEnvironment("setTestUserId");
   testUserId = userId;
 }
 
@@ -25,7 +34,7 @@ export async function createClient() {
   const supabaseEnv = getSupabaseEnv();
 
   // In test mode, use service role client instead of SSR client (only in test/dev environments)
-  const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.ENABLE_TEST_MODE === 'true';
+  const isTestEnvironment = process.env.NODE_ENV === "test";
   if (isTestMode && isTestEnvironment) {
     const supabaseUrl = supabaseEnv.url;
     const supabaseKey = supabaseEnv.serviceRoleKey;
@@ -58,76 +67,44 @@ export async function createClient() {
   }
 
   // Normal Next.js request flow
-  try {
-    if (!supabaseEnv.url || !supabaseEnv.anonKey) {
-      throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
-    }
-
-    const cookieStore = await cookies();
-
-    return createServerClient(
-      supabaseEnv.url,
-      supabaseEnv.anonKey,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: CookieOptions) {
-            try {
-              cookieStore.set({ name, value, ...options });
-            } catch {
-              // The `set` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing sessions.
-            }
-          },
-          remove(name: string, options: CookieOptions) {
-            try {
-              cookieStore.delete({ name, ...options });
-            } catch {
-              // The `remove` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing sessions.
-            }
-          },
-        },
-      }
-    );
-  } catch {
-    // If cookies() fails, we're not in a request context
-    // Fall back to service client (useful for scripts)
-    const supabaseUrl = supabaseEnv.url;
-    const supabaseKey = supabaseEnv.serviceRoleKey;
-
-    if (!supabaseUrl || !supabaseKey) {
-      const missing = [
-        !supabaseUrl && "NEXT_PUBLIC_SUPABASE_URL",
-        !supabaseKey && "SUPABASE_SERVICE_ROLE_KEY",
-      ].filter(Boolean);
-      throw new Error(
-        `Not in request context and missing env: ${missing.join(", ")}. Set these in .env.local.`
-      );
-    }
-
-    const client = createServiceClient(supabaseUrl, supabaseKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
-    // Mock getUser if testUserId is set (for scripts outside test environment)
-    if (testUserId) {
-      const originalGetUser = client.auth.getUser.bind(client.auth);
-      type GetUserResponse = Awaited<ReturnType<typeof originalGetUser>>;
-      client.auth.getUser = async (token?: string): Promise<GetUserResponse> => {
-        if (!token && testUserId) {
-          const { data: { user }, error } = await client.auth.admin.getUserById(testUserId);
-          return { data: { user: user ?? null }, error: error ?? null } as GetUserResponse;
-        }
-        return originalGetUser(token);
-      };
-    }
-
-    return client;
+  if (!supabaseEnv.url || !supabaseEnv.anonKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
   }
+
+  let cookieStore: Awaited<ReturnType<typeof cookies>>;
+  try {
+    cookieStore = await cookies();
+  } catch {
+    throw new Error(
+      "createClient() requires a Next.js request context; use createServiceClient() explicitly for scripts/workers."
+    );
+  }
+
+  return createServerClient(
+    supabaseEnv.url,
+    supabaseEnv.anonKey,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value, ...options });
+          } catch {
+            // The `set` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing sessions.
+          }
+        },
+        remove(name: string, options: CookieOptions) {
+          try {
+            cookieStore.delete({ name, ...options });
+          } catch {
+            // The `remove` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing sessions.
+          }
+        },
+      },
+    }
+  );
 }

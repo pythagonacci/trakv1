@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
-import { executeAICommandStream, type AIMessage } from "@/lib/ai/executor";
-import { getCurrentWorkspaceId } from "@/app/actions/workspace";
-import { getBlockWithContext } from "@/app/actions/ai-context";
+import { executeWorkflowAICommandStream } from "@/lib/ai/workflow-executor";
+import type { AIMessage } from "@/lib/ai/executor";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
 
@@ -26,80 +25,16 @@ import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
  */
 export async function POST(request: NextRequest) {
   try {
-    // 1. Check authentication
-    const { user, supabase: dataClient } = await requireUser();
+    await requireUser();
 
-    // 2. Get workspace context
-    const workspaceId = await getCurrentWorkspaceId();
-    if (!workspaceId) {
-      return new Response(
-        `data: ${JSON.stringify({ type: "error", content: "No workspace selected" })}\n\n`,
-        {
-          status: 400,
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        }
-      );
-    }
-
-    // 3. Get workspace and user details
-    const [workspaceResult, profileResult] = await Promise.all([
-      dataClient.from("workspaces").select("name").eq("id", workspaceId).single(),
-      dataClient.from("profiles").select("name, email").eq("id", user.id).single(),
-    ]);
-
-    const workspaceName = workspaceResult.data?.name || undefined;
-    const userName = profileResult.data?.name || profileResult.data?.email || undefined;
-
-    // 4. Parse request body
     const body = await request.json();
-    const { command, projectId, tabId, contextBlockId, messages, confirmation } = body as {
+    const { command, tabId, messages, confirmation, resumeFromConfirmation } = body as {
       command: string;
-      projectId?: string;
       tabId?: string;
-      contextBlockId?: string;
       messages?: AIMessage[];
       confirmation?: WriteConfirmationApproval | null;
+      resumeFromConfirmation?: boolean;
     };
-
-    // 5. Handle context block if provided
-    let contextTableId: string | undefined;
-    let contextMessages: AIMessage[] = [];
-    if (contextBlockId) {
-      const blockContext = await getBlockWithContext({ blockId: contextBlockId });
-      if (blockContext.data) {
-        const ctx = blockContext.data as {
-          block: { id: string; type: string; content?: Record<string, unknown> };
-          tab?: { name?: string | null } | null;
-          project?: { name?: string | null } | null;
-        };
-        const block = ctx.block;
-        const blockType = block.type;
-        const content = (block.content || {}) as Record<string, unknown>;
-        const tableId = blockType === "table" ? String(content.tableId || "") : "";
-        if (tableId) {
-          contextTableId = tableId;
-        }
-
-        const tabName = ctx.tab?.name || "unknown tab";
-        const projectName = ctx.project?.name || "unknown project";
-        const contextLines = [
-          "Context: user selected a block. Use this as the target unless the user says otherwise.",
-          `- Block ID: ${block.id}`,
-          `- Block type: ${blockType}`,
-          `- Tab: ${tabName}`,
-          `- Project: ${projectName}`,
-        ];
-        if (tableId) {
-          contextLines.push(`- Table ID: ${tableId}`);
-        }
-
-        contextMessages = [{ role: "system", content: contextLines.join("\n") }];
-      }
-    }
 
     if (!command || typeof command !== "string") {
       return new Response(
@@ -115,23 +50,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. Create streaming response
+    const referer = request.headers.get("referer");
+    let refererTabId: string | undefined;
+    if (referer) {
+      try {
+        const refererUrl = new URL(referer);
+        const tabMatch = refererUrl.pathname.match(/\/tabs\/([^/]+)/);
+        const workflowMatch = refererUrl.pathname.match(/\/dashboard\/workflow\/([^/]+)/);
+        refererTabId = tabMatch?.[1] || workflowMatch?.[1];
+      } catch {
+        // Ignore malformed referer
+      }
+    }
+
+    const resolvedTabId = (tabId || refererTabId || "").trim();
+    if (!resolvedTabId) {
+      return new Response(
+        `data: ${JSON.stringify({ type: "error", content: "Missing tab context" })}\n\n`,
+        {
+          status: 400,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        }
+      );
+    }
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const generator = executeAICommandStream(command, {
-            workspaceId,
-            workspaceName,
-            userId: user.id,
-            userName,
-            currentProjectId: projectId,
-            currentTabId: tabId,
-            contextTableId,
-            contextBlockId,
-          }, [...contextMessages, ...(messages || [])], {
-            requireWriteConfirmation: true,
-            approvedWriteAction: confirmation,
+          const generator = executeWorkflowAICommandStream({
+            tabId: resolvedTabId,
+            command,
+            conversationHistory: messages,
+            persistSession: false,
+            confirmation: confirmation ?? null,
+            resumeFromConfirmation: Boolean(resumeFromConfirmation),
           });
 
           for await (const event of generator) {

@@ -189,7 +189,7 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
-  // Query 2: Task Items (use statuses JSONB; legacy status column was dropped)
+  // Query 2: Task Items (use statuses JSONB; legacy status column was dropped). Exclude placeholders (default empty tasks in new blocks).
   const { data: taskItems } = await supabase
     .from('task_items')
     .select(`
@@ -207,7 +207,8 @@ async function getWorkspaceEverythingFallback(
         content,
         tab_id
       )
-    `);
+    `)
+    .eq('is_placeholder', false);
 
   // Process task items
   if (taskItems) {

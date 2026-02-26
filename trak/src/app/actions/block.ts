@@ -43,6 +43,7 @@ const BLOCKS_PER_TAB_LIMIT = 500;
 // ============================================================================
 
 export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthContext }) {
+  const _t0 = performance.now();
   try {
     let supabase: Awaited<ReturnType<typeof createClient>>;
     let userId: string;
@@ -57,8 +58,10 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     }
 
     // 🔒 Verify tab access + get workspace in one query
+    const _tAuth0 = performance.now();
     const tab = await getTabMetadata(tabId);
     if (!tab) {
+      console.log(`[PERF] getTabBlocks tabId=${tabId} error=TabNotFound ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Tab not found" };
     }
 
@@ -67,11 +70,14 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     // 🔒 Verify workspace membership BEFORE fetching blocks
     const member = await checkWorkspaceMembership(workspaceId, userId);
     if (!member) {
+      console.log(`[PERF] getTabBlocks tabId=${tabId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Not a member of this workspace" };
     }
+    console.log(`[PERF] getTabBlocks auth ms=${Math.round(performance.now() - _tAuth0)}`);
 
     // ✅ Auth verified - NOW safe to fetch blocks
     // 🚀 Select specific fields + add limit for safety
+    const _tQuery0 = performance.now();
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
       .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
@@ -83,12 +89,17 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
 
     if (blocksError) {
       console.error("Get blocks error:", blocksError);
+      console.log(`[PERF] getTabBlocks tabId=${tabId} error=Query ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Failed to fetch blocks" };
     }
 
+    const blockCount = (blocks || []).length;
+    const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
+    console.log(`[PERF] getTabBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: blocks || [] };
   } catch (error) {
     console.error("Get tab blocks exception:", error);
+    console.log(`[PERF] getTabBlocks tabId=${tabId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch blocks" };
   }
 }
@@ -98,16 +109,18 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
 // ============================================================================
 
 export async function getChildBlocks(parentBlockId: string) {
+  const _t0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
   try {
     const supabase = await createClient();
 
-    // 1. Auth check
+    // 1. Auth check (cached)
     const user = await getAuthenticatedUser();
     if (!user) {
       return { error: "Unauthorized" };
     }
 
     // 2. Get parent block with tab and project info to verify workspace access
+    const _tAuth0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const { data: parentBlock, error: parentError } = await supabase
       .from("blocks")
       .select("id, tab_id, tabs!inner(id, project_id, projects!inner(workspace_id))")
@@ -118,28 +131,29 @@ export async function getChildBlocks(parentBlockId: string) {
       return { error: "Parent block not found" };
     }
 
-    // SECURITY: Extract workspace ID and verify membership
+    // SECURITY: Extract workspace ID and verify membership (use cached helper)
     const workspaceId = (parentBlock.tabs as any)?.projects?.workspace_id;
 
     if (!workspaceId) {
       return { error: "Invalid block structure" };
     }
 
-    const { data: membership, error: memberError } = await supabase
-      .from("workspace_members")
-      .select("role")
-      .eq("workspace_id", workspaceId)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // Use cached checkWorkspaceMembership instead of raw inline query
+    const membership = await checkWorkspaceMembership(workspaceId, user.id);
 
-    if (memberError || !membership) {
+    if (process.env.PERF_DEBUG === '1') {
+      console.log(`[PERF] getChildBlocks auth ms=${Math.round(performance.now() - _tAuth0)} parentBlockId=${parentBlockId}`);
+    }
+
+    if (!membership) {
       return { error: "You don't have access to this workspace" };
     }
 
-    // 3. Get all child blocks for this parent block
+    // 3. Get all child blocks with explicit projection (no wildcard)
+    const _tQuery0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
-      .select("*")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
       .eq("parent_block_id", parentBlockId)
       .order("position", { ascending: true });
 
@@ -148,10 +162,62 @@ export async function getChildBlocks(parentBlockId: string) {
       return { error: "Failed to fetch child blocks" };
     }
 
+    if (process.env.PERF_DEBUG === '1') {
+      const blockCount = (blocks || []).length;
+      const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
+      console.log(`[PERF] getChildBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
+    }
+
     return { data: blocks || [] };
   } catch (error) {
     console.error("Get child blocks exception:", error);
     return { error: "Failed to fetch child blocks" };
+  }
+}
+
+/** Returns tab_id, project_id for a block. Used for navigating to source tasks. */
+export async function getBlockLocation(blockId: string): Promise<
+  | { error: string }
+  | { data: { tab_id: string; project_id: string | null; is_workflow?: boolean } }
+> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return { error: "Unauthorized" };
+
+    const { data: block, error: blockError } = await supabase
+      .from("blocks")
+      .select("tab_id, tabs!inner(id, project_id, projects!inner(workspace_id))")
+      .eq("id", blockId)
+      .single();
+
+    if (blockError || !block) return { error: "Block not found" };
+
+    const tab = (block as any).tabs;
+    const projectId = tab?.project_id ?? null;
+    const workspaceId = tab?.projects?.workspace_id;
+
+    if (!workspaceId) return { error: "Block has no workspace" };
+
+    const { data: membership } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membership) return { error: "Access denied" };
+
+    return {
+      data: {
+        tab_id: (block as any).tab_id,
+        project_id: projectId,
+        is_workflow: !projectId,
+      },
+    };
+  } catch (e) {
+    console.error("getBlockLocation:", e);
+    return { error: "Failed to get block location" };
   }
 }
 
@@ -386,6 +452,24 @@ export async function createBlock(data: {
           content = { code: "", chartType: "bar", title: "Chart" };
           break;
       }
+    } else if (data.type === "table" && !(content as { tableId?: string }).tableId) {
+      // Client sent {} for new table block (optimistic UI); create table and set tableId
+      const { createTable } = await import("./tables/table-actions");
+      const tableResult = await createTable({
+        workspaceId: project.workspace_id,
+        projectId: tab.project_id,
+        title: "Untitled Table",
+      });
+      if ("error" in tableResult) {
+        return { error: tableResult.error };
+      }
+      content = { tableId: tableResult.data.table.id };
+    }
+
+    // Task blocks: never persist tasks in content — they live in task_items only
+    if (data.type === "task" && content && typeof content === "object" && !Array.isArray(content)) {
+      const { tasks: _tasks, ...taskContent } = content as Record<string, unknown>;
+      content = taskContent;
     }
 
     // 8. Create the block
@@ -407,6 +491,20 @@ export async function createBlock(data: {
       console.error("Create block error:", createError);
       // Return more detailed error message if available
       return { error: createError.message || "Failed to create block" };
+    }
+
+    // For task blocks, create a default task item
+    if (data.type === "task") {
+      const { createTaskItem } = await import("./tasks/item-actions");
+      const authContext = data.authContext ?? undefined;
+      const taskResult = await createTaskItem(
+        { taskBlockId: block.id, title: "New task", status: "todo", isPlaceholder: true },
+        { authContext }
+      );
+      if ("error" in taskResult) {
+        console.error("Failed to create default task item for task block:", taskResult.error);
+        // Block was created; don't fail the whole operation, but log the error
+      }
     }
 
     // Revalidate the tab page path
@@ -508,7 +606,7 @@ export async function updateBlock(data: {
 
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id")
+      .select("id, tab_id, type")
       .eq("id", data.blockId.trim())
       .single();
 
@@ -570,7 +668,15 @@ export async function updateBlock(data: {
     const updates: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
-    if (data.content !== undefined) updates.content = data.content;
+    if (data.content !== undefined) {
+      let contentToStore = data.content;
+      // Task blocks: never persist tasks in content — they live in task_items only
+      if (block.type === "task" && contentToStore && typeof contentToStore === "object" && !Array.isArray(contentToStore)) {
+        const { tasks: _tasks, ...taskContent } = contentToStore as Record<string, unknown>;
+        contentToStore = taskContent;
+      }
+      updates.content = contentToStore;
+    }
     if (data.type !== undefined) updates.type = data.type;
     if (data.position !== undefined) updates.position = data.position;
     if (data.column !== undefined) {
@@ -591,6 +697,14 @@ export async function updateBlock(data: {
     if (updateError) {
       console.error("Update block error:", updateError);
       return { error: updateError.message || "Failed to update block" };
+    }
+
+    // 7.5. If this is a task block, clear is_placeholder on all its tasks (block was edited in any way)
+    if (block.type === "task") {
+      await supabase
+        .from("task_items")
+        .update({ is_placeholder: false })
+        .eq("task_block_id", data.blockId);
     }
 
     // 8. Revalidate the tab page path

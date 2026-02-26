@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { type TableField, type SelectFieldOption, type StatusFieldConfig } from "@/types/table";
+import { getCanonicalStatusOption } from "@/lib/tables/universal-property";
 
 interface Props {
   field: TableField;
@@ -24,7 +25,7 @@ const randomColor = () => {
 export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving, onUpdateConfig }: Props) {
   const config = (field.config || {}) as StatusFieldConfig;
   const options = config.options || [];
-  const canEditOptions = !!onUpdateConfig;
+  const canEditOptions = false;
 
   const [draft, setDraft] = useState<string | undefined>(typeof value === "string" ? value : undefined);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -117,8 +118,8 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
     };
 
     onUpdateConfig?.(newConfig);
-    setDraft(newOption.id);
-    onCommit(newOption.id);
+    setDraft(newOption.label);
+    onCommit(newOption.label);
     setNewOptionName("");
     setDropdownOpen(false);
   };
@@ -133,13 +134,25 @@ export function StatusCell({ field, value, editing, onStartEdit, onCommit, onCan
     };
 
     onUpdateConfig?.(newConfig);
-    if (draft === optionId) {
+    const deletedOpt = options.find((opt) => opt.id === optionId);
+    if (draft === deletedOpt?.label || draft === optionId) {
       setDraft(undefined);
       onCommit(null);
     }
   };
 
-  const selectedOption = options.find((opt) => opt.id === value);
+  // Match by label (new format) or ID (backward compat for rows stored before this change)
+  const valueStr = typeof value === "string" ? value : String(value ?? "");
+  const matchedOption = options.find(
+    (opt) =>
+      opt.label === value ||
+      opt.label.toLowerCase() === valueStr.toLowerCase() ||
+      opt.id === value
+  );
+  const fallbackOption = getCanonicalStatusOption(value);
+  const selectedOption = matchedOption ?? (fallbackOption
+    ? { id: fallbackOption.id, label: fallbackOption.label, color: fallbackOption.color }
+    : null);
 
   if (editing && dropdownOpen) {
     return (

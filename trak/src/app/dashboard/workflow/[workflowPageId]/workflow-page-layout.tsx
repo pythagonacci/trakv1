@@ -8,6 +8,7 @@ import TabCanvasWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/
 import type { Block } from "@/app/actions/block";
 import WorkflowAIChatPanel from "./workflow-ai-chat-panel";
 import { enableWorkflowPageSharing, createWorkflowPage } from "@/app/actions/workflow-page";
+import { useAI } from "@/components/ai";
 
 export default function WorkflowPageLayout(props: {
   tabId: string;
@@ -20,6 +21,7 @@ export default function WorkflowPageLayout(props: {
   inProjectContext?: boolean;
 }) {
   const router = useRouter();
+  const { closeCommandPalette, setSuppressInlineSidebar } = useAI();
   const [chatOpen, setChatOpen] = useState(true);
   const [shareLoading, setShareLoading] = useState(false);
   const [newPageLoading, setNewPageLoading] = useState(false);
@@ -37,6 +39,15 @@ export default function WorkflowPageLayout(props: {
       };
     }
   }, [inProject]);
+
+  useEffect(() => {
+    if (!inProject) return;
+    setSuppressInlineSidebar(true);
+    closeCommandPalette();
+    return () => {
+      setSuppressInlineSidebar(false);
+    };
+  }, [inProject, closeCommandPalette, setSuppressInlineSidebar]);
 
   const onCreate = async () => {
     if (newPageLoading) return;

@@ -5,6 +5,10 @@
 // - DB triggers already perform structural checks; these helpers are intended for server actions before writes and can be reused by future UI hooks.
 
 import type { FieldType, TableField } from "@/types/table";
+import {
+  normalizeCanonicalPriorityValue,
+  normalizeCanonicalStatusValue,
+} from "@/lib/tables/universal-property";
 
 export function validateFieldType(type: string): type is FieldType {
   return [
@@ -59,6 +63,16 @@ export function validateRowDataAgainstFields(data: Record<string, unknown>, fiel
       case "relation":
         if (value !== null && value !== undefined && !Array.isArray(value)) {
           return { valid: false, message: `Field ${field.name} expects an array` };
+        }
+        break;
+      case "priority":
+        if (value !== null && value !== undefined && value !== "" && normalizeCanonicalPriorityValue(value) === null) {
+          return { valid: false, message: `Field ${field.name} expects one of: low, medium, high, urgent` };
+        }
+        break;
+      case "status":
+        if (value !== null && value !== undefined && value !== "" && normalizeCanonicalStatusValue(value) === null) {
+          return { valid: false, message: `Field ${field.name} expects one of: todo, in_progress, done, blocked` };
         }
         break;
       default:

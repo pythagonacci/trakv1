@@ -86,19 +86,6 @@ export interface EntityProperties {
   updated_at: string;
 }
 
-export interface InheritedEntityProperties {
-  source_entity_type: EntityType;
-  source_entity_id: string;
-  source_title: string;
-  properties: EntityProperties;
-  visible: boolean;
-}
-
-export interface EntityPropertiesWithInheritance {
-  direct: EntityProperties | null;
-  inherited: InheritedEntityProperties[];
-}
-
 // ============================================================================
 // Workspace Member (for assignee)
 // ============================================================================

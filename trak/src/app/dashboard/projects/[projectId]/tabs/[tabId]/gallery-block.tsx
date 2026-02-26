@@ -6,8 +6,11 @@ import { type Block, updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
-import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil } from "lucide-react";
+import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface GalleryBlockProps {
   block: Block;
@@ -16,20 +19,26 @@ interface GalleryBlockProps {
   onUpdate?: (updatedBlock?: Block) => void;
 }
 
-type GalleryLayout = "3x3" | "2x3";
+type GalleryLayout = "3x3" | "2x3" | "collage";
 type ImageFitMode = "contain" | "cover";
+type CaptionsMode = "always" | "hover" | "hidden";
 
 type GalleryItem = {
   fileId: string | null;
   caption?: string;
   fitMode?: ImageFitMode;
+  /** Collage-only: display width in px; height derived from aspectRatio */
+  width?: number;
+  /** Collage-only: width/height ratio */
+  aspectRatio?: number;
 };
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
-const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string; columns: number; rows: number }> = {
-  "3x3": { label: "3x3", columns: 3, rows: 3 },
-  "2x3": { label: "2x3", columns: 2, rows: 3 },
+const GRID_LAYOUTS = { "3x3": { label: "3x3", columns: 3, rows: 3 }, "2x3": { label: "2x3", columns: 2, rows: 3 } } as const;
+const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string; columns?: number; rows?: number }> = {
+  ...GRID_LAYOUTS,
+  collage: { label: "Collage", columns: undefined, rows: undefined },
 };
 
 const CELL_WIDTH = 150;
@@ -37,10 +46,419 @@ const CELL_HEIGHT = 112;
 const CELL_GAP = 12;
 const CELL_PX = 140;
 const MAX_GALLERY_HEIGHT_PX = 520;
+const COLLAGE_ROW_HEIGHT = 180;
+const COLLAGE_GAP = 12;
+const COLLAGE_MIN_WIDTH = 80;
+const COLLAGE_MAX_WIDTH = 600;
+
+interface CollageViewProps {
+  items: GalleryItem[];
+  fileUrls: Record<string, string>;
+  uploadingSlots: Set<number>;
+  hoveredImageIndex: number | null;
+  setHoveredImageIndex: (v: number | null) => void;
+  imageFitMode: ImageFitMode;
+  captionsMode: CaptionsMode;
+  onReorder: (oldIndex: number, newIndex: number) => void;
+  onAddImage: () => void;
+  onDropOnAddSlot: (e: React.DragEvent) => void;
+  onRemoveImage: (index: number) => void;
+  onResize: (index: number, newWidth: number) => void;
+  onResizeEnd: () => void;
+  onAspectRatioLoaded: (index: number, aspectRatio: number) => void;
+  onCaptionChange: (index: number, value: string) => void;
+  openFilePicker: (index: number) => void;
+  handleDrop: (e: React.DragEvent, index: number) => void;
+  setSideModalIndex: (v: number | null) => void;
+}
+
+function CollageView({
+  items,
+  fileUrls,
+  uploadingSlots,
+  hoveredImageIndex,
+  setHoveredImageIndex,
+  imageFitMode,
+  captionsMode,
+  onReorder,
+  onAddImage,
+  onDropOnAddSlot,
+  onRemoveImage,
+  onResize,
+  onResizeEnd,
+  onAspectRatioLoaded,
+  onCaptionChange,
+  openFilePicker,
+  handleDrop,
+  setSideModalIndex,
+}: CollageViewProps) {
+  // Collage: only show images (no empty add slots). Click/drop anywhere on the block to add.
+  const displayItems = items
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item, idx }) => item.fileId || uploadingSlots.has(idx));
+  const sortableIds = displayItems.map(({ idx }) => `collage-${idx}`);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = parseInt(String(active.id).replace("collage-", ""), 10);
+    const newIdx = parseInt(String(over.id).replace("collage-", ""), 10);
+    if (!isNaN(oldIdx) && !isNaN(newIdx) && oldIdx !== newIdx) {
+      onReorder(oldIdx, newIdx);
+    }
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+        <div
+          className="relative min-h-[160px] rounded-lg border-2 border-dashed border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 cursor-pointer transition-colors flex flex-wrap items-start content-start gap-3 py-2 group/collage"
+          style={{ gap: COLLAGE_GAP }}
+          onClick={(e) => {
+            if (!(e.target as HTMLElement).closest("[data-collage-image]")) {
+              onAddImage();
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer.files?.length) {
+              onDropOnAddSlot(e);
+            }
+            // Don't call onAddImage() for drops with no files - that opens the file picker
+            // (e.g. when user tries to reorder but native img drag fires instead)
+          }}
+          onDragOver={(e) => e.preventDefault()}
+        >
+          {displayItems.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 pointer-events-none text-neutral-500 dark:text-neutral-400">
+              <Plus className="h-8 w-8 opacity-50" />
+              <span className="text-sm">Click or drop to add image</span>
+            </div>
+          )}
+          {displayItems.map(({ item, idx: index }) => (
+            <SortableCollageImage
+              key={`collage-${index}`}
+              id={`collage-${index}`}
+              captionsMode={captionsMode}
+              item={item}
+              index={index}
+              fileUrl={item.fileId ? fileUrls[item.fileId] : null}
+              isUploading={uploadingSlots.has(index)}
+              isHovered={hoveredImageIndex === index}
+              onHover={() => setHoveredImageIndex(index)}
+              onLeave={() => setHoveredImageIndex(null)}
+              onRemove={() => onRemoveImage(index)}
+              onResize={(w) => onResize(index, w)}
+              onResizeEnd={onResizeEnd}
+              onAspectRatioLoaded={(ar) => onAspectRatioLoaded(index, ar)}
+              onCaptionChange={(v) => onCaptionChange(index, v)}
+              onClick={() => item.fileId && setSideModalIndex(index)}
+              onAddClick={() => openFilePicker(index)}
+              onDrop={(e) => handleDrop(e, index)}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableCollageImage({
+  id,
+  captionsMode,
+  item,
+  index,
+  fileUrl,
+  isUploading,
+  isHovered,
+  onHover,
+  onLeave,
+  onRemove,
+  onResize,
+  onAspectRatioLoaded,
+  onCaptionChange,
+  onClick,
+  onAddClick,
+  onDrop,
+  onResizeEnd,
+}: {
+  id: string;
+  captionsMode: CaptionsMode;
+  item: GalleryItem;
+  index: number;
+  fileUrl: string | null;
+  isUploading: boolean;
+  isHovered: boolean;
+  onHover: () => void;
+  onLeave: () => void;
+  onRemove: () => void;
+  onResize: (width: number) => void;
+  onResizeEnd: () => void;
+  onAspectRatioLoaded: (aspectRatio: number) => void;
+  onCaptionChange: (value: string) => void;
+  onClick: () => void;
+  onAddClick: () => void;
+  onDrop: (e: React.DragEvent) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} data-collage-image className={cn("shrink-0 flex flex-col", isDragging && "opacity-60 z-10")}>
+      <CollageImage
+        captionsMode={captionsMode}
+        item={item}
+        index={index}
+        fileUrl={fileUrl}
+        isUploading={isUploading}
+        isHovered={isHovered}
+        onHover={onHover}
+        onLeave={onLeave}
+        onRemove={onRemove}
+        onResize={onResize}
+        onAspectRatioLoaded={onAspectRatioLoaded}
+        onCaptionChange={onCaptionChange}
+        onClick={onClick}
+        onAddClick={onAddClick}
+        onDrop={onDrop}
+        onResizeEnd={onResizeEnd}
+        dragHandleProps={{ attributes: attributes as unknown as Record<string, unknown>, listeners: listeners as unknown as Record<string, unknown> }}
+      />
+    </div>
+  );
+}
+
+function CollageImage({
+  item,
+  index,
+  fileUrl,
+  isUploading,
+  isHovered,
+  captionsMode = "always",
+  onHover,
+  onLeave,
+  onRemove,
+  onResize,
+  onAspectRatioLoaded,
+  onCaptionChange,
+  onClick,
+  onAddClick,
+  onDrop,
+  onResizeEnd,
+  dragHandleProps,
+}: {
+  item: GalleryItem;
+  index: number;
+  fileUrl: string | null;
+  isUploading: boolean;
+  isHovered: boolean;
+  onHover: () => void;
+  onLeave: () => void;
+  onRemove: () => void;
+  onResize: (width: number) => void;
+  onResizeEnd: () => void;
+  onAspectRatioLoaded: (aspectRatio: number) => void;
+  onCaptionChange: (value: string) => void;
+  onClick: () => void;
+  onAddClick: () => void;
+  onDrop: (e: React.DragEvent) => void;
+  captionsMode?: CaptionsMode;
+  dragHandleProps?: { attributes: Record<string, unknown>; listeners: Record<string, unknown> };
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const width = item.width ?? 200;
+  const aspectRatio = item.aspectRatio ?? 1;
+  const height = width / aspectRatio;
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(COLLAGE_MIN_WIDTH, Math.min(COLLAGE_MAX_WIDTH, ev.clientX - rect.left));
+      onResize(newWidth);
+    };
+    const onUp = () => {
+      onResizeEnd();
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  if (!fileUrl && !isUploading) {
+    return (
+      <div
+        ref={containerRef}
+        onClick={onAddClick}
+        onDrop={(e) => {
+          e.preventDefault();
+          onDrop(e);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        onMouseEnter={onHover}
+        onMouseLeave={onLeave}
+        className={cn(
+          "relative flex shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/30 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600",
+          isUploading && "border-solid"
+        )}
+        style={{ width: 120, height: 120 }}
+      >
+        {isUploading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+        ) : (
+          <>
+            <ImageIcon className="h-8 w-8 text-neutral-400" />
+            <span className="absolute bottom-1 left-1 right-1 text-center text-[10px] text-neutral-500">Add image</span>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="group flex flex-col shrink-0"
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
+    >
+      <div
+        ref={containerRef}
+        onClick={onClick}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDrop(e);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        className={cn(
+          "group relative shrink-0 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60 transition-all",
+          isUploading && "border-solid"
+        )}
+        style={{ width, height }}
+      >
+        {isUploading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
+            <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+          </div>
+        )}
+        {fileUrl && (
+          <Image
+            src={fileUrl}
+            alt={item.caption || `Collage image ${index + 1}`}
+            width={Math.round(width)}
+            height={Math.round(height)}
+            className="h-full w-full object-contain"
+            style={{ aspectRatio }}
+            draggable={false}
+            onLoad={(e) => {
+              const img = e.target as HTMLImageElement;
+              if (img.naturalWidth && img.naturalHeight) {
+                onAspectRatioLoaded(img.naturalWidth / img.naturalHeight);
+              }
+            }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+            loading={index === 0 ? "eager" : "lazy"}
+            priority={index === 0}
+            unoptimized
+          />
+        )}
+        {dragHandleProps && (
+          <div
+            className="absolute inset-0 z-[5] cursor-grab active:cursor-grabbing"
+            title="Drag to reorder"
+            {...dragHandleProps.attributes}
+            {...dragHandleProps.listeners}
+          />
+        )}
+        {isHovered && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="absolute right-1 top-1 z-10 rounded-full bg-black/60 p-1 text-white transition-colors hover:bg-black/80"
+              title="Remove"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
+        )}
+        {captionsMode === "hover" && isHovered && (
+          <div className="absolute bottom-1 left-1 right-1 z-10">
+            <input
+              type="text"
+              value={item.caption || ""}
+              onChange={(e) => onCaptionChange(e.target.value)}
+              placeholder="Add caption..."
+              onClick={(e) => e.stopPropagation()}
+              className="w-full rounded bg-black/60 px-2 py-0.5 text-[10px] text-white placeholder:text-white/70 focus:outline-none"
+            />
+          </div>
+        )}
+        <div
+          role="button"
+          tabIndex={0}
+          onMouseDown={handleResizeMouseDown}
+          className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-se-resize rounded-tl bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+          title="Drag to resize"
+        />
+      </div>
+      {captionsMode === "always" && (
+        <div className="mt-1 min-w-0 w-full">
+          {isHovered ? (
+            <input
+              type="text"
+              value={item.caption || ""}
+              onChange={(e) => onCaptionChange(e.target.value)}
+              placeholder="Add caption..."
+              onClick={(e) => e.stopPropagation()}
+              className="w-full rounded bg-transparent border-b border-neutral-200 dark:border-neutral-600 px-0 py-0.5 text-[10px] text-neutral-600 dark:text-neutral-400 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400"
+            />
+          ) : item.caption ? (
+            <span className="block truncate text-[10px] text-neutral-500 dark:text-neutral-400">
+              {item.caption}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const buildItems = (rawItems: unknown, layout: GalleryLayout | null): GalleryItem[] => {
   if (!layout) return [];
-  const size = GALLERY_LAYOUTS[layout].columns * GALLERY_LAYOUTS[layout].rows;
+  if (layout === "collage") {
+    const items = Array.isArray(rawItems) ? rawItems : [];
+    return items.map((item) => {
+      const i = item as GalleryItem | undefined;
+      return {
+        fileId: typeof i?.fileId === "string" ? i.fileId : null,
+        caption: typeof i?.caption === "string" ? i.caption : "",
+        fitMode: i?.fitMode === "contain" || i?.fitMode === "cover" ? i.fitMode : undefined,
+        width: typeof i?.width === "number" && i.width > 0 ? i.width : 200,
+        aspectRatio: typeof i?.aspectRatio === "number" && i.aspectRatio > 0 ? i.aspectRatio : 1,
+      };
+    });
+  }
+  const config = GRID_LAYOUTS[layout];
+  const size = config.columns * config.rows;
   const items = Array.isArray(rawItems) ? rawItems : [];
   const normalized: GalleryItem[] = [];
 
@@ -70,6 +488,12 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [imageFitMode, setImageFitMode] = useState<ImageFitMode>(
     (block.content?.imageFitMode as ImageFitMode) || "contain"
   );
+  const [hideEmptySlots, setHideEmptySlots] = useState<boolean>(
+    (block.content?.hideEmptySlots as boolean) ?? false
+  );
+  const [captionsMode, setCaptionsMode] = useState<CaptionsMode>(
+    (block.content?.captionsMode as CaptionsMode) || "always"
+  );
   const [title, setTitle] = useState<string>(
     (block.content?.title as string) || "Gallery"
   );
@@ -86,6 +510,8 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     setLayout(nextLayout);
     setItems(buildItems(block.content?.items, nextLayout));
     setImageFitMode((block.content?.imageFitMode as ImageFitMode) || "contain");
+    setHideEmptySlots((block.content?.hideEmptySlots as boolean) ?? false);
+    setCaptionsMode((block.content?.captionsMode as CaptionsMode) || "always");
     setTitle((block.content?.title as string) || "Gallery");
   }, [block.content]);
 
@@ -96,7 +522,14 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     };
   }, []);
 
-  const persistItems = async (nextItems: GalleryItem[], nextLayout = layout, nextFitMode = imageFitMode, nextTitle = title) => {
+  const persistItems = async (
+    nextItems: GalleryItem[],
+    nextLayout = layout,
+    nextFitMode = imageFitMode,
+    nextTitle = title,
+    nextHideEmptySlots = hideEmptySlots,
+    nextCaptionsMode = captionsMode
+  ) => {
     if (!nextLayout) return;
     const result = await updateBlock({
       blockId: block.id,
@@ -106,6 +539,8 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         items: nextItems,
         imageFitMode: nextFitMode,
         title: nextTitle,
+        hideEmptySlots: nextHideEmptySlots,
+        captionsMode: nextCaptionsMode,
       },
     });
     if (result.data) {
@@ -116,6 +551,16 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const handleFitModeChange = async (mode: ImageFitMode) => {
     setImageFitMode(mode);
     await persistItems(items, layout, mode);
+  };
+
+  const handleHideEmptySlotsChange = async (value: boolean) => {
+    setHideEmptySlots(value);
+    await persistItems(items, layout, imageFitMode, title, value);
+  };
+
+  const handleCaptionsModeChange = async (value: CaptionsMode) => {
+    setCaptionsMode(value);
+    await persistItems(items, layout, imageFitMode, title, hideEmptySlots, value);
   };
 
   const handleTitleChange = async (newTitle: string) => {
@@ -134,10 +579,27 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const handleLayoutChange = async (nextLayout: GalleryLayout) => {
     captionTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
     captionTimeoutsRef.current.clear();
-    const nextItems = buildItems(items, nextLayout);
+    let nextItems: GalleryItem[];
+    if (nextLayout === "collage") {
+      nextItems = buildItems(items.filter((i) => i.fileId).length ? items : [], nextLayout);
+    } else if (nextLayout === "3x3" || nextLayout === "2x3") {
+      nextItems = items
+        .filter((i) => i.fileId)
+        .map((item) => ({ fileId: item.fileId, caption: item.caption, fitMode: item.fitMode }));
+    } else {
+      nextItems = buildItems(items, nextLayout);
+    }
     setLayout(nextLayout);
     setItems(nextItems);
     await persistItems(nextItems, nextLayout);
+  };
+
+  const handleAddGridImage = () => {
+    const newItem: GalleryItem = { fileId: null, caption: "" };
+    const nextItems = [...items, newItem];
+    setItems(nextItems);
+    persistItems(nextItems);
+    openFilePicker(nextItems.length - 1);
   };
 
   const openFilePicker = (index: number) => {
@@ -163,7 +625,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     await uploadImage(file, index);
   };
 
-  const uploadImage = async (file: File, index: number) => {
+  const uploadImage = async (file: File, index: number, baseItems?: GalleryItem[]) => {
     if (!workspaceId || !projectId) return;
 
     if (!file.type.startsWith("image/")) {
@@ -214,7 +676,8 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         return;
       }
 
-      const nextItems = items.map((item, idx) =>
+      const source = baseItems ?? items;
+      const nextItems = source.map((item, idx) =>
         idx === index ? { ...item, fileId } : item
       );
       setItems(nextItems);
@@ -252,12 +715,85 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     const item = items[index];
     const currentFitMode = item.fitMode || imageFitMode;
     const nextFitMode: ImageFitMode = currentFitMode === "contain" ? "cover" : "contain";
-    
+
     const nextItems = items.map((it, idx) =>
       idx === index ? { ...it, fitMode: nextFitMode } : it
     );
     setItems(nextItems);
     await persistItems(nextItems);
+  };
+
+  const handleAddCollageImage = () => {
+    const newItem: GalleryItem = { fileId: null, caption: "", width: 200, aspectRatio: 1 };
+    const nextItems = [...items, newItem];
+    setItems(nextItems);
+    persistItems(nextItems);
+    openFilePicker(nextItems.length - 1);
+  };
+
+  const handleDropOnAddSlot = async (e: React.DragEvent) => {
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    e.preventDefault();
+    const newItem: GalleryItem = { fileId: null, caption: "", width: 200, aspectRatio: 1 };
+    const nextItems = [...items, newItem];
+    setItems(nextItems);
+    await persistItems(nextItems);
+    await uploadImage(file, nextItems.length - 1, nextItems);
+  };
+
+  const handleRemoveCollageImage = async (index: number) => {
+    const nextItems = items.filter((_, i) => i !== index);
+    setItems(nextItems);
+    await persistItems(nextItems);
+    if (sideModalIndex === index) setSideModalIndex(null);
+    if (sideModalIndex !== null && sideModalIndex > index) setSideModalIndex(sideModalIndex - 1);
+  };
+
+  const handleCollageReorder = async (oldIndex: number, newIndex: number) => {
+    const nextItems = arrayMove(items, oldIndex, newIndex);
+    setItems(nextItems);
+    await persistItems(nextItems);
+    if (sideModalIndex === oldIndex) setSideModalIndex(newIndex);
+    else if (sideModalIndex !== null && sideModalIndex > oldIndex && sideModalIndex <= newIndex)
+      setSideModalIndex(sideModalIndex - 1);
+    else if (sideModalIndex !== null && sideModalIndex < oldIndex && sideModalIndex >= newIndex)
+      setSideModalIndex(sideModalIndex + 1);
+  };
+
+  const collageResizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const collageItemsRef = useRef<GalleryItem[]>(items);
+  collageItemsRef.current = items;
+
+  const handleCollageResize = (index: number, newWidth: number) => {
+    const w = Math.max(COLLAGE_MIN_WIDTH, Math.min(COLLAGE_MAX_WIDTH, newWidth));
+    setItems((prev) => {
+      const next = prev.map((it, i) => (i === index ? { ...it, width: w } : it));
+      collageItemsRef.current = next;
+      if (collageResizeTimeoutRef.current) clearTimeout(collageResizeTimeoutRef.current);
+      collageResizeTimeoutRef.current = setTimeout(() => {
+        collageResizeTimeoutRef.current = null;
+        persistItems(next);
+      }, 400);
+      return next;
+    });
+  };
+
+  const handleCollageResizeEnd = () => {
+    if (collageResizeTimeoutRef.current) {
+      clearTimeout(collageResizeTimeoutRef.current);
+      collageResizeTimeoutRef.current = null;
+      persistItems(collageItemsRef.current);
+    }
+  };
+
+  const handleCollageAspectRatioLoaded = (index: number, aspectRatio: number) => {
+    setItems((prev) => {
+      if (prev[index]?.aspectRatio === aspectRatio) return prev;
+      const next = prev.map((it, i) => (i === index ? { ...it, aspectRatio } : it));
+      queueMicrotask(() => persistItems(next));
+      return next;
+    });
   };
 
   if (!layout) {
@@ -266,9 +802,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
           Choose a gallery layout
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           {(Object.keys(GALLERY_LAYOUTS) as GalleryLayout[]).map((option) => {
             const layoutConfig = GALLERY_LAYOUTS[option];
+            const isCollage = option === "collage";
             return (
               <button
                 key={option}
@@ -282,19 +819,31 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                   </span>
                   <Images className="h-4 w-4 text-neutral-500" />
                 </div>
-                <div
-                  className="mt-3 grid gap-1"
-                  style={{
-                    gridTemplateColumns: `repeat(${layoutConfig.columns}, minmax(0, 1fr))`,
-                  }}
-                >
-                  {Array.from({ length: layoutConfig.columns * layoutConfig.rows }).map((_, index) => (
-                    <span
-                      key={`${option}-${index}`}
-                      className="block h-3 w-3 rounded-sm bg-neutral-200 dark:bg-neutral-700"
-                    />
-                  ))}
-                </div>
+                {isCollage ? (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {[3, 2, 2, 4].map((w, i) => (
+                      <span
+                        key={`${option}-${i}`}
+                        className="rounded-sm bg-neutral-200 dark:bg-neutral-700"
+                        style={{ width: w * 8, height: 8 }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    className="mt-3 grid gap-1"
+                    style={{
+                      gridTemplateColumns: `repeat(${layoutConfig.columns}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {Array.from({ length: (layoutConfig.columns ?? 0) * (layoutConfig.rows ?? 0) }).map((_, index) => (
+                      <span
+                        key={`${option}-${index}`}
+                        className="block h-3 w-3 rounded-sm bg-neutral-200 dark:bg-neutral-700"
+                      />
+                    ))}
+                  </div>
+                )}
               </button>
             );
           })}
@@ -303,18 +852,31 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     );
   }
 
-  const { columns, rows } = GALLERY_LAYOUTS[layout];
+  const isCollage = layout === "collage";
+  const gridConfig = isCollage ? null : GRID_LAYOUTS[layout];
+  const columns = gridConfig?.columns ?? 0;
+  const rows = gridConfig?.rows ?? 0;
   const lightboxItem = lightboxIndex !== null ? items[lightboxIndex] : null;
   const lightboxUrl = lightboxItem?.fileId ? fileUrls[lightboxItem.fileId] : null;
 
-  // Compute gallery height with cap
-  const naturalHeight = rows * CELL_PX + (rows - 1) * CELL_GAP;
-  const galleryHeight = Math.min(MAX_GALLERY_HEIGHT_PX, naturalHeight);
+  // Grid: only show filled slots + add button; block resizes
+  const gridDisplayItems = !isCollage
+    ? items
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item, idx }) => item.fileId || uploadingSlots.has(idx))
+    : items.map((item, idx) => ({ item, idx }));
+  const showAddSlotInGrid = !isCollage;
+  const gridCellCount = gridDisplayItems.length + (showAddSlotInGrid ? 1 : 0);
+  const displayRows = !isCollage
+    ? Math.max(1, Math.ceil(gridCellCount / columns))
+    : rows;
+  const naturalHeight = displayRows * CELL_PX + (displayRows - 1) * CELL_GAP;
+  const galleryHeight = displayRows ? Math.min(MAX_GALLERY_HEIGHT_PX, naturalHeight) : 0;
 
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between gap-2 relative">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           {isEditingTitle ? (
             <input
               type="text"
@@ -338,6 +900,32 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
               <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           )}
+          <div className="flex rounded-md border border-neutral-200 dark:border-neutral-700 p-0.5">
+            <button
+              type="button"
+              onClick={() => handleLayoutChange("collage")}
+              className={cn(
+                "rounded px-2 py-0.5 text-xs font-medium transition-colors",
+                isCollage
+                  ? "bg-neutral-200 dark:bg-neutral-600 text-neutral-900 dark:text-white"
+                  : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200"
+              )}
+            >
+              Collage
+            </button>
+            <button
+              type="button"
+              onClick={() => handleLayoutChange(isCollage ? "3x3" : layout)}
+              className={cn(
+                "rounded px-2 py-0.5 text-xs font-medium transition-colors",
+                !isCollage
+                  ? "bg-neutral-200 dark:bg-neutral-600 text-neutral-900 dark:text-white"
+                  : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200"
+              )}
+            >
+              Grid
+            </button>
+          </div>
         </div>
         <div className="relative">
           <button
@@ -349,7 +937,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
           >
             <Settings className="h-4 w-4" />
           </button>
-          <div 
+          <div
             className={cn(
               "absolute right-0 top-full pt-1 transition-all duration-200 z-10",
               isSettingsHovered ? "opacity-100 visible pointer-events-auto" : "opacity-0 invisible pointer-events-none"
@@ -377,17 +965,33 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 </div>
                 <div>
                   <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
-                    Default Image Fit
+                    Captions
                   </label>
                   <select
-                    value={imageFitMode}
-                    onChange={(e) => handleFitModeChange(e.target.value as ImageFitMode)}
+                    value={captionsMode}
+                    onChange={(e) => handleCaptionsModeChange(e.target.value as CaptionsMode)}
                     className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
                   >
-                    <option value="contain">Fit (show full image)</option>
-                    <option value="cover">Fill (crop to fill)</option>
+                    <option value="always">Right underneath</option>
+                    <option value="hover">On hover only</option>
+                    <option value="hidden">Hidden</option>
                   </select>
                 </div>
+                {!isCollage && (
+                  <div>
+                    <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
+                      Default Image Fit
+                    </label>
+                    <select
+                      value={imageFitMode}
+                      onChange={(e) => handleFitModeChange(e.target.value as ImageFitMode)}
+                      className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+                    >
+                      <option value="contain">Fit (show full image)</option>
+                      <option value="cover">Fill (crop to fill)</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -445,11 +1049,15 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                                 width={CELL_WIDTH}
                                 height={CELL_HEIGHT}
                                 className={cn(
-                                  itemFitMode === "contain" 
-                                    ? "max-h-full max-w-full object-contain" 
+                                  itemFitMode === "contain"
+                                    ? "max-h-full max-w-full object-contain"
                                     : "h-full w-full object-cover"
                                 )}
-                                loading="lazy"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                                loading={index === 0 ? "eager" : "lazy"}
+                                priority={index === 0}
                                 unoptimized
                               />
                             </div>
@@ -502,131 +1110,198 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 ) : null}
               </div>
             </div>
+          ) : isCollage ? (
+            <CollageView
+              items={items}
+              fileUrls={fileUrls}
+              uploadingSlots={uploadingSlots}
+              hoveredImageIndex={hoveredImageIndex}
+              setHoveredImageIndex={setHoveredImageIndex}
+              imageFitMode={imageFitMode}
+              captionsMode={captionsMode}
+              onReorder={handleCollageReorder}
+              onAddImage={handleAddCollageImage}
+              onDropOnAddSlot={handleDropOnAddSlot}
+              onRemoveImage={handleRemoveCollageImage}
+              onResize={handleCollageResize}
+              onResizeEnd={handleCollageResizeEnd}
+              onAspectRatioLoaded={handleCollageAspectRatioLoaded}
+              onCaptionChange={handleCaptionChange}
+              openFilePicker={openFilePicker}
+              handleDrop={handleDrop}
+              setSideModalIndex={setSideModalIndex}
+            />
           ) : (
             <div
               className="grid w-full"
               style={{
                 gap: `${CELL_GAP}px`,
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${displayRows}, minmax(0, 1fr))`,
                 height: `${galleryHeight}px`,
+                minHeight: `${CELL_PX}px`,
+                transition: 'height 150ms ease',
               }}
             >
-            {items.map((item, index) => {
-              const fileId = item.fileId;
-              const imageUrl = fileId ? fileUrls[fileId] : null;
-              const hasFile = Boolean(fileId);
-              const isUploading = uploadingSlots.has(index);
-              const isPendingUrl = hasFile && !imageUrl;
-              const itemFitMode = item.fitMode || imageFitMode;
+              {gridDisplayItems.map(({ item, idx: index }) => {
+                const fileId = item.fileId;
+                const imageUrl = fileId ? fileUrls[fileId] : null;
+                const hasFile = Boolean(fileId);
+                const isUploading = uploadingSlots.has(index);
+                const isPendingUrl = hasFile && !imageUrl;
+                const itemFitMode = item.fitMode || imageFitMode;
 
-              return (
-                <div
-                  key={`gallery-slot-${index}`}
-                  className={cn(
-                    "relative overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
-                    isUploading && "border-solid"
-                  )}
-                  onMouseEnter={() => setHoveredImageIndex(index)}
-                  onMouseLeave={() => setHoveredImageIndex(null)}
-                  onClick={() => {
-                    if (hasFile) {
-                      if (imageUrl) {
-                        setSideModalIndex(index);
+                const isHovered = hoveredImageIndex === index;
+
+                return (
+                  <div
+                    key={`gallery-slot-${index}`}
+                    className={cn(
+                      "group relative flex flex-col min-h-0 overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
+                      isUploading && "border-solid"
+                    )}
+                    onMouseEnter={() => setHoveredImageIndex(index)}
+                    onMouseLeave={() => setHoveredImageIndex(null)}
+                    onClick={() => {
+                      if (hasFile) {
+                        if (imageUrl) {
+                          setSideModalIndex(index);
+                        }
+                        return;
                       }
-                      return;
-                    }
-                    if (!isUploading) {
-                      openFilePicker(index);
-                    }
-                  }}
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragOver={(e) => e.preventDefault()}
-                >
-                  {isUploading && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
-                      <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
-                    </div>
-                  )}
+                      if (!isUploading) {
+                        openFilePicker(index);
+                      }
+                    }}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragOver={(e) => e.preventDefault()}
+                  >
+                    {isUploading && (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
+                        <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+                      </div>
+                    )}
 
-                  {imageUrl ? (
-                    <>
-                      <div className={cn(
-                        "relative h-full w-full",
-                        itemFitMode === "contain" && "flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50"
-                      )}>
-                        <Image
-                          src={imageUrl}
-                          alt={item.caption || `Gallery image ${index + 1}`}
-                          fill
-                          className={cn(
-                            itemFitMode === "contain" 
-                              ? "object-contain" 
-                              : "object-cover",
-                            "transition-opacity",
-                            hoveredImageIndex === index && "opacity-90"
-                          )}
-                          loading="lazy"
-                          unoptimized
-                        />
+                    {imageUrl ? (
+                      <>
+                        <div className={cn(
+                          "relative flex-1 min-h-0 w-full",
+                          itemFitMode === "contain" && "flex items-center justify-center bg-neutral-50 dark:bg-neutral-800/50"
+                        )}>
+                          <Image
+                            src={imageUrl}
+                            alt={item.caption || `Gallery image ${index + 1}`}
+                            fill
+                            className={cn(
+                              itemFitMode === "contain"
+                                ? "object-contain"
+                                : "object-cover",
+                              "transition-opacity",
+                              hoveredImageIndex === index && "opacity-90"
+                            )}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                            loading={index === 0 ? "eager" : "lazy"}
+                            priority={index === 0}
+                            unoptimized
+                          />
+                        </div>
+                        <div className={cn(
+                          "absolute right-2 top-2 flex gap-1 transition-opacity",
+                          hoveredImageIndex === index ? "opacity-100" : "opacity-0"
+                        )}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleImageFitModeToggle(index);
+                            }}
+                            className="rounded-full bg-black/60 p-1.5 text-white transition-colors hover:bg-black/80"
+                            title={itemFitMode === "contain" ? "Fill block (crop to fill)" : "Fit image (show full)"}
+                          >
+                            {itemFitMode === "contain" ? (
+                              <Maximize2 className="h-3 w-3" />
+                            ) : (
+                              <Minimize2 className="h-3 w-3" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openFilePicker(index);
+                            }}
+                            className="rounded-full bg-black/60 px-2 py-1 text-[10px] text-white transition-colors hover:bg-black/80"
+                          >
+                            Replace
+                          </button>
+                        </div>
+                        {captionsMode === "always" && (
+                          <div className="shrink-0 px-2 py-1 min-h-0">
+                            {isHovered ? (
+                              <input
+                                type="text"
+                                value={item.caption || ""}
+                                onChange={(e) => handleCaptionChange(index, e.target.value)}
+                                placeholder="Add caption..."
+                                className="w-full rounded-md bg-transparent border-b border-neutral-200 dark:border-neutral-600 px-0 py-0.5 text-[10px] text-neutral-600 dark:text-neutral-400 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : item.caption ? (
+                              <span className="block truncate text-[10px] text-neutral-500 dark:text-neutral-400">
+                                {item.caption}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                        {captionsMode === "hover" && isHovered && (
+                          <div className="absolute bottom-2 left-2 right-2 z-10">
+                            <input
+                              type="text"
+                              value={item.caption || ""}
+                              onChange={(e) => handleCaptionChange(index, e.target.value)}
+                              placeholder="Add caption..."
+                              className="w-full rounded-md bg-black/60 px-2 py-1 text-[10px] text-white placeholder:text-white/70 focus:outline-none"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center text-xs text-neutral-500">
+                        {isPendingUrl ? (
+                          <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+                        ) : (
+                          <ImageIcon className="h-6 w-6 text-neutral-400" />
+                        )}
+                        <span>{isPendingUrl ? "Loading image..." : "Drop image or click to upload"}</span>
                       </div>
-                      <div className={cn(
-                        "absolute right-2 top-2 flex gap-1 transition-opacity",
-                        hoveredImageIndex === index ? "opacity-100" : "opacity-0"
-                      )}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleImageFitModeToggle(index);
-                          }}
-                          className="rounded-full bg-black/60 p-1.5 text-white transition-colors hover:bg-black/80"
-                          title={itemFitMode === "contain" ? "Fill block (crop to fill)" : "Fit image (show full)"}
-                        >
-                          {itemFitMode === "contain" ? (
-                            <Maximize2 className="h-3 w-3" />
-                          ) : (
-                            <Minimize2 className="h-3 w-3" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFilePicker(index);
-                          }}
-                          className="rounded-full bg-black/60 px-2 py-1 text-[10px] text-white transition-colors hover:bg-black/80"
-                        >
-                          Replace
-                        </button>
-                      </div>
-                      <div className={cn(
-                        "absolute bottom-2 left-2 right-2 transition-opacity",
-                        hoveredImageIndex === index ? "opacity-100" : "opacity-0"
-                      )}>
-                        <input
-                          type="text"
-                          value={item.caption || ""}
-                          onChange={(e) => handleCaptionChange(index, e.target.value)}
-                          placeholder="Add caption..."
-                          className="w-full rounded-md bg-white/80 px-2 py-1 text-[11px] text-neutral-700 placeholder:text-neutral-400 focus:outline-none"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center text-xs text-neutral-500">
-                      {isPendingUrl ? (
-                        <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
-                      ) : (
-                        <ImageIcon className="h-6 w-6 text-neutral-400" />
-                      )}
-                      <span>{isPendingUrl ? "Loading image..." : "Drop image or click to upload"}</span>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                );
+              })}
+              {showAddSlotInGrid && (
+                <div
+                  onClick={handleAddGridImage}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    const newItem: GalleryItem = { fileId: null, caption: "" };
+                    const nextItems = [...items, newItem];
+                    setItems(nextItems);
+                    await persistItems(nextItems);
+                    await uploadImage(file, nextItems.length - 1, nextItems);
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/30 text-neutral-500 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-300"
+                >
+                  <Plus className="h-8 w-8" />
+                  <span className="text-[10px]">Add image</span>
                 </div>
-              );
-            })}
+              )}
             </div>
           )}
         </div>
@@ -662,6 +1337,9 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
             width={1920}
             height={1080}
             unoptimized
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
             onClick={(e) => e.stopPropagation()}
           />
         </div>

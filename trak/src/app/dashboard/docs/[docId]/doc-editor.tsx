@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Loader2, Download, ChevronDown, Pin, PinOff, Type } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, ChevronDown, Type } from "lucide-react";
 import RichTextEditor from "@/components/editor/rich-text-editor";
 import { updateDoc } from "@/app/actions/doc";
 import { cn } from "@/lib/utils";
@@ -96,8 +96,9 @@ export default function DocEditor({ doc }: DocEditorProps) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [docTheme, setDocTheme] = useState<string>("sand");
   const [lineSpacing, setLineSpacing] = useState<string>("1.5");
-  const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(false);
+  const isToolbarPinned = true; // Toolbar always pinned
   const [floatingToolbarVisible, setFloatingToolbarVisible] = useState<boolean>(false);
+  const [toolbarOutOfView, setToolbarOutOfView] = useState<boolean>(false);
   const [topBarHeight, setTopBarHeight] = useState<number>(0);
   const [isMounted, setIsMounted] = useState(false);
   const { setHeaderHidden } = useDashboardHeader();
@@ -201,20 +202,6 @@ export default function DocEditor({ doc }: DocEditorProps) {
     localStorage.setItem(themeKey, docTheme);
   }, [docTheme, globalTheme]);
 
-  // Pin persistence (local only)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const savedPin = localStorage.getItem("trak-doc-toolbar-pinned");
-    if (savedPin === "true") {
-      setIsToolbarPinned(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("trak-doc-toolbar-pinned", isToolbarPinned ? "true" : "false");
-  }, [isToolbarPinned]);
-
   // Line spacing persistence
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -244,6 +231,26 @@ export default function DocEditor({ doc }: DocEditorProps) {
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, []);
+
+  // Only show hover zone when toolbar has scrolled out of view (unpinned)
+  useEffect(() => {
+    if (isToolbarPinned) {
+      setToolbarOutOfView(false);
+      return;
+    }
+    const el = topBarRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0];
+        if (!e) return;
+        setToolbarOutOfView(!e.isIntersecting);
+      },
+      { root: null, rootMargin: "0px", threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isToolbarPinned]);
 
   const formatLastSaved = () => {
     if (!lastSaved) return "";
@@ -427,8 +434,8 @@ export default function DocEditor({ doc }: DocEditorProps) {
       className="min-h-screen"
       style={{ background: theme.pageBg }}
     >
-      {/* Hover zone to surface toolbar when unpinned */}
-      {!isToolbarPinned && (
+      {/* Hover zone to surface toolbar only when it has scrolled out of view */}
+      {!isToolbarPinned && toolbarOutOfView && (
         <div
           className="fixed top-0 left-0 right-0 h-10 z-30 pointer-events-auto"
           onMouseEnter={handleHoverZoneEnter}
@@ -519,20 +526,6 @@ export default function DocEditor({ doc }: DocEditorProps) {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <button
-              type="button"
-              onClick={() => {
-                const next = !isToolbarPinned;
-                setIsToolbarPinned(next);
-                if (!next) {
-                  setFloatingToolbarVisible(false);
-                }
-              }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-            >
-              {isToolbarPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{isToolbarPinned ? "Unpin" : "Pin"}</span>
-            </button>
             {/* Export Dropdown - Only render after mount to prevent hydration mismatch */}
             {isMounted ? (
               <DropdownMenu>

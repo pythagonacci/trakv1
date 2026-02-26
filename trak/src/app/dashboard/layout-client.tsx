@@ -34,7 +34,7 @@ import {
 import GlobalSearch from "./global-search";
 import { useTheme } from "./theme-context";
 import { useUser } from "@/hooks/use-user";
-import { useAI } from "@/components/ai";
+import { AICommandPalette, useAI } from "@/components/ai";
 
 interface User {
   id: string;
@@ -53,15 +53,26 @@ export default function DashboardLayoutClient({
 }: {
   children: React.ReactNode;
 }) {
+  const { suppressInlineSidebar } = useAI();
+  // Keep SSR and first client render identical to avoid hydration mismatch.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const pathname = usePathname();
   const wasProjectView = useRef<boolean | null>(null);
+  const isFirstRender = useRef(true);
 
   const isProjectView =
     pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
+  const isWorkflowRoute = pathname?.startsWith("/dashboard/workflow");
 
   useEffect(() => {
+    // After hydration, align with route-driven default once.
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      setSidebarCollapsed(isProjectView);
+      wasProjectView.current = isProjectView;
+      return;
+    }
     if (wasProjectView.current !== true && isProjectView) {
       setSidebarCollapsed(true);
     }
@@ -78,10 +89,20 @@ export default function DashboardLayoutClient({
         {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
         <Sidebar collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header />
-          <LayoutMain>{children}</LayoutMain>
-        </div>
+        {isWorkflowRoute || suppressInlineSidebar ? (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <Header />
+            <LayoutMain>{children}</LayoutMain>
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-1 overflow-hidden">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <Header />
+              <LayoutMain>{children}</LayoutMain>
+            </div>
+            <AICommandPalette />
+          </div>
+        )}
       </div>
     </DashboardHeaderProvider>
   );
@@ -133,7 +154,7 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
         clearInterval(interval);
         setTypingDone(true);
       }
-    }, 85);
+    }, 40);
 
     return () => clearInterval(interval);
   }, [greeting, resolvedName]);
@@ -199,8 +220,8 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       setIsHiding(true);
       finalizeTimer = setTimeout(() => {
         onFinish();
-      }, 450);
-    }, 3200);
+      }, 300);
+    }, 800);
 
     return () => {
       clearTimeout(hideTimer);
@@ -691,13 +712,17 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
       id="dashboard-content"
       className={cn(
         "flex-1 min-h-0",
-        isProjectOrClientDetail && "bg-neutral-50 dark:bg-neutral-950",
+        isProjectOrClientDetail && "flex flex-col bg-white dark:bg-neutral-900/95",
         isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
         headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-4 lg:py-5"
       )}
     >
-      {children}
+      {isProjectOrClientDetail ? (
+        <div className="flex flex-col flex-1 min-h-0 min-w-0">{children}</div>
+      ) : (
+        children
+      )}
     </main>
   );
 }

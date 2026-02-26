@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import ProjectHeader from "../../project-header";
-import TabBar from "../../tab-bar";
+import { TabContentsProvider } from "./tab-contents-context";
+import type { Block } from "@/app/actions/block";
 
 interface Tab {
   id: string;
@@ -14,7 +14,15 @@ interface Tab {
   children?: Tab[];
 }
 
+interface SubtabConfig {
+  parentTabId: string;
+  parentTabName: string;
+  subtabs: { id: string; name: string; position: number }[];
+}
+
 interface TabPageLayoutProps {
+  blocks?: Block[];
+  workspaceId?: string;
   project: {
     id: string;
     name: string;
@@ -22,6 +30,7 @@ interface TabPageLayoutProps {
     status: "not_started" | "in_progress" | "complete";
     due_date_date?: string | null;
     due_date_text?: string | null;
+    priority?: string | null;
     client_page_enabled?: boolean;
     client_comments_enabled?: boolean;
     client_editing_enabled?: boolean;
@@ -36,6 +45,7 @@ interface TabPageLayoutProps {
   tabs: Tab[];
   children: React.ReactNode;
   isWorkflowTab: boolean;
+  subtabConfig?: SubtabConfig | null;
 }
 
 export default function TabPageLayout({
@@ -44,6 +54,9 @@ export default function TabPageLayout({
   tabs,
   children,
   isWorkflowTab,
+  blocks = [],
+  workspaceId,
+  subtabConfig,
 }: TabPageLayoutProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -71,33 +84,10 @@ export default function TabPageLayout({
   }, [project.id]);
 
   return (
-    <div className={isWorkflowTab ? "h-full flex flex-col min-h-0 bg-transparent" : "min-h-screen bg-transparent"}>
-      {/* Project Header - Compact or Collapsed */}
-      <div className={cn(
-        "shrink-0",
-        isCollapsed ? "sticky top-0 z-50" : "pt-1 pb-1 pl-2 pr-4 md:pl-3 md:pr-4 lg:pl-4 lg:pr-4"
-      )}>
-        <ProjectHeader project={project} tabId={tabId} tabs={tabs} />
-      </div>
-
-      {/* Tab Navigation - Sticky, hidden when collapsed */}
-      {!isCollapsed && (
-        <div className="sticky top-0 bg-transparent backdrop-blur-sm shrink-0 z-40">
-          <div className="border-b border-[var(--border)]/50 -mx-2 md:-mx-3 lg:-mx-4 px-2 md:px-3 lg:px-4">
-            <TabBar 
-              tabs={tabs} 
-              projectId={project.id}
-              isClientProject={!!project.client}
-              clientPageEnabled={project.client_page_enabled || false}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Canvas Content */}
-      <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1" : "pt-1 pb-3 md:pb-4 lg:pb-5"}>
+    <TabContentsProvider blocks={blocks} tabId={tabId} subtabConfig={subtabConfig}>
+      <div className={isWorkflowTab ? "flex flex-col min-h-0 flex-1 h-full" : "pt-1 pb-3 md:pb-4 lg:pb-5"}>
         {children}
       </div>
-    </div>
+    </TabContentsProvider>
   );
 }

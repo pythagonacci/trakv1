@@ -18,8 +18,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import AttachedFilesList from "./attached-files-list";
 import { cn } from "@/lib/utils";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import { useBlockReferences, useDeleteBlockReference } from "@/lib/hooks/use-block-references";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 
@@ -40,6 +41,16 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
+
+// Extract the entity reference_id from a ref-link anchor's href
+function extractEntityIdFromAnchor(el: Element): string | null {
+  const href = el.getAttribute("href") || "";
+  const docMatch = href.match(/\/dashboard\/docs\/([a-zA-Z0-9_-]+)/);
+  if (docMatch) return docMatch[1];
+  const fragmentMatch = href.match(/#(?:block|task)-([a-zA-Z0-9_-]+)/);
+  if (fragmentMatch) return fragmentMatch[1];
+  return null;
+}
 
 // Format markdown text to HTML
 const formatText = (text: string): string => {
@@ -124,11 +135,7 @@ const formatText = (text: string): string => {
   const html = formattedLines.join("");
 
   // SECURITY: Sanitize HTML to prevent XSS attacks
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['strong', 'em', 'code', 'u', 'h1', 'h2', 'h3', 'p', 'div', 'span', 'br', 'a'],
-    ALLOWED_ATTR: ['class', 'href', 'title', 'data-ref-link', 'target', 'rel'],
-    KEEP_CONTENT: true,
-  });
+  return sanitizeHtml(html);
 };
 
 export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
@@ -147,6 +154,16 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const mentionEndRef = useRef<{ node: Node; offset: number } | null>(null);
   const [mentionSearchQuery, setMentionSearchQuery] = useState("");
   const referencePicker = useBlockReferencePicker();
+  // Track which reference_ids were inserted as inline @mentions so we can
+  // auto-delete their block references when the mention text is erased.
+  const inlineMentionRefIds = useRef<Set<string>>(new Set());
+  const { data: blockRefs } = useBlockReferences(block.id);
+  const blockRefsRef = useRef(blockRefs ?? []);
+  const deleteBlockRef = useDeleteBlockReference(block.id);
+
+  useEffect(() => {
+    blockRefsRef.current = blockRefs ?? [];
+  }, [blockRefs]);
 
   useEffect(() => {
     const next = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
@@ -166,6 +183,14 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       const formattedHTML = formatText(content) || '<span class="text-[var(--tertiary-foreground)] italic">Start typing…</span>';
       editableDiv.innerHTML = formattedHTML;
       editingRef.current = true;
+
+      // Seed inlineMentionRefIds with any ref-links already present in the saved content
+      // so that deleting them later will also remove their block references.
+      inlineMentionRefIds.current = new Set();
+      editableDiv.querySelectorAll('a[data-ref-link="true"]').forEach((link) => {
+        const refId = extractEntityIdFromAnchor(link);
+        if (refId) inlineMentionRefIds.current.add(refId);
+      });
       
       editableDiv.focus();
       // Move cursor to end
@@ -249,6 +274,8 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const handleBlur = async () => {
     // Small delay to allow clicking on toolbar buttons
     setTimeout(async () => {
+      // Don't exit editing if a mention/reference picker selection is in progress
+      if (mentionStartRef.current) return;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -513,6 +540,29 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     setContent(markdown);
   };
 
+  // When inline mention links are deleted from the contenteditable, remove their block references.
+  const checkRemovedMentions = useCallback(() => {
+    if (inlineMentionRefIds.current.size === 0) return;
+    const editableDiv = textareaRef.current;
+    if (!editableDiv) return;
+
+    const presentRefIds = new Set<string>();
+    editableDiv.querySelectorAll('a[data-ref-link="true"]').forEach((link) => {
+      // Prefer data-ref-id; fall back to parsing the href for restored-from-markdown links
+      const stored = link.getAttribute("data-ref-id");
+      const refId = stored || extractEntityIdFromAnchor(link);
+      if (refId) presentRefIds.add(refId);
+    });
+
+    for (const refId of [...inlineMentionRefIds.current]) {
+      if (!presentRefIds.has(refId)) {
+        inlineMentionRefIds.current.delete(refId);
+        const ref = blockRefsRef.current.find((r) => r.reference_id === refId);
+        if (ref) void deleteBlockRef.mutateAsync(ref.id);
+      }
+    }
+  }, [deleteBlockRef]);
+
   // Helper function to apply formatting
   const applyFormatting = (command: string) => {
     const editableDiv = textareaRef.current as HTMLDivElement | null;
@@ -541,7 +591,9 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       const label = `@${item.name}`;
       const markdown = `[${label}](${href})`;
       // Create HTML link element for immediate display
-      const linkHtml = `<a href="${escapeHtml(href)}" title="${escapeHtml(label)}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${escapeHtml(label)}</a>`;
+      const linkHtml = `<a href="${escapeHtml(href)}" title="${escapeHtml(label)}" data-ref-link="true" data-ref-id="${escapeHtml(item.id)}" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${escapeHtml(label)}</a>`;
+      // Track this ref ID so deletion of the mention text removes the attachment
+      inlineMentionRefIds.current.add(item.id);
 
       // Use the tracked start and end ranges if available
       if (mentionStartRef.current && mentionEndRef.current) {
@@ -923,6 +975,72 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
           }}
           onBlur={handleBlur}
           onKeyDown={(e) => {
+            // Delete an inline mention link as a single atomic unit
+            if (e.key === "Backspace" || e.key === "Delete") {
+              const selection = window.getSelection();
+              if (selection && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                // Only act on a collapsed caret (no text selected)
+                if (range.collapsed) {
+                  let targetAnchor: Element | null = null;
+                  if (e.key === "Backspace") {
+                    // Look for a ref-link anchor immediately before the caret
+                    const { startContainer, startOffset } = range;
+                    if (startContainer.nodeType === Node.TEXT_NODE && startOffset === 0) {
+                      const prev = startContainer.previousSibling;
+                      if (prev instanceof Element && prev.getAttribute("data-ref-link") === "true") {
+                        targetAnchor = prev;
+                      }
+                    } else if (startContainer.nodeType === Node.ELEMENT_NODE && startOffset > 0) {
+                      const child = (startContainer as Element).childNodes[startOffset - 1];
+                      if (child instanceof Element && child.getAttribute("data-ref-link") === "true") {
+                        targetAnchor = child;
+                      }
+                    }
+                    // Also handle caret sitting inside the anchor itself
+                    if (!targetAnchor) {
+                      const anchor = (range.startContainer as Element).closest?.('a[data-ref-link="true"]')
+                        ?? (range.startContainer.parentElement?.closest?.('a[data-ref-link="true"]') ?? null);
+                      if (anchor) targetAnchor = anchor;
+                    }
+                  } else {
+                    // Delete key — look for a ref-link anchor immediately after the caret
+                    const { startContainer, startOffset } = range;
+                    if (startContainer.nodeType === Node.TEXT_NODE &&
+                      startOffset === (startContainer.textContent?.length ?? 0)) {
+                      const next = startContainer.nextSibling;
+                      if (next instanceof Element && next.getAttribute("data-ref-link") === "true") {
+                        targetAnchor = next;
+                      }
+                    } else if (startContainer.nodeType === Node.ELEMENT_NODE) {
+                      const child = (startContainer as Element).childNodes[startOffset];
+                      if (child instanceof Element && child.getAttribute("data-ref-link") === "true") {
+                        targetAnchor = child;
+                      }
+                    }
+                  }
+
+                  if (targetAnchor) {
+                    e.preventDefault();
+                    // Place caret where the anchor was before removing it
+                    const newRange = document.createRange();
+                    if (targetAnchor.previousSibling) {
+                      newRange.setStartAfter(targetAnchor.previousSibling);
+                    } else if (targetAnchor.parentNode) {
+                      newRange.setStart(targetAnchor.parentNode, 0);
+                    }
+                    newRange.collapse(true);
+                    targetAnchor.parentNode?.removeChild(targetAnchor);
+                    selection.removeAllRanges();
+                    selection.addRange(newRange);
+                    syncContentFromHTML();
+                    checkRemovedMentions();
+                    return;
+                  }
+                }
+              }
+            }
+
             if (e.key === "@" && referencePicker && projectId && workspaceId) {
               e.preventDefault();
               const selection = window.getSelection();
@@ -943,15 +1061,21 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
                 range.collapse(true);
                 selection.removeAllRanges();
                 selection.addRange(range);
-                
+
                 // Get the cursor position (after the "@") for better positioning
                 const cursorRect = range.getBoundingClientRect();
                 // Use cursor position instead of "@" position for better alignment
                 const rect = cursorRect.width > 0 ? cursorRect : mentionRange.getBoundingClientRect();
-                
+
                 setMentionSearchQuery("");
-                referencePicker.openPicker({ 
-                  onSelect: insertInlineReference, 
+                referencePicker.openPicker({
+                  onSelect: insertInlineReference,
+                  onClose: () => {
+                    mentionStartRef.current = null;
+                    mentionEndRef.current = null;
+                    mentionRangeRef.current = null;
+                    setMentionSearchQuery("");
+                  },
                   anchorRect: rect,
                   initialQuery: ""
                 });
@@ -986,41 +1110,44 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
               const selection = window.getSelection();
               if (selection && selection.rangeCount > 0) {
                 const cursorRange = selection.getRangeAt(0);
-                const textContent = editableDiv.textContent || "";
-                
-                // Find "@" position
-                const atIndex = textContent.indexOf("@");
-                if (atIndex !== -1) {
-                  // Get text from "@" to cursor
-                  const cursorPos = getTextOffset(editableDiv, cursorRange.startContainer, cursorRange.startOffset);
-                  if (cursorPos > atIndex) {
-                    const query = textContent.slice(atIndex + 1, cursorPos);
-                    setMentionSearchQuery(query);
-                    
-                    // Update the end range to current cursor position
-                    mentionEndRef.current = {
-                      node: cursorRange.startContainer,
-                      offset: cursorRange.startOffset,
-                    };
-                    
-                    // Update the picker's search query
-                    if (referencePicker.updateQuery) {
-                      referencePicker.updateQuery(query);
-                    } else {
-                      // Fallback: re-open with new query
-                      const rect = mentionRangeRef.current?.getBoundingClientRect();
-                      referencePicker.openPicker({
-                        onSelect: insertInlineReference,
-                        anchorRect: rect || undefined,
-                        initialQuery: query,
-                      });
-                    }
+
+                // Compute query using DOM positions rather than textContent.indexOf("@"),
+                // which would incorrectly match "@" inside previously inserted mention links.
+                const atPos = getTextOffset(editableDiv, mentionStartRef.current.node, mentionStartRef.current.offset);
+                const cursorPos = getTextOffset(editableDiv, cursorRange.startContainer, cursorRange.startOffset);
+
+                if (cursorPos >= atPos + 1) {
+                  // Text between the "@" node and the current cursor (excludes the "@" itself)
+                  const fullText = editableDiv.textContent || "";
+                  const query = fullText.slice(atPos + 1, cursorPos);
+                  setMentionSearchQuery(query);
+
+                  // Update the end range to current cursor position
+                  mentionEndRef.current = {
+                    node: cursorRange.startContainer,
+                    offset: cursorRange.startOffset,
+                  };
+
+                  // Update the picker's search query
+                  if (referencePicker.updateQuery) {
+                    referencePicker.updateQuery(query);
                   }
+                } else {
+                  // Cursor moved before the "@" — cancel mention mode
+                  mentionStartRef.current = null;
+                  mentionEndRef.current = null;
+                  mentionRangeRef.current = null;
+                  setMentionSearchQuery("");
+                  referencePicker.closePicker();
                 }
               }
             }
             
             syncContentFromHTML();
+            // If not mid-mention, check whether any inline mention links were removed
+            if (!mentionStartRef.current) {
+              checkRemovedMentions();
+            }
           }}
           className="w-full resize-none bg-transparent px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
           style={{ minHeight: '20px', height: 'auto' }}

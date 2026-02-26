@@ -75,7 +75,7 @@ export default async function InternalPage({ searchParams }: PageProps) {
 
   const filesResult = await getWorkspaceStandaloneFiles(workspaceId);
   const files = filesResult.data || [];
-  const groups = groupsResult.error ? [] : (groupsResult.data || []);
+  const groups = "error" in groupsResult ? [] : (groupsResult.data || []);
 
   return (
     <div>

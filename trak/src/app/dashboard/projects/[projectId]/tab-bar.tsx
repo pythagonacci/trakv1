@@ -90,10 +90,18 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
     };
   }, []);
 
-  const handleTabClick = (tabId: string, e?: React.MouseEvent) => {
+  const handleTabClick = (tab: Tab, e?: React.MouseEvent) => {
     if (editingTabId) return;
     if (e?.detail === 2) return;
-    router.push(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+
+    const isActive = activeTabId === tab.id;
+    if (isActive) {
+      setEditingTabId(tab.id);
+      setEditName(tab.name);
+      return;
+    }
+
+    router.push(`/dashboard/projects/${projectId}/tabs/${tab.id}`);
     setMobileMenuOpen(false);
   };
 
@@ -221,7 +229,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
           ) : (
             <>
               <button
-                onClick={(e) => handleTabClick(tab.id, e)}
+                onClick={(e) => handleTabClick(tab, e)}
                 onDoubleClick={(e) => handleDoubleClick(tab, e)}
                 className={cn(
                   "relative whitespace-nowrap px-3 py-3 text-sm transition-colors flex flex-col items-start gap-0",
@@ -425,7 +433,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
           {tabs.map((tab) => (
             <div key={tab.id}>
               <button
-                onClick={() => handleTabClick(tab.id)}
+                onClick={() => handleTabClick(tab)}
                 className={cn(
                   "flex w-full items-center justify-between gap-2 rounded-[6px] px-3 py-2 text-sm",
                   activeTabId === tab.id
@@ -443,7 +451,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
                   {tab.children.map((child) => (
                     <button
                       key={child.id}
-                      onClick={() => handleTabClick(child.id)}
+                      onClick={() => handleTabClick(child)}
                       className={cn(
                         "flex w-full items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-xs",
                         activeTabId === child.id

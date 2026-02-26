@@ -10,6 +10,7 @@ import {
   useTable,
   useTableBootstrap,
   useTableRows,
+  useInfiniteTableRows,
   useCreateRow,
   useUpdateCell,
   useUpdateView,
@@ -44,10 +45,10 @@ import { SyncEditedRowsDialog, type SyncResolution } from "./sync-edited-rows-di
 import { RelationConfigModal } from "./relation-config-modal";
 import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
-import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, TableField, TableRow as TableRowType } from "@/types/table";
-import { getWorkspaceMembers } from "@/app/actions/workspace";
+import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, Table, TableField, TableView, TableRow as TableRowType } from "@/types/table";
 import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { queryKeys } from "@/lib/react-query/query-client";
 import React from "react";
 import { groupRows, canGroupByField } from "@/lib/table-grouping";
@@ -66,6 +67,10 @@ import {
   findOptionByLabel,
   normalizeHeaderName,
 } from "@/lib/table-import";
+import {
+  normalizeCanonicalPriorityValue,
+  normalizeCanonicalStatusValue,
+} from "@/lib/tables/universal-property";
 
 function TableViewLoadingState() {
   return (
@@ -187,6 +192,7 @@ export function TableView({ tableId }: Props) {
   const [openSearchTick, setOpenSearchTick] = useState(0);
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
   const [relationConfigField, setRelationConfigField] = useState<TableField | null>(null);
@@ -204,22 +210,40 @@ export function TableView({ tableId }: Props) {
   const [collapsedSubtasks, setCollapsedSubtasks] = useState<Set<string>>(new Set());
   const hasInitializedSubtaskCollapse = useRef(false);
 
-  const tableData = bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : tableDataFallback ?? undefined;
+  const tableData: { table: Table; fields: TableField[] } | undefined =
+    bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : (tableDataFallback ?? undefined);
   const defaultViewId = bootstrap?.view?.id ?? null;
   const isDefaultView = activeViewId === null || activeViewId === defaultViewId;
-  const rowDataFromQuery = useTableRows(
+  const rowDataFromQuery = useInfiniteTableRows(
     tableId,
     !isDefaultView && activeViewId ? activeViewId : undefined,
-    { enabled: !isDefaultView && Boolean(activeViewId) }
+    {
+      enabled: Boolean(tableId),
+      initialData: isDefaultView && bootstrap ? {
+        rows: bootstrap.rows,
+        view: bootstrap.view,
+        hasMore: bootstrap.hasMore,
+        nextOffset: bootstrap.nextOffset,
+        total: bootstrap.totalRows
+      } : undefined
+    }
   );
-  const rowData = isDefaultView && bootstrap
-    ? { rows: bootstrap.rows, view: bootstrap.view }
-    : rowDataFromQuery.data;
+
+  const queryPages = rowDataFromQuery.data?.pages || [];
+  const queryRows = useMemo<TableRowType[]>(
+    () => queryPages.flatMap((p) => (p?.rows || []) as TableRowType[]),
+    [queryPages]
+  );
+
+  const rowData: { rows: TableRowType[]; view: TableView | null } = {
+    rows: queryRows,
+    view: (queryPages[0]?.view || bootstrap?.view || null) as TableView | null,
+  };
   const view = rowData?.view;
   const effectiveViewId = activeViewId || view?.id || undefined;
   const viewType = view?.type || "table";
   const metaLoading = bootstrapLoading && !bootstrap;
-  const rowsLoading = !isDefaultView && rowDataFromQuery.isLoading;
+  const rowsLoading = rowDataFromQuery.isLoading && queryRows.length === 0;
 
   useEffect(() => {
     if (defaultViewId != null && activeViewId === null) {
@@ -227,16 +251,37 @@ export function TableView({ tableId }: Props) {
     }
   }, [defaultViewId, activeViewId]);
 
+  // Infinite scroll loader
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!rowDataFromQuery.hasNextPage || rowDataFromQuery.isFetchingNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          rowDataFromQuery.fetchNextPage();
+        }
+      },
+      { root: scrollContainerRef.current, threshold: 0.1 }
+    );
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [rowDataFromQuery.hasNextPage, rowDataFromQuery.isFetchingNextPage, rowDataFromQuery.fetchNextPage]);
+
   // Fetch workspace members only when table has person/assignee fields (defer for new tables)
-  const allFieldsForMembers = tableData?.fields ?? [];
+  const allFieldsForMembers: TableField[] = tableData?.fields ?? [];
   const hasPersonField = allFieldsForMembers.some((f) => f.type === "person");
   const { data: workspaceMembers } = useQuery({
     queryKey: ['workspaceMembers', tableData?.table.workspace_id],
     queryFn: async () => {
       if (!tableData?.table.workspace_id) return [];
-      const result = await getWorkspaceMembers(tableData.table.workspace_id);
-      if ('error' in result) return [];
-      return result.data || [];
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client table getWorkspaceMembers workspaceId=${tableData.table.workspace_id}`);
+      const response = await fetch(
+        `/api/workspaces/members?workspaceId=${encodeURIComponent(tableData.table.workspace_id)}`,
+        { cache: "no-store" }
+      );
+      const json = await response.json();
+      if (!response.ok || json?.error) return [];
+      return json.data || [];
     },
     enabled: Boolean(tableData?.table.workspace_id && hasPersonField),
     staleTime: 5 * 60 * 1000,
@@ -267,7 +312,7 @@ export function TableView({ tableId }: Props) {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [syncDialogResolving, setSyncDialogResolving] = useState(false);
 
-  const allFields = useMemo(() => tableData?.fields ?? [], [tableData]);
+  const allFields = useMemo<TableField[]>(() => tableData?.fields ?? [], [tableData]);
   const subtaskField = useMemo(() => {
     const typed = allFields.find((field) => field.type === "subtask");
     if (typed) return typed;
@@ -281,35 +326,38 @@ export function TableView({ tableId }: Props) {
       ),
     [allFields]
   );
-  const hiddenFields = useMemo(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
-  const pinnedFields = useMemo(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
-  const dateFields = useMemo(() => allFields.filter((f) => f.type === "date"), [allFields]);
-  
-  // Order fields: pinned first, then others
+  const hiddenFields = useMemo<string[]>(() => view?.config?.hiddenFields ?? [], [view?.config?.hiddenFields]);
+  const pinnedFields = useMemo<string[]>(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
+  const dateFields = useMemo<TableField[]>(() => allFields.filter((f) => f.type === "date"), [allFields]);
+
+  // Order fields: pinned first, then others, subtask always last
   const fields = useMemo(() => {
     const visible = allFields.filter((f) => !hiddenFields.includes(f.id));
-    const pinned = visible.filter((f) => pinnedFields.includes(f.id));
-    const unpinned = visible.filter((f) => !pinnedFields.includes(f.id));
-    return [...pinned, ...unpinned];
+    const pinned = visible.filter((f) => pinnedFields.includes(f.id) && f.type !== "subtask");
+    const unpinned = visible.filter((f) => !pinnedFields.includes(f.id) && f.type !== "subtask");
+    const subtaskFields = visible.filter((f) => f.type === "subtask");
+    return [...pinned, ...unpinned, ...subtaskFields];
   }, [allFields, pinnedFields, hiddenFields]);
-  
+
   const getWidthForField = useCallback(
     (fieldId: string) => {
       if (pendingWidths[fieldId]) return pendingWidths[fieldId];
       const f = allFields.find((fld) => fld.id === fieldId);
+      if (f?.type === "subtask") return 32;
       return f?.width || 180;
     },
     [pendingWidths, allFields]
   );
 
   const selectionWidth = 36;
-  
+
   const columnTemplate = useMemo(() => {
     if (!fields.length) return `${selectionWidth}px 1fr 40px`;
     // Use minmax to allow columns to fill available space while respecting minimum widths
+    // Subtask columns get a fixed narrow width, not minmax
     const base = fields.map((f) => {
       const width = getWidthForField(f.id);
-      return `minmax(${width}px, 1fr)`;
+      return f.type === "subtask" ? `${width}px` : `minmax(${width}px, 1fr)`;
     }).join(" ");
     return `${selectionWidth}px ${base} 40px`;
   }, [fields, selectionWidth, getWidthForField]);
@@ -321,7 +369,9 @@ export function TableView({ tableId }: Props) {
     });
     return acc;
   }, [fields, getWidthForField]);
-  const rows = search ? (searchResult.data ?? []) : (rowData?.rows ?? []);
+  const rows: TableRowType[] = search
+    ? ((searchResult.data ?? []) as TableRowType[])
+    : (rowData?.rows ?? []);
 
   const [sorts, setSorts] = useState<SortCondition[]>(view?.config?.sorts || []);
   const [filters, setFilters] = useState<FilterCondition[]>(view?.config?.filters || []);
@@ -389,7 +439,7 @@ export function TableView({ tableId }: Props) {
   const handlePinColumn = (fieldId: string) => {
     const isPinned = pinnedFields.includes(fieldId);
     const nextPinned = isPinned
-      ? pinnedFields.filter((id) => id !== fieldId)
+      ? pinnedFields.filter((id: string) => id !== fieldId)
       : [...pinnedFields, fieldId];
     persistViewConfig(sorts, filters, nextPinned);
   };
@@ -474,9 +524,16 @@ export function TableView({ tableId }: Props) {
     return subtaskPresentation.visibleRows;
   }, [baseVisibleRows, subtaskPresentation.visibleRows, subtaskUiEnabled]);
 
+  const rowVirtualizer = useVirtualizer({
+    count: visibleRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 38, // approximate height of TableRow
+    overscan: 10,
+  });
+
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
-  
+
   useEffect(() => {
     const rowIdSet = new Set(sortedRowIds);
     setSelectedRows((prev) => {
@@ -500,64 +557,64 @@ export function TableView({ tableId }: Props) {
           if (targetField?.type === "relation") {
             const config = targetField.config as any;
             const relationIds = Array.isArray(value) ? value : [];
-            
+
             // Invalidate current row's related rows query
             queryClient.invalidateQueries({ queryKey: ["relatedRows", rowId, fieldId] });
-            
+
             // Invalidate main table rows query
             queryClient.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, effectiveViewId) });
-            
+
             // If bidirectional, invalidate the opposite field's queries for all affected related rows
             if (config?.reverse_field_id && config?.bidirectional) {
               const oppositeFieldId = config.reverse_field_id;
               const relatedTableId = config.relation_table_id || config.linkedTableId;
-              
+
               // Get previous value to find all affected rows (both added and removed)
               const previousRow = rows.find(r => r.id === rowId);
-              const previousIds = Array.isArray(previousRow?.data?.[fieldId]) 
+              const previousIds = Array.isArray(previousRow?.data?.[fieldId])
                 ? (previousRow.data[fieldId] as string[])
                 : [];
-              
+
               // Get all affected row IDs (both old and new)
               const allAffectedIds = Array.from(new Set([...previousIds, ...relationIds]));
-              
+
               // config.reverse_field_id always points to the opposite field:
               // - If we're on reverse field (Projects in Tasks), it points to forward field (Tasks in Projects)
               // - If we're on forward field (Tasks in Projects), it points to reverse field (Projects in Tasks)
               // So we always invalidate the opposite field's queries on related rows
               allAffectedIds.forEach((affectedRowId) => {
-                queryClient.invalidateQueries({ 
-                  queryKey: ["relatedRows", affectedRowId, oppositeFieldId] 
+                queryClient.invalidateQueries({
+                  queryKey: ["relatedRows", affectedRowId, oppositeFieldId]
                 });
               });
-              
+
               // Also update the cached row data for the related table
               // This ensures the UI updates immediately without waiting for a refetch
               if (relatedTableId) {
                 // Update cached row data for affected rows in the related table
                 allAffectedIds.forEach((affectedRowId) => {
                   // Get all cached tableRows queries for the related table
-                  const cachedQueries = queryClient.getQueriesData({ 
+                  const cachedQueries = queryClient.getQueriesData({
                     queryKey: ["tableRows", relatedTableId],
-                    exact: false 
+                    exact: false
                   });
-                  
+
                   cachedQueries.forEach(([queryKey, cachedData]) => {
                     if (cachedData && typeof cachedData === 'object' && 'rows' in cachedData) {
                       const data = cachedData as { rows: TableRowType[] };
                       const updatedRows = data.rows.map((r) => {
                         if (r.id === affectedRowId) {
                           // Update the opposite field's data with the new relation IDs
-                          const currentValue = Array.isArray(r.data?.[oppositeFieldId]) 
+                          const currentValue = Array.isArray(r.data?.[oppositeFieldId])
                             ? (r.data[oppositeFieldId] as string[])
                             : [];
-                          
+
                           // Calculate the new value based on what was added/removed
                           // affectedRowId is the related row (e.g., Project A)
                           // rowId is the current row (e.g., Task 3)
                           const wasInPrevious = previousIds.includes(affectedRowId);
                           const isInNew = relationIds.includes(affectedRowId);
-                          
+
                           let newValue: string[];
                           if (isInNew && !wasInPrevious) {
                             // Added: add current rowId to the related row's opposite field
@@ -569,7 +626,7 @@ export function TableView({ tableId }: Props) {
                             // No change for this row
                             newValue = currentValue;
                           }
-                          
+
                           return {
                             ...r,
                             data: {
@@ -580,7 +637,7 @@ export function TableView({ tableId }: Props) {
                         }
                         return r;
                       });
-                      
+
                       queryClient.setQueryData(queryKey, {
                         ...data,
                         rows: updatedRows,
@@ -588,9 +645,9 @@ export function TableView({ tableId }: Props) {
                     }
                   });
                 });
-                
+
                 // Also invalidate to ensure consistency
-                queryClient.invalidateQueries({ 
+                queryClient.invalidateQueries({
                   queryKey: ["tableRows", relatedTableId],
                   exact: false,
                   refetchType: 'active'
@@ -794,7 +851,7 @@ export function TableView({ tableId }: Props) {
           if (mapping.mode !== "field" || !mapping.fieldId) return;
           const field = fieldMap.get(mapping.fieldId);
           if (!field) return;
-          if (!["select", "multi_select", "status"].includes(field.type)) return;
+          if (!["select", "multi_select"].includes(field.type)) return;
 
           const config = (field.config || {}) as { options?: Array<{ id: string; label: string; color: string }> };
           const options = [...(config.options || [])];
@@ -857,7 +914,7 @@ export function TableView({ tableId }: Props) {
               data[field.id] = null;
               return;
             }
-            if (field.type === "select" || field.type === "status") {
+            if (field.type === "select") {
               const lookup = optionLookup.get(field.id);
               if (lookup) {
                 const id = lookup.get(rawValue.trim().toLowerCase());
@@ -865,6 +922,14 @@ export function TableView({ tableId }: Props) {
               } else {
                 data[field.id] = rawValue.trim();
               }
+              return;
+            }
+            if (field.type === "status") {
+              data[field.id] = normalizeCanonicalStatusValue(rawValue.trim());
+              return;
+            }
+            if (field.type === "priority") {
+              data[field.id] = normalizeCanonicalPriorityValue(rawValue.trim());
               return;
             }
             if (field.type === "multi_select") {
@@ -941,19 +1006,19 @@ export function TableView({ tableId }: Props) {
       case "status":
         return {
           options: [
-            { id: "status_1", label: "Not Started", color: "#6b7280" },
-            { id: "status_2", label: "In Progress", color: "#3b82f6" },
-            { id: "status_3", label: "Completed", color: "#10b981" },
-            { id: "status_4", label: "Blocked", color: "#ef4444" },
+            { id: "todo", label: "Todo", color: "#6b7280" },
+            { id: "in_progress", label: "In Progress", color: "#3b82f6" },
+            { id: "done", label: "Done", color: "#10b981" },
+            { id: "blocked", label: "Blocked", color: "#ef4444" },
           ],
         };
       case "priority":
         return {
           levels: [
-            { id: "pri_1", label: "Critical", color: "#ef4444", order: 4 },
-            { id: "pri_2", label: "High", color: "#f59e0b", order: 3 },
-            { id: "pri_3", label: "Medium", color: "#3b82f6", order: 2 },
-            { id: "pri_4", label: "Low", color: "#6b7280", order: 1 },
+            { id: "urgent", label: "Urgent", color: "#ef4444", order: 4 },
+            { id: "high", label: "High", color: "#f59e0b", order: 3 },
+            { id: "medium", label: "Medium", color: "#3b82f6", order: 2 },
+            { id: "low", label: "Low", color: "#6b7280", order: 1 },
           ],
         };
       default:
@@ -1037,24 +1102,24 @@ export function TableView({ tableId }: Props) {
     // Find the field in the visible fields array (what the user sees)
     const visibleIdx = fields.findIndex((f) => f.id === fieldId);
     if (visibleIdx === -1) return;
-    
+
     // Find the adjacent field in the visible array
     const swapWithVisibleIdx = direction === "left" ? visibleIdx - 1 : visibleIdx + 1;
     if (swapWithVisibleIdx < 0 || swapWithVisibleIdx >= fields.length) return;
-    
+
     const swapWithFieldId = fields[swapWithVisibleIdx].id;
-    
+
     // Now work with the actual ordered fields (all fields sorted by order)
     const orderedFields = [...allFields].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     const fieldIdx = orderedFields.findIndex((f) => f.id === fieldId);
     const swapWithIdx = orderedFields.findIndex((f) => f.id === swapWithFieldId);
-    
+
     if (fieldIdx === -1 || swapWithIdx === -1) return;
-    
+
     // Swap the fields in the ordered array
     const newOrder = [...orderedFields];
     [newOrder[fieldIdx], newOrder[swapWithIdx]] = [newOrder[swapWithIdx], newOrder[fieldIdx]];
-    
+
     // Create payload with new order values (1-indexed)
     const payload = newOrder.map((f, i) => ({ fieldId: f.id, order: i + 1 }));
     setError(null);
@@ -1098,7 +1163,7 @@ export function TableView({ tableId }: Props) {
     persistViewConfig(next, filters);
   };
 
-const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
+  const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
     setCollapsedGroups([]);
     persistGroupByConfig(groupBy);
   };
@@ -1133,13 +1198,13 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
 
   const handleShowField = (fieldId: string) => {
     if (!view?.id) return;
-    const nextHidden = (view.config?.hiddenFields ?? []).filter((id) => id !== fieldId);
+    const nextHidden = (view.config?.hiddenFields ?? []).filter((id: string) => id !== fieldId);
     const nextConfig: ViewConfig = { ...(view.config || {}), hiddenFields: nextHidden };
     updateView.mutate({ config: nextConfig });
   };
 
   const hiddenFieldList = useMemo(
-    () => hiddenFields.map((id) => allFields.find((f) => f.id === id)).filter(Boolean),
+    () => hiddenFields.map((id: string) => allFields.find((f) => f.id === id)).filter(Boolean),
     [hiddenFields, allFields]
   );
 
@@ -1155,7 +1220,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
 
   const handleAddRowAbove = () => {
     if (!contextMenu?.rowId || !rowData?.rows) return;
-    
+
     const targetRow = rowData.rows.find(r => r.id === contextMenu.rowId);
     if (!targetRow) return;
 
@@ -1171,7 +1236,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
 
   const handleAddRowBelow = () => {
     if (!contextMenu?.rowId || !rowData?.rows) return;
-    
+
     const targetRow = rowData.rows.find(r => r.id === contextMenu.rowId);
     if (!targetRow) return;
 
@@ -1583,7 +1648,7 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         <div className="mb-2 px-3 py-2 text-xs text-[var(--muted-foreground)] flex items-center gap-2">
           <EyeOff className="h-4 w-4" />
           Hidden columns:
-          {hiddenFieldList.map((f) => (
+          {hiddenFieldList.map((f: any) => (
             <button
               key={f!.id}
               onClick={() => handleShowField(f!.id)}
@@ -1685,144 +1750,178 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             onClearSelection={() => setSelectedRows(new Set())}
           />
           <div className="relative w-full" ref={containerRef}>
-          <div className="overflow-x-auto w-full" style={{ maxHeight: "480px", overflowY: "scroll" }}>
-            <div style={{ width: "100%" }}>
-              <div
-                className="max-h-[480px] overflow-x-hidden scrollbar-thin"
-                style={{ width: "100%", overflowY: "scroll" }}
-              >
-                <TableHeaderRow
-                  fields={fields}
-                  columnTemplate={columnTemplate}
-                  sorts={sorts}
-                  pinnedFields={pinnedFields}
-                  selectedCount={selectedRows.size}
-                  totalCount={sortedRows.length}
-                  selectionWidth={selectionWidth}
-                  onToggleAllRows={handleToggleAllRows}
-                  onSetSort={handleSetSort}
-                  onToggleSort={(fieldId) => {
-                    const next = (() => {
-                      const existing = sorts.find((s) => s.fieldId === fieldId);
-                      if (!existing) return [{ fieldId, direction: "asc" as const }];
-                      if (existing.direction === "asc") return [{ fieldId, direction: "desc" as const }];
-                      return [];
-                    })();
-                    setSorts(next);
-                    persistViewConfig(next, filters);
-                  }}
-                  onRenameField={handleRenameField}
-                  onDeleteField={handleDeleteField}
-                  onAddField={handleAddField}
-                  onChangeType={handleChangeType}
-                  onReorderField={handleReorderField}
-                  onInsertField={handleInsertField}
-                  onPinColumn={handlePinColumn}
-                  onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
-                  onConfigureField={handleConfigureField}
-                  onUpdateFieldConfig={handleUpdateFieldConfig}
-                  columnRefs={Object.fromEntries(
-                    fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
-                  )}
-                  onColumnContextMenu={handleColumnContextMenu}
-                  onHideField={handleHideField}
-                  onResize={handleResizeWidth}
-                  widths={widthMap}
-                  calculations={view?.config?.field_calculations || {}}
-                  rows={sortedRows}
-                  onUpdateCalculation={handleUpdateCalculation}
-                  className="sticky top-0 z-[5]"
-                />
-                {groupedData.grouped ? (
-                  groupedData.groups.map((group) => (
-                    <React.Fragment key={group.groupId}>
-                      <GroupHeader
-                        groupId={group.groupId}
-                        groupLabel={group.groupLabel}
-                        groupColor={group.groupColor}
-                        count={group.count}
-                        isCollapsed={group.isCollapsed}
-                        onToggle={() => handleToggleGroup(group.groupId)}
-                        onDropRow={(rowId) => handleDropRowInGroup(rowId, group.groupId)}
-                      />
-                      {!group.isCollapsed &&
-                        group.rows.map((row) => (
-                          <TableRow
-                            key={row.id}
-                            fields={fields}
-                            columnTemplate={columnTemplate}
-                            tableId={tableId}
-                            rowId={row.id}
-                            data={row.data || {}}
-                            onChange={handleCellChange}
-                            savingRowIds={savingRows}
-                            onOpenComments={(rid) => setCommentsRowId(rid)}
-                            pinnedFields={pinnedFields}
-                            onContextMenu={handleCellContextMenu}
-                            widths={widthMap}
-                            selectionWidth={selectionWidth}
-                            showSelection
-                            isSelected={selectedRows.has(row.id)}
-                            onSelectRow={handleSelectRow}
-                            rowMetadata={{
-                              created_at: row.created_at,
-                              updated_at: row.updated_at,
-                              created_by: row.created_by || undefined,
-                              updated_by: row.updated_by || undefined,
-                            }}
-                            workspaceMembers={workspaceMembers}
-                            onCellKeyDown={handleCellKeyDown}
-                            cellRefs={cellRefs}
-                            editRequest={editRequest || undefined}
-                            onEditRequestHandled={() => setEditRequest(null)}
-                            draggable
-                            onDragStart={(id, e) => {
-                              e.dataTransfer.setData("rowId", id);
-                              e.dataTransfer.effectAllowed = "move";
-                            }}
-                            onUpdateFieldConfig={handleUpdateFieldConfig}
-                            subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
-                            onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
-                          />
-                        ))}
-                    </React.Fragment>
-                  ))
-                ) : (
-                  visibleRows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      fields={fields}
-                      columnTemplate={columnTemplate}
-                      tableId={tableId}
-                      rowId={row.id}
-                      data={row.data || {}}
-                      onChange={handleCellChange}
-                      savingRowIds={savingRows}
-                      onOpenComments={(rid) => setCommentsRowId(rid)}
-                      pinnedFields={pinnedFields}
-                      onContextMenu={handleCellContextMenu}
-                      widths={widthMap}
-                      selectionWidth={selectionWidth}
-                      showSelection
-                      isSelected={selectedRows.has(row.id)}
-                      onSelectRow={handleSelectRow}
-                      rowMetadata={{
-                        created_at: row.created_at,
-                        updated_at: row.updated_at,
-                        created_by: row.created_by || undefined,
-                        updated_by: row.updated_by || undefined,
+            <div
+              ref={scrollContainerRef}
+              className="overflow-x-auto w-full scrollbar-thin"
+              style={{ maxHeight: "480px", overflowY: "scroll" }}
+            >
+              <div style={{ width: "100%" }}>
+                <div
+                  style={{ width: "100%" }}
+                >
+                  <TableHeaderRow
+                    fields={fields}
+                    columnTemplate={columnTemplate}
+                    sorts={sorts}
+                    pinnedFields={pinnedFields}
+                    selectedCount={selectedRows.size}
+                    totalCount={sortedRows.length}
+                    selectionWidth={selectionWidth}
+                    onToggleAllRows={handleToggleAllRows}
+                    onSetSort={handleSetSort}
+                    onToggleSort={(fieldId) => {
+                      const next = (() => {
+                        const existing = sorts.find((s) => s.fieldId === fieldId);
+                        if (!existing) return [{ fieldId, direction: "asc" as const }];
+                        if (existing.direction === "asc") return [{ fieldId, direction: "desc" as const }];
+                        return [];
+                      })();
+                      setSorts(next);
+                      persistViewConfig(next, filters);
+                    }}
+                    onRenameField={handleRenameField}
+                    onDeleteField={handleDeleteField}
+                    onAddField={handleAddField}
+                    onChangeType={handleChangeType}
+                    onReorderField={handleReorderField}
+                    onInsertField={handleInsertField}
+                    onPinColumn={handlePinColumn}
+                    onViewColumnDetails={(fieldId) => setDetailColumnId(fieldId)}
+                    onConfigureField={handleConfigureField}
+                    onUpdateFieldConfig={handleUpdateFieldConfig}
+                    columnRefs={Object.fromEntries(
+                      fields.map((f) => [f.id, (el: HTMLDivElement | null) => { columnRefs.current[f.id] = el; }])
+                    )}
+                    onColumnContextMenu={handleColumnContextMenu}
+                    onHideField={handleHideField}
+                    onResize={handleResizeWidth}
+                    widths={widthMap}
+                    calculations={view?.config?.field_calculations || {}}
+                    rows={sortedRows}
+                    onUpdateCalculation={handleUpdateCalculation}
+                    className="sticky top-0 z-[5]"
+                  />
+                  {groupedData.grouped ? (
+                    groupedData.groups.map((group) => (
+                      <React.Fragment key={group.groupId}>
+                        <GroupHeader
+                          groupId={group.groupId}
+                          groupLabel={group.groupLabel}
+                          groupColor={group.groupColor}
+                          count={group.count}
+                          isCollapsed={group.isCollapsed}
+                          onToggle={() => handleToggleGroup(group.groupId)}
+                          onDropRow={(rowId) => handleDropRowInGroup(rowId, group.groupId)}
+                        />
+                        {!group.isCollapsed &&
+                          group.rows.map((row) => (
+                            <TableRow
+                              key={row.id}
+                              fields={fields}
+                              columnTemplate={columnTemplate}
+                              tableId={tableId}
+                              rowId={row.id}
+                              data={row.data || {}}
+                              onChange={handleCellChange}
+                              savingRowIds={savingRows}
+                              onOpenComments={(rid) => setCommentsRowId(rid)}
+                              pinnedFields={pinnedFields}
+                              onContextMenu={handleCellContextMenu}
+                              widths={widthMap}
+                              selectionWidth={selectionWidth}
+                              showSelection
+                              isSelected={selectedRows.has(row.id)}
+                              onSelectRow={handleSelectRow}
+                              rowMetadata={{
+                                created_at: row.created_at,
+                                updated_at: row.updated_at,
+                                created_by: row.created_by || undefined,
+                                updated_by: row.updated_by || undefined,
+                              }}
+                              workspaceMembers={workspaceMembers}
+                              onCellKeyDown={handleCellKeyDown}
+                              cellRefs={cellRefs}
+                              editRequest={editRequest || undefined}
+                              onEditRequestHandled={() => setEditRequest(null)}
+                              draggable
+                              onDragStart={(id, e) => {
+                                e.dataTransfer.setData("rowId", id);
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onUpdateFieldConfig={handleUpdateFieldConfig}
+                              subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
+                              onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
+                            />
+                          ))}
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <div
+                      style={{
+                        height: `${rowVirtualizer.getTotalSize()}px`,
+                        width: "100%",
+                        position: "relative",
                       }}
-                      workspaceMembers={workspaceMembers}
-                      onCellKeyDown={handleCellKeyDown}
-                      cellRefs={cellRefs}
-                      editRequest={editRequest || undefined}
-                      onEditRequestHandled={() => setEditRequest(null)}
-                      onUpdateFieldConfig={handleUpdateFieldConfig}
-                      subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
-                      onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
-                    />
-                  ))
-                )}
+                    >
+                      {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const row = visibleRows[virtualRow.index];
+                        return (
+                          <div
+                            key={row.id}
+                            className="absolute top-0 left-0 w-full"
+                            style={{
+                              height: `${virtualRow.size}px`,
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            <TableRow
+                              fields={fields}
+                              columnTemplate={columnTemplate}
+                              tableId={tableId}
+                              rowId={row.id}
+                              data={row.data || {}}
+                              onChange={handleCellChange}
+                              savingRowIds={savingRows}
+                              onOpenComments={(rid) => setCommentsRowId(rid)}
+                              pinnedFields={pinnedFields}
+                              onContextMenu={handleCellContextMenu}
+                              widths={widthMap}
+                              selectionWidth={selectionWidth}
+                              showSelection
+                              isSelected={selectedRows.has(row.id)}
+                              onSelectRow={handleSelectRow}
+                              rowMetadata={{
+                                created_at: row.created_at,
+                                updated_at: row.updated_at,
+                                created_by: row.created_by || undefined,
+                                updated_by: row.updated_by || undefined,
+                              }}
+                              workspaceMembers={workspaceMembers}
+                              onCellKeyDown={handleCellKeyDown}
+                              cellRefs={cellRefs}
+                              editRequest={editRequest || undefined}
+                              onEditRequestHandled={() => setEditRequest(null)}
+                              draggable
+                              onDragStart={(id, e) => {
+                                e.dataTransfer.setData("rowId", id);
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onUpdateFieldConfig={handleUpdateFieldConfig}
+                              subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
+                              onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {rowDataFromQuery.hasNextPage && (
+                    <div ref={loadMoreRef} className="h-8 flex items-center justify-center p-2 text-sm text-[var(--muted-foreground)] border-t border-[var(--border)] w-full">
+                      {rowDataFromQuery.isFetchingNextPage ? "Loading more rows..." : "Scroll to load more"}
+                    </div>
+                  )}
+                </div>
 
                 {sortedRows.length === 0 && (
                   <div className="p-6 text-sm text-[var(--muted-foreground)] flex flex-col gap-2 items-center">
@@ -1861,7 +1960,6 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             </button>
           </div>
         </div>
-        </div>
       )}
 
       {viewType === "board" && (
@@ -1883,43 +1981,52 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
             onContextMenu={handleCellContextMenu}
           />
         </div>
-      )}
+      )
+      }
 
-      {viewType === "timeline" && (
-        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
-          <TableTimelineView
-            fields={fields}
+      {
+        viewType === "timeline" && (
+          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+            <TableTimelineView
+              fields={fields}
+              rows={sortedRows}
+              dateFieldId={view?.config?.timelineConfig?.dateFieldId}
+              groupBy={groupByConfig}
+              workspaceMembers={workspaceMembers}
+              selectedRows={selectedRows}
+              onSelectRow={handleSelectRow}
+              onUpdateCell={handleCellChange}
+              onDateFieldChange={handleTimelineDateFieldChange}
+              onContextMenu={handleCellContextMenu}
+            />
+          </div>
+        )
+      }
+
+      {
+        ["list", "gallery", "calendar"].includes(viewType) && (
+          <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-[var(--tertiary-foreground)]">
+            This view type is coming soon.
+          </div>
+        )
+      }
+      {
+        commentsRowId && (
+          <div className="fixed inset-y-0 right-0 z-40">
+            <RowComments rowId={commentsRowId} onClose={() => setCommentsRowId(null)} />
+          </div>
+        )
+      }
+      {
+        detailColumnId && (
+          <ColumnDetailPanel
+            tableId={tableId}
+            fieldId={detailColumnId}
             rows={sortedRows}
-            dateFieldId={view?.config?.timelineConfig?.dateFieldId}
-            groupBy={groupByConfig}
-            workspaceMembers={workspaceMembers}
-            selectedRows={selectedRows}
-            onSelectRow={handleSelectRow}
-            onUpdateCell={handleCellChange}
-            onDateFieldChange={handleTimelineDateFieldChange}
-            onContextMenu={handleCellContextMenu}
+            onClose={() => setDetailColumnId(null)}
           />
-        </div>
-      )}
-
-      {["list", "gallery", "calendar"].includes(viewType) && (
-        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-[var(--tertiary-foreground)]">
-          This view type is coming soon.
-        </div>
-      )}
-      {commentsRowId && (
-        <div className="fixed inset-y-0 right-0 z-40">
-          <RowComments rowId={commentsRowId} onClose={() => setCommentsRowId(null)} />
-        </div>
-      )}
-      {detailColumnId && (
-        <ColumnDetailPanel
-          tableId={tableId}
-          fieldId={detailColumnId}
-          rows={sortedRows}
-          onClose={() => setDetailColumnId(null)}
-        />
-      )}
+        )
+      }
       <TableImportModal
         open={importModalOpen}
         rowCount={importData?.rows.length ?? 0}
@@ -1940,28 +2047,30 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
           handlePasteImport(importData, importMappings);
         }}
       />
-      {contextMenu && (
-        <TableContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          type={contextMenu.type}
-          onClose={() => setContextMenu(null)}
-          onAddRowAbove={contextMenu.type === "cell" ? handleAddRowAbove : undefined}
-          onAddRowBelow={contextMenu.type === "cell" ? handleAddRowBelow : undefined}
-          onAddColumnLeft={contextMenu.type === "column" ? handleAddColumnLeft : undefined}
-          onAddColumnRight={contextMenu.type === "column" ? handleAddColumnRight : undefined}
-          onOpenProperties={
-            contextMenu.type === "cell" && contextMenu.rowId && tableData?.table.workspace_id
-              ? () => {
+      {
+        contextMenu && (
+          <TableContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            type={contextMenu.type}
+            onClose={() => setContextMenu(null)}
+            onAddRowAbove={contextMenu.type === "cell" ? handleAddRowAbove : undefined}
+            onAddRowBelow={contextMenu.type === "cell" ? handleAddRowBelow : undefined}
+            onAddColumnLeft={contextMenu.type === "column" ? handleAddColumnLeft : undefined}
+            onAddColumnRight={contextMenu.type === "column" ? handleAddColumnRight : undefined}
+            onOpenProperties={
+              contextMenu.type === "cell" && contextMenu.rowId && tableData?.table.workspace_id
+                ? () => {
                   const rowId = contextMenu.rowId;
                   if (!rowId) return;
                   setPropertiesRowId(rowId);
                   setPropertiesOpen(true);
                 }
-              : undefined
-          }
-        />
-      )}
+                : undefined
+            }
+          />
+        )
+      }
       <RelationConfigModal
         open={Boolean(relationConfigField)}
         field={relationConfigField}
@@ -1983,22 +2092,24 @@ const handleGroupByChange = (groupBy: GroupByConfig | undefined) => {
         onClose={() => setFormulaConfigField(null)}
         onSave={handleSaveFormulaConfig}
       />
-      {propertiesRowId && tableData?.table.workspace_id && (
-        <PropertyMenu
-          open={propertiesOpen}
-          onOpenChange={(open) => {
-            setPropertiesOpen(open);
-            if (!open) {
-              setPropertiesRowId(null);
-            }
-          }}
-          entityType="table_row"
-          entityId={propertiesRowId}
-          workspaceId={tableData.table.workspace_id}
-          entityTitle="Table row"
-        />
-      )}
+      {
+        propertiesRowId && tableData?.table.workspace_id && (
+          <PropertyMenu
+            open={propertiesOpen}
+            onOpenChange={(open) => {
+              setPropertiesOpen(open);
+              if (!open) {
+                setPropertiesRowId(null);
+              }
+            }}
+            entityType="table_row"
+            entityId={propertiesRowId}
+            workspaceId={tableData.table.workspace_id}
+            entityTitle="Table row"
+          />
+        )
+      }
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-    </div>
+    </div >
   );
 }

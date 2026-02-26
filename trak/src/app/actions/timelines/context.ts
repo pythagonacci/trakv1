@@ -32,7 +32,7 @@ export async function requireTimelineAccess(timelineBlockId: string, opts?: { au
 
   const { data: block, error: blockError } = await supabase
     .from("blocks")
-    .select("id, tab_id, tabs!inner(id, project_id, projects!inner(id, workspace_id))")
+    .select("id, tab_id")
     .eq("id", timelineBlockId)
     .maybeSingle();
 
@@ -40,8 +40,18 @@ export async function requireTimelineAccess(timelineBlockId: string, opts?: { au
     return { error: "Timeline block not found" };
   }
 
-  const workspaceId = (block.tabs as any)?.projects?.workspace_id as string | undefined;
-  const projectId = (block.tabs as any)?.projects?.id as string | undefined;
+  const { data: tab, error: tabError } = await supabase
+    .from("tabs")
+    .select("id, project_id, projects!inner(id, workspace_id)")
+    .eq("id", block.tab_id)
+    .maybeSingle();
+
+  if (tabError || !tab) {
+    return { error: "Timeline block is missing tab/project context" };
+  }
+
+  const workspaceId = (tab.projects as any)?.workspace_id as string | undefined;
+  const projectId = (tab.projects as any)?.id as string | undefined;
 
   if (!workspaceId) {
     return { error: "Timeline block is missing workspace" };

@@ -14,25 +14,16 @@ export async function POST(request: NextRequest) {
   try {
     // Security: Check Authorization header
     const authHeader = request.headers.get("authorization");
-    const expectedAuth = `Bearer ${CRON_SECRET}`;
-
-    // Allow manual trigger in development
-    const isDevelopment = process.env.NODE_ENV === "development";
-    const isAuthorized = authHeader === expectedAuth;
-
-    if (!isAuthorized && !isDevelopment) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+    if (!CRON_SECRET) {
+      console.error("CRON_SECRET not configured");
+      return NextResponse.json({ error: "Worker not configured" }, { status: 500 });
     }
 
-    if (!isDevelopment && !CRON_SECRET) {
-      console.error("CRON_SECRET not configured");
-      return NextResponse.json(
-        { error: "Worker not configured" },
-        { status: 500 }
-      );
+    const expectedAuth = `Bearer ${CRON_SECRET}`;
+    const isAuthorized = authHeader === expectedAuth;
+
+    if (!isAuthorized) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Create service client for background processing
@@ -102,6 +93,19 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    const authHeader = request.headers.get("authorization");
+    if (!CRON_SECRET) {
+      console.error("CRON_SECRET not configured");
+      return NextResponse.json({ error: "Worker not configured" }, { status: 500 });
+    }
+
+    const expectedAuth = `Bearer ${CRON_SECRET}`;
+    const isAuthorized = authHeader === expectedAuth;
+
+    if (!isAuthorized) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // Create service client
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

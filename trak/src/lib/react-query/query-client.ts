@@ -14,9 +14,9 @@ export function makeQueryClient() {
         // Keep unused data in cache for 10 minutes
         gcTime: 10 * 60 * 1000,
         
-        // Refetch on window focus for fresh data
-        refetchOnWindowFocus: true,
-        
+        // Don't refetch just because the user switched tabs — data is cached
+        refetchOnWindowFocus: false,
+
         // Don't refetch on mount if data is fresh
         refetchOnMount: false,
         
@@ -40,7 +40,7 @@ export const queryKeys = {
   userWorkspaces: () => ['userWorkspaces'] as const,
   projectTabs: (projectId: string) => ['projectTabs', projectId] as const,
   tabBlocks: (tabId: string) => ['tabBlocks', tabId] as const,
-  fileUrls: (fileIds: string[]) => ['fileUrls', fileIds.sort().join(',')] as const,
+  fileUrls: (fileIds: string[]) => ['fileUrls', [...fileIds].sort().join(',')] as const,
   workspace: (workspaceId: string) => ['workspace', workspaceId] as const,
   table: (tableId: string) => ['table', tableId] as const,
   tableBootstrap: (tableId: string) => ['tableBootstrap', tableId] as const,
@@ -51,7 +51,6 @@ export const queryKeys = {
   // Properties system
   propertyDefinitions: (workspaceId: string) => ['propertyDefinitions', workspaceId] as const,
   entityProperties: (entityType: string, entityId: string) => ['entityProperties', entityType, entityId] as const,
-  entityPropertiesWithInheritance: (entityType: string, entityId: string) => ['entityPropertiesInherited', entityType, entityId] as const,
   entityLinks: (entityType: string, entityId: string) => ['entityLinks', entityType, entityId] as const,
   projectTags: (projectId: string) => ['projectTags', projectId] as const,
   // Everything view

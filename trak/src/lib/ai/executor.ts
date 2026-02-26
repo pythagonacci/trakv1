@@ -118,6 +118,17 @@ export interface ExecuteAICommandOptions {
    * entities without calling search tools in the current turn.
    */
   initialSearchedEntities?: SearchManifestEntity[];
+  /**
+   * Max consecutive failures of the same tool before aborting.
+   * Default 3. Use a higher value (e.g. 6) for read-only/background flows like dashboard insights
+   * where search tools may need more retries with varying params.
+   */
+  maxConsecutiveToolErrors?: number;
+  /**
+   * Use a higher initial token budget for tool calls (e.g. when block/chart
+   * creation is likely). Helps avoid truncation before the model can emit tool calls.
+   */
+  preferHigherTokenBudget?: boolean;
 }
 
 interface ChatCompletionResponse {
@@ -149,14 +160,16 @@ const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+/** Deepseek API allows max_tokens in [1, 8192]; higher values cause 400. */
+const DEEPSEEK_MAX_TOKENS_LIMIT = 8192;
 const MAX_TOOL_ITERATIONS = 25; // Prevent infinite loops
 const TOOL_REPEAT_THRESHOLD = 2;
-const parsedToolCallMaxTokens = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 8192);
-const TOOL_CALL_MAX_TOKENS = Math.max(8192, Number.isFinite(parsedToolCallMaxTokens) ? parsedToolCallMaxTokens : 8192);
-const parsedToolCallMaxTokensMax = Number(process.env.AI_TOOL_CALL_MAX_TOKENS_MAX ?? 12288);
+const parsedToolCallMaxTokens = Number(process.env.AI_TOOL_CALL_MAX_TOKENS ?? 12288);
+const TOOL_CALL_MAX_TOKENS = Math.max(8192, Number.isFinite(parsedToolCallMaxTokens) ? parsedToolCallMaxTokens : 12288);
+const parsedToolCallMaxTokensMax = Number(process.env.AI_TOOL_CALL_MAX_TOKENS_MAX ?? 16384);
 const TOOL_CALL_MAX_TOKENS_MAX = Math.max(
   TOOL_CALL_MAX_TOKENS,
-  Number.isFinite(parsedToolCallMaxTokensMax) ? parsedToolCallMaxTokensMax : 12288
+  Number.isFinite(parsedToolCallMaxTokensMax) ? parsedToolCallMaxTokensMax : 16384
 );
 const parsedToolCallLengthRetryLimit = Number(process.env.AI_TOOL_CALL_LENGTH_RETRY_LIMIT ?? 2);
 const TOOL_CALL_LENGTH_RETRY_LIMIT = Math.max(
@@ -1094,6 +1107,12 @@ export async function executeAICommand(
   const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
   const commandForModel = cleanedCommand;
   let timingLogged = false;
+  // Initialize source-tracking state before any early-return paths call withTiming().
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+    ...(options.initialSearchedEntities ?? []),
+  ];
+  const searchToolsUsed = new Set<string>();
+
   const logTiming = () => {
     if (!timing || timingLogged) return;
     timingLogged = true;
@@ -1335,7 +1354,7 @@ export async function executeAICommand(
 
   // Track all tool calls made
   const allToolCallsMade: ExecutionResult["toolCallsMade"] = [];
-  let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
+  let toolCallTokenBudget = options.preferHigherTokenBudget ? TOOL_CALL_MAX_TOKENS_MAX : TOOL_CALL_MAX_TOKENS;
   let toolCallLengthRetries = 0;
   let lastToolSignature: string | null = null;
   let lastToolRepeatCount = 0;
@@ -1356,9 +1375,6 @@ export async function executeAICommand(
   const searchResults = new Map<string, { count: number; itemIds: string[] }>();
   // Track searched entities (id + title) for deterministic source metadata annotation
   // Seed with entities from previous conversation turns if available
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
-    ...(options.initialSearchedEntities ?? []),
-  ];
   if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
     aiDebug("sourceTracking:seededFromHistory", {
       count: options.initialSearchedEntities.length,
@@ -1366,7 +1382,6 @@ export async function executeAICommand(
     });
   }
   // Track which search tools were called in this execution (for search manifest)
-  const searchToolsUsed = new Set<string>();
   const updatedItemIds = new Set<string>();
   let sawTaskMutationTool = false;
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
@@ -1449,14 +1464,9 @@ export async function executeAICommand(
         finishReason,
       });
 
-      // If the model stopped because of length while emitting tool calls,
-      // retry immediately with a larger tool-call token budget.
-      // This avoids truncated JSON arguments for write-heavy tool calls.
-      if (
-        !hasToolResultsInConversation &&
-        finishReason === "length" &&
-        (assistantMessage.tool_calls?.length ?? 0) > 0
-      ) {
+      // If the model stopped because of length (with or without tool calls),
+      // retry with a larger token budget.
+      if (!hasToolResultsInConversation && finishReason === "length") {
         const nextBudget = Math.min(
           Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
           TOOL_CALL_MAX_TOKENS_MAX
@@ -1466,11 +1476,23 @@ export async function executeAICommand(
             retry: toolCallLengthRetries + 1,
             fromMaxTokens: toolCallTokenBudget,
             toMaxTokens: nextBudget,
+            hadToolCalls: (assistantMessage.tool_calls?.length ?? 0) > 0,
           });
           toolCallTokenBudget = nextBudget;
           toolCallLengthRetries += 1;
           continue;
         }
+        // Exhausted retries; return truncation message
+        const truncationNote =
+          "The response was cut off before it could finish. Try a simpler request or breaking it into smaller steps.";
+        return withTiming({
+          success: false,
+          response:
+            (assistantMessage.content?.trim() ? assistantMessage.content.trim() + "\n\n" : "") +
+            truncationNote,
+          toolCallsMade: allToolCallsMade,
+          error: "Response truncated (finish_reason=length)",
+        });
       } else {
         toolCallLengthRetries = 0;
       }
@@ -1688,8 +1710,9 @@ export async function executeAICommand(
             allToolCallsSuccessful = false;
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
             consecutiveErrorCount.set(toolName, currentErrors);
+            const maxErrors = options.maxConsecutiveToolErrors ?? 3;
 
-            if (currentErrors >= 3) {
+            if (currentErrors >= maxErrors) {
               return withTiming({
                 success: false,
                 response: `I'm having trouble with the ${toolName} tool. It failed ${currentErrors} times in a row. Error: ${result.error}`,
@@ -1896,6 +1919,16 @@ export async function executeAICommand(
           // Inject unstructured search follow-up reminder
           if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
             toolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.\n6. SOURCE TRACKING FOR TABLE-SOURCED CHUNKS: When a chunk's sourceType is "table", the sourceId is the TABLE ID (not a row ID). After calling \`getEntityById\` to retrieve the table, you will receive the table's rows with their individual row IDs. When creating data (including tasks/timeline events) based on specific rows from that table, use the actual \`table_rows.id\` as source_entity_id with source_entity_type "table_row" — NOT the table ID.`;
+          }
+
+          // Inject subtask rendering reminder when searchTasks results contain tasks with subtasks
+          if (toolName === "searchTasks" && result.success && Array.isArray(result.data) && result.data.some((t: any) => Array.isArray(t.subtasks) && t.subtasks.length > 0)) {
+            toolMessageContent += `\n\n⚠️ SUBTASK RENDERING — ONLY APPLIES TO TASKS THAT HAVE SUBTASKS ⚠️\nOne or more tasks above have a non-empty \`subtasks\` array. Apply the rules below ONLY when rendering those specific tasks. If your response does not display any tasks that have subtasks, ignore this section entirely.\n\nRULE 1 — TABLE: When rendering tasks with subtasks in a table:\n• Render each subtask as its own row placed directly underneath its parent task row.\n• Use the same columns as the parent row (title, status, priority, assignee, etc.) with the subtask's own field values — not the parent's.\n• Add one additional column to the table with field type "Subtask". This column contains checkboxes:\n  - Subtask rows: CHECKED/SELECTED (this marks them as nested under the parent task).\n  - Parent task rows: NOT checked/selected.\n• Never omit subtasks from a table rendering unless the user has explicitly asked to hide them.\n\nRULE 2 — TASK BLOCK: When rendering in a task block, use the "add subtask" feature to nest subtasks under the parent. Do NOT create them as separate top-level task items.\n\nRULE 3 — TIMELINE: When rendering as timeline events, render subtasks that have a date as sub-events under the parent event. Subtasks without a date should be omitted from the timeline.\n\nRULE 4 — SOURCE DATA: Each subtask has its own \`source_entity_type\` and \`source_entity_id\` fields. NEVER inherit or copy the parent task's source metadata onto a subtask. Always use the subtask's own source fields.`;
+          }
+
+          // Inject subtask rendering reminder when searchSubtasks returns results
+          if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            toolMessageContent += `\n\n⚠️ SUBTASK RENDERING — APPLY WHEN USING THESE SUBTASKS ⚠️\nThe results above are subtasks. Each has a \`task_id\` identifying its parent task. Apply the rules below when rendering these subtasks alongside or under their parent tasks.\n\nRULE 1 — TABLE: Render each subtask as its own row directly underneath its parent task row, using the same columns (title, status, priority, etc.) with the subtask's own values. Add a "Subtask" column with checkboxes — subtask rows are CHECKED, parent rows are NOT checked.\n\nRULE 2 — TASK BLOCK: Use the "add subtask" feature to nest subtasks under the parent. Do NOT create them as top-level task items.\n\nRULE 3 — TIMELINE: Render subtasks with a date as sub-events under their parent timeline event. Subtasks without a date should be omitted from the timeline.\n\nRULE 4 — SOURCE DATA: Each subtask has its own \`source_entity_type\` and \`source_entity_id\`. NEVER inherit or copy the parent task's source metadata onto a subtask.`;
           }
 
           if (timing) {
@@ -2269,7 +2302,10 @@ async function callDeepseek(
     toolCount: tools.length,
     model: DEEPSEEK_MODEL,
   });
-  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  const resolvedMaxTokens = Math.min(
+    Number.isFinite(maxTokens) ? maxTokens : 4096,
+    DEEPSEEK_MAX_TOKENS_LIMIT
+  );
   const response = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
     headers: {
@@ -2316,6 +2352,61 @@ async function callDeepseek(
     model: DEEPSEEK_MODEL,
   });
   return body;
+}
+
+/** Chat completion with no tools (for summarization, etc.). */
+type CompletionMessage = { role: "system" | "user" | "assistant"; content: string };
+
+async function callOpenAICompletion(
+  apiKey: string,
+  messages: CompletionMessage[],
+  maxTokens: number
+): Promise<ChatCompletionResponse> {
+  const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL;
+  const response = await fetch(OPENAI_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: 0.1,
+      max_tokens: maxTokens,
+    }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
+  }
+  return response.json();
+}
+
+async function callDeepseekCompletion(
+  apiKey: string,
+  messages: CompletionMessage[],
+  maxTokens: number
+): Promise<ChatCompletionResponse> {
+  const resolvedMaxTokens = Math.min(maxTokens, DEEPSEEK_MAX_TOKENS_LIMIT);
+  const response = await fetch(DEEPSEEK_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: 0.1,
+      max_tokens: resolvedMaxTokens,
+    }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Deepseek API error: ${response.status} ${errorText}`);
+  }
+  return response.json();
 }
 
 /**
@@ -2372,6 +2463,59 @@ async function callOpenAI(
     model,
   });
   return body;
+}
+
+/**
+ * Single completion with no tools (for summarization, formatting, etc.).
+ * Uses same provider/API key as executeAICommand. Returns assistant content only.
+ */
+export async function generateCompletion(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  options?: { maxTokens?: number }
+): Promise<{ content: string; error?: string }> {
+  const openAIKey = process.env.OPENAI_API_KEY;
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const providerPref = (process.env.AI_PROVIDER || "").toLowerCase();
+
+  if (!openAIKey && !deepseekKey) {
+    return { content: "", error: "AI service is not configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY." };
+  }
+
+  const provider =
+    providerPref === "deepseek"
+      ? deepseekKey
+        ? "deepseek"
+        : openAIKey
+          ? "openai"
+          : "deepseek"
+      : providerPref === "openai"
+        ? openAIKey
+          ? "openai"
+          : deepseekKey
+            ? "deepseek"
+            : "openai"
+        : openAIKey
+          ? "openai"
+          : "deepseek";
+
+  const apiKey = provider === "openai" ? (openAIKey as string) : (deepseekKey as string);
+  const maxTokens = options?.maxTokens ?? 2048;
+
+  try {
+    const response =
+      provider === "openai"
+        ? await callOpenAICompletion(apiKey, messages, maxTokens)
+        : await callDeepseekCompletion(apiKey, messages, maxTokens);
+
+    if (!response.choices?.length) {
+      return { content: "", error: "Empty response from AI" };
+    }
+    const text = response.choices[0].message?.content ?? "";
+    return { content: text };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { content: "", error: message };
+  }
 }
 
 /**
@@ -2479,6 +2623,7 @@ export async function* executeAICommandStream(
   const toolCallsMade: ExecutionResult["toolCallsMade"] = [];
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
   let autoUnstructuredFallbackUsed = false;
+  let hallucinatedWriteRetries = 0;
   const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
   const commandForModel = cleanedCommand;
 
@@ -2491,7 +2636,7 @@ export async function* executeAICommandStream(
 
   // Track empty argument calls to prevent infinite loops when LLM calls tools with no args (streaming path)
   const emptyArgCallCount = new Map<string, number>();
-  let toolCallTokenBudget = TOOL_CALL_MAX_TOKENS;
+  let toolCallTokenBudget = options.preferHigherTokenBudget ? TOOL_CALL_MAX_TOKENS_MAX : TOOL_CALL_MAX_TOKENS;
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
   // Track searched entities for deterministic source metadata annotation (streaming path)
@@ -2728,11 +2873,9 @@ export async function* executeAICommandStream(
         }
       }
 
-      if (
-        !hasToolResultsInConversation &&
-        streamedFinishReason === "length" &&
-        (streamedToolCalls?.length ?? 0) > 0
-      ) {
+      if (!hasToolResultsInConversation && streamedFinishReason === "length") {
+        // Retry with higher budget: either tool calls were cut off mid-stream, or model
+        // was about to emit a tool call when truncated.
         const nextBudget = Math.min(
           Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
           TOOL_CALL_MAX_TOKENS_MAX
@@ -2742,11 +2885,28 @@ export async function* executeAICommandStream(
             retry: toolCallLengthRetries + 1,
             fromMaxTokens: toolCallTokenBudget,
             toMaxTokens: nextBudget,
+            hadToolCalls: (streamedToolCalls?.length ?? 0) > 0,
           });
           toolCallTokenBudget = nextBudget;
           toolCallLengthRetries += 1;
           continue;
         }
+        // Exhausted retries; surface truncation message
+        const truncationNote =
+          "The response was cut off before it could finish. Try a simpler request or breaking it into smaller steps.";
+        const truncatedContent =
+          (streamedContent?.trim() ? streamedContent.trim() + "\n\n" : "") + truncationNote;
+        yield {
+          type: "response",
+          content: truncatedContent,
+          data: {
+            toolCallsMade,
+            undoBatches: undoTracker.batches,
+            undoSkippedTools: undoTracker.skippedTools,
+            searchManifest: buildStreamSearchManifest(),
+          },
+        };
+        return;
       } else {
         toolCallLengthRetries = 0;
       }
@@ -3057,8 +3217,9 @@ export async function* executeAICommandStream(
           if (!result.success) {
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
             consecutiveErrorCount.set(toolName, currentErrors);
+            const maxErrors = options.maxConsecutiveToolErrors ?? 3;
 
-            if (currentErrors >= 3) {
+            if (currentErrors >= maxErrors) {
               yield {
                 type: "response",
                 content: `I'm having trouble with the ${toolName} tool. It failed ${currentErrors} times in a row. Error: ${result.error}`,
@@ -3109,6 +3270,16 @@ export async function* executeAICommandStream(
           // Inject unstructured search follow-up reminder (streaming path)
           if (toolName === "unstructuredSearchWorkspace" && result.success && Array.isArray(result.data) && result.data.length > 0) {
             streamToolMessageContent += `\n\n📌 UNSTRUCTURED SEARCH — FOLLOW-UP REQUIRED FOR RELEVANT RESULTS 📌\nThe results above are TEXT CHUNKS (excerpts) from workspace content — they are NOT the full source documents.\nEach result has a \`sourceId\` and \`sourceType\` identifying the original entity (block, doc, file, etc.) it came from.\n\nRULES:\n1. If any chunk above is RELEVANT to the user's request and you need to use its data (to create entities, answer questions, or complete tasks), you MUST call \`getEntityById\` with the chunk's \`sourceId\` and \`sourceType\` to retrieve the FULL content of the original source before using it.\n2. Do NOT rely solely on the chunk text for creating data — chunks are excerpts and may be incomplete or lack context.\n3. You DO have access to the full source content — use \`getEntityById\` to read it.\n4. You do NOT need to follow up on every result — only those that are relevant to the current task.\n5. If a chunk clearly contains all the information you need (e.g., a short note or a single fact), you may use it directly without follow-up.\n6. SOURCE TRACKING FOR TABLE-SOURCED CHUNKS: When a chunk's sourceType is "table", the sourceId is the TABLE ID (not a row ID). After calling \`getEntityById\` to retrieve the table, you will receive the table's rows with their individual row IDs. When creating data (including tasks/timeline events) based on specific rows from that table, use the actual \`table_rows.id\` as source_entity_id with source_entity_type "table_row" — NOT the table ID.`;
+          }
+
+          // Inject subtask rendering reminder when searchTasks results contain tasks with subtasks (streaming path)
+          if (toolName === "searchTasks" && result.success && Array.isArray(result.data) && result.data.some((t: any) => Array.isArray(t.subtasks) && t.subtasks.length > 0)) {
+            streamToolMessageContent += `\n\n⚠️ SUBTASK RENDERING — ONLY APPLIES TO TASKS THAT HAVE SUBTASKS ⚠️\nOne or more tasks above have a non-empty \`subtasks\` array. Apply the rules below ONLY when rendering those specific tasks. If your response does not display any tasks that have subtasks, ignore this section entirely.\n\nRULE 1 — TABLE: When rendering tasks with subtasks in a table:\n• Render each subtask as its own row placed directly underneath its parent task row.\n• Use the same columns as the parent row (title, status, priority, assignee, etc.) with the subtask's own field values — not the parent's.\n• Add one additional column to the table with field type "Subtask". This column contains checkboxes:\n  - Subtask rows: CHECKED/SELECTED (this marks them as nested under the parent task).\n  - Parent task rows: NOT checked/selected.\n• Never omit subtasks from a table rendering unless the user has explicitly asked to hide them.\n\nRULE 2 — TASK BLOCK: When rendering in a task block, use the "add subtask" feature to nest subtasks under the parent. Do NOT create them as separate top-level task items.\n\nRULE 3 — TIMELINE: When rendering as timeline events, render subtasks that have a date as sub-events under the parent event. Subtasks without a date should be omitted from the timeline.\n\nRULE 4 — SOURCE DATA: Each subtask has its own \`source_entity_type\` and \`source_entity_id\` fields. NEVER inherit or copy the parent task's source metadata onto a subtask. Always use the subtask's own source fields.`;
+          }
+
+          // Inject subtask rendering reminder when searchSubtasks returns results (streaming path)
+          if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data) && result.data.length > 0) {
+            streamToolMessageContent += `\n\n⚠️ SUBTASK RENDERING — APPLY WHEN USING THESE SUBTASKS ⚠️\nThe results above are subtasks. Each has a \`task_id\` identifying its parent task. Apply the rules below when rendering these subtasks alongside or under their parent tasks.\n\nRULE 1 — TABLE: Render each subtask as its own row directly underneath its parent task row, using the same columns (title, status, priority, etc.) with the subtask's own values. Add a "Subtask" column with checkboxes — subtask rows are CHECKED, parent rows are NOT checked.\n\nRULE 2 — TASK BLOCK: Use the "add subtask" feature to nest subtasks under the parent. Do NOT create them as top-level task items.\n\nRULE 3 — TIMELINE: Render subtasks with a date as sub-events under their parent timeline event. Subtasks without a date should be omitted from the timeline.\n\nRULE 4 — SOURCE DATA: Each subtask has its own \`source_entity_type\` and \`source_entity_id\`. NEVER inherit or copy the parent task's source metadata onto a subtask.`;
           }
 
           messages.push({
@@ -3389,6 +3560,31 @@ export async function* executeAICommandStream(
         continue;
       }
 
+      // Guard: LLM hallucinated a write completion without actually calling any write tools.
+      // tool_choice="auto" intermittently lets the model respond with plain text instead of
+      // making tool calls — even after search tools ran. Detect this and force a retry by
+      // reminding the model it must call a tool, not just describe the action.
+      const hasNoWriteToolsCalled = toolCallsMade.every((c) => isSearchLikeToolName(c.tool));
+      if (
+        hasWriteIntent &&
+        hasNoWriteToolsCalled &&
+        streamedContent.length > 0 &&
+        hallucinatedWriteRetries < 1
+      ) {
+        hallucinatedWriteRetries += 1;
+        aiDebug("executeAICommandStream:hallucinatedWriteResponse", {
+          iteration: iterations,
+          contentPreview: streamedContent.slice(0, 120),
+          intent: intent.actions,
+          searchToolsCalledSoFar: toolCallsMade.map((c) => c.tool),
+        });
+        messages.push({
+          role: "user",
+          content: `You responded with text but did not call any write tools to complete the action. You MUST call the appropriate tool now — do not describe the action, actually perform it: "${commandForModel}"`,
+        });
+        continue;
+      }
+
       // Final response
       yield {
         type: "response",
@@ -3401,7 +3597,11 @@ export async function* executeAICommandStream(
         },
       };
       return;
-    } catch {
+    } catch (err) {
+      aiDebug("executeAICommandStream:error", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       yield {
         type: "response",
         content: "An error occurred while processing your command.",
@@ -3440,7 +3640,10 @@ async function* streamChatCompletion({
     provider === "openai"
       ? process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL
       : DEEPSEEK_MODEL;
-  const resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  let resolvedMaxTokens = Number.isFinite(maxTokens) ? maxTokens : 4096;
+  if (provider === "deepseek") {
+    resolvedMaxTokens = Math.min(resolvedMaxTokens, DEEPSEEK_MAX_TOKENS_LIMIT);
+  }
   const response = await fetch(url, {
     method: "POST",
     headers: {

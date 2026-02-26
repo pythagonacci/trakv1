@@ -73,7 +73,7 @@ export default function WorkflowAIChatPanel(props: {
   const [isClearing, setIsClearing] = useState(false);
   const [addingToPageMessageId, setAddingToPageMessageId] = useState<string | null>(null);
 
-  const endRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
 
   const renderedMessages = useMemo(() => {
@@ -92,45 +92,10 @@ export default function WorkflowAIChatPanel(props: {
   }, [messages]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [renderedMessages, loading]);
-
-  const lastAssistantMessageId = useMemo(() => {
-    for (let i = renderedMessages.length - 1; i >= 0; i -= 1) {
-      if (renderedMessages[i].role === "assistant") {
-        return renderedMessages[i].id;
-      }
-    }
-    return null;
-  }, [renderedMessages]);
-
-  const lastAssistantMessageIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      lastAssistantMessageIdRef.current = lastAssistantMessageId;
-      return;
-    }
-
-    if (!props.autoScrollDashboardToTop) {
-      lastAssistantMessageIdRef.current = lastAssistantMessageId;
-      return;
-    }
-
-    if (
-      lastAssistantMessageId &&
-      lastAssistantMessageIdRef.current !== lastAssistantMessageId
-    ) {
-      const dashboardContent = document.getElementById("dashboard-content");
-      if (dashboardContent) {
-        dashboardContent.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
-    }
-
-    lastAssistantMessageIdRef.current = lastAssistantMessageId;
-  }, [lastAssistantMessageId, props.autoScrollDashboardToTop]);
 
   const load = async () => {
     setLoading(true);
@@ -628,7 +593,7 @@ export default function WorkflowAIChatPanel(props: {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-3 space-y-3">
+      <div ref={messagesContainerRef} className="min-h-0 flex-1 overflow-auto px-4 py-3 space-y-3">
         {renderedMessages.length === 0 && !loading && (
           <div className="rounded-md border border-[var(--border)] bg-[var(--secondary)]/5 p-3 text-xs text-[var(--muted-foreground)]">
             Ask a question and I’ll build this page with blocks.
@@ -763,7 +728,7 @@ export default function WorkflowAIChatPanel(props: {
             <span>{streamingResponse || streamingStatus || "Thinking…"}</span>
           </div>
         )}
-        <div ref={endRef} />
+        <div />
       </div>
 
       <form

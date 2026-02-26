@@ -13,7 +13,7 @@ export interface TimelineNamedStatus {
   value: TimelineEventStatus;
 }
 
-export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block";
+export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block" | "subtask";
 export type TimelineSourceSyncMode = "snapshot" | "live";
 
 export type DependencyType = "finish-to-start" | "start-to-start" | "finish-to-finish" | "start-to-finish";
@@ -31,6 +31,7 @@ export interface TimelineEvent {
   priorities: TimelineNamedPriority[];
   assignee_id: string | null;
   assignee_team_id: string | null;
+  parent_event_id: string | null;
   source_entity_type: TimelineSourceEntityType | null;
   source_entity_id: string | null;
   source_sync_mode: TimelineSourceSyncMode | null;
@@ -91,6 +92,7 @@ export interface TimelineItem {
   priorities?: TimelineNamedPriority[];
   assignee_id: string | null;
   assignee_team_id: string | null;
+  parent_event_id?: string | null;
   source_entity_type?: TimelineSourceEntityType | null;
   source_entity_id?: string | null;
   source_sync_mode?: TimelineSourceSyncMode | null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, forwardRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Plus,
   Palette,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -65,10 +66,12 @@ export interface CalendarEvent {
   date: string;
   time?: string;
   timeEnd?: string;
-  type: "task" | "project" | "google";
+  type: "task" | "project" | "google" | "timeline";
   projectId?: string;
   tabId?: string;
   taskId?: string;
+  timelineEventId?: string;
+  blockId?: string;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   projectName?: string;
   tabName?: string;
@@ -87,12 +90,495 @@ interface GoogleCalendarApiEvent {
   location?: string | null;
 }
 
+export type ItemsViewType = "all" | "mine";
+
 interface CalendarViewProps {
   initialEvents: CalendarEvent[];
   workspaceId: string;
+  /** When "mine", only tasks assigned to current user (or user's teams) are shown */
+  itemsView?: ItemsViewType;
 }
 
-export default function CalendarView({ initialEvents, workspaceId }: CalendarViewProps) {
+// Day view constants and helpers
+const HOUR_HEIGHT = 64;
+const DAY_GRID_COLORS = {
+  teal: { bar: "bg-teal-500", dot: "bg-teal-500", bg: "bg-teal-500/10", ring: "ring-teal-500/25" },
+  violet: { bar: "bg-violet-500", dot: "bg-violet-500", bg: "bg-violet-500/10", ring: "ring-violet-500/25" },
+  amber: { bar: "bg-amber-500", dot: "bg-amber-500", bg: "bg-amber-500/10", ring: "ring-amber-500/25" },
+  rose: { bar: "bg-rose-500", dot: "bg-rose-500", bg: "bg-rose-500/10", ring: "ring-rose-500/25" },
+  slate: { bar: "bg-slate-500", dot: "bg-slate-500", bg: "bg-slate-500/10", ring: "ring-slate-500/25" },
+} as const;
+
+type DayViewColor = keyof typeof DAY_GRID_COLORS;
+
+function minutesFromTime(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+function formatTimeLabel(hour24: number): string {
+  const h = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const suffix = hour24 < 12 ? "AM" : "PM";
+  return `${h} ${suffix}`;
+}
+
+function getEventColor(event: CalendarEvent): DayViewColor {
+  if (event.type === "google") return "violet";
+  if (event.type === "project") return "slate";
+  if (event.type === "timeline") return "amber";
+  if (event.priority === "urgent") return "rose";
+  if (event.priority === "high") return "amber";
+  if (event.priority === "medium") return "teal";
+  if (event.priority === "low") return "teal";
+  return "teal";
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function ymd(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+// Mini month for quick nav
+function MiniMonth({
+  date,
+  onPick,
+}: {
+  date: Date;
+  onPick: (d: Date) => void;
+}) {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(1 - ((first.getDay() + 6) % 7));
+
+  const days: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+
+  const monthLabel = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-[var(--foreground)]">{monthLabel}</div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => onPick(new Date(date.getFullYear(), date.getMonth() - 1, Math.min(date.getDate(), 28)))}
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => onPick(new Date(date.getFullYear(), date.getMonth() + 1, Math.min(date.getDate(), 28)))}
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-7 gap-1 text-[11px] text-[var(--muted-foreground)]">
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+          <div key={i} className="text-center">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 grid grid-cols-7 gap-1">
+        {days.map((d) => {
+          const inMonth = d.getMonth() === date.getMonth();
+          const selected = ymd(d) === ymd(date);
+          const today =
+            d.getDate() === new Date().getDate() &&
+            d.getMonth() === new Date().getMonth() &&
+            d.getFullYear() === new Date().getFullYear();
+
+          return (
+            <button
+              key={ymd(d)}
+              onClick={() => onPick(d)}
+              type="button"
+              className={cn(
+                "h-9 rounded-md text-xs transition",
+                selected && "bg-[var(--foreground)] text-[var(--background)]",
+                !selected && today && "bg-[var(--surface)] text-[var(--foreground)]",
+                !selected && !today && "hover:bg-[var(--surface-hover)]",
+                !inMonth && !selected && "text-[var(--muted-foreground)]/60"
+              )}
+              aria-label={d.toDateString()}
+            >
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Toggle row for Show section
+function ToggleRow({
+  label,
+  on,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between rounded-md border border-[var(--border)] px-3 py-2",
+        disabled && "opacity-50"
+      )}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium truncate text-[var(--foreground)]">{label}</div>
+        <div className="text-[11px] text-[var(--muted-foreground)]">{on ? "Visible" : "Hidden"}</div>
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange(!on)}
+        className={cn(
+          "relative h-6 w-11 rounded-full transition shrink-0",
+          on ? "bg-[var(--foreground)]" : "bg-[var(--border)]"
+        )}
+        aria-label={`Toggle ${label}`}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition",
+            on ? "left-5" : "left-0.5"
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
+// Day view event card with color swatch
+function DayViewEventCard({
+  event,
+  top,
+  height,
+  onClick,
+  onMoreClick,
+}: {
+  event: CalendarEvent;
+  top: number;
+  height: number;
+  onClick: () => void;
+  onMoreClick: (e: React.MouseEvent) => void;
+}) {
+  const color = getEventColor(event);
+  const c = DAY_GRID_COLORS[color];
+  const source = event.type === "google" ? "Google" : event.type === "timeline" ? "Timeline" : "Trak";
+
+  return (
+    <div
+      className={cn(
+        "absolute left-0 right-0 max-w-[520px] rounded-lg border border-[var(--border)] shadow-sm ring-1 cursor-pointer transition hover:bg-[var(--surface)]/80",
+        c.ring,
+        c.bg
+      )}
+      style={{ top: top + 8, height: clamp(height - 8, 36, 999) }}
+      onClick={onClick}
+    >
+      <div className="absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg overflow-hidden">
+        <div className={cn("h-full", c.bar)} />
+      </div>
+
+      <div className="h-full pl-4 pr-3 py-2.5 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={cn("h-2 w-2 rounded-full shrink-0", c.dot)} />
+            <span className="truncate text-sm font-semibold text-[var(--foreground)]">{event.title}</span>
+          </div>
+          <div className="mt-0.5 text-xs text-[var(--muted-foreground)] truncate">
+            {event.time ?? "—"}
+            {event.timeEnd ? `–${event.timeEnd}` : ""}
+            {event.location ? ` • ${event.location}` : ""}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[10px] px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface)]/80">
+            {source}
+          </span>
+          <button
+            type="button"
+            className="h-7 w-7 rounded-md border border-[var(--border)] text-xs hover:bg-[var(--surface-hover)] flex items-center justify-center"
+            onClick={onMoreClick}
+            aria-label="More"
+          >
+            ⋯
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Day view with quick nav sidebar and full-width grid
+const DayView = forwardRef<
+  HTMLDivElement,
+  {
+    currentDate: Date;
+    mergedEvents: CalendarEvent[];
+    showTrakEvents: boolean;
+    setShowTrakEvents: (v: boolean) => void;
+    showGoogleEvents: boolean;
+    setShowGoogleEvents: (v: boolean) => void;
+    googleConnected: boolean;
+    showFocusBlocks: boolean;
+    setShowFocusBlocks: (v: boolean) => void;
+    onDateChange: (d: Date) => void;
+    onEventClick: (event: CalendarEvent, e: React.MouseEvent) => void;
+    onAddEvent: () => void;
+    isToday: (d: Date) => boolean;
+  }
+>(function DayView(
+  {
+    currentDate,
+    mergedEvents,
+    showTrakEvents,
+    setShowTrakEvents,
+    showGoogleEvents,
+    setShowGoogleEvents,
+    googleConnected,
+    showFocusBlocks,
+    setShowFocusBlocks,
+    onDateChange,
+    onEventClick,
+    onAddEvent,
+    isToday,
+  },
+  ref
+) {
+  const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  const [now, setNow] = useState(() => new Date());
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const hasScrolledToNow = useRef(false);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Scroll to current time when viewing today
+  useEffect(() => {
+    if (!isToday(currentDate)) {
+      hasScrolledToNow.current = false;
+      return;
+    }
+    const container = scrollContainerRef.current;
+    if (!container || hasScrolledToNow.current) return;
+
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
+    // Position current time ~2 hours from top of viewport
+    const scrollTop = Math.max(0, nowTop - HOUR_HEIGHT * 2);
+    container.scrollTop = scrollTop;
+    hasScrolledToNow.current = true;
+  }, [currentDate, now]);
+
+  // Reset scroll flag when date changes
+  useEffect(() => {
+    hasScrolledToNow.current = false;
+  }, [currentDate]);
+
+  const dateStr = ymd(currentDate);
+  const dayEvents = mergedEvents.filter((e) => e.date === dateStr && e.time);
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
+  const isTodayDate = isToday(currentDate);
+  const dowShort = currentDate.toLocaleDateString("en-US", { weekday: "short" });
+
+  return (
+    <div ref={ref} className="w-full h-full min-h-0 flex flex-col lg:flex-row gap-0 overflow-hidden">
+      {/* Quick nav - flush left/top, not a panel */}
+      <aside className="w-full lg:w-[280px] shrink-0 border-r border-[var(--border)] bg-[var(--surface)] overflow-auto">
+        <div className="px-4 py-3 border-b border-[var(--border)]">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-[var(--foreground)]">Quick nav</div>
+              <div className="text-xs text-[var(--muted-foreground)]">Jump + filters</div>
+            </div>
+            <Button variant="outline" size="sm" className="h-8 text-xs">
+              Calendars
+            </Button>
+          </div>
+        </div>
+        <div className="p-4">
+          <MiniMonth date={currentDate} onPick={onDateChange} />
+          <div className="mt-4">
+            <div className="text-xs font-semibold text-[var(--foreground)] mb-2">Show</div>
+            <div className="space-y-2">
+              <ToggleRow label="Trak events" on={showTrakEvents} onChange={setShowTrakEvents} />
+              <ToggleRow
+                label="Google events"
+                on={showGoogleEvents}
+                onChange={setShowGoogleEvents}
+                disabled={!googleConnected}
+              />
+              <ToggleRow label="Focus blocks" on={showFocusBlocks} onChange={setShowFocusBlocks} />
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Day grid - full width, top connects to header (no top corners) */}
+      <section className="flex-1 min-w-0 rounded-b-md border border-[var(--border)] bg-[var(--surface)] shadow-sm overflow-hidden flex flex-col">
+        {/* Day header row */}
+        <div className="border-b border-[var(--border)] bg-[var(--surface)] shrink-0">
+          <div className="grid grid-cols-[72px_1fr]">
+            <div className="border-r border-[var(--border)] px-3 py-3 flex items-center justify-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--foreground)] text-[var(--background)]">
+                <div className="text-center leading-tight">
+                  <div className="text-[10px] opacity-80">{dowShort}</div>
+                  <div className="text-sm font-semibold">{currentDate.getDate()}</div>
+                </div>
+              </div>
+            </div>
+            <div className="px-4 py-3 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Your day</span>
+                  {isTodayDate && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--surface)] text-[var(--foreground)]">
+                      Today
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-[var(--muted-foreground)]">
+                  Drag to create • Click to edit • Source tags are preserved
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="h-9 text-sm">
+                  Search
+                </Button>
+                <Button variant="outline" size="sm" className="h-9 text-sm">
+                  Settings
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Grid body */}
+        <div ref={scrollContainerRef} className="relative flex-1 overflow-auto min-h-0">
+          <div className="grid grid-cols-[72px_1fr]">
+            {/* Time gutter */}
+            <div className="relative border-r border-[var(--border)]">
+              {hours.map((h) => (
+                <div key={h} className="relative" style={{ height: HOUR_HEIGHT }}>
+                  <div className="absolute -top-2 right-3 text-[11px] text-[var(--muted-foreground)] select-none">
+                    {formatTimeLabel(h)}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Main day lane */}
+            <div className="relative" style={{ height: HOUR_HEIGHT * 24 }}>
+              {/* Grid lines */}
+              {hours.map((h) => (
+                <div key={h} data-hour={h} className="absolute left-0 right-0" style={{ top: h * HOUR_HEIGHT }}>
+                  <div className="h-px bg-[var(--border)]" />
+                </div>
+              ))}
+
+              {/* Current time indicator */}
+              {isTodayDate && nowMinutes >= 0 && nowMinutes < 24 * 60 && (
+                <div className="absolute left-0 right-0 z-10" style={{ top: nowTop }}>
+                  <div className="relative">
+                    <div className="absolute -left-2 top-[-4px] h-2 w-2 rounded-full bg-rose-500" />
+                    <div className="h-px bg-rose-500" />
+                    <div className="absolute right-3 -top-3 text-[10px] px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-200">
+                      Now • {pad2(now.getHours())}:{pad2(now.getMinutes())}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Events */}
+              <div className="absolute inset-0 px-3 py-2">
+                {dayEvents.map((ev) => {
+                  const startM = ev.time ? minutesFromTime(ev.time) : 0;
+                  const endM = ev.timeEnd ? minutesFromTime(ev.timeEnd) : startM + 60;
+                  const durM = Math.max(15, endM - startM);
+                  const top = (startM / 60) * HOUR_HEIGHT;
+                  const height = (durM / 60) * HOUR_HEIGHT;
+
+                  return (
+                    <DayViewEventCard
+                      key={ev.id}
+                      event={ev}
+                      top={top}
+                      height={height}
+                      onClick={() => onEventClick(ev, { stopPropagation: () => {} } as React.MouseEvent)}
+                      onMoreClick={(e) => {
+                        e.stopPropagation();
+                        onEventClick(ev, e);
+                      }}
+                    />
+                  );
+                })}
+
+                {dayEvents.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                      No events • Drag on the grid to create one
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-[var(--border)] px-4 py-3 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-[var(--muted-foreground)]">
+              Tip: use color swatches to reduce noisy badges.
+            </div>
+            <Button variant="outline" size="sm" className="h-9 text-sm" onClick={onAddEvent}>
+              Import
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+});
+
+export default function CalendarView({
+  initialEvents,
+  workspaceId,
+  itemsView = "all",
+}: CalendarViewProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -107,6 +593,8 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [googleAvailable, setGoogleAvailable] = useState(true);
   const [showGoogleEvents, setShowGoogleEvents] = useState(true);
+  const [showTrakEvents, setShowTrakEvents] = useState(true);
+  const [showFocusBlocks, setShowFocusBlocks] = useState(false);
   const [addEventDialogOpen, setAddEventDialogOpen] = useState(false);
   const [addEventDate, setAddEventDate] = useState<Date | undefined>(undefined);
   const [addEventTime, setAddEventTime] = useState<string | undefined>(undefined);
@@ -128,6 +616,12 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
       return isBrutalist
         ? `${baseClasses} text-white bg-[var(--velvet-purple)]/70`
         : `${baseClasses} bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] border border-[var(--velvet-purple)]/25`;
+    }
+
+    if (event.type === "timeline") {
+      return isBrutalist
+        ? `${baseClasses} text-white bg-[var(--tram-yellow)]/70`
+        : `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
     }
     
     if (event.priority === "urgent") {
@@ -199,8 +693,11 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
   }, [initialEvents]);
 
   const mergedEvents = useMemo(
-    () => (showGoogleEvents ? [...events, ...googleEvents] : events),
-    [events, googleEvents, showGoogleEvents]
+    () => [
+      ...(showTrakEvents ? events : []),
+      ...(showGoogleEvents ? googleEvents : []),
+    ],
+    [events, googleEvents, showTrakEvents, showGoogleEvents]
   );
 
   // Get events for a specific date
@@ -533,6 +1030,26 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
               </DropdownMenuContent>
             </DropdownMenu>
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-md border border-[var(--border)] p-0.5">
+                <Button
+                  variant={itemsView === "all" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => router.push("/dashboard/calendar")}
+                  className="text-xs px-3 gap-1.5"
+                >
+                  All
+                </Button>
+                <Button
+                  variant={itemsView === "mine" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => router.push("/dashboard/calendar?view=mine")}
+                  className="text-xs px-3 gap-1.5"
+                  title="Tasks assigned to you or teams you're in"
+                >
+                  <User className="h-3.5 w-3.5" />
+                  Mine
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -638,7 +1155,12 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
 
       {/* Calendar Grid */}
       <div 
-        className="flex-1 overflow-auto p-4 md:p-6 min-h-0 transition-all duration-300"
+        className={cn(
+          "flex-1 min-h-0 transition-all duration-300",
+          viewType === "day"
+            ? "overflow-hidden flex flex-col pl-0 pt-0 pr-4 pb-4 md:pr-6 md:pb-6"
+            : "overflow-auto p-4 md:p-6"
+        )}
         style={{ background: currentTheme.pageBg }}
       >
         {viewType === "month" && (
@@ -706,7 +1228,7 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
         )}
 
         {viewType === "week" && (
-          <div className="flex flex-col h-full min-h-[480px] rounded-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-sm shadow-md overflow-hidden">
+          <div className="flex flex-col h-full min-h-[480px] rounded-b-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-sm shadow-md overflow-hidden">
             {/* Top row: time gutter + day headers */}
             <div className="grid grid-cols-[4rem_1fr] flex-shrink-0 border-b border-[var(--border)]/30 bg-[var(--surface)]/80">
               <div className="border-r border-[var(--border)]/30 px-2 py-2 text-xs font-medium text-[var(--muted-foreground)]" />
@@ -821,64 +1343,23 @@ export default function CalendarView({ initialEvents, workspaceId }: CalendarVie
         )}
 
         {viewType === "day" && (
-          <div className="mx-auto max-w-4xl" ref={dayViewRef}>
-            <div className="rounded-xl border border-[var(--border)]/30 bg-[var(--surface)]/60 backdrop-blur-xl shadow-xl shadow-black/10">
-              {/* Day header */}
-              <div
-                onClick={() => handleDayClick(currentDate)}
-                className={cn(
-                  "border-b border-[var(--border)]/30 bg-[var(--surface)]/80 backdrop-blur-md px-6 py-4 rounded-t-xl",
-                  isToday(currentDate) && "bg-[var(--dome-teal)]/5"
-                )}
-              >
-                <div className={cn(
-                  "text-sm font-medium text-[var(--muted-foreground)]",
-                  isToday(currentDate) && "text-[var(--dome-teal)]"
-                )}>
-                  {currentDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-                </div>
-              </div>
-
-              {/* Hour slots */}
-              <div className="divide-y divide-[var(--border)]/20 max-h-[calc(100vh-12rem)] overflow-y-auto">
-                {Array.from({ length: 24 }).map((_, hour) => {
-                  const hourDate = new Date(currentDate);
-                  hourDate.setHours(hour, 0, 0, 0);
-                  const hourEvents = getEventsForDate(currentDate).filter((event) => {
-                    if (!event.time) return false;
-                    const [hours] = event.time.split(":").map(Number);
-                    return hours === hour;
-                  });
-
-                  return (
-                    <div key={hour} data-hour={hour} className="flex min-h-[60px] hover:bg-[var(--surface)]/30 transition-colors">
-                      <div className="w-20 border-r border-[var(--border)]/20 px-3 py-2 text-xs text-[var(--muted-foreground)]">
-                        {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
-                      </div>
-                      <div className="flex-1 p-2">
-                        {hourEvents.map((event) => (
-                          <div
-                            key={event.id}
-                            onClick={(e) => handleEventClick(event, e)}
-                            className={cn(
-                              "mb-1.5 px-2.5 py-1.5",
-                              getEventClassName(event, "text-xs")
-                            )}
-                          >
-                            <div className="font-medium">{event.title}</div>
-                            {(event.time || event.timeEnd) && (
-                              <div className="text-[10px] opacity-75">
-                                {event.timeEnd ? `${event.time ?? "—"} – ${event.timeEnd}` : (event.time ?? event.timeEnd)}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+          <div className="flex-1 min-h-0 flex">
+          <DayView
+            ref={dayViewRef}
+            currentDate={currentDate}
+            mergedEvents={mergedEvents}
+            showTrakEvents={showTrakEvents}
+            setShowTrakEvents={setShowTrakEvents}
+            showGoogleEvents={showGoogleEvents}
+            setShowGoogleEvents={setShowGoogleEvents}
+            googleConnected={googleConnected}
+            showFocusBlocks={showFocusBlocks}
+            setShowFocusBlocks={setShowFocusBlocks}
+            onDateChange={setCurrentDate}
+            onEventClick={handleEventClick}
+            onAddEvent={() => setAddEventDialogOpen(true)}
+            isToday={isToday}
+          />
           </div>
         )}
       </div>
