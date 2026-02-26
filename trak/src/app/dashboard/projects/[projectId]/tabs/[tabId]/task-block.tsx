@@ -27,7 +27,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { buildDueDateRange, formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
+import { buildDueDateRange, formatDueDateForDisplay, formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import {
@@ -2585,7 +2585,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const assigneeLabel = assigneeNames.length
                 ? assigneeNames.join(", ")
                 : (task.assignees?.length ? task.assignees.join(", ") : null);
-              const dueDateLabel = formatDueDateRange(effectiveDueDate) || null;
+              const dueDateLabel = formatDueDateRange(effectiveDueDate, formatDueDateForDisplay, " → ") || null;
               const hasDueDateValue = hasDueDate(effectiveDueDate);
               const showInlineIcons =
                 shouldShowIcons(task) ||
@@ -3026,40 +3026,52 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                     {assigneeLabel && <span className="max-w-[140px] truncate">{assigneeLabel}</span>}
                                   </button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      setTaskProperties.mutate({
-                                        entityId: taskEntityId,
-                                        updates: { assignee_ids: null },
-                                      })
-                                    }
-                                  >
-                                    Unassigned (clear all)
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  {workspaceMembers.map((m) => {
-                                    const isAssigned = effectiveAssigneeIds.includes(m.user_id);
-                                    return (
-                                      <DropdownMenuItem
-                                        key={m.user_id}
-                                        onClick={() => {
-                                          const next = isAssigned
-                                            ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
-                                            : [...effectiveAssigneeIds, m.user_id];
-                                          setTaskProperties.mutate({
-                                            entityId: taskEntityId,
-                                            updates: { assignee_ids: next.length ? next : null },
-                                          });
-                                        }}
-                                      >
-                                        <span className="flex items-center gap-2">
-                                          {isAssigned ? "✓ " : ""}
+                                <DropdownMenuContent align="start" className="w-auto min-w-0 max-w-[12rem] p-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex flex-col gap-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setTaskProperties.mutate({
+                                          entityId: taskEntityId,
+                                          updates: { assignee_ids: null },
+                                        })
+                                      }
+                                      className={cn(
+                                        "w-full rounded px-1.5 py-0.5 text-left text-[10px] transition-colors",
+                                        effectiveAssigneeIds.length === 0
+                                          ? "bg-[var(--surface-hover)] text-[var(--foreground)] font-medium"
+                                          : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                                      )}
+                                    >
+                                      Unassigned
+                                    </button>
+                                    {workspaceMembers.map((m) => {
+                                      const isAssigned = effectiveAssigneeIds.includes(m.user_id);
+                                      return (
+                                        <button
+                                          key={m.user_id}
+                                          type="button"
+                                          onClick={() => {
+                                            const next = isAssigned
+                                              ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
+                                              : [...effectiveAssigneeIds, m.user_id];
+                                            setTaskProperties.mutate({
+                                              entityId: taskEntityId,
+                                              updates: { assignee_ids: next.length ? next : null },
+                                            });
+                                          }}
+                                          className={cn(
+                                            "w-full rounded px-1.5 py-0.5 text-left text-[10px] transition-colors truncate",
+                                            isAssigned
+                                              ? "bg-[var(--surface-hover)] text-[var(--foreground)] font-medium ring-1 ring-[var(--foreground)]/30"
+                                              : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                                          )}
+                                        >
                                           {m.name || m.email}
-                                        </span>
-                                      </DropdownMenuItem>
-                                    );
-                                  })}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             )}
@@ -3085,10 +3097,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               </DropdownMenuTrigger>
                               <DropdownMenuContent
                                 align="start"
-                                className="w-64"
+                                className="w-auto min-w-[200px] p-1.5"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <div className="p-2 space-y-2">
+                                <div className="space-y-1.5">
                                   <DateRangeCalendar
                                     range={{
                                       start: effectiveDueDate?.start ?? null,
@@ -3377,7 +3389,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           const showPriority = effectivePriorityFields.length > 0 && boardGroupBy !== "priority";
                           const showAssignee = Boolean(assigneeLabel) && boardGroupBy !== "assignee";
                           const hasDueDateValue = hasDueDate(effectiveDueDate);
-                          const dueDateLabel = formatDueDateRange(effectiveDueDate) || null;
+                          const dueDateLabel = formatDueDateRange(effectiveDueDate, formatDueDateForDisplay, " → ") || null;
                           const showDueDate = hasDueDateValue && boardGroupBy !== "dueDate";
                           const showTags = effectiveTags.length > 0 && boardGroupBy !== "tags";
 
@@ -3639,7 +3651,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           const showSubtaskPriority = Boolean(subtaskPriority) && boardGroupBy !== "priority";
                           const showSubtaskAssignee = Boolean(subtaskAssigneeLabel) && boardGroupBy !== "assignee";
                           const hasSubtaskDueDateValue = hasDueDate(subtaskDueDate);
-                          const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate) || null;
+                          const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate, formatDueDateForDisplay, " → ") || null;
                           const showSubtaskDueDate = hasSubtaskDueDateValue && boardGroupBy !== "dueDate";
                           const showSubtaskTags = subtaskTags.length > 0 && boardGroupBy !== "tags";
 
@@ -3862,7 +3874,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const assigneeLabel = assigneeNames.length
                 ? assigneeNames.join(", ")
                 : (task.assignees?.length ? task.assignees.join(", ") : null);
-              const dueDateLabel = formatDueDateRange(effectiveDueDate) || null;
+              const dueDateLabel = formatDueDateRange(effectiveDueDate, formatDueDateForDisplay, " → ") || null;
               const hasDueDateValue = hasDueDate(effectiveDueDate);
               const visibleTags = effectiveTags.slice(0, 2);
               const extraTags = effectiveTags.length - visibleTags.length;
@@ -4134,30 +4146,44 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                 <span className="max-w-[160px] truncate">{assigneeLabel || "Unassigned"}</span>
                               </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="w-52" onClick={(e) => e.stopPropagation()}>
-                              <DropdownMenuItem onClick={() => updateTaskAssignees(String(task.id), [])}>
-                                Unassigned (clear all)
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              {workspaceMembers.map((m) => {
-                                const isAssigned = effectiveAssigneeIds.includes(m.user_id);
-                                return (
-                                  <DropdownMenuItem
-                                    key={m.user_id}
-                                    onClick={() => {
-                                      const next = isAssigned
-                                        ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
-                                        : [...effectiveAssigneeIds, m.user_id];
-                                      updateTaskAssignees(String(task.id), next);
-                                    }}
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      {isAssigned ? "✓ " : ""}
+                            <DropdownMenuContent align="start" className="w-auto min-w-0 max-w-[12rem] p-1.5" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-col gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => updateTaskAssignees(String(task.id), [])}
+                                  className={cn(
+                                    "w-full rounded px-1.5 py-0.5 text-left text-[10px] transition-colors",
+                                    effectiveAssigneeIds.length === 0
+                                      ? "bg-[var(--surface-hover)] text-[var(--foreground)] font-medium"
+                                      : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                                  )}
+                                >
+                                  Unassigned
+                                </button>
+                                {workspaceMembers.map((m) => {
+                                  const isAssigned = effectiveAssigneeIds.includes(m.user_id);
+                                  return (
+                                    <button
+                                      key={m.user_id}
+                                      type="button"
+                                      onClick={() => {
+                                        const next = isAssigned
+                                          ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
+                                          : [...effectiveAssigneeIds, m.user_id];
+                                        updateTaskAssignees(String(task.id), next);
+                                      }}
+                                      className={cn(
+                                        "w-full rounded px-1.5 py-0.5 text-left text-[10px] transition-colors truncate",
+                                        isAssigned
+                                          ? "bg-[var(--surface-hover)] text-[var(--foreground)] font-medium ring-1 ring-[var(--foreground)]/30"
+                                          : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                                      )}
+                                    >
                                       {m.name || m.email}
-                                    </span>
-                                  </DropdownMenuItem>
-                                );
-                              })}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         )
@@ -4187,10 +4213,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           </DropdownMenuTrigger>
                           <DropdownMenuContent
                             align="start"
-                            className="w-64"
+                            className="w-auto min-w-[200px] p-1.5"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="space-y-2">
+                            <div className="space-y-1.5">
                               <DateRangeCalendar
                                 range={{
                                   start: effectiveDueDate?.start ?? null,
@@ -4340,7 +4366,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         ? PRIORITY_OPTIONS.find((o) => o.value === subtaskPriority)?.label ?? subtaskPriority
                         : null;
                       const subtaskDueDate = subtaskProps?.due_date ?? null;
-                      const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate) || null;
+                      const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate, formatDueDateForDisplay, " → ") || null;
                       const hasSubtaskDueDate = hasDueDate(subtaskDueDate);
                       const subtaskTags = subtaskProps?.tags ?? [];
                       const visibleSubtaskTags = subtaskTags.slice(0, 2);
@@ -4536,10 +4562,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent
                                   align="start"
-                                  className="w-64"
+                                  className="w-auto min-w-[200px] p-1.5"
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <div className="space-y-2">
+                                  <div className="space-y-1.5">
                                     <DateRangeCalendar
                                       range={{
                                         start: subtaskDueDate?.start ?? null,

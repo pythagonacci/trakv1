@@ -1,5 +1,15 @@
-import { parseISO, isValid } from "date-fns";
+import { format, parseISO, isValid } from "date-fns";
 import type { DueDateRange } from "@/types/properties";
+
+/**
+ * Format an ISO date string for UI display (e.g. "Feb 28").
+ * Use with formatDueDateRange for consistent task/subtask date labels.
+ */
+export function formatDueDateForDisplay(isoDate: string): string {
+  const d = parseDateSafe(isoDate);
+  if (!d) return isoDate;
+  return format(d, "MMM d");
+}
 
 /**
  * Parses "YYYY-MM-DD" as a local date (avoids timezone shift).

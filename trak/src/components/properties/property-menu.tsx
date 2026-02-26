@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { X, User, Tag as TagIcon } from "lucide-react";
+import { X, User, Tag as TagIcon, Save } from "lucide-react";
 import { normalizeDueDateRange } from "@/lib/due-date";
 import {
   useEntityProperties,
@@ -274,10 +275,6 @@ export function PropertyMenu({
   const [priorityDrafts, setPriorityDrafts] = useState<PriorityFieldDraft[]>([]);
   const [assigneeDrafts, setAssigneeDrafts] = useState<AssigneeFieldDraft[]>([]);
   const [dueDateDrafts, setDueDateDrafts] = useState<DueDateFieldDraft[]>([]);
-  const statusDraftsRef = React.useRef<StatusFieldDraft[]>([]);
-  const priorityDraftsRef = React.useRef<PriorityFieldDraft[]>([]);
-  const assigneeDraftsRef = React.useRef<AssigneeFieldDraft[]>([]);
-  const dueDateDraftsRef = React.useRef<DueDateFieldDraft[]>([]);
 
   const { data: direct, isLoading } =
     useEntityProperties(entityType, entityId);
@@ -298,12 +295,6 @@ export function PropertyMenu({
     });
     return map;
   }, [members]);
-
-  // Keep refs in sync
-  React.useEffect(() => { statusDraftsRef.current = statusDrafts; }, [statusDrafts]);
-  React.useEffect(() => { priorityDraftsRef.current = priorityDrafts; }, [priorityDrafts]);
-  React.useEffect(() => { assigneeDraftsRef.current = assigneeDrafts; }, [assigneeDrafts]);
-  React.useEffect(() => { dueDateDraftsRef.current = dueDateDrafts; }, [dueDateDrafts]);
 
   // Initialize drafts when menu opens
   React.useEffect(() => {
@@ -369,6 +360,14 @@ export function PropertyMenu({
     removeTagMutation.mutate(tag);
   };
 
+  const handleSave = () => {
+    persistStatusDrafts(statusDrafts);
+    persistPriorityDrafts(priorityDrafts);
+    persistAssigneeDrafts(assigneeDrafts);
+    persistDueDateDrafts(dueDateDrafts);
+    onOpenChange(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[600px] sm:max-w-[640px] p-4 sm:p-5">
@@ -405,18 +404,16 @@ export function PropertyMenu({
                       size="sm"
                       variant="outline"
                       className="h-6 px-1.5 text-[11px]"
-                      onClick={() => {
-                        const next = [
-                          ...statusDrafts,
+                      onClick={() =>
+                        setStatusDrafts((prev) => [
+                          ...prev,
                           {
                             id: `status-new-${Date.now()}`,
-                            field_name: getNextStatusFieldName(statusDrafts),
+                            field_name: getNextStatusFieldName(prev),
                             value: direct?.status ?? null,
                           } as StatusFieldDraft,
-                        ];
-                        setStatusDrafts(next);
-                        persistStatusDrafts(next);
-                      }}
+                        ])
+                      }
                     >
                       Add
                     </Button>
@@ -443,7 +440,6 @@ export function PropertyMenu({
                               prev.map((entry) => entry.id === field.id ? { ...entry, field_name: value } : entry)
                             );
                           }}
-                          onBlur={() => persistStatusDrafts(statusDraftsRef.current)}
                           placeholder="Name"
                           className="h-7 min-w-0 text-xs"
                         />
@@ -451,11 +447,11 @@ export function PropertyMenu({
                           value={field.value ?? STATUS_NONE}
                           onValueChange={(value) => {
                             const nextValue = value === STATUS_NONE ? null : (value as Status);
-                            const next = statusDrafts.map((entry) =>
-                              entry.id === field.id ? { ...entry, value: nextValue } : entry
+                            setStatusDrafts((prev) =>
+                              prev.map((entry) =>
+                                entry.id === field.id ? { ...entry, value: nextValue } : entry
+                              )
                             );
-                            setStatusDrafts(next);
-                            persistStatusDrafts(next);
                           }}
                         >
                           <SelectTrigger className="h-7 w-full max-w-[130px] min-w-0 text-xs">
@@ -480,11 +476,9 @@ export function PropertyMenu({
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 shrink-0"
-                            onClick={() => {
-                              const next = statusDrafts.filter((entry) => entry.id !== field.id);
-                              setStatusDrafts(next);
-                              persistStatusDrafts(next);
-                            }}
+                            onClick={() =>
+                              setStatusDrafts((prev) => prev.filter((entry) => entry.id !== field.id))
+                            }
                           >
                             <X className="h-3 w-3" />
                           </Button>
@@ -511,18 +505,16 @@ export function PropertyMenu({
                           size="sm"
                           variant="outline"
                           className="h-6 px-1.5 text-[11px]"
-                          onClick={() => {
-                            const next = [
-                              ...priorityDrafts,
+                          onClick={() =>
+                            setPriorityDrafts((prev) => [
+                              ...prev,
                               {
                                 id: `priority-new-${Date.now()}`,
-                                field_name: getNextPriorityFieldName(priorityDrafts),
+                                field_name: getNextPriorityFieldName(prev),
                                 value: direct?.priority ?? null,
                               } as PriorityFieldDraft,
-                            ];
-                            setPriorityDrafts(next);
-                            persistPriorityDrafts(next);
-                          }}
+                            ])
+                          }
                         >
                           Add
                         </Button>
@@ -547,9 +539,6 @@ export function PropertyMenu({
                                   )
                                 );
                               }}
-                              onBlur={() => {
-                                persistPriorityDrafts(priorityDraftsRef.current);
-                              }}
                               placeholder="Name"
                               className="h-7 min-w-0 text-xs"
                             />
@@ -557,11 +546,11 @@ export function PropertyMenu({
                               value={field.value ?? PRIORITY_NONE}
                               onValueChange={(value) => {
                                 const nextValue = value === PRIORITY_NONE ? null : (value as Priority);
-                                const next = priorityDrafts.map((entry) =>
-                                  entry.id === field.id ? { ...entry, value: nextValue } : entry
+                                setPriorityDrafts((prev) =>
+                                  prev.map((entry) =>
+                                    entry.id === field.id ? { ...entry, value: nextValue } : entry
+                                  )
                                 );
-                                setPriorityDrafts(next);
-                                persistPriorityDrafts(next);
                               }}
                             >
                               <SelectTrigger className="h-7 w-full max-w-[130px] min-w-0 text-xs">
@@ -591,11 +580,9 @@ export function PropertyMenu({
                                 size="icon"
                                 variant="ghost"
                                 className="h-7 w-7 shrink-0"
-                                onClick={() => {
-                                  const next = priorityDrafts.filter((entry) => entry.id !== field.id);
-                                  setPriorityDrafts(next);
-                                  persistPriorityDrafts(next);
-                                }}
+                                onClick={() =>
+                                  setPriorityDrafts((prev) => prev.filter((entry) => entry.id !== field.id))
+                                }
                               >
                                 <X className="h-3 w-3" />
                               </Button>
@@ -624,18 +611,16 @@ export function PropertyMenu({
                           size="sm"
                           variant="outline"
                           className="h-6 px-1.5 text-[11px]"
-                          onClick={() => {
-                            const next = [
-                              ...assigneeDrafts,
+                          onClick={() =>
+                            setAssigneeDrafts((prev) => [
+                              ...prev,
                               {
                                 id: `assignee-new-${Date.now()}`,
-                                field_name: getNextAssigneeFieldName(assigneeDrafts),
+                                field_name: getNextAssigneeFieldName(prev),
                                 value: [],
                               } as AssigneeFieldDraft,
-                            ];
-                            setAssigneeDrafts(next);
-                            persistAssigneeDrafts(next);
-                          }}
+                            ])
+                          }
                         >
                           Add
                         </Button>
@@ -675,7 +660,6 @@ export function PropertyMenu({
                                         )
                                       );
                                     }}
-                                    onBlur={() => persistAssigneeDrafts(assigneeDraftsRef.current)}
                                     placeholder="Name"
                                     className="h-7 w-[72px] min-w-0 shrink-0 text-xs"
                                   />
@@ -684,11 +668,9 @@ export function PropertyMenu({
                                     size="icon"
                                     variant="ghost"
                                     className="h-7 w-7 shrink-0"
-                                    onClick={() => {
-                                      const next = assigneeDrafts.filter((entry) => entry.id !== field.id);
-                                      setAssigneeDrafts(next);
-                                      persistAssigneeDrafts(next);
-                                    }}
+                                    onClick={() =>
+                                      setAssigneeDrafts((prev) => prev.filter((entry) => entry.id !== field.id))
+                                    }
                                   >
                                     <X className="h-3 w-3" />
                                   </Button>
@@ -709,15 +691,15 @@ export function PropertyMenu({
                                         {label}
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const next = assigneeDrafts.map((entry) =>
-                                              entry.id === field.id
-                                                ? { ...entry, value: entry.value.filter((id) => id !== uid) }
-                                                : entry
-                                            );
-                                            setAssigneeDrafts(next);
-                                            persistAssigneeDrafts(next);
-                                          }}
+                                          onClick={() =>
+                                            setAssigneeDrafts((prev) =>
+                                              prev.map((entry) =>
+                                                entry.id === field.id
+                                                  ? { ...entry, value: entry.value.filter((id) => id !== uid) }
+                                                  : entry
+                                              )
+                                            )
+                                          }
                                           className="ml-1 hover:text-[var(--error)] transition-colors"
                                         >
                                           <X className="h-3 w-3" />
@@ -730,13 +712,13 @@ export function PropertyMenu({
                                       value="_add"
                                       onValueChange={(value) => {
                                         if (!value || value === "_add") return;
-                                        const next = assigneeDrafts.map((entry) =>
-                                          entry.id === field.id && !entry.value.includes(value)
-                                            ? { ...entry, value: [...entry.value, value] }
-                                            : entry
+                                        setAssigneeDrafts((prev) =>
+                                          prev.map((entry) =>
+                                            entry.id === field.id && !entry.value.includes(value)
+                                              ? { ...entry, value: [...entry.value, value] }
+                                              : entry
+                                          )
                                         );
-                                        setAssigneeDrafts(next);
-                                        persistAssigneeDrafts(next);
                                       }}
                                     >
                                       <SelectTrigger className="h-6 w-auto min-w-[100px] max-w-[160px] border-0 bg-transparent shadow-none focus:ring-0 text-[var(--muted-foreground)] text-xs">
@@ -776,18 +758,16 @@ export function PropertyMenu({
                           size="sm"
                           variant="outline"
                           className="h-6 px-1.5 text-[11px]"
-                          onClick={() => {
-                            const next = [
-                              ...dueDateDrafts,
+                          onClick={() =>
+                            setDueDateDrafts((prev) => [
+                              ...prev,
                               {
                                 id: `due-date-new-${Date.now()}`,
-                                field_name: getNextDueDateFieldName(dueDateDrafts),
+                                field_name: getNextDueDateFieldName(prev),
                                 value: { start: null, end: null },
                               } as DueDateFieldDraft,
-                            ];
-                            setDueDateDrafts(next);
-                            persistDueDateDrafts(next);
-                          }}
+                            ])
+                          }
                         >
                           Add
                         </Button>
@@ -819,7 +799,6 @@ export function PropertyMenu({
                                       )
                                     );
                                   }}
-                                  onBlur={() => persistDueDateDrafts(dueDateDraftsRef.current)}
                                   placeholder="Name"
                                   className="h-7 w-[72px] min-w-0 shrink-0 text-xs"
                                 />
@@ -828,11 +807,9 @@ export function PropertyMenu({
                                   size="icon"
                                   variant="ghost"
                                   className="h-7 w-7 shrink-0"
-                                  onClick={() => {
-                                    const next = dueDateDrafts.filter((entry) => entry.id !== field.id);
-                                    setDueDateDrafts(next);
-                                    persistDueDateDrafts(next);
-                                  }}
+                                  onClick={() =>
+                                    setDueDateDrafts((prev) => prev.filter((entry) => entry.id !== field.id))
+                                  }
                                 >
                                   <X className="h-3 w-3" />
                                 </Button>
@@ -844,11 +821,11 @@ export function PropertyMenu({
                                   value={field.value.start ?? ""}
                                   onChange={(e) => {
                                     const start = e.target.value || null;
-                                    const next = dueDateDrafts.map((entry) =>
-                                      entry.id === field.id ? { ...entry, value: { ...entry.value, start } } : entry
+                                    setDueDateDrafts((prev) =>
+                                      prev.map((entry) =>
+                                        entry.id === field.id ? { ...entry, value: { ...entry.value, start } } : entry
+                                      )
                                     );
-                                    setDueDateDrafts(next);
-                                    persistDueDateDrafts(next);
                                   }}
                                   className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
                                 />
@@ -858,24 +835,24 @@ export function PropertyMenu({
                                   value={field.value.end ?? ""}
                                   onChange={(e) => {
                                     const end = e.target.value || null;
-                                    const next = dueDateDrafts.map((entry) =>
-                                      entry.id === field.id ? { ...entry, value: { ...entry.value, end } } : entry
+                                    setDueDateDrafts((prev) =>
+                                      prev.map((entry) =>
+                                        entry.id === field.id ? { ...entry, value: { ...entry.value, end } } : entry
+                                      )
                                     );
-                                    setDueDateDrafts(next);
-                                    persistDueDateDrafts(next);
                                   }}
                                   className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
                                 />
                                 {(field.value.start || field.value.end) && (
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const next = dueDateDrafts.map((entry) =>
-                                        entry.id === field.id ? { ...entry, value: { start: null, end: null } } : entry
-                                      );
-                                      setDueDateDrafts(next);
-                                      persistDueDateDrafts(next);
-                                    }}
+                                    onClick={() =>
+                                      setDueDateDrafts((prev) =>
+                                        prev.map((entry) =>
+                                          entry.id === field.id ? { ...entry, value: { start: null, end: null } } : entry
+                                        )
+                                      )
+                                    }
                                     className="hover:text-[var(--error)] transition-colors"
                                   >
                                     <X className="h-3 w-3" />
@@ -967,6 +944,18 @@ export function PropertyMenu({
 
           </div>
         )}
+        <DialogFooter className="mt-4 pt-4 border-t border-[var(--border)] sm:justify-end">
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            disabled={isLoading || setProperties.isPending}
+            className="h-7 gap-1.5 px-2 text-xs"
+          >
+            <Save className="h-3 w-3" />
+            {setProperties.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
