@@ -93,13 +93,16 @@ export function useSetEntityProperties(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (updates: SetEntityPropertiesInput["updates"]) =>
-      setEntityProperties({
+    mutationFn: async (updates: SetEntityPropertiesInput["updates"]) => {
+      const result = await setEntityProperties({
         entity_type: entityType,
         entity_id: entityId,
         workspace_id: workspaceId,
         updates,
-      }),
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     onMutate: async (updates) => {
       // Optimistic update
       await qc.cancelQueries({
@@ -153,13 +156,16 @@ export function useSetEntityProperties(
 export function useSetEntityPropertiesForType(entityType: EntityType, workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { entityId: string; updates: SetEntityPropertiesInput["updates"] }) =>
-      setEntityProperties({
+    mutationFn: async (args: { entityId: string; updates: SetEntityPropertiesInput["updates"] }) => {
+      const result = await setEntityProperties({
         entity_type: entityType,
         entity_id: args.entityId,
         workspace_id: workspaceId,
         updates: args.updates,
-      }),
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (_result, args) => {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, args.entityId),

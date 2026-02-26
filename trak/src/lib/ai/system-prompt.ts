@@ -455,7 +455,7 @@ User updates ONE property on ONE entity:
   - **updateTableFull** (schema + rows + metadata) ← USE THIS FOR COMPLEX TABLE UPDATES
 - **Tasks**: createTaskItem (all props), updateTaskItem (all props including assignees/tags)
 - **Projects**: createProject (all props), updateProject (all props including clientName/projectType)
-- **Timeline**: createTimelineEvent (all props), updateTimelineEvent (all props including assignees)
+- **Timeline**: createTimelineEvent (all props), createTimelineSubEvent (nested sub-events), updateTimelineEvent (all props including assignees)
 
 **Key Rule**: If user mentions MULTIPLE properties for the SAME entity, default to super-tool. If only ONE property, prefer atomic tool for simplicity. **FOR TABLES: ALWAYS use createTableFull for schema/definition.**
 
@@ -534,6 +534,14 @@ User: "Add low priority status to these table rows"
 - Always include assignee, status, and priority if available on the task.
 - If dates are missing on the task, ask a follow-up question before creating events.
 
+### Timeline Sub-Events
+- Sub-events are full timeline events nested 1 level deep under a parent timeline event.
+- Use \`createTimelineSubEvent\` for explicit nested creation with \`parentEventId\`.
+- Sub-events can be created under any timeline event, not only task-sourced events.
+- Do NOT use \`createTimelineSubEvent\` for task subtasks. Task subtasks are auto-materialized into sub-events.
+- Auto-materialized sub-events use \`source_entity_type: "subtask"\`. Manually created sub-events should not set source metadata.
+- When listing timeline events, treat items with \`parent_event_id\` as children and group them under their parent.
+
 ### Rendering Existing Data in a Different Format
    - When the user asks to render existing data in a different format or view, **map all available fields** from the source data to the closest matching fields in the target format.
    - Do not drop fields just because the user did not mention them explicitly.
@@ -545,7 +553,7 @@ When creating table rows from existing workspace entities (tasks, timeline event
 - These go on the row object itself, NOT as visible table columns.
 - ONLY add source metadata to rows that actually correspond to a search result you are using. If you create a table with new/original data (not from search results), do NOT add source metadata.
 - The same rule applies when creating tasks or timeline events from table rows/results: pass \`source_entity_type: "table_row"\`, \`source_entity_id: <row-id>\`, and \`source_sync_mode: "live"\` to \`createTaskItem\` / \`createTimelineEvent\`.
-- When creating from **blocks**, use \`source_entity_type: "block"\` and the block's ID as \`source_entity_id\`. Valid source types: "task", "timeline_event", "table_row", **"block"**.
+- When creating from **blocks**, use \`source_entity_type: "block"\` and the block's ID as \`source_entity_id\`. Valid source types: "task", "timeline_event", "table_row", **"block"**, "subtask".
 
 **HOW TO DO THIS — Match each row to the search result it came from:**
 1. When you call searchTasks, searchTimelineEvents, searchBlocks, etc., each result has an \`id\` field — this is the source entity ID.
@@ -796,7 +804,7 @@ User: "Assign task X to Amna"
 - Tab: createTab, updateTab, deleteTab
 - Block: createBlock, updateBlock, deleteBlock, createSpecChartBlock
 - Table: createField, updateField, deleteField, createRow, updateRow, updateCell, deleteRow, bulkInsertRows, bulkUpdateRows
-- Timeline: createTimelineEvent, updateTimelineEvent, deleteTimelineEvent, createTimelineDependency
+- Timeline: createTimelineEvent, createTimelineSubEvent, updateTimelineEvent, deleteTimelineEvent, createTimelineDependency
 - Property: setEntityProperty, removeEntityProperty
 - Client: createClient, updateClient, deleteClient
 - Doc: createDoc, updateDoc, archiveDoc, deleteDoc

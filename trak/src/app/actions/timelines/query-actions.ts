@@ -54,6 +54,7 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     priorities: normalizeTimelinePriorities(event.priorities),
     assignee_id: event.assignee_id,
     assignee_team_id: (event as any).assignee_team_id ?? null,
+    parent_event_id: (event as any).parent_event_id ?? null,
     progress: event.progress,
     color: event.color,
     is_milestone: event.is_milestone,
@@ -70,4 +71,46 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
   combined.sort((a, b) => a.display_order - b.display_order);
 
   return { data: combined };
+}
+
+export async function getSubEventsByParentIds(
+  timelineBlockId: string,
+  parentEventIds: string[],
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<Record<string, TimelineEvent[]>>> {
+  if (parentEventIds.length === 0) return { data: {} };
+
+  const access = await requireTimelineAccess(timelineBlockId, { authContext: opts?.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+
+  const { supabase, block } = access;
+  const uniqueParentIds = [...new Set(parentEventIds)];
+
+  const { data, error } = await supabase
+    .from("timeline_events")
+    .select("*")
+    .eq("timeline_block_id", block.id)
+    .in("parent_event_id", uniqueParentIds)
+    .order("display_order", { ascending: true });
+  if (error) return { error: "Failed to load timeline sub-events" };
+
+  const byParentId: Record<string, TimelineEvent[]> = {};
+  for (const parentId of uniqueParentIds) {
+    byParentId[parentId] = [];
+  }
+
+  for (const row of (data ?? []) as any[]) {
+    const parentId = row.parent_event_id as string | null;
+    if (!parentId) continue;
+    const priorities = normalizeTimelinePriorities(row?.priorities);
+    const statuses = normalizeTimelineStatuses(row?.statuses);
+    byParentId[parentId] = byParentId[parentId] ?? [];
+    byParentId[parentId].push({
+      ...(row as TimelineEvent),
+      priorities,
+      statuses,
+    });
+  }
+
+  return { data: byParentId };
 }

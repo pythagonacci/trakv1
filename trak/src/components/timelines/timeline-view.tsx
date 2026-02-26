@@ -29,6 +29,8 @@ import {
   useDuplicateTimelineEvent,
   useSetTimelineEventBaseline,
 } from "@/lib/hooks/use-timeline-queries";
+import { getSubEventsByParentIds } from "@/app/actions/timelines/query-actions";
+import { syncSubEventsForTaskEventsBatch } from "@/app/actions/timelines/event-actions";
 import type {
   TimelineBlockContent,
   TimelineEventStatus,
@@ -37,8 +39,8 @@ import type {
   TimelineItem,
   ReferenceType,
 } from "@/types/timeline";
-import { useQuery } from "@tanstack/react-query";
-import { getTaskSubtasksWithProperties, getTaskSubtasksWithPropertiesBatch } from "@/app/actions/tasks/query-actions";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getTaskSubtasksWithProperties } from "@/app/actions/tasks/query-actions";
 import type { TaskSubtaskWithProperties } from "@/app/actions/tasks/query-actions";
 import { createClient } from "@/lib/supabase/client";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
@@ -82,6 +84,7 @@ interface TimelineEvent {
   baselineEnd?: string;
   source_entity_type?: string | null;
   source_entity_id?: string | null;
+  parent_event_id?: string | null;
   sourceSyncMode?: "snapshot" | "live" | null;
 }
 
@@ -386,6 +389,7 @@ function DraggableEvent({
   barStyle,
   columnWidth,
   readOnly,
+  onAddSubEvent,
 }: {
   event: TimelineEvent;
   rowIndex: number;
@@ -397,6 +401,7 @@ function DraggableEvent({
   barStyle: React.CSSProperties;
   columnWidth: number;
   readOnly?: boolean;
+  onAddSubEvent?: (eventId: string) => void;
 }) {
   if (readOnly) {
     const progress = event.progress ?? 0;
@@ -568,7 +573,7 @@ function DraggableEvent({
           {/* Event bar */}
           <div
             className={cn(
-              "event-bar relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm transition-transform cursor-move",
+              "event-bar group relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 pr-7 text-[11px] text-white shadow-sm transition-transform cursor-move",
               isCritical && "ring-2 ring-red-500 ring-offset-1",
               event.color || "bg-[var(--foreground)]"
             )}
@@ -594,6 +599,20 @@ function DraggableEvent({
             {(event.statuses?.[0]?.value) && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />}
             {progress > 0 && (
               <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
+            )}
+            {!readOnly && onAddSubEvent && (
+              <button
+                type="button"
+                className="absolute right-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded text-xs opacity-0 transition-opacity hover:bg-white/25 group-hover:opacity-100"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddSubEvent(event.id);
+                }}
+                title="Add sub-event"
+              >
+                +
+              </button>
             )}
           </div>
 
@@ -622,6 +641,7 @@ function DraggableEvent({
 
 export default function TimelineBlock({ block, onUpdate, workspaceId, projectId, readOnly = false }: TimelineBlockProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const content = (block.content || {}) as Partial<TimelineContent> & Record<string, any>;
   const viewConfig = content.viewConfig || {
     startDate: content.startDate || addDays(new Date(), -7).toISOString(),
@@ -673,6 +693,10 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee">(viewConfig.groupBy || "none");
   const [draggingEventId, setDraggingEventId] = useState<string | null>(null);
   const [dragResizeEdge, setDragResizeEdge] = useState<"start" | "end" | null>(null);
+  const [addSubEventParentId, setAddSubEventParentId] = useState<string | null>(null);
+  const [newSubEventTitle, setNewSubEventTitle] = useState("");
+  const [newSubEventStart, setNewSubEventStart] = useState("");
+  const [newSubEventEnd, setNewSubEventEnd] = useState("");
 
   const { data: timelineItems = [] } = useTimelineItems(block.id);
   const timelineEventIds = useMemo(() => timelineItems.map((item) => item.id), [timelineItems]);
@@ -874,6 +898,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         baselineEnd: item.baseline_end ?? undefined,
         source_entity_type: item.source_entity_type ?? undefined,
         source_entity_id: item.source_entity_id ?? undefined,
+        parent_event_id: item.parent_event_id ?? null,
         sourceSyncMode: item.source_sync_mode ?? null,
       };
     });
@@ -881,7 +906,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   // Filter events
   const filteredEvents = useMemo(() => {
-    let filtered = [...events];
+    let filtered = events.filter((e) => !e.parent_event_id);
 
     const statusFilters = filters?.status ?? [];
     const assigneeFilters = filters?.assignee ?? [];
@@ -899,6 +924,77 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
     return filtered;
   }, [events, filters]);
+
+  const parentEventIds = useMemo(() => filteredEvents.map((e) => e.id), [filteredEvents]);
+  const { data: subEventsByParentId = {} } = useQuery({
+    queryKey: ["timelineSubEvents", block.id, parentEventIds.join(",")],
+    queryFn: async () => {
+      const result = await getSubEventsByParentIds(block.id, parentEventIds);
+      if ("error" in result) return {} as Record<string, TimelineEvent[]>;
+      return Object.fromEntries(
+        Object.entries(result.data).map(([parentId, subEvents]) => [
+          parentId,
+          subEvents.map((subEvent) => {
+            const props = timelinePropertiesById[subEvent.id];
+            const assigneeId = props?.assignee_id ?? subEvent.assignee_id ?? null;
+            return {
+              id: subEvent.id,
+              title: subEvent.title,
+              start: subEvent.start_date,
+              end: subEvent.end_date,
+              color: subEvent.color || undefined,
+              statuses: subEvent.statuses ?? [],
+              priorities: normalizeTimelinePrioritiesClient(subEvent.priorities ?? []),
+              assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+              assigneeId,
+              assigneeTeamId: subEvent.assignee_team_id ?? null,
+              progress: subEvent.progress ?? 0,
+              notes: subEvent.notes ?? undefined,
+              isMilestone: subEvent.is_milestone ?? false,
+              baselineStart: subEvent.baseline_start ?? undefined,
+              baselineEnd: subEvent.baseline_end ?? undefined,
+              source_entity_type: subEvent.source_entity_type ?? undefined,
+              source_entity_id: subEvent.source_entity_id ?? undefined,
+              parent_event_id: subEvent.parent_event_id ?? null,
+              sourceSyncMode: subEvent.source_sync_mode ?? null,
+            } as TimelineEvent;
+          }),
+        ])
+      );
+    },
+    enabled: parentEventIds.length > 0,
+    staleTime: 15_000,
+  });
+
+  const taskSourcedParents = useMemo(
+    () =>
+      filteredEvents.filter(
+        (event) => event.source_entity_type === "task" && Boolean(event.source_entity_id) && !event.parent_event_id
+      ),
+    [filteredEvents]
+  );
+  const taskSourcedSyncKey = useMemo(
+    () => taskSourcedParents.map((event) => `${event.id}:${event.source_entity_id}`).sort().join(","),
+    [taskSourcedParents]
+  );
+
+  useEffect(() => {
+    if (readOnly || taskSourcedParents.length === 0) return;
+    let cancelled = false;
+    syncSubEventsForTaskEventsBatch(
+      taskSourcedParents.map((event) => ({
+        parentEventId: event.id,
+        taskId: event.source_entity_id!,
+        timelineBlockId: block.id,
+      }))
+    ).then(() => {
+      if (cancelled) return;
+      queryClient.invalidateQueries({ queryKey: ["timelineSubEvents", block.id] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [readOnly, taskSourcedSyncKey, block.id, queryClient, taskSourcedParents]);
 
   // Group events
   const groupedEvents = useMemo(() => {
@@ -938,28 +1034,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return rows;
   }, [groupedEvents]);
 
-  const taskIdsForSubtasks = useMemo(
-    () => [...new Set(filteredEvents.filter((e) => e.source_entity_type === "task" && e.source_entity_id).map((e) => e.source_entity_id!))],
-    [filteredEvents]
-  );
-  const { data: subtasksByTaskId = {} } = useQuery({
-    queryKey: ["taskSubtasksWithPropertiesBatch", taskIdsForSubtasks.sort().join(",")],
-    queryFn: () => getTaskSubtasksWithPropertiesBatch(taskIdsForSubtasks).then((r) => ("error" in r ? {} : r.data)),
-    enabled: taskIdsForSubtasks.length > 0,
-    staleTime: 30_000,
-  });
-
   const MAIN_BAR_HEIGHT = 32;
-  const SUBTASK_BAR_HEIGHT = 20;
+  const SUBEVENT_BAR_HEIGHT = 20;
   const ROW_HEIGHT_BASE = 44;
 
   const { rowHeights, rowTops, totalRowHeight } = useMemo(() => {
     const heights = flatRows.map(({ event }) => {
-      const taskId = event.source_entity_type === "task" ? event.source_entity_id : null;
-      const subs = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
-      const withDates = subs.filter((st) => st.due_date && (st.due_date.start || st.due_date.end));
-      if (withDates.length === 0) return ROW_HEIGHT_BASE;
-      return MAIN_BAR_HEIGHT + withDates.length * SUBTASK_BAR_HEIGHT + 16; // +16 for 8px top/bottom padding
+      const children = subEventsByParentId[event.id] ?? [];
+      if (children.length === 0) return ROW_HEIGHT_BASE;
+      return MAIN_BAR_HEIGHT + children.length * SUBEVENT_BAR_HEIGHT + 16;
     });
     const tops: number[] = [];
     let acc = 0;
@@ -968,7 +1051,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       acc += h;
     }
     return { rowHeights: heights, rowTops: tops, totalRowHeight: acc };
-  }, [flatRows, subtasksByTaskId]);
+  }, [flatRows, subEventsByParentId]);
 
   const totalRowCount = Math.max(1, flatRows.length);
 
@@ -1029,9 +1112,9 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     };
   }
 
-  function barStyleForSubtask(startISO: string, endISO: string, rowTop: number, subtaskIndex: number): React.CSSProperties {
+  function barStyleForSubEvent(startISO: string, endISO: string, rowTop: number, subEventIndex: number): React.CSSProperties {
     const base = barStyle(startISO, endISO, rowTop);
-    const top = rowTop + 8 + MAIN_BAR_HEIGHT + subtaskIndex * SUBTASK_BAR_HEIGHT + (SUBTASK_BAR_HEIGHT / 2) - 8; // align below main bar (which starts at rowTop+8)
+    const top = rowTop + 8 + MAIN_BAR_HEIGHT + subEventIndex * SUBEVENT_BAR_HEIGHT + (SUBEVENT_BAR_HEIGHT / 2) - 8;
     return {
       ...base,
       top: `${top}px`,
@@ -1074,6 +1157,24 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         console.error("Failed to set timeline assignee property:", error);
       }
     }
+  };
+
+  const saveNewSubEvent = async () => {
+    if (!addSubEventParentId || !newSubEventTitle.trim() || !newSubEventStart || !newSubEventEnd) return;
+    const result = await createEvent.mutateAsync({
+      timelineBlockId: block.id,
+      parentEventId: addSubEventParentId,
+      title: newSubEventTitle.trim(),
+      startDate: newSubEventStart,
+      endDate: newSubEventEnd,
+      statuses: [{ field_name: "Status", value: "todo" as TimelineEventStatus }],
+    });
+    if ("error" in result) {
+      console.error("Failed to create sub-event:", result.error);
+      return;
+    }
+    setAddSubEventParentId(null);
+    setNewSubEventTitle("");
   };
 
   const removeEvent = async (id: string) => {
@@ -1377,6 +1478,17 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           workspaceId={workspaceId}
           onAddReference={() => setIsReferenceDialogOpen(true)}
           onNavigateToReference={navigateToReference}
+          subEventsByParentId={subEventsByParentId}
+          onSelectEvent={(eventId) => openPanel(eventId)}
+          onAddSubEvent={(parentEventId) => {
+            setAddSubEventParentId(parentEventId);
+            const parent = events.find((item) => item.id === parentEventId);
+            const fallbackStart = parent?.start ?? displayRange.start.toISOString();
+            const fallbackEnd = parent?.end ?? fallbackStart;
+            setNewSubEventTitle("");
+            setNewSubEventStart(format(parseDateSafe(fallbackStart) || new Date(fallbackStart), "yyyy-MM-dd"));
+            setNewSubEventEnd(format(parseDateSafe(fallbackEnd) || new Date(fallbackEnd), "yyyy-MM-dd"));
+          }}
           variant="modal"
         />
       </div>
@@ -1601,8 +1713,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
               </div>
             ) : (
               flatRows.map(({ event, rowIndex }) => {
-                const taskId = event.source_entity_type === "task" ? event.source_entity_id : null;
-                const rowSubtasks = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
+                const rowSubEvents = subEventsByParentId[event.id] ?? [];
                 return (
                   <div
                     key={event.id}
@@ -1633,29 +1744,22 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                         {event.start !== event.end && ` – ${format(new Date(event.end), "MMM d")}`}
                       </div>
                     </div>
-                    {rowSubtasks.length > 0 && (
+                    {rowSubEvents.length > 0 && (
                       <ul className="mt-0.5 pl-4 space-y-0.5 border-l border-[var(--border)] ml-1">
-                        {rowSubtasks.map((st) => (
+                        {rowSubEvents.map((child) => (
                           <li
-                            key={st.id}
+                            key={child.id}
                             className={cn(
-                              "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate",
-                              st.completed && "line-through opacity-80"
+                              "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate cursor-pointer hover:text-[var(--foreground)]"
                             )}
+                            onClick={() => openPanel(child.id)}
                           >
-                            {st.completed ? (
-                              <CheckSquare className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
-                            ) : (
-                              <Square className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
-                            )}
-                            <span className="truncate flex-1 min-w-0">{st.title || "Untitled"}</span>
-                            {st.due_date && (st.due_date.start || st.due_date.end) && (
-                              <span className="text-[9px] text-[var(--tertiary-foreground)] shrink-0">
-                                {st.due_date.start && st.due_date.end
-                                  ? `${format(parseDateSafe(st.due_date.start) || new Date(), "MMM d")}–${format(parseDateSafe(st.due_date.end) || new Date(), "MMM d")}`
-                                  : format(parseDateSafe(st.due_date.end ?? st.due_date.start) || new Date(), "MMM d")}
-                              </span>
-                            )}
+                            <Minus className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
+                            <span className="truncate flex-1 min-w-0">{child.title || "Untitled"}</span>
+                            <span className="text-[9px] text-[var(--tertiary-foreground)] shrink-0">
+                              {format(parseDateSafe(child.start) || new Date(), "MMM d")}
+                              {child.start !== child.end && `-${format(parseDateSafe(child.end) || new Date(), "MMM d")}`}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -1813,47 +1917,42 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                       barStyle={barStyle(it.start, it.end, rowTops[eventRowIndex] ?? 0)}
                       columnWidth={columnWidth}
                       readOnly={readOnly}
+                      onAddSubEvent={(parentId) => {
+                        setAddSubEventParentId(parentId);
+                        const parent = events.find((event) => event.id === parentId);
+                        const fallbackStart = parent?.start ?? displayRange.start.toISOString();
+                        const fallbackEnd = parent?.end ?? fallbackStart;
+                        setNewSubEventTitle("");
+                        setNewSubEventStart(format(parseDateSafe(fallbackStart) || new Date(fallbackStart), "yyyy-MM-dd"));
+                        setNewSubEventEnd(format(parseDateSafe(fallbackEnd) || new Date(fallbackEnd), "yyyy-MM-dd"));
+                      }}
                     />
                   );
                 })
               )}
 
-              {/* Nested subtask bars (thinner, indented under task-sourced events) */}
-              {Object.entries(groupedEvents).flatMap(([_, groupEvents], groupIndex) =>
-                groupEvents.map((it, eventIndexInGroup) => {
-                  const eventRowIndex =
-                    Object.entries(groupedEvents)
-                      .slice(0, groupIndex)
-                      .reduce((sum, [, evs]) => sum + evs.length, 0) + eventIndexInGroup;
-                  const taskId = it.source_entity_type === "task" ? it.source_entity_id : null;
-                  const subs = taskId ? (subtasksByTaskId[taskId] ?? []) : [];
-                  const withDates = subs.filter((st) => st.due_date && (st.due_date.start || st.due_date.end));
-                  const rowTop = rowTops[eventRowIndex] ?? 0;
-                  return withDates.map((st, j) => {
-                    const startISO = st.due_date!.start ?? st.due_date!.end ?? "";
-                    const endISO = st.due_date!.end ?? st.due_date!.start ?? "";
-                    if (!startISO && !endISO) return null;
-                    const subStyle = barStyleForSubtask(startISO, endISO, rowTop, j);
-                    return (
-                      <div
-                        key={`subtask-${it.id}-${st.id}`}
-                        className="absolute z-10 pointer-events-none rounded-[4px] border-l-2 border-[var(--primary)]/60 bg-[var(--primary)]/20"
-                        style={{
-                          ...subStyle,
-                          pointerEvents: "auto",
-                        }}
-                        data-event-id={it.id}
-                        data-subtask-id={st.id}
-                        title={st.title}
-                      >
-                        <span className="absolute inset-0 flex items-center px-2 truncate text-[9px] text-[var(--foreground)]/90">
-                          {st.title || "Untitled"}
-                        </span>
-                      </div>
-                    );
-                  });
-                })
-              )}
+              {/* Sub-event bars (real DB records, interactive) */}
+              {flatRows.flatMap(({ event, rowIndex }) => {
+                const children = subEventsByParentId[event.id] ?? [];
+                const rowTop = rowTops[rowIndex] ?? 0;
+                return children.map((child, childIndex) => {
+                  const subStyle = barStyleForSubEvent(child.start, child.end, rowTop, childIndex);
+                  return (
+                    <div
+                      key={`subevent-${child.id}`}
+                      className="absolute z-10 rounded-[4px] border-l-2 border-[var(--primary)]/60 bg-[var(--primary)]/20 cursor-pointer hover:bg-[var(--primary)]/30"
+                      style={subStyle}
+                      data-event-id={child.id}
+                      onClick={() => openPanel(child.id)}
+                      title={child.title}
+                    >
+                      <span className="absolute inset-0 flex items-center px-2 truncate text-[9px] text-[var(--foreground)]/90">
+                        {child.title}
+                      </span>
+                    </div>
+                  );
+                });
+              })}
 
               {/* Empty state when no events */}
               {sortedEvents.length === 0 && (
@@ -1907,6 +2006,51 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           workspaceId={workspaceId}
           anchorRef={addEventButtonRef}
         />
+      )}
+      {!readOnly && (
+        <Dialog open={Boolean(addSubEventParentId)} onOpenChange={(open) => { if (!open) setAddSubEventParentId(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add sub-event</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-[var(--muted-foreground)]">Title</label>
+                <input
+                  type="text"
+                  value={newSubEventTitle}
+                  onChange={(e) => setNewSubEventTitle(e.target.value)}
+                  className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Sub-event title"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-[var(--muted-foreground)]">Start</label>
+                  <input
+                    type="date"
+                    value={newSubEventStart}
+                    onChange={(e) => setNewSubEventStart(e.target.value)}
+                    className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[var(--muted-foreground)]">End</label>
+                  <input
+                    type="date"
+                    value={newSubEventEnd}
+                    onChange={(e) => setNewSubEventEnd(e.target.value)}
+                    className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAddSubEventParentId(null)}>Cancel</Button>
+              <Button onClick={saveNewSubEvent} disabled={!newSubEventTitle.trim() || !newSubEventStart || !newSubEventEnd}>Add</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
       {!readOnly && projectId && workspaceId && (
         <ReferencePicker
@@ -2324,6 +2468,9 @@ function EventDetailsPanel({
   workspaceId,
   onAddReference,
   onNavigateToReference,
+  subEventsByParentId,
+  onSelectEvent,
+  onAddSubEvent,
   variant = "sidebar",
 }: {
   event: TimelineEvent;
@@ -2334,6 +2481,9 @@ function EventDetailsPanel({
   workspaceId?: string;
   onAddReference: () => void;
   onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
+  subEventsByParentId: Record<string, TimelineEvent[]>;
+  onSelectEvent: (eventId: string) => void;
+  onAddSubEvent: (parentEventId: string) => void;
   variant?: "sidebar" | "modal";
 }) {
   const { data: direct } = useEntityProperties("timeline_event", event.id);
@@ -2390,6 +2540,7 @@ function EventDetailsPanel({
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
   const taskId = event.source_entity_type === "task" ? event.source_entity_id ?? null : null;
+  const subEvents = subEventsByParentId[event.id] ?? [];
   const { data: subtasksData } = useQuery({
     queryKey: ["taskSubtasksWithProperties", taskId],
     queryFn: async () => {
@@ -2573,6 +2724,11 @@ function EventDetailsPanel({
   const statusTone = (s: string | null) => (s === "done" ? "success" : s === "blocked" ? "warn" : s === "in_progress" ? "accent" : "neutral");
   const priorityTone = (v: string) => (v === "high" || v === "urgent" ? "warn" : v === "medium" ? "accent" : "neutral");
   const statusLabel = (local.status === "todo" || !local.status) ? "To Do" : (local.status === "in_progress" ? "In Progress" : local.status === "blocked" ? "Blocked" : "Done");
+  const formatSubEventRange = (child: TimelineEvent) => {
+    const start = format(parseDateSafe(child.start) || new Date(child.start), "MMM d");
+    const end = format(parseDateSafe(child.end) || new Date(child.end), "MMM d");
+    return child.start === child.end ? start : `${start} - ${end}`;
+  };
   const p = Math.max(0, Math.min(100, Number.isFinite(local.progress) ? local.progress : 0));
   const displayColor = local.color ?? "#111827";
   const isHexColor = typeof displayColor === "string" && /^#([0-9A-Fa-f]{3}){1,2}$/.test(displayColor);
@@ -2674,6 +2830,55 @@ function EventDetailsPanel({
               </label>
             </div>
           </div>
+          {event.parent_event_id && (
+            <>
+              <Divider />
+              <div className="py-2">
+                <button
+                  type="button"
+                  className="text-xs text-zinc-500 hover:underline"
+                  onClick={() => onSelectEvent(event.parent_event_id!)}
+                >
+                  ← Parent event
+                </button>
+              </div>
+            </>
+          )}
+          {!event.parent_event_id && (
+            <>
+              <Divider />
+              <div className="py-2">
+                <div className="flex items-center justify-between">
+                  <SectionLabel>SUB-EVENTS</SectionLabel>
+                  <button
+                    type="button"
+                    className="text-[11px] text-blue-600 hover:underline"
+                    onClick={() => onAddSubEvent(event.id)}
+                  >
+                    + Add
+                  </button>
+                </div>
+                {subEvents.length === 0 ? (
+                  <div className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">No sub-events yet</div>
+                ) : (
+                  <ul className="mt-1.5 space-y-1 pl-2">
+                    {subEvents.map((child) => (
+                      <li key={child.id}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                          onClick={() => onSelectEvent(child.id)}
+                        >
+                          <span className="truncate flex-1">{child.title}</span>
+                          <span className="text-zinc-500 dark:text-zinc-400">{formatSubEventRange(child)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
           {taskId && (
             <>
               <Divider />
@@ -2993,6 +3198,48 @@ function EventDetailsPanel({
               <input type="date" value={format(parseDateSafe(local.end) || new Date(local.end), "yyyy-MM-dd")} onChange={(e) => handleEndChange(e.target.value)} disabled={local.isMilestone} className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md" />
             </div>
           </div>
+          {event.parent_event_id && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <button
+                type="button"
+                className="text-xs text-[var(--muted-foreground)] hover:underline"
+                onClick={() => onSelectEvent(event.parent_event_id!)}
+              >
+                ← Parent event
+              </button>
+            </div>
+          )}
+          {!event.parent_event_id && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sub-events</div>
+                <button
+                  type="button"
+                  onClick={() => onAddSubEvent(event.id)}
+                  className="text-[11px] text-blue-600 hover:underline"
+                >
+                  + Add
+                </button>
+              </div>
+              {subEvents.length === 0 ? (
+                <p className="text-[11px] text-[var(--muted-foreground)]">No sub-events yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {subEvents.map((child) => (
+                    <button
+                      key={child.id}
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--surface-hover)]"
+                      onClick={() => onSelectEvent(child.id)}
+                    >
+                      <span className="truncate flex-1">{child.title}</span>
+                      <span className="text-[10px] text-[var(--muted-foreground)]">{formatSubEventRange(child)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {event.source_entity_id && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex items-center justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Sync with source</span>

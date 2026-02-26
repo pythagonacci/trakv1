@@ -1459,6 +1459,10 @@ const timelineActionTools: ToolDefinition[] = [
     parameters: {
       timelineBlockId: { type: "string", description: "Optional: timeline block ID. PREFER 'timelineBlockName' for natural language." },
       timelineBlockName: { type: "string", description: "Target Timeline Block Name (e.g. 'Project Timeline'). System finds fuzzy match." },
+      parentEventId: {
+        type: "string",
+        description: "Optional parent timeline event ID to create a nested sub-event under. Sub-events are max 1 level deep.",
+      },
       title: { type: "string", description: "Event title" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
@@ -1522,7 +1526,7 @@ const timelineActionTools: ToolDefinition[] = [
       sourceEntityType: {
         type: "string",
         description: "CamelCase alias for source_entity_type.",
-        enum: ["task", "timeline_event", "table_row", "block"],
+        enum: ["task", "timeline_event", "table_row", "block", "subtask"],
       },
       sourceEntityId: { type: "string", description: "CamelCase alias for source_entity_id." },
       sourceSyncMode: {
@@ -1532,6 +1536,27 @@ const timelineActionTools: ToolDefinition[] = [
       },
     },
     requiredParams: ["title", "startDate", "endDate"],
+  },
+  {
+    name: "createTimelineSubEvent",
+    description:
+      "Create a sub-event nested under an existing parent timeline event. " +
+      "Use this when the user explicitly asks for nested timeline sub-events.",
+    category: "timeline",
+    parameters: {
+      parentEventId: { type: "string", description: "Parent timeline event ID" },
+      title: { type: "string", description: "Sub-event title" },
+      startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
+      endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
+      status: { type: "string", description: "Event status", enum: ["todo", "in_progress", "blocked", "done"] },
+      priority: { type: "string", description: "Priority value", enum: ["low", "medium", "high", "urgent"] },
+      assigneeId: { type: "string", description: "Assignee user ID. PREFER 'assigneeName'." },
+      assigneeName: { type: "string", description: "Assignee Name (e.g. 'Amna'). System resolves to ID." },
+      notes: { type: "string", description: "Event notes" },
+      color: { type: "string", description: "Event color (hex)" },
+      progress: { type: "number", description: "Progress percentage (0-100)" },
+    },
+    requiredParams: ["parentEventId", "title", "startDate", "endDate"],
   },
   {
     name: "updateTimelineEvent",
@@ -2055,6 +2080,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   timeline: pickTools([
     "searchTimelineEvents",
     "createTimelineEvent",
+    "createTimelineSubEvent",
     "updateTimelineEvent",
     "deleteTimelineEvent",
     "createTimelineDependency",

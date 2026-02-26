@@ -344,7 +344,14 @@ async function computeSubtaskAggregates(
     .from("task_subtasks")
     .select("id, completed")
     .eq("task_id", taskId);
-  if (error || !subtasks || subtasks.length === 0) return null;
+  if (error) {
+    console.error("[computeSubtaskAggregates] task_subtasks select error:", error, "taskId=", taskId);
+    return null;
+  }
+  if (!subtasks || subtasks.length === 0) {
+    console.warn("[computeSubtaskAggregates] no subtasks for taskId=", taskId);
+    return null;
+  }
 
   const subtaskIds = subtasks.map((subtask: any) => subtask.id);
   const { data: propertyRows } = await supabase
@@ -408,59 +415,74 @@ async function syncParentTaskPropertiesFromSubtasks(
   workspaceId: string,
   taskId: string,
   definitions: FixedPropertyMaps
-) {
-  const aggregates = await computeSubtaskAggregates(supabase, workspaceId, taskId, definitions);
-  if (!aggregates) return;
+): Promise<{ error?: string }> {
+  const taskIdStr = String(taskId);
+  const aggregates = await computeSubtaskAggregates(supabase, workspaceId, taskIdStr, definitions);
+  if (!aggregates) {
+    console.warn("[syncParentTaskPropertiesFromSubtasks] no aggregates for taskId=", taskIdStr);
+    return {};
+  }
+  console.log("[syncParentTaskPropertiesFromSubtasks] taskId=", taskIdStr, "computed status=", aggregates.status);
 
   const { status, assigneeIds, assigneePayload } = aggregates;
 
-  await upsertEntityPropertyValue(
+  const statusUpsert = await upsertEntityPropertyValue(
     supabase,
     workspaceId,
     "task",
-    taskId,
+    taskIdStr,
     definitions.byKey.status,
     status
   );
+  if (statusUpsert?.error) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] entity_properties status upsert failed:", statusUpsert.error);
+    return { error: "Failed to sync parent task status" };
+  }
 
-  await upsertEntityPropertyValue(
+  const assigneeUpsert = await upsertEntityPropertyValue(
     supabase,
     workspaceId,
     "task",
-    taskId,
+    taskIdStr,
     definitions.byKey.assignee_id,
     assigneePayload.length > 0 ? assigneePayload : null
   );
+  if (assigneeUpsert?.error) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] entity_properties assignee upsert failed:", assigneeUpsert.error);
+    return { error: "Failed to sync parent task assignees" };
+  }
 
-  const legacyStatus =
-    status === "done"
-      ? "done"
-      : status === "in_progress"
-        ? "in-progress"
-        : status === "blocked"
-          ? "todo"
-          : "todo";
-
-  // Update both legacy status and statuses jsonb so task list/refetch see the correct value
+  // Keep task_items in sync with derived parent properties
   const taskStatuses = [{ field_name: "Status", value: status }];
-  await supabase
+  const { error: taskItemsError } = await supabase
     .from("task_items")
     .update({
-      status: legacyStatus,
       statuses: taskStatuses,
       assignee_id: assigneeIds[0] ?? null,
     })
-    .eq("id", taskId);
+    .eq("id", taskIdStr);
+  if (taskItemsError) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] task_items update failed:", taskItemsError);
+    return { error: "Failed to update parent task in database" };
+  }
+  console.log("[syncParentTaskPropertiesFromSubtasks] task_items updated for taskId=", taskIdStr, "status=", status);
 
-  await supabase.from("task_assignees").delete().eq("task_id", taskId);
+  const { error: deleteAssigneesError } = await supabase.from("task_assignees").delete().eq("task_id", taskIdStr);
+  if (deleteAssigneesError) {
+    console.error("[syncParentTaskPropertiesFromSubtasks] task_assignees delete failed:", deleteAssigneesError);
+  }
   if (assigneePayload.length > 0) {
     const payload = assigneePayload.map((assignee) => ({
-      task_id: taskId,
+      task_id: taskIdStr,
       assignee_id: assignee.id,
       assignee_name: assignee.name || assignee.id || "Unknown",
     }));
-    await supabase.from("task_assignees").insert(payload);
+    const { error: insertAssigneesError } = await supabase.from("task_assignees").insert(payload);
+    if (insertAssigneesError) {
+      console.error("[syncParentTaskPropertiesFromSubtasks] task_assignees insert failed:", insertAssigneesError);
+    }
   }
+  return {};
 }
 
 /**
@@ -998,7 +1020,15 @@ export async function setEntityProperties(
     const assigneeId = (data as any).assignee_id as string | null;
     const priorities = Array.isArray((data as any).priorities) ? (data as any).priorities : [];
 
-    const taskStatuses = (data as any).statuses ?? [];
+    const taskStatuses = ((data as any).statuses ?? [])
+      .map((field: any) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value:
+          field?.value === "todo" || field?.value === "in_progress" || field?.value === "blocked" || field?.value === "done"
+            ? field.value
+            : null,
+      }))
+      .filter((field: any) => field.field_name.length > 0 && field.value);
     const taskPriorities = priorities
       .map((field: any) => ({
         field_name: String(field?.field_name || "").trim(),
@@ -1033,31 +1063,46 @@ export async function setEntityProperties(
   }
 
   if (input.entity_type === "subtask") {
-    if (updates.status !== undefined) {
-      await supabase
+    const statusUpdated = updates.status !== undefined || updates.statuses !== undefined;
+    if (statusUpdated) {
+      const resolvedStatus = (data as any)?.status as Status | null;
+      const { error: stErr } = await supabase
         .from("task_subtasks")
-        .update({ completed: updates.status === "done" })
+        .update({ completed: resolvedStatus === "done" })
         .eq("id", input.entity_id);
+      if (stErr) console.error("[setEntityProperties] task_subtasks update failed:", stErr);
     }
 
     const shouldSyncParent =
-      updates.status !== undefined ||
+      statusUpdated ||
+      updates.assignees !== undefined ||
       updates.assignee_ids !== undefined ||
       updates.assignee_id !== undefined;
 
     if (shouldSyncParent) {
-      const { data: subtask } = await supabase
+      const { data: subtask, error: subErr } = await supabase
         .from("task_subtasks")
         .select("task_id")
         .eq("id", input.entity_id)
         .maybeSingle();
-      if (subtask?.task_id) {
-        await syncParentTaskPropertiesFromSubtasks(
-          supabase,
+      if (subErr) console.error("[setEntityProperties] task_subtasks select task_id failed:", subErr);
+      if (!subtask?.task_id) {
+        console.warn("[setEntityProperties] subtask block: no task_id for entity_id=", input.entity_id);
+      } else {
+        console.log("[setEntityProperties] syncing parent task_id=", subtask.task_id);
+        const { createServiceClient } = await import("@/lib/supabase/service");
+        const serviceSupabase = await createServiceClient();
+        const syncResult = await syncParentTaskPropertiesFromSubtasks(
+          serviceSupabase,
           workspaceId,
           subtask.task_id,
           definitions as FixedPropertyMaps
         );
+        if (syncResult.error) {
+          console.error("[setEntityProperties] syncParent failed:", syncResult.error);
+          return { error: syncResult.error };
+        }
+        console.log("[setEntityProperties] syncParent completed for task_id=", subtask.task_id);
       }
     }
   }
@@ -1095,7 +1140,10 @@ export async function recomputeTaskPropertiesFromSubtasks(
   const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
   if ("error" in definitions) return { error: definitions.error };
 
-  await syncParentTaskPropertiesFromSubtasks(supabase, workspaceId, taskId, definitions);
+  const { createServiceClient } = await import("@/lib/supabase/service");
+  const serviceSupabase = await createServiceClient();
+  const syncResult = await syncParentTaskPropertiesFromSubtasks(serviceSupabase, workspaceId, taskId, definitions);
+  if (syncResult.error) return { error: syncResult.error };
   return { data: null };
 }
 
@@ -1216,12 +1264,12 @@ export async function clearEntityProperties(
     return { error: "Failed to clear entity properties" };
   }
 
-  // Best-effort sync for tasks: reset legacy fields to defaults
+  // Best-effort sync for tasks: reset task_items fields to defaults
   if (entityType === "task") {
     await supabase
       .from("task_items")
       .update({
-        status: "todo",
+        statuses: [{ field_name: "Status", value: "todo" }],
         priorities: [],
         due_date: null,
       })

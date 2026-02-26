@@ -23,7 +23,16 @@ interface PropertyBadgesProps {
   inherited?: boolean;
   className?: string;
   onClick?: () => void;
-  memberNames?: string[]; // For displaying assignee names (multiple) — used for the canonical single field fallback
+  /**
+   * Optional per-field click handler, used when callers want to open
+   * a focused editor for a specific property (status, priority, etc)
+   * rather than the full properties menu.
+   */
+  onFieldClick?: (info: {
+    group: "status" | "priority" | "assignees" | "due_date" | "tags";
+    fieldId?: string;
+  }) => void;
+  memberNames?: string[];
 }
 
 /**
@@ -34,6 +43,7 @@ export function PropertyBadges({
   inherited = false,
   className,
   onClick,
+  onFieldClick,
   memberNames,
 }: PropertyBadgesProps) {
   if (!properties) return null;
@@ -61,10 +71,28 @@ export function PropertyBadges({
       {/* Status */}
       {hasNamedStatuses
         ? properties.statuses.map((f) => (
-            <StatusBadge key={f.id} status={f.value} label={f.field_name} inherited={inherited} onClick={onClick} />
+            <StatusBadge
+              key={f.id}
+              status={f.value}
+              label={f.field_name}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "status", fieldId: f.id })
+                  : onClick
+              }
+            />
           ))
         : properties.status && (
-            <StatusBadge status={properties.status} inherited={inherited} onClick={onClick} />
+            <StatusBadge
+              status={properties.status}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "status" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Priority */}
@@ -75,11 +103,23 @@ export function PropertyBadges({
               priority={priorityField.value}
               label={priorityField.field_name}
               inherited={inherited}
-              onClick={onClick}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "priority", fieldId: priorityField.id })
+                  : onClick
+              }
             />
           ))
         : properties.priority && (
-            <PriorityBadge priority={properties.priority} inherited={inherited} onClick={onClick} />
+            <PriorityBadge
+              priority={properties.priority}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "priority" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Assignees */}
@@ -90,26 +130,65 @@ export function PropertyBadges({
               label={f.field_name}
               memberNames={f.value.length > 0 ? undefined : undefined /* resolved externally if needed */}
               inherited={inherited}
-              onClick={onClick}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "assignees", fieldId: f.id })
+                  : onClick
+              }
             />
           ))
         : (properties.assignee_ids?.length ? properties.assignee_ids.length > 0 : properties.assignee_id) && (
-            <AssigneeBadge memberNames={memberNames} inherited={inherited} onClick={onClick} />
+            <AssigneeBadge
+              memberNames={memberNames}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "assignees" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Due dates */}
       {hasNamedDueDates
         ? properties.due_dates.map((f) => (
-            <DueDateBadge key={f.id} dueDate={f.value} label={f.field_name} inherited={inherited} onClick={onClick} />
+            <DueDateBadge
+              key={f.id}
+              dueDate={f.value}
+              label={f.field_name}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "due_date", fieldId: f.id })
+                  : onClick
+              }
+            />
           ))
         : hasDueDate(properties.due_date) && (
-            <DueDateBadge dueDate={properties.due_date as DueDateRange} inherited={inherited} onClick={onClick} />
+            <DueDateBadge
+              dueDate={properties.due_date as DueDateRange}
+              inherited={inherited}
+              onClick={
+                onFieldClick
+                  ? () => onFieldClick({ group: "due_date" })
+                  : onClick
+              }
+            />
           )}
 
       {/* Tags */}
       {properties.tags &&
         properties.tags.map((tag) => (
-          <TagBadge key={tag} tag={tag} inherited={inherited} onClick={onClick} />
+          <TagBadge
+            key={tag}
+            tag={tag}
+            inherited={inherited}
+            onClick={
+              onFieldClick
+                ? () => onFieldClick({ group: "tags" })
+                : onClick
+            }
+          />
         ))}
     </div>
   );

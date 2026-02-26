@@ -742,6 +742,8 @@ function buildUndoStepsAfter(
       return deleteById("table_comments", data?.id);
     case "createTimelineEvent":
       return deleteById("timeline_events", data?.id);
+    case "createTimelineSubEvent":
+      return deleteById("timeline_events", data?.id);
     case "createTimelineDependency":
       return deleteById("timeline_dependencies", data?.id);
     case "createRow":
@@ -3376,6 +3378,7 @@ export async function executeTool(
           const timelineResult = await wrapResult(
             createTimelineEvent({
               timelineBlockId,
+              parentEventId: args.parentEventId as string | undefined,
               title: args.title as string,
               startDate: args.startDate as string,
               endDate: args.endDate as string,
@@ -3411,6 +3414,45 @@ export async function executeTool(
           );
           if (sourceMetadataIncomplete) return { ...timelineResult, sourceMetadataIncomplete: true };
           return timelineResult;
+        }
+        case "createTimelineSubEvent": {
+          const parentEventId = args.parentEventId as string | undefined;
+          if (!parentEventId) return { success: false, error: "createTimelineSubEvent requires parentEventId." };
+
+          const supabase = authContext?.supabase ?? await createSupabaseClient();
+          const { data: parentEvent } = await supabase
+            .from("timeline_events")
+            .select("id, timeline_block_id")
+            .eq("id", parentEventId)
+            .maybeSingle();
+          if (!parentEvent) {
+            return { success: false, error: "Parent timeline event not found." };
+          }
+
+          let assigneeId = args.assigneeId as string | undefined;
+          if (!assigneeId && args.assigneeName) {
+            const assigneeResult = await resolveTaskAssignees([{ name: args.assigneeName as string }]);
+            if (assigneeResult.resolved.length > 0) {
+              assigneeId = assigneeResult.resolved[0].id ?? undefined;
+            }
+          }
+
+          return await wrapResult(
+            createTimelineEvent({
+              timelineBlockId: parentEvent.timeline_block_id as string,
+              parentEventId,
+              title: args.title as string,
+              startDate: args.startDate as string,
+              endDate: args.endDate as string,
+              status: args.status as TimelineEventStatus | undefined,
+              priority: args.priority as TimelineEventPriority | undefined,
+              assigneeId,
+              notes: args.notes as string | undefined,
+              color: args.color as string | undefined,
+              progress: args.progress as number | undefined,
+              authContext: authContext ?? undefined,
+            })
+          );
         }
         case "updateTimelineEvent":
           {

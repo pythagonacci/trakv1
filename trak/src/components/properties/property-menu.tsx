@@ -60,6 +60,22 @@ interface PropertyMenuProps {
     dueDate: boolean;
     tags: boolean;
   }>;
+  /**
+   * Optional focus descriptor used when the caller wants to show
+   * only a single property group (e.g. just one priority field)
+   * instead of the full properties menu.
+   */
+  focus?: {
+    group: "status" | "priority" | "assignees" | "due_date" | "tags";
+    fieldId?: string;
+  } | null;
+  /**
+   * When status (or assignees) is disabled because it's derived (e.g. from subtasks),
+   * pass the effective value here so the menu shows the correct label instead of
+   * the stored value.
+   */
+  displayStatus?: Status | null;
+  displayAssigneeIds?: string[] | null;
 }
 
 // ============================================================================
@@ -247,6 +263,9 @@ export function PropertyMenu({
   entityTitle,
   projectId,
   disabledFields,
+  focus,
+  displayStatus,
+  displayAssigneeIds,
 }: PropertyMenuProps) {
   const [newTagInput, setNewTagInput] = useState("");
   const [statusDrafts, setStatusDrafts] = useState<StatusFieldDraft[]>([]);
@@ -268,6 +287,8 @@ export function PropertyMenu({
   const removeTagMutation = useRemoveTag(entityType, entityId);
   const statusDisabled = Boolean(disabledFields?.status);
   const assigneesDisabled = Boolean(disabledFields?.assignees);
+
+  const focusedGroup = focus?.group;
 
   const memberLookup = React.useMemo(() => {
     const map = new Map<string, (typeof members)[number]>();
@@ -350,10 +371,12 @@ export function PropertyMenu({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[560px] p-4">
-        <DialogHeader className="mb-3 space-y-0.5">
-          <DialogTitle className="text-sm font-semibold">Properties</DialogTitle>
-          <DialogDescription className="text-xs line-clamp-1">
+      <DialogContent className="max-w-[600px] sm:max-w-[640px] p-4 sm:p-5">
+        <DialogHeader className="mb-4 space-y-0.5">
+          <DialogTitle className="text-sm font-semibold tracking-tight">
+            Properties
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[var(--muted-foreground)] line-clamp-1">
             {entityTitle
               ? `"${entityTitle}"`
               : `${entityType.replace("_", " ")}`}
@@ -363,22 +386,25 @@ export function PropertyMenu({
         {isLoading ? (
           <div className="text-xs text-[var(--muted-foreground)]">Loading...</div>
         ) : (
-          <div className="space-y-3 max-h-[min(70vh,480px)] overflow-y-auto">
-
+          <div className="space-y-4 max-h-[min(70vh,520px)] overflow-y-auto pr-1">
             {/* Status + Priorities in one row */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* ================================================================
-                  Status (named fields)
-              ================================================================ */}
-              <div className="space-y-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-medium">Statuses</Label>
+            {(focusedGroup === undefined || focusedGroup === "status" || focusedGroup === "priority") && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+                {/* ================================================================
+                    Status (named fields)
+                ================================================================ */}
+                {(focusedGroup === undefined || focusedGroup === "status") && (
+                  <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs font-medium text-[var(--foreground)]">
+                    Statuses
+                  </Label>
                   {!statusDisabled && (
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-6 px-1.5 text-xs"
+                      className="h-6 px-1.5 text-[11px]"
                       onClick={() => {
                         const next = [
                           ...statusDrafts,
@@ -397,9 +423,9 @@ export function PropertyMenu({
                   )}
                 </div>
                 {statusDisabled ? (
-                  <div className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)]">
-                    {direct?.status
-                      ? STATUS_OPTIONS.find((o) => o.value === direct.status)?.label || direct.status
+                  <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                    {(displayStatus ?? direct?.status)
+                      ? STATUS_OPTIONS.find((o) => o.value === (displayStatus ?? direct?.status))?.label || (displayStatus ?? direct?.status)
                       : "None"}{" "}
                     <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
                       (Derived)
@@ -467,366 +493,409 @@ export function PropertyMenu({
                     ))}
                   </div>
                 )}
-              </div>
-
-              {/* ================================================================
-                  Priorities (named fields)
-              ================================================================ */}
-              <div className="space-y-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-medium">Priorities</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-6 px-1.5 text-xs"
-                    onClick={() => {
-                      const next = [
-                        ...priorityDrafts,
-                        {
-                          id: `priority-new-${Date.now()}`,
-                          field_name: getNextPriorityFieldName(priorityDrafts),
-                          value: direct?.priority ?? null,
-                        } as PriorityFieldDraft,
-                      ];
-                      setPriorityDrafts(next);
-                      persistPriorityDrafts(next);
-                    }}
-                  >
-                    Add
-                  </Button>
                 </div>
-                <div className="space-y-1.5">
-                  {priorityDrafts.map((field) => (
-                    <div key={field.id} className="grid grid-cols-[72px_1fr_auto] items-center gap-1.5">
-                      <Input
-                        value={field.field_name}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setPriorityDrafts((prev) =>
-                            prev.map((entry) =>
-                              entry.id === field.id ? { ...entry, field_name: value } : entry
-                            )
-                          );
-                        }}
-                        onBlur={() => {
-                          persistPriorityDrafts(priorityDraftsRef.current);
-                        }}
-                        placeholder="Name"
-                        className="h-7 min-w-0 text-xs"
-                      />
-                      <Select
-                        value={field.value ?? PRIORITY_NONE}
-                        onValueChange={(value) => {
-                          const nextValue = value === PRIORITY_NONE ? null : (value as Priority);
-                          const next = priorityDrafts.map((entry) =>
-                            entry.id === field.id ? { ...entry, value: nextValue } : entry
-                          );
-                          setPriorityDrafts(next);
-                          persistPriorityDrafts(next);
-                        }}
-                      >
-<SelectTrigger className="h-7 w-full max-w-[130px] min-w-0 text-xs">
-                        <SelectValue placeholder="None" />
-                        </SelectTrigger>
-                        <SelectContent className="max-w-[130px]">
-                          <SelectItem value={PRIORITY_NONE}>
-                            <span className="text-xs text-[var(--muted-foreground)]">None</span>
-                          </SelectItem>
-                          {PRIORITY_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              <span
-                                className={cn(
-                                  "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
-                                  PRIORITY_COLORS[option.value]
-                                )}
-                              >
-                                {option.label}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {priorityDrafts.length > 1 && (
+                )}
+
+                {/* ================================================================
+                    Priorities (named fields)
+                ================================================================ */}
+                {(focusedGroup === undefined || focusedGroup === "priority") && (
+                  <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-medium text-[var(--foreground)]">
+                        Priorities
+                      </Label>
+                      {focusedGroup === undefined && (
                         <Button
                           type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 shrink-0"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-1.5 text-[11px]"
                           onClick={() => {
-                            const next = priorityDrafts.filter((entry) => entry.id !== field.id);
+                            const next = [
+                              ...priorityDrafts,
+                              {
+                                id: `priority-new-${Date.now()}`,
+                                field_name: getNextPriorityFieldName(priorityDrafts),
+                                value: direct?.priority ?? null,
+                              } as PriorityFieldDraft,
+                            ];
                             setPriorityDrafts(next);
                             persistPriorityDrafts(next);
                           }}
                         >
-                          <X className="h-3 w-3" />
+                          Add
                         </Button>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Assignees + Due Dates in one row */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* ================================================================
-                  Assignees (named fields)
-              ================================================================ */}
-              <div className="space-y-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-medium">Assignees</Label>
-                  {!assigneesDisabled && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-1.5 text-xs"
-                      onClick={() => {
-                        const next = [
-                          ...assigneeDrafts,
-                          {
-                            id: `assignee-new-${Date.now()}`,
-                            field_name: getNextAssigneeFieldName(assigneeDrafts),
-                            value: [],
-                          } as AssigneeFieldDraft,
-                        ];
-                        setAssigneeDrafts(next);
-                        persistAssigneeDrafts(next);
-                      }}
-                    >
-                      Add
-                    </Button>
-                  )}
-                </div>
-                {assigneesDisabled ? (
-                  <div className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)]">
-                    <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">Derived</span>
-                  </div>
-                ) : assigneeDrafts.length === 0 ? (
-                  <div className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)]">
-                    No assignee fields
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {assigneeDrafts.map((field) => {
-                      const unassignedMembers = members.filter((m) => !field.value.includes(m.user_id));
-                      return (
-                        <div key={field.id} className="space-y-1 rounded border border-[var(--border)] p-1.5">
-                          <div className="flex items-center gap-1.5">
+                    <div className="space-y-1.5">
+                      {priorityDrafts
+                        .filter((field) =>
+                          focusedGroup === "priority" && focus?.fieldId
+                            ? field.id === focus.fieldId
+                            : true
+                        )
+                        .map((field) => (
+                          <div key={field.id} className="grid grid-cols-[72px_1fr_auto] items-center gap-1.5">
                             <Input
                               value={field.field_name}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setAssigneeDrafts((prev) =>
-                                  prev.map((entry) => entry.id === field.id ? { ...entry, field_name: value } : entry)
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setPriorityDrafts((prev) =>
+                                  prev.map((entry) =>
+                                    entry.id === field.id ? { ...entry, field_name: value } : entry
+                                  )
                                 );
                               }}
-                              onBlur={() => persistAssigneeDrafts(assigneeDraftsRef.current)}
+                              onBlur={() => {
+                                persistPriorityDrafts(priorityDraftsRef.current);
+                              }}
                               placeholder="Name"
-                              className="h-7 w-[72px] min-w-0 shrink-0 text-xs"
+                              className="h-7 min-w-0 text-xs"
                             />
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 shrink-0"
-                              onClick={() => {
-                                const next = assigneeDrafts.filter((entry) => entry.id !== field.id);
-                                setAssigneeDrafts(next);
-                                persistAssigneeDrafts(next);
+                            <Select
+                              value={field.value ?? PRIORITY_NONE}
+                              onValueChange={(value) => {
+                                const nextValue = value === PRIORITY_NONE ? null : (value as Priority);
+                                const next = priorityDrafts.map((entry) =>
+                                  entry.id === field.id ? { ...entry, value: nextValue } : entry
+                                );
+                                setPriorityDrafts(next);
+                                persistPriorityDrafts(next);
                               }}
                             >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <div className="flex flex-wrap gap-1 min-h-[24px]">
-                            {field.value.length === 0 && (
-                              <span className="text-xs text-[var(--muted-foreground)]">Unassigned</span>
+                              <SelectTrigger className="h-7 w-full max-w-[130px] min-w-0 text-xs">
+                                <SelectValue placeholder="None" />
+                              </SelectTrigger>
+                              <SelectContent className="max-w-[130px]">
+                                <SelectItem value={PRIORITY_NONE}>
+                                  <span className="text-xs text-[var(--muted-foreground)]">None</span>
+                                </SelectItem>
+                                {PRIORITY_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
+                                        PRIORITY_COLORS[option.value]
+                                      )}
+                                    >
+                                      {option.label}
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {priorityDrafts.length > 1 && (
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 shrink-0"
+                                onClick={() => {
+                                  const next = priorityDrafts.filter((entry) => entry.id !== field.id);
+                                  setPriorityDrafts(next);
+                                  persistPriorityDrafts(next);
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
                             )}
-                            {field.value.map((uid) => {
-                              const member = memberLookup.get(uid);
-                              const label = member?.name || member?.email || "Unknown";
-                              return (
-                                <span
-                                  key={uid}
-                                  className="inline-flex items-center gap-1 rounded bg-[var(--surface)] border border-[var(--border)] px-2 py-0.5 text-xs"
-                                >
-                                  <User className="h-3 w-3" />
-                                  {label}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const next = assigneeDrafts.map((entry) =>
-                                        entry.id === field.id
-                                          ? { ...entry, value: entry.value.filter((id) => id !== uid) }
-                                          : entry
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Assignees + Due Dates in one row */}
+            {(focusedGroup === undefined || focusedGroup === "assignees" || focusedGroup === "due_date") && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+                {/* Assignees (named fields) */}
+                {(focusedGroup === undefined || focusedGroup === "assignees") && (
+                  <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-medium text-[var(--foreground)]">
+                        Assignees
+                      </Label>
+                      {!assigneesDisabled && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-1.5 text-[11px]"
+                          onClick={() => {
+                            const next = [
+                              ...assigneeDrafts,
+                              {
+                                id: `assignee-new-${Date.now()}`,
+                                field_name: getNextAssigneeFieldName(assigneeDrafts),
+                                value: [],
+                              } as AssigneeFieldDraft,
+                            ];
+                            setAssigneeDrafts(next);
+                            persistAssigneeDrafts(next);
+                          }}
+                        >
+                          Add
+                        </Button>
+                      )}
+                    </div>
+                    {assigneesDisabled ? (
+                      <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                          Derived
+                        </span>
+                      </div>
+                    ) : assigneeDrafts.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                        No assignee fields yet
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {assigneeDrafts
+                          .filter((field) =>
+                            focusedGroup === "assignees" && focus?.fieldId ? field.id === focus.fieldId : true
+                          )
+                          .map((field) => {
+                            const unassignedMembers = members.filter((m) => !field.value.includes(m.user_id));
+                            return (
+                              <div
+                                key={field.id}
+                                className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] p-2"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    value={field.field_name}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      setAssigneeDrafts((prev) =>
+                                        prev.map((entry) =>
+                                          entry.id === field.id ? { ...entry, field_name: value } : entry
+                                        )
                                       );
+                                    }}
+                                    onBlur={() => persistAssigneeDrafts(assigneeDraftsRef.current)}
+                                    placeholder="Name"
+                                    className="h-7 w-[72px] min-w-0 shrink-0 text-xs"
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-7 w-7 shrink-0"
+                                    onClick={() => {
+                                      const next = assigneeDrafts.filter((entry) => entry.id !== field.id);
                                       setAssigneeDrafts(next);
                                       persistAssigneeDrafts(next);
                                     }}
-                                    className="ml-1 hover:text-[var(--error)] transition-colors"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                                <div className="flex flex-wrap gap-1 min-h-[24px]">
+                                  {field.value.length === 0 && (
+                                    <span className="text-xs text-[var(--muted-foreground)]">Unassigned</span>
+                                  )}
+                                  {field.value.map((uid) => {
+                                    const member = memberLookup.get(uid);
+                                    const label = member?.name || member?.email || "Unknown";
+                                    return (
+                                      <span
+                                        key={uid}
+                                        className="inline-flex items-center gap-1 rounded bg-[var(--surface)] border border-[var(--border)] px-2 py-0.5 text-xs"
+                                      >
+                                        <User className="h-3 w-3" />
+                                        {label}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const next = assigneeDrafts.map((entry) =>
+                                              entry.id === field.id
+                                                ? { ...entry, value: entry.value.filter((id) => id !== uid) }
+                                                : entry
+                                            );
+                                            setAssigneeDrafts(next);
+                                            persistAssigneeDrafts(next);
+                                          }}
+                                          className="ml-1 hover:text-[var(--error)] transition-colors"
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      </span>
+                                    );
+                                  })}
+                                  {unassignedMembers.length > 0 && (
+                                    <Select
+                                      value="_add"
+                                      onValueChange={(value) => {
+                                        if (!value || value === "_add") return;
+                                        const next = assigneeDrafts.map((entry) =>
+                                          entry.id === field.id && !entry.value.includes(value)
+                                            ? { ...entry, value: [...entry.value, value] }
+                                            : entry
+                                        );
+                                        setAssigneeDrafts(next);
+                                        persistAssigneeDrafts(next);
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-6 w-auto min-w-[100px] max-w-[160px] border-0 bg-transparent shadow-none focus:ring-0 text-[var(--muted-foreground)] text-xs">
+                                        <SelectValue placeholder="Add..." />
+                                      </SelectTrigger>
+                                      <SelectContent className="max-w-[200px]">
+                                        {unassignedMembers.map((member) => (
+                                          <SelectItem key={member.user_id} value={member.user_id}>
+                                            <span className="flex items-center gap-2">
+                                              <User className="h-4 w-4" />
+                                              {member.name || member.email}
+                                            </span>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Due Dates (named fields) */}
+                {(focusedGroup === undefined || focusedGroup === "due_date") && (
+                  <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-medium text-[var(--foreground)]">
+                        Due Dates
+                      </Label>
+                      {focusedGroup === undefined && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-1.5 text-[11px]"
+                          onClick={() => {
+                            const next = [
+                              ...dueDateDrafts,
+                              {
+                                id: `due-date-new-${Date.now()}`,
+                                field_name: getNextDueDateFieldName(dueDateDrafts),
+                                value: { start: null, end: null },
+                              } as DueDateFieldDraft,
+                            ];
+                            setDueDateDrafts(next);
+                            persistDueDateDrafts(next);
+                          }}
+                        >
+                          Add
+                        </Button>
+                      )}
+                    </div>
+                    {dueDateDrafts.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                        No date fields yet
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {dueDateDrafts
+                          .filter((field) =>
+                            focusedGroup === "due_date" && focus?.fieldId ? field.id === focus.fieldId : true
+                          )
+                          .map((field) => (
+                            <div
+                              key={field.id}
+                              className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] p-2"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  value={field.field_name}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setDueDateDrafts((prev) =>
+                                      prev.map((entry) =>
+                                        entry.id === field.id ? { ...entry, field_name: value } : entry
+                                      )
+                                    );
+                                  }}
+                                  onBlur={() => persistDueDateDrafts(dueDateDraftsRef.current)}
+                                  placeholder="Name"
+                                  className="h-7 w-[72px] min-w-0 shrink-0 text-xs"
+                                />
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 shrink-0"
+                                  onClick={() => {
+                                    const next = dueDateDrafts.filter((entry) => entry.id !== field.id);
+                                    setDueDateDrafts(next);
+                                    persistDueDateDrafts(next);
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                                <span className="shrink-0">Start</span>
+                                <input
+                                  type="date"
+                                  value={field.value.start ?? ""}
+                                  onChange={(e) => {
+                                    const start = e.target.value || null;
+                                    const next = dueDateDrafts.map((entry) =>
+                                      entry.id === field.id ? { ...entry, value: { ...entry.value, start } } : entry
+                                    );
+                                    setDueDateDrafts(next);
+                                    persistDueDateDrafts(next);
+                                  }}
+                                  className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
+                                />
+                                <span className="shrink-0">→</span>
+                                <input
+                                  type="date"
+                                  value={field.value.end ?? ""}
+                                  onChange={(e) => {
+                                    const end = e.target.value || null;
+                                    const next = dueDateDrafts.map((entry) =>
+                                      entry.id === field.id ? { ...entry, value: { ...entry.value, end } } : entry
+                                    );
+                                    setDueDateDrafts(next);
+                                    persistDueDateDrafts(next);
+                                  }}
+                                  className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
+                                />
+                                {(field.value.start || field.value.end) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = dueDateDrafts.map((entry) =>
+                                        entry.id === field.id ? { ...entry, value: { start: null, end: null } } : entry
+                                      );
+                                      setDueDateDrafts(next);
+                                      persistDueDateDrafts(next);
+                                    }}
+                                    className="hover:text-[var(--error)] transition-colors"
                                   >
                                     <X className="h-3 w-3" />
                                   </button>
-                                </span>
-                              );
-                            })}
-                            {unassignedMembers.length > 0 && (
-                              <Select
-                                value="_add"
-                                onValueChange={(value) => {
-                                  if (!value || value === "_add") return;
-                                  const next = assigneeDrafts.map((entry) =>
-                                    entry.id === field.id && !entry.value.includes(value)
-                                      ? { ...entry, value: [...entry.value, value] }
-                                      : entry
-                                  );
-                                  setAssigneeDrafts(next);
-                                  persistAssigneeDrafts(next);
-                                }}
-                              >
-<SelectTrigger className="h-6 w-auto min-w-[100px] max-w-[160px] border-0 bg-transparent shadow-none focus:ring-0 text-[var(--muted-foreground)] text-xs">
-                                <SelectValue placeholder="Add..." />
-                              </SelectTrigger>
-                              <SelectContent className="max-w-[200px]">
-                                  {unassignedMembers.map((member) => (
-                                    <SelectItem key={member.user_id} value={member.user_id}>
-                                      <span className="flex items-center gap-2">
-                                        <User className="h-4 w-4" />
-                                        {member.name || member.email}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* ================================================================
-                  Due Dates (named fields)
-              ================================================================ */}
-              <div className="space-y-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-medium">Due Dates</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-6 px-1.5 text-xs"
-                    onClick={() => {
-                      const next = [
-                        ...dueDateDrafts,
-                        {
-                          id: `due-date-new-${Date.now()}`,
-                          field_name: getNextDueDateFieldName(dueDateDrafts),
-                          value: { start: null, end: null },
-                        } as DueDateFieldDraft,
-                      ];
-                      setDueDateDrafts(next);
-                      persistDueDateDrafts(next);
-                    }}
-                  >
-                    Add
-                  </Button>
-                </div>
-                {dueDateDrafts.length === 0 ? (
-                  <div className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted-foreground)]">
-                    No date fields
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {dueDateDrafts.map((field) => (
-                      <div key={field.id} className="space-y-1 rounded border border-[var(--border)] p-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <Input
-                            value={field.field_name}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setDueDateDrafts((prev) =>
-                                prev.map((entry) => entry.id === field.id ? { ...entry, field_name: value } : entry)
-                              );
-                            }}
-                            onBlur={() => persistDueDateDrafts(dueDateDraftsRef.current)}
-                            placeholder="Name"
-                            className="h-7 w-[72px] min-w-0 shrink-0 text-xs"
-                          />
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() => {
-                              const next = dueDateDrafts.filter((entry) => entry.id !== field.id);
-                              setDueDateDrafts(next);
-                              persistDueDateDrafts(next);
-                            }}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-                          <span className="shrink-0">Start</span>
-                          <input
-                            type="date"
-                            value={field.value.start ?? ""}
-                            onChange={(e) => {
-                              const start = e.target.value || null;
-                              const next = dueDateDrafts.map((entry) =>
-                                entry.id === field.id ? { ...entry, value: { ...entry.value, start } } : entry
-                              );
-                              setDueDateDrafts(next);
-                              persistDueDateDrafts(next);
-                            }}
-                            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
-                          />
-                          <span className="shrink-0">→</span>
-                          <input
-                            type="date"
-                            value={field.value.end ?? ""}
-                            onChange={(e) => {
-                              const end = e.target.value || null;
-                              const next = dueDateDrafts.map((entry) =>
-                                entry.id === field.id ? { ...entry, value: { ...entry.value, end } } : entry
-                              );
-                              setDueDateDrafts(next);
-                              persistDueDateDrafts(next);
-                            }}
-                            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
-                          />
-                          {(field.value.start || field.value.end) && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = dueDateDrafts.map((entry) =>
-                                  entry.id === field.id ? { ...entry, value: { start: null, end: null } } : entry
-                                );
-                                setDueDateDrafts(next);
-                                persistDueDateDrafts(next);
-                              }}
-                              className="hover:text-[var(--error)] transition-colors"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
-            </div>
+            )}
 
             {/* ================================================================
                 Tags
             ================================================================ */}
-            <div className="space-y-1.5">
+            {(focusedGroup === undefined || focusedGroup === "tags") && (
+            <div className="space-y-1">
               <Label className="text-xs font-medium">Tags</Label>
               {projectId && projectTagBank.length > 0 && (
                 <div className="rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1">
@@ -875,7 +944,7 @@ export function PropertyMenu({
                   </span>
                 ))}
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <Input
                   type="text"
                   value={newTagInput}
@@ -894,6 +963,7 @@ export function PropertyMenu({
                 </Button>
               </div>
             </div>
+            )}
 
           </div>
         )}

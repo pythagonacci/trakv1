@@ -50,13 +50,15 @@ import { TaskRollupBar, type RollupTask } from "@/components/tasks/task-rollup-b
 import ReferencePicker from "@/components/timelines/reference-picker";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import { sanitizeHtml } from "@/lib/sanitize-html";
-import { PropertyBadges, PropertyMenu } from "@/components/properties";
+import { PropertyBadges, PropertyMenu, PropertyFieldDropdown } from "@/components/properties";
 import { DateRangeCalendar } from "@/components/due-date-calendar";
 import {
   useEntitiesProperties,
   useSetEntityPropertiesForType,
   useWorkspaceMembers,
 } from "@/lib/hooks/use-property-queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/react-query/query-client";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, STATUS_OPTIONS, type EntityProperties, type EntityType, type Status } from "@/types/properties";
 import { type TaskBlockContent, type TaskItemPriority } from "@/types/task";
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable, closestCenter } from "@dnd-kit/core";
@@ -395,11 +397,16 @@ function TaskPropertyBadges({
   entityId,
   properties,
   onOpen,
+  onOpenField,
   workspaceId,
 }: {
   entityId: string;
   properties?: EntityProperties;
   onOpen: () => void;
+  onOpenField?: (info: {
+    group: "status" | "priority" | "assignees" | "due_date" | "tags";
+    fieldId?: string;
+  }) => void;
   workspaceId: string;
 }) {
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
@@ -422,6 +429,7 @@ function TaskPropertyBadges({
         <PropertyBadges
           properties={direct}
           onClick={onOpen}
+          onFieldClick={onOpenField}
           memberNames={getMemberNames(direct)}
         />
       )}
@@ -465,6 +473,8 @@ type BoardTaskCardProps =
     task: Task;
     columnId: string;
     statusIcon: React.ReactNode;
+    /** When set, replaces the default status button (opens status dropdown instead of toggle). */
+    statusSlot?: React.ReactNode;
     title: React.ReactNode;
     onToggleStatus: () => void;
     showStatusIcon: boolean;
@@ -488,6 +498,7 @@ type BoardTaskCardProps =
     parentTaskTitle: string;
     columnId: string;
     statusIcon: React.ReactNode;
+    statusSlot?: React.ReactNode;
     title: React.ReactNode;
     onToggleStatus: () => void;
     showStatusIcon: boolean;
@@ -535,18 +546,20 @@ function BoardTaskCard(props: BoardTaskCardProps) {
     >
       <div className="flex items-start gap-2">
         {props.showStatusIcon && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              props.onToggleStatus();
-            }}
-            className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--secondary)]"
-            aria-label={isSubtask ? "Toggle subtask" : "Toggle task"}
-          >
-            {props.statusIcon}
-          </button>
+          props.statusSlot ?? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                props.onToggleStatus();
+              }}
+              className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--secondary)]"
+              aria-label={isSubtask ? "Toggle subtask" : "Toggle task"}
+            >
+              {props.statusIcon}
+            </button>
+          )
         )}
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-start justify-between gap-2">
@@ -645,6 +658,10 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
   const editingSubtaskInputRef = useRef<HTMLInputElement | null>(null);
   const [propertiesTarget, setPropertiesTarget] = useState<{ type: EntityType; id: string; title: string } | null>(null);
+  const [propertiesFocus, setPropertiesFocus] = useState<{
+    group: "status" | "priority" | "assignees" | "due_date" | "tags";
+    fieldId?: string;
+  } | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [taskOrder, setTaskOrder] = useState<string[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -677,6 +694,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   );
   const { data: subtaskPropertiesById = {} } = useEntitiesProperties("subtask", subtaskIds, workspaceId);
   const setSubtaskProperties = useSetEntityPropertiesForType("subtask", workspaceId);
+  const queryClient = useQueryClient();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1105,6 +1123,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       taskBlockId: block.id,
       title: "New task",
       status: "todo",
+      hideIcons: false,
     });
     if ("error" in result) {
       console.error("Failed to add task:", result.error);
@@ -1151,6 +1170,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       status: legacyStatus,
       priority: (priorityValue && priorityValue !== "none" ? priorityValue : undefined) as import("@/types/task").TaskPriority | undefined,
       dueDate: dueDateValue,
+      hideIcons: false,
     });
 
     if ("error" in result) {
@@ -1470,6 +1490,11 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
       entityId: subtaskId,
       updates: { status: nextStatus },
     });
+    const parentTask = tasks.find((t) => t.subtasks?.some((s) => String(s.id) === String(subtaskId)));
+    if (parentTask) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.entityProperties("task", String(parentTask.id)) });
+    }
+    queryClient.invalidateQueries({ queryKey: ["taskItems", block.id] });
   };
 
   const updateSubtaskPriority = async (subtaskId: string, nextPriority: string | null) => {
@@ -2588,8 +2613,32 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                   >
                     {/* Main Task Row */}
                     <div className="flex items-start gap-2">
-                      {/* Status Icon */}
-                      {shouldShowIcons(task) ? (
+                    {/* Status Icon */}
+                    {canUseProperties && taskEntityId && !statusIsDerived ? (
+                        <PropertyFieldDropdown
+                          entityType="task"
+                          entityId={taskEntityId}
+                          workspaceId={workspaceId}
+                          group="status"
+                        >
+                          <button
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                            className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
+                            aria-label="Change status"
+                            type="button"
+                          >
+                            {effectiveStatus === "done" ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            ) : effectiveStatus === "blocked" ? (
+                              <XCircle className="w-4 h-4 text-red-500" />
+                            ) : effectiveStatus === "in_progress" ? (
+                              <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+                            )}
+                          </button>
+                        </PropertyFieldDropdown>
+                      ) : shouldShowIcons(task) ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -2915,31 +2964,33 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         {/* Inline Icons (Priority / Assignee / Due Date) driven by universal properties */}
                         {canUseProperties && taskEntityId && showInlineIcons && (
                           <div className="flex flex-wrap items-center gap-1.5 text-xs leading-normal">
-                            {effectivePriorityFields.map((priorityField) => {
+                            {effectivePriorityFields.map((priorityField, pIdx) => {
                               const priorityLabel = getPriorityDisplayLabel(priorityField);
                               if (!priorityLabel || !priorityField.value) return null;
+                              const entityProps = entityPropertiesByTaskId[task.id];
+                              const fieldId = entityProps?.priorities?.[pIdx]?.id;
                               return (
-                                <button
+                                <PropertyFieldDropdown
                                   key={`${task.id}-priority-${priorityField.field_name.toLowerCase()}`}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPropertiesTarget({
-                                      type: "task",
-                                      id: taskEntityId,
-                                      title: task.text || "Task",
-                                    });
-                                    setPropertiesOpen(true);
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-opacity hover:opacity-90",
-                                    PRIORITY_COLORS[priorityField.value]
-                                  )}
-                                  title={priorityLabel}
+                                  entityType="task"
+                                  entityId={taskEntityId}
+                                  workspaceId={workspaceId}
+                                  group="priority"
+                                  fieldId={fieldId}
                                 >
-                                  <Flag className="h-3 w-3" />
-                                  <span className="max-w-[220px] truncate">{priorityLabel}</span>
-                                </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-opacity hover:opacity-90",
+                                      PRIORITY_COLORS[priorityField.value]
+                                    )}
+                                    title={priorityLabel}
+                                  >
+                                    <Flag className="h-3 w-3" />
+                                    <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                  </button>
+                                </PropertyFieldDropdown>
                               );
                             })}
 
@@ -3080,7 +3131,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           properties={entityPropertiesByTaskId[task.id]}
                           workspaceId={workspaceId}
                           onOpen={() => {
+                            setPropertiesFocus(null);
                             setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                            setPropertiesOpen(true);
+                          }}
+                          onOpenField={(info) => {
+                            setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                            setPropertiesFocus(info);
                             setPropertiesOpen(true);
                           }}
                         />
@@ -3098,6 +3155,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                             <>
                               <DropdownMenuItem
                                 onClick={() => {
+                                  setPropertiesFocus(null);
                                   setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
                                   setPropertiesOpen(true);
                                 }}
@@ -3295,6 +3353,26 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               <Circle className="h-4 w-4 text-neutral-300 dark:text-neutral-600" />
                             );
 
+                          const statusSlot = canUseProperties && taskEntityId && !statusIsDerived
+                            ? (
+                                <PropertyFieldDropdown
+                                  entityType="task"
+                                  entityId={taskEntityId}
+                                  workspaceId={workspaceId}
+                                  group="status"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                    className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--secondary)]"
+                                    aria-label="Change status"
+                                  >
+                                    {statusIcon}
+                                  </button>
+                                </PropertyFieldDropdown>
+                              )
+                            : undefined;
+
                           const showStatusIcon = shouldShowIcons(task) && boardGroupBy !== "status";
                           const showPriority = effectivePriorityFields.length > 0 && boardGroupBy !== "priority";
                           const showAssignee = Boolean(assigneeLabel) && boardGroupBy !== "assignee";
@@ -3445,6 +3523,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                   <>
                                     <DropdownMenuItem
                                       onClick={() => {
+                                        setPropertiesFocus(null);
                                         setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
                                         setPropertiesOpen(true);
                                       }}
@@ -3506,6 +3585,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               task={task}
                               columnId={column.id}
                               statusIcon={statusIcon}
+                              statusSlot={statusSlot}
                               title={title}
                               onToggleStatus={() => {
                                 if (statusIsDerived) return;
@@ -3797,7 +3877,31 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                     style={{ gridTemplateColumns: tableColumnTemplate }}
                   >
                     <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
-                      {shouldShowIcons(task) ? (
+                      {canUseProperties && taskEntityId && !statusIsDerived ? (
+                        <PropertyFieldDropdown
+                          entityType="task"
+                          entityId={taskEntityId}
+                          workspaceId={workspaceId}
+                          group="status"
+                        >
+                          <button
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                            className="flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]"
+                            aria-label="Change status"
+                            type="button"
+                          >
+                            {effectiveStatus === "done" ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            ) : effectiveStatus === "blocked" ? (
+                              <XCircle className="w-4 h-4 text-red-500" />
+                            ) : effectiveStatus === "in_progress" ? (
+                              <Clock className="w-4 h-4 text-[var(--tram-yellow)]" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+                            )}
+                          </button>
+                        </PropertyFieldDropdown>
+                      ) : shouldShowIcons(task) ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3931,7 +4035,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                               properties={entityPropertiesByTaskId[task.id]}
                               workspaceId={workspaceId}
                               onOpen={() => {
+                                setPropertiesFocus(null);
                                 setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                                setPropertiesOpen(true);
+                              }}
+                              onOpenField={(info) => {
+                                setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                                setPropertiesFocus(info);
                                 setPropertiesOpen(true);
                               }}
                             />
@@ -3942,33 +4052,35 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1">
                         {effectivePriorityFields.length > 0 ? (
-                          effectivePriorityFields.map((priorityField) => {
+                          effectivePriorityFields.map((priorityField, pIdx) => {
                             const priorityLabel = getPriorityDisplayLabel(priorityField);
                             if (!priorityLabel || !priorityField.value) return null;
 
                             if (canUseProperties && taskEntityId) {
+                              const entityProps = entityPropertiesByTaskId[task.id];
+                              const fieldId = entityProps?.priorities?.[pIdx]?.id;
                               return (
-                                <button
+                                <PropertyFieldDropdown
                                   key={`${task.id}-table-priority-${priorityField.field_name.toLowerCase()}`}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPropertiesTarget({
-                                      type: "task",
-                                      id: taskEntityId,
-                                      title: task.text || "Task",
-                                    });
-                                    setPropertiesOpen(true);
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
-                                    PRIORITY_COLORS[priorityField.value]
-                                  )}
-                                  title={priorityLabel}
+                                  entityType="task"
+                                  entityId={taskEntityId}
+                                  workspaceId={workspaceId}
+                                  group="priority"
+                                  fieldId={fieldId}
                                 >
-                                  {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
-                                  <span className="max-w-[220px] truncate">{priorityLabel}</span>
-                                </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
+                                      PRIORITY_COLORS[priorityField.value]
+                                    )}
+                                    title={priorityLabel}
+                                  >
+                                    {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
+                                    <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                  </button>
+                                </PropertyFieldDropdown>
                               );
                             }
 
@@ -4115,6 +4227,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         onClick={() => {
                           if (canUseProperties && taskEntityId) {
                             setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
+                            setPropertiesFocus({ group: "tags" });
                             setPropertiesOpen(true);
                           }
                         }}
@@ -4665,6 +4778,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               setPropertiesOpen(open);
               if (!open) {
                 setPropertiesTarget(null);
+                setPropertiesFocus(null);
               }
             }}
             entityType={propertiesTarget.type}
@@ -4677,6 +4791,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                 ? { status: true, assignees: true }
                 : undefined
             }
+            displayStatus={
+              propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length && propertiesTargetTask
+                ? getEffectiveStatus(propertiesTarget.id, propertiesTargetTask)
+                : undefined
+            }
+            displayAssigneeIds={
+              propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length && propertiesTargetTask
+                ? getEffectiveAssigneeIds(propertiesTarget.id, propertiesTargetTask)
+                : undefined
+            }
+            focus={propertiesFocus}
           />
         )
       }
