@@ -367,6 +367,130 @@ async function resolveAssigneeIdsFromValue(
   return Array.from(ids);
 }
 
+type CanonicalTaskStatus = "todo" | "in_progress" | "blocked" | "done";
+type CanonicalTaskPriority = "low" | "medium" | "high" | "urgent";
+
+function normalizeTaskStatusValue(value: unknown): CanonicalTaskStatus | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
+  if (normalized === "todo" || normalized === "in_progress" || normalized === "blocked" || normalized === "done") {
+    return normalized as CanonicalTaskStatus;
+  }
+  return null;
+}
+
+function normalizeTaskPriorityValue(value: unknown): CanonicalTaskPriority | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "urgent") {
+    return normalized as CanonicalTaskPriority;
+  }
+  return null;
+}
+
+function normalizeNamedStatuses(input: unknown): Array<{ field_name: string; value: CanonicalTaskStatus }> {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((entry) => {
+      const fieldName = typeof (entry as any)?.field_name === "string" ? (entry as any).field_name.trim() : "";
+      const value = normalizeTaskStatusValue((entry as any)?.value);
+      if (!value) return null;
+      return {
+        field_name: fieldName || "Status",
+        value,
+      };
+    })
+    .filter((entry): entry is { field_name: string; value: CanonicalTaskStatus } => Boolean(entry));
+}
+
+function normalizeNamedPriorities(input: unknown): Array<{ field_name: string; value: CanonicalTaskPriority }> {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((entry) => {
+      const fieldName = typeof (entry as any)?.field_name === "string" ? (entry as any).field_name.trim() : "";
+      const value = normalizeTaskPriorityValue((entry as any)?.value);
+      if (!value) return null;
+      return {
+        field_name: fieldName || "Priority",
+        value,
+      };
+    })
+    .filter((entry): entry is { field_name: string; value: CanonicalTaskPriority } => Boolean(entry));
+}
+
+function buildDueDateRangeFromTaskInput(dueDate: unknown, startDate: unknown): { start: string; end: string } | null {
+  const due = typeof dueDate === "string" && dueDate.trim() ? dueDate.trim() : null;
+  const start = typeof startDate === "string" && startDate.trim() ? startDate.trim() : null;
+  if (start && due) return { start, end: due };
+  if (due) return { start: due, end: due };
+  if (start) return { start, end: start };
+  return null;
+}
+
+async function syncTaskEntityPropertiesAfterCreate(params: {
+  taskId: string;
+  status?: unknown;
+  statuses?: unknown;
+  priority?: unknown;
+  priorities?: unknown;
+  dueDate?: unknown;
+  startDate?: unknown;
+  tags?: unknown;
+  assignees?: Array<{ id?: string | null; name?: string | null }>;
+}) {
+  const namedStatuses = normalizeNamedStatuses(params.statuses);
+  const namedPriorities = normalizeNamedPriorities(params.priorities);
+  const singleStatus = normalizeTaskStatusValue(params.status);
+  const singlePriority = normalizeTaskPriorityValue(params.priority);
+  const dueDateRange = buildDueDateRangeFromTaskInput(params.dueDate, params.startDate);
+  const tags = Array.isArray(params.tags)
+    ? Array.from(new Set(params.tags.map((tag) => (typeof tag === "string" ? tag.trim() : "")).filter(Boolean)))
+    : [];
+  const assigneeIds = Array.isArray(params.assignees)
+    ? Array.from(
+      new Set(
+        params.assignees
+          .map((assignee) => (typeof assignee?.id === "string" ? assignee.id : null))
+          .filter((id): id is string => Boolean(id))
+      )
+    )
+    : [];
+
+  const updates: Record<string, unknown> = {};
+  if (namedStatuses.length > 0) {
+    updates.statuses = namedStatuses;
+  } else {
+    updates.status = singleStatus ?? "todo";
+  }
+  if (namedPriorities.length > 0) {
+    updates.priorities = namedPriorities;
+  } else if (singlePriority) {
+    updates.priority = singlePriority;
+  }
+  if (dueDateRange) {
+    updates.due_date = dueDateRange;
+  }
+  if (tags.length > 0) {
+    updates.tags = tags;
+  }
+  if (assigneeIds.length > 0) {
+    updates.assignee_ids = assigneeIds;
+  }
+
+  const result = await setEntityProperties({
+    entity_type: "task",
+    entity_id: params.taskId,
+    updates: updates as any,
+  });
+  if ("error" in result) {
+    aiDebug("createTaskItem:propertySyncFallbackError", {
+      taskId: params.taskId,
+      error: result.error,
+      updates: Object.keys(updates),
+    });
+  }
+}
+
 const LEGACY_TOOL_ALIASES: Record<string, string> = {
   createSubtask: "createTaskSubtask",
   updateSubtask: "updateTaskSubtask",
@@ -1210,9 +1334,26 @@ export async function executeTool(
             }
 
             if (rpcResult && !("error" in rpcResult)) {
+              await syncTaskEntityPropertiesAfterCreate({
+                taskId: rpcResult.data.id,
+                status: payload.status,
+                statuses: payload.statuses,
+                priority: payload.priority,
+                priorities: payload.priorities,
+                dueDate: payload.dueDate,
+                startDate: payload.startDate,
+                tags: args.tags,
+                assignees: resolvedAssignees,
+              });
               const out: ToolCallResult = { success: true, data: rpcResult.data };
               if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
               return out;
+            }
+            if (rpcResult && "error" in rpcResult) {
+              aiDebug("createTaskItem:rpcFallback", {
+                reason: "rpc_returned_error",
+                error: rpcResult.error,
+              });
             }
 
             const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
@@ -1227,6 +1368,17 @@ export async function executeTool(
                 postCreate.push(setTaskTags(newTaskId, args.tags as string[], { authContext: authContext ?? undefined }));
               }
               if (postCreate.length > 0) await Promise.all(postCreate);
+              await syncTaskEntityPropertiesAfterCreate({
+                taskId: newTaskId,
+                status: payload.status,
+                statuses: payload.statuses,
+                priority: payload.priority,
+                priorities: payload.priorities,
+                dueDate: payload.dueDate,
+                startDate: payload.startDate,
+                tags: args.tags,
+                assignees: resolvedAssignees,
+              });
 
               aiDebug("createTaskItem:timing", {
                 t_auth_ms: timing.t_auth_ms,
@@ -1600,15 +1752,33 @@ export async function executeTool(
                   });
 
                   if (!("error" in rpcResult)) {
+                    await syncTaskEntityPropertiesAfterCreate({
+                      taskId: rpcResult.data.id,
+                      status: task.status,
+                      statuses: task.statuses,
+                      priority: task.priority,
+                      priorities: task.priorities,
+                      dueDate: task.dueDate,
+                      startDate: task.startDate,
+                      tags: task.tags,
+                      assignees: resolvedAssignees,
+                    });
                     return { input: task, data: rpcResult.data };
                   }
+                  aiDebug("bulkCreateTasks:rpcFallback", {
+                    reason: "rpc_returned_error",
+                    error: rpcResult.error,
+                    title: task.title,
+                  });
 
                   // Fallback to direct createTaskItem if RPC fails
                   const directResult = await createTaskItem({
                     taskBlockId,
                     title: task.title as string,
                     status: task.status as any,
+                    statuses: task.statuses as any,
                     priority: task.priority as any,
+                    priorities: task.priorities as any,
                     description: task.description as string | undefined,
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
@@ -1634,6 +1804,17 @@ export async function executeTool(
                       postCreate.push(setTaskTags(directResult.data.id, task.tags as string[], { authContext: authContext ?? undefined }));
                     }
                     if (postCreate.length > 0) await Promise.all(postCreate);
+                    await syncTaskEntityPropertiesAfterCreate({
+                      taskId: directResult.data.id,
+                      status: task.status,
+                      statuses: task.statuses,
+                      priority: task.priority,
+                      priorities: task.priorities,
+                      dueDate: task.dueDate,
+                      startDate: task.startDate,
+                      tags: task.tags,
+                      assignees: resolvedAssignees,
+                    });
                     return { input: task, data: directResult.data };
                   }
 
