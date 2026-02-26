@@ -26,7 +26,7 @@ export default async function TabPage({
 
   // Await params in Next.js 15
   const { projectId, tabId } = await params;
-  console.log(`[PERF] TAB_PAGE_RENDER id=${renderId} projectId=${projectId} tabId=${tabId}`);
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] TAB_PAGE_RENDER id=${renderId} projectId=${projectId} tabId=${tabId}`);
   const searchParamsData = await searchParams;
   const taskId = typeof searchParamsData.taskId === 'string' ? searchParamsData.taskId : null;
 

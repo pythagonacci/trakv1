@@ -148,21 +148,21 @@ export const getProjectTabs = cache(async (projectId: string) => {
     // 🔒 Auth check FIRST
     const user = await getAuthenticatedUser();
     if (!user) {
-      console.log(`[PERF] getProjectTabs projectId=${projectId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=Unauthorized ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Unauthorized" };
     }
 
     // 🔒 Verify project access
     const project = await getProjectMetadata(projectId);
     if (!project) {
-      console.log(`[PERF] getProjectTabs projectId=${projectId} error=ProjectNotFound ms=${Math.round(performance.now() - _t0)}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=ProjectNotFound ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Project not found" };
     }
 
     // 🔒 Verify membership BEFORE fetching tabs
     const member = await checkWorkspaceMembership(project.workspace_id, user.id);
     if (!member) {
-      console.log(`[PERF] getProjectTabs projectId=${projectId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=NotMember ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Not a member of this workspace" };
     }
 
@@ -177,18 +177,18 @@ export const getProjectTabs = cache(async (projectId: string) => {
 
     if (tabsError) {
       console.error("Get tabs error:", tabsError);
-      console.log(`[PERF] getProjectTabs projectId=${projectId} error=Query ms=${Math.round(performance.now() - _t0)}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=Query ms=${Math.round(performance.now() - _t0)}`);
       return { error: "Failed to fetch tabs" };
     }
 
     // Build hierarchy in memory (still fast for reasonable # of tabs)
     const tabsWithChildren = buildTabHierarchy(tabs || []);
     const tabsCount = tabsWithChildren.length;
-    console.log(`[PERF] getProjectTabs projectId=${projectId} tabs=${tabsCount} totalMs=${Math.round(performance.now() - _t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} tabs=${tabsCount} totalMs=${Math.round(performance.now() - _t0)}`);
     return { data: tabsWithChildren };
   } catch (error) {
     console.error("Get project tabs exception:", error);
-    console.log(`[PERF] getProjectTabs projectId=${projectId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getProjectTabs projectId=${projectId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to fetch tabs" };
   }
 });

@@ -54,7 +54,7 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
 
   const handleCreateProject = () => {
     startCreateTransition(async () => {
-      console.log("[PERF] client getCurrentWorkspaceId via route (shopify)");
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client getCurrentWorkspaceId via route (shopify)");
       const response = await fetch("/api/workspaces/current", { cache: "no-store" });
       const json = await response.json();
       const workspaceId = json?.data?.workspaceId || null;

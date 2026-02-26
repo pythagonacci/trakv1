@@ -1352,7 +1352,7 @@ const tableActionTools: ToolDefinition[] = [
       "- PRESERVE field types - DO NOT convert to text!\n\n" +
       "🚨 SOURCE TRACKING: When rows come from search results (searchTasks, searchTimelineEvents, searchBlocks, getEntityById table rows, etc.), you MUST include source_entity_type, source_entity_id (the `id` from the matching search result or row), and source_sync_mode (\"snapshot\") on each row that corresponds to a search result. Valid source_entity_type: \"task\", \"timeline_event\", \"table_row\", \"block\". For rows from another table use source_entity_type \"table_row\". For blocks use \"block\". Match each row to the search result it came from by title to get the correct id. Only add source metadata to rows that actually come from search results — not to new/original data.\n\n" +
       "🚨 TABLE SUBTASKS (when tasks have subtasks): DO NOT put subtask names in a text/long_text column! Tables have native subtask support:\n" +
-      "- Add a field { name: \"Subtask\", type: \"subtask\" } (or type \"checkbox\") to the schema.\n" +
+      "- Add a field { name: \"Subtask\", type: \"subtask\" } to the schema. Do NOT use type \"checkbox\" for this.\n" +
       "- Each subtask is a SEPARATE ROW. Parent task = one row with Subtask=false. Each subtask = its own row with Subtask=true, placed directly under the parent.\n" +
       "- Order matters: Parent row first, then its subtask rows (Subtask=true), then next parent, etc.\n" +
       "- Each subtask row has the same columns (Title, Status, Priority, etc.) with the subtask's own values — fill all fields as for a regular row.\n" +

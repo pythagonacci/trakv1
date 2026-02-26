@@ -296,7 +296,7 @@ export function useWorkspaceMembers(workspaceId?: string) {
     queryKey: ["workspaceMembers", "properties", workspaceId],
     queryFn: async () => {
       if (!workspaceId) return [];
-      console.log(`[PERF] client useWorkspaceMembers workspaceId=${workspaceId}`);
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client useWorkspaceMembers workspaceId=${workspaceId}`);
       const response = await fetch(`/api/workspaces/members?workspaceId=${encodeURIComponent(workspaceId)}`, {
         cache: "no-store",
       });

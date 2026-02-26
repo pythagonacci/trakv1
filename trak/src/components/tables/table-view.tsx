@@ -270,7 +270,7 @@ export function TableView({ tableId }: Props) {
     queryKey: ['workspaceMembers', tableData?.table.workspace_id],
     queryFn: async () => {
       if (!tableData?.table.workspace_id) return [];
-      console.log(`[PERF] client table getWorkspaceMembers workspaceId=${tableData.table.workspace_id}`);
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client table getWorkspaceMembers workspaceId=${tableData.table.workspace_id}`);
       const response = await fetch(
         `/api/workspaces/members?workspaceId=${encodeURIComponent(tableData.table.workspace_id)}`,
         { cache: "no-store" }
@@ -326,18 +326,20 @@ export function TableView({ tableId }: Props) {
   const pinnedFields = useMemo<string[]>(() => view?.config?.pinnedFields ?? [], [view?.config?.pinnedFields]);
   const dateFields = useMemo<TableField[]>(() => allFields.filter((f) => f.type === "date"), [allFields]);
 
-  // Order fields: pinned first, then others
+  // Order fields: pinned first, then others, subtask always last
   const fields = useMemo(() => {
     const visible = allFields.filter((f) => !hiddenFields.includes(f.id));
-    const pinned = visible.filter((f) => pinnedFields.includes(f.id));
-    const unpinned = visible.filter((f) => !pinnedFields.includes(f.id));
-    return [...pinned, ...unpinned];
+    const pinned = visible.filter((f) => pinnedFields.includes(f.id) && f.type !== "subtask");
+    const unpinned = visible.filter((f) => !pinnedFields.includes(f.id) && f.type !== "subtask");
+    const subtaskFields = visible.filter((f) => f.type === "subtask");
+    return [...pinned, ...unpinned, ...subtaskFields];
   }, [allFields, pinnedFields, hiddenFields]);
 
   const getWidthForField = useCallback(
     (fieldId: string) => {
       if (pendingWidths[fieldId]) return pendingWidths[fieldId];
       const f = allFields.find((fld) => fld.id === fieldId);
+      if (f?.type === "subtask") return 32;
       return f?.width || 180;
     },
     [pendingWidths, allFields]
@@ -348,9 +350,10 @@ export function TableView({ tableId }: Props) {
   const columnTemplate = useMemo(() => {
     if (!fields.length) return `${selectionWidth}px 1fr 40px`;
     // Use minmax to allow columns to fill available space while respecting minimum widths
+    // Subtask columns get a fixed narrow width, not minmax
     const base = fields.map((f) => {
       const width = getWidthForField(f.id);
-      return `minmax(${width}px, 1fr)`;
+      return f.type === "subtask" ? `${width}px` : `minmax(${width}px, 1fr)`;
     }).join(" ");
     return `${selectionWidth}px ${base} 40px`;
   }, [fields, selectionWidth, getWidthForField]);

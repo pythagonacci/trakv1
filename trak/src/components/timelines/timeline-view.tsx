@@ -735,7 +735,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
 
     const loadMembers = async () => {
-      console.log(`[PERF] client timeline getWorkspaceMembers workspaceId=${workspaceId}`);
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client timeline getWorkspaceMembers workspaceId=${workspaceId}`);
       const response = await fetch(`/api/workspaces/members?workspaceId=${encodeURIComponent(workspaceId)}`, {
         cache: "no-store",
       });

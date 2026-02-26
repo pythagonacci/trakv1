@@ -89,9 +89,11 @@ export async function GET(request: NextRequest) {
   const nextOffset = hasMore ? offset + (rows as any[]).length : null;
 
   const ms = Math.round(Date.now() - t0);
-  console.log(
-    `[PERF] route getTableData tableId=${tableId} viewId=${viewId ?? ""} limit=${limit} offset=${offset} ms=${ms} rows=${rows?.length ?? 0} total=${total}`
-  );
+  if (process.env.PERF_DEBUG === "1") {
+    console.log(
+      `[PERF] route getTableData tableId=${tableId} viewId=${viewId ?? ""} limit=${limit} offset=${offset} ms=${ms} rows=${rows?.length ?? 0} total=${total}`
+    );
+  }
 
   return NextResponse.json({
     data: { rows: sorted, view, hasMore, nextOffset, total }

@@ -1737,6 +1737,7 @@ export async function executeTool(
               : rpcDupResult;
 
             if ("error" in dupResult) {
+              await deleteBlock(taskBlockId, { authContext: authContext ?? undefined });
               return { success: false, error: dupResult.error ?? "Failed to duplicate tasks" };
             }
 

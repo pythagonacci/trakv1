@@ -69,7 +69,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
     const params = new URLSearchParams({ fileIds: uniqueIds.join(",") });
-    console.log(`[PERF] client attached-files getFileAnalysisComments ids=${uniqueIds.length}`);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client attached-files getFileAnalysisComments ids=${uniqueIds.length}`);
     const response = await fetch(`/api/file-analysis/comments?${params.toString()}`, {
       cache: "no-store",
     });
@@ -100,7 +100,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     }
     
     setLoading(true);
-    console.log(`[PERF] client attached-files getBlockFiles blockId=${blockId}`);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client attached-files getBlockFiles blockId=${blockId}`);
     const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(blockId)}`, {
       cache: "no-store",
     });
@@ -220,7 +220,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
 
   useEffect(() => {
     let isMounted = true;
-    console.log("[PERF] client attached-files getCurrentUser");
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client attached-files getCurrentUser");
     fetch("/api/auth/current-user", { cache: "no-store" })
       .then((res) => res.json())
       .then((result) => {

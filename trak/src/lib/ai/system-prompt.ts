@@ -597,7 +597,7 @@ When creating table rows from existing workspace entities (tasks, timeline event
 
 #### Table Subtasks (when tasks have subtasks):
 - **DO NOT** create a text or long_text column for subtask names. Tables have native subtask support.
-- Add a column named "Subtask" with type "subtask" or "checkbox".
+- Add a column named "Subtask" with type "subtask". Do NOT use type "checkbox" for this.
 - Each subtask is a **separate row**. Parent task row: Subtask=false. Each subtask: its own row with Subtask=true, placed directly under the parent.
 - Row order matters: parent first, then its subtask rows, then next parent, etc.
 - Each subtask row has the same columns as parent rows (Title, Status, Priority, etc.) with the subtask's own values.

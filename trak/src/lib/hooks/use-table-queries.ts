@@ -580,9 +580,24 @@ export function useUpdateView(tableId: string, viewId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (updates: Partial<TableView>) => updateView(viewId, updates),
+    onMutate: async (updates) => {
+      await qc.cancelQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+      const previous = qc.getQueryData(queryKeys.tableBootstrap(tableId));
+      qc.setQueryData(queryKeys.tableBootstrap(tableId), (old: any) => {
+        if (!old?.view) return old;
+        return { ...old, view: { ...old.view, ...updates } };
+      });
+      return { previous };
+    },
+    onError: (_err, _updates, context: any) => {
+      if (context?.previous) {
+        qc.setQueryData(queryKeys.tableBootstrap(tableId), context.previous);
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
       qc.invalidateQueries({ queryKey: queryKeys.tableView(viewId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }

@@ -484,7 +484,7 @@ export async function duplicateTasksToBlock(input: {
   const { data: tasks, error: tasksError } = await supabase
     .from("task_items")
     .select(
-      "id, title, status, priorities, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
+      "id, title, statuses, priorities, description, due_date, due_time, due_time_end, start_date, hide_icons, recurring_enabled, recurring_frequency, recurring_interval, source_entity_type, source_entity_id"
     )
     .in("id", taskIds)
     .eq("workspace_id", block.workspace_id);

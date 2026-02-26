@@ -416,6 +416,15 @@ function FieldHeader({
         </div>
       </div>
 
+      {field.type === "subtask" && onHideField && (
+        <button
+          className="relative z-20 h-6 w-6 inline-flex items-center justify-center rounded-[4px] text-[var(--tertiary-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors duration-150 text-xs"
+          aria-label="Hide column"
+          onClick={() => onHideField(field.id)}
+        >
+          <EyeOff className="h-3.5 w-3.5" />
+        </button>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

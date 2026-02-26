@@ -142,7 +142,7 @@ export default function VideoBlock({ block, workspaceId, projectId, onUpdate }: 
     }
     
     setLoading(true);
-    console.log(`[PERF] client video-block getBlockFiles blockId=${block.id}`);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client video-block getBlockFiles blockId=${block.id}`);
     const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(block.id)}`, {
       cache: "no-store",
     });

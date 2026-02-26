@@ -712,7 +712,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const taskVirtualizer = useVirtualizer({
     count: orderedTasks.length,
     getScrollElement: () => taskListScrollRef.current,
-    estimateSize: () => 60, // estimated row height in px
+    estimateSize: () => 68, // estimated row height + spacing (px)
     overscan: 5, // render 5 extra rows above/below viewport
     getItemKey: (index) => String(orderedTasks[index]?.id ?? index),
   });
@@ -2570,7 +2570,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const hasAnyExpanded = taskSections.comments || taskSections.references;
               const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
               const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-              const showSubtasksPanel = hasSubtasks || taskSections.subtasks;
+              const showSubtasksPanel = Boolean(taskSections.subtasks);
               const statusIsDerived = hasSubtasks;
               const taskEntityId = typeof task.id === "string" ? task.id : null;
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
@@ -2596,6 +2596,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                   key={virtualRow.key}
                   data-index={virtualRow.index}
                   ref={taskVirtualizer.measureElement}
+                  className="pb-2"
                   style={{
                     position: 'absolute',
                     top: 0,

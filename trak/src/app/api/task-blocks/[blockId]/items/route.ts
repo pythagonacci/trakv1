@@ -91,7 +91,7 @@ export async function GET(
       return NextResponse.json({ error: "Not a member of this workspace" }, { status: 403 });
     }
 
-    console.log(`[PERF] route getTaskItemsByBlock auth ms=${Math.round(performance.now() - tAuth0)} taskBlockId=${blockId}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock auth ms=${Math.round(performance.now() - tAuth0)} taskBlockId=${blockId}`);
 
     const tItems = performance.now();
     const { data: items, error: itemsError } = await supabase
@@ -105,11 +105,11 @@ export async function GET(
     }
 
     if (!items || items.length === 0) {
-      console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} items=0 totalMs=${Math.round(performance.now() - t0)}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} items=0 totalMs=${Math.round(performance.now() - t0)}`);
       return NextResponse.json({ data: { tasks: [], entityPropertiesByTaskId: {} } satisfies TaskBlockBundle });
     }
 
-    console.log(`[PERF] route getTaskItemsByBlock items query ms=${Math.round(performance.now() - tItems)} count=${items.length}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock items query ms=${Math.round(performance.now() - tItems)} count=${items.length}`);
 
     const taskIds = items.map((item: any) => item.id);
 
@@ -140,9 +140,11 @@ export async function GET(
         .in("entity_id", taskIds),
     ]);
 
-    console.log(
-      `[PERF] route getTaskItemsByBlock parallel ms=${Math.round(performance.now() - tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}`
-    );
+    if (process.env.PERF_DEBUG === "1") {
+      console.log(
+        `[PERF] route getTaskItemsByBlock parallel ms=${Math.round(performance.now() - tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}`
+      );
+    }
 
     const subtasks = subtasksResult.data || [];
     const comments = commentsResult.data || [];
@@ -271,7 +273,7 @@ export async function GET(
     });
 
     const payloadBytes = Buffer.byteLength(JSON.stringify({ tasks: taskViews, entityPropertiesByTaskId }), "utf8");
-    console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}`);
 
     return NextResponse.json({ data: { tasks: taskViews, entityPropertiesByTaskId } satisfies TaskBlockBundle });
   } catch (error) {

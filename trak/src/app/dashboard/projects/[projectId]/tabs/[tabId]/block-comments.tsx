@@ -37,7 +37,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
     const loadUserAndComments = async () => {
       try {
         // Load current user
-        console.log("[PERF] client block-comments getCurrentUser");
+        if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client block-comments getCurrentUser");
         const response = await fetch("/api/auth/current-user", { cache: "no-store" });
         const userResult = await response.json();
         if (response.ok && userResult?.data) {
@@ -68,7 +68,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
     let user = currentUser;
     if (!user) {
       try {
-        console.log("[PERF] client block-comments getCurrentUser");
+        if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client block-comments getCurrentUser");
         const response = await fetch("/api/auth/current-user", { cache: "no-store" });
         const userResult = await response.json();
         if (response.ok && userResult?.data) {

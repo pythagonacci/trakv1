@@ -13,12 +13,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing tableId" }, { status: 400 });
   }
 
-  console.log(`[PERF] route getTableBootstrap tableId=${tableId}`);
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTableBootstrap tableId=${tableId}`);
 
   const supabaseClient = await createClient();
   const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
   if (userError || !user) {
-    console.log(`[PERF] route getTableBootstrap unauthorized tableId=${tableId} userError=${userError?.message ?? "none"}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTableBootstrap unauthorized tableId=${tableId} userError=${userError?.message ?? "none"}`);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Not a member of this workspace" }, { status: 403 });
       }
 
-      console.log(`[PERF] route getTableBootstrap fallback service role tableId=${tableId} userId=${user.id}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTableBootstrap fallback service role tableId=${tableId} userId=${user.id}`);
       supabase = service;
       authTable = table;
     } else {

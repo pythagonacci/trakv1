@@ -59,7 +59,7 @@ export const getCurrentWorkspaceId = cache(async (): Promise<string | null> => {
   // Check if running in test context first (only in test/dev environments)
   const isTestEnvironment = process.env.NODE_ENV === "test";
   if (testWorkspaceContext && isTestEnvironment) {
-    console.log(`[PERF] getCurrentWorkspaceId fromTest=1 ms=${Math.round(performance.now() - _t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getCurrentWorkspaceId fromTest=1 ms=${Math.round(performance.now() - _t0)}`);
     return testWorkspaceContext.workspaceId;
   }
 
@@ -67,11 +67,11 @@ export const getCurrentWorkspaceId = cache(async (): Promise<string | null> => {
   try {
     const cookieStore = await cookies();
     const value = cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value || null;
-    console.log(`[PERF] getCurrentWorkspaceId hasValue=${Boolean(value)} ms=${Math.round(performance.now() - _t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getCurrentWorkspaceId hasValue=${Boolean(value)} ms=${Math.round(performance.now() - _t0)}`);
     return value;
   } catch (error) {
     // If cookies() fails (not in request context), return null
-    console.log(`[PERF] getCurrentWorkspaceId error ms=${Math.round(performance.now() - _t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getCurrentWorkspaceId error ms=${Math.round(performance.now() - _t0)}`);
     return null;
   }
 });

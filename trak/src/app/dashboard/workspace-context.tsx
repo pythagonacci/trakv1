@@ -35,7 +35,7 @@ export function WorkspaceProvider({
   // Set current workspace from cookie when workspaces load
   useEffect(() => {
     if (workspaces.length > 0 && !currentWorkspace) {
-      console.log("[PERF] client getCurrentWorkspaceId via route");
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client getCurrentWorkspaceId via route");
       fetch("/api/workspaces/current", { cache: "no-store" })
         .then((response) => response.json())
         .then((json) => {

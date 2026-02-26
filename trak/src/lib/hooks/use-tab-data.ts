@@ -25,7 +25,7 @@ export function useTabBlocks(tabId: string, initialBlocks?: Block[]) {
   return useQuery({
     queryKey: queryKeys.tabBlocks(tabId),
     queryFn: async () => {
-      console.log(`[PERF] client getTabBlocks via route tabId=${tabId}`);
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client getTabBlocks via route tabId=${tabId}`);
       const response = await fetch(`/api/blocks/tab?tabId=${encodeURIComponent(tabId)}`, {
         cache: "no-store",
       });
@@ -95,7 +95,7 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
       if (fileIds.length === 0) {
         return {};
       }
-      console.log(`[PERF] client useBatchFileUrls ids=${fileIds.length}`);
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client useBatchFileUrls ids=${fileIds.length}`);
       const params = new URLSearchParams({ ids: fileIds.join(",") });
       const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
         cache: "no-store",

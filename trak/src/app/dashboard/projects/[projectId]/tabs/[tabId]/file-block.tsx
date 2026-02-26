@@ -342,7 +342,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
     const params = new URLSearchParams({ fileIds: uniqueIds.join(",") });
-    console.log(`[PERF] client file-block getFileAnalysisComments ids=${uniqueIds.length}`);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getFileAnalysisComments ids=${uniqueIds.length}`);
     const response = await fetch(`/api/file-analysis/comments?${params.toString()}`, {
       cache: "no-store",
     });
@@ -369,7 +369,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
 
   useEffect(() => {
     let isMounted = true;
-    console.log("[PERF] client file-block getCurrentUser");
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client file-block getCurrentUser");
     fetch("/api/auth/current-user", { cache: "no-store" })
       .then((res) => res.json())
       .then((result) => {
@@ -421,7 +421,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
       return next;
     });
 
-    console.log(`[PERF] client file-block getBatchFileUrls ids=${missingIds.length}`);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getBatchFileUrls ids=${missingIds.length}`);
     const params = new URLSearchParams({ ids: missingIds.join(",") });
     const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
       cache: "no-store",
@@ -452,7 +452,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     }
     
     setLoading(true);
-    console.log(`[PERF] client file-block getBlockFiles blockId=${block.id}`);
+    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getBlockFiles blockId=${block.id}`);
     const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(block.id)}`, {
       cache: "no-store",
     });
