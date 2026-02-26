@@ -2570,7 +2570,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const hasAnyExpanded = taskSections.comments || taskSections.references;
               const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
               const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-              const showSubtasksPanel = Boolean(taskSections.subtasks);
+              const showSubtasksPanel = hasSubtasks;
               const statusIsDerived = hasSubtasks;
               const taskEntityId = typeof task.id === "string" ? task.id : null;
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
@@ -3345,6 +3345,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           const effectiveAssigneeIds = getEffectiveAssigneeIds(taskId, task);
                           const effectiveDueDate = getEffectiveDueDate(taskId, task);
                           const effectiveTags = getEffectiveTags(taskId, task);
+                          const statusIsDerived = task.subtasks && task.subtasks.length > 0;
                           const assigneeNames = effectiveAssigneeIds
                             .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
                             .filter(Boolean) as string[];
@@ -3521,8 +3522,6 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                 )}
                               </div>
                             ) : null;
-
-                          const statusIsDerived = task.subtasks && task.subtasks.length > 0;
 
                           const menu = (
                             <DropdownMenu>
