@@ -1,29 +1,59 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Block } from "@/app/actions/block";
 import type { ChartBlockContent, SpecChartBlockContent } from "@/types/chart";
-import { isSpecChart } from "@/types/chart";
+import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { cn } from "@/lib/utils";
-import { updateChartBlock } from "@/app/actions/chart-actions";
+import { updateChartBlock, refreshChartBlock, saveChartAsSnapshot, setChartDataScope } from "@/app/actions/chart-actions";
 import { TrakChart } from "@/components/blocks/chart/TrakChart";
 import { ChartConfigPanel } from "@/components/blocks/chart/ChartConfigPanel";
 import { buildChartData } from "@/lib/charts/transform";
 import { applySpecFallbacks, type ChartSpec } from "@/lib/charts/chartSpec";
+import { queryKeys } from "@/lib/react-query/query-client";
+import type { ChartRow } from "@/lib/charts/chartSpec";
 
 interface ChartBlockProps {
   block: Block;
   className?: string;
 }
 
+/** Pick display label for a chart row (tracked-items list) */
+function rowLabel(row: ChartRow): string {
+  // Prefer common title/name fields
+  const titleCandidates = ["Task Title", "Title", "title", "Name", "name"] as const;
+  for (const key of titleCandidates) {
+    const v = row[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+
+  // Fallback: first non-metadata string field
+  for (const [key, value] of Object.entries(row)) {
+    if (key === "id" || key === "status" || key === "priority" || key === "assignee" || key === "tags") continue;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  // Final fallback: generic label (avoid exposing raw UUIDs)
+  return "Item";
+}
+
+const TRACKED_ITEMS_VISIBLE = 8;
+
 function SpecChartBlock({ block, className }: ChartBlockProps) {
   const rawContent = (block.content || {}) as SpecChartBlockContent;
+  const queryClient = useQueryClient();
   const [localSpec, setLocalSpec] = useState<ChartSpec>(() =>
     applySpecFallbacks(rawContent.spec)
   );
   const [showConfig, setShowConfig] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
+  const [isSettingScope, setIsSettingScope] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [trackedListExpanded, setTrackedListExpanded] = useState(false);
 
   useEffect(() => {
     setLocalSpec(applySpecFallbacks(rawContent.spec));
@@ -81,9 +111,60 @@ function SpecChartBlock({ block, className }: ChartBlockProps) {
     [block.id, rawContent]
   );
 
+  const invalidateBlock = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(block.tab_id) });
+  }, [block.tab_id, queryClient]);
+
+  const handleRefresh = useCallback(async () => {
+    setActionError(null);
+    setIsRefreshing(true);
+    const result = await refreshChartBlock(block.id);
+    setIsRefreshing(false);
+    if ("error" in result) {
+      setActionError(result.error);
+    } else {
+      invalidateBlock();
+    }
+  }, [block.id, invalidateBlock]);
+
+  const handleSaveAsSnapshot = useCallback(async () => {
+    setActionError(null);
+    setIsSavingSnapshot(true);
+    const result = await saveChartAsSnapshot(block.id);
+    setIsSavingSnapshot(false);
+    if ("error" in result) {
+      setActionError(result.error);
+    } else {
+      invalidateBlock();
+    }
+  }, [block.id, invalidateBlock]);
+
+  const handleSetScope = useCallback(
+    async (scope: "fixed" | "query") => {
+      if (rawContent.dataSource && (rawContent.dataSource as { scope?: string }).scope === scope) return;
+      setActionError(null);
+      setIsSettingScope(true);
+      const result = await setChartDataScope(block.id, scope);
+      setIsSettingScope(false);
+      if ("error" in result) {
+        setActionError(result.error);
+      } else {
+        invalidateBlock();
+      }
+    },
+    [block.id, rawContent.dataSource, invalidateBlock]
+  );
+
   const isSimulation = Boolean(rawContent.metadata?.isSimulation);
   const title = localSpec.title ?? rawContent.title;
   const normWarn = chartData?.meta.normalizationWarning;
+  const showTrackingUi = rawContent.dataSource && isRefreshableDataSource(rawContent.dataSource);
+  const scope = showTrackingUi && rawContent.dataSource && "scope" in rawContent.dataSource ? rawContent.dataSource.scope : null;
+  const rows = rawContent.rows ?? [];
+  const trackedCount = scope === "fixed" ? (rawContent.dataSource && "entityIds" in rawContent.dataSource ? rawContent.dataSource.entityIds.length : rows.length) : 0;
+  const showTrackedList = scope === "fixed" && rows.length > 0;
+  const trackedVisible = trackedListExpanded ? rows : rows.slice(0, TRACKED_ITEMS_VISIBLE);
+  const trackedMore = rows.length - TRACKED_ITEMS_VISIBLE;
 
   return (
     <div
@@ -118,6 +199,26 @@ function SpecChartBlock({ block, className }: ChartBlockProps) {
               Simulation
             </span>
           )}
+          {showTrackingUi && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleRefresh()}
+                disabled={isRefreshing}
+                className="rounded px-2 py-1 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                {isRefreshing ? "Refreshing…" : "Refresh"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveAsSnapshot()}
+                disabled={isSavingSnapshot}
+                className="rounded px-2 py-1 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                {isSavingSnapshot ? "Saving…" : "Save as snapshot"}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => setShowConfig((v) => !v)}
@@ -142,6 +243,63 @@ function SpecChartBlock({ block, className }: ChartBlockProps) {
           </button>
         </div>
       </div>
+
+      {showTrackingUi && (
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-[var(--muted-foreground)]">Scope:</span>
+            <label className="flex items-center gap-1.5 text-xs">
+              <input
+                type="radio"
+                name={`chart-scope-${block.id}`}
+                checked={scope === "fixed"}
+                onChange={() => handleSetScope("fixed")}
+                disabled={isSettingScope}
+                className="rounded-full border-[var(--border)] text-[var(--primary)]"
+              />
+              Track only these items
+            </label>
+            <label className="flex items-center gap-1.5 text-xs">
+              <input
+                type="radio"
+                name={`chart-scope-${block.id}`}
+                checked={scope === "query"}
+                onChange={() => handleSetScope("query")}
+                disabled={isSettingScope}
+                className="rounded-full border-[var(--border)] text-[var(--primary)]"
+              />
+              Track future items that meet these requirements
+            </label>
+          </div>
+          {showTrackedList && (
+            <div className="rounded border border-[var(--border)] bg-[var(--surface)] p-2">
+              <h4 className="mb-1.5 text-xs font-medium text-[var(--muted-foreground)]">
+                Tracking {trackedCount} items
+              </h4>
+              <ul className="max-h-40 list-none space-y-0.5 overflow-y-auto text-xs text-[var(--foreground)]">
+                {trackedVisible.map((row) => (
+                  <li key={row.id} className="truncate">
+                    {rowLabel(row)}
+                  </li>
+                ))}
+              </ul>
+              {trackedMore > 0 && !trackedListExpanded && (
+                <button
+                  type="button"
+                  onClick={() => setTrackedListExpanded(true)}
+                  className="mt-1 text-xs text-[var(--muted-foreground)] hover:underline"
+                >
+                  and {trackedMore} more
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {actionError && (
+        <p className="mb-1 text-xs text-[var(--error)]">{actionError}</p>
+      )}
 
       {showConfig && (
         <div className="mb-3">

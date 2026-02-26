@@ -2,6 +2,56 @@ import type { ChartRow, ChartSpec } from "@/lib/charts/chartSpec";
 
 export type ChartType = "bar" | "line" | "pie" | "doughnut";
 
+// ─── Chart data source (refresh + scope) ───────────────────────────────────
+
+/**
+ * Serializable query params for re-running search on refresh.
+ * Shapes match the corresponding search API (searchTasks, searchTimelineEvents, searchTableRows).
+ */
+export type ChartDataQuery =
+  | { type: "tasks"; params: Record<string, unknown> }
+  | { type: "timeline_events"; params: Record<string, unknown> }
+  | { type: "table_rows"; params: Record<string, unknown> };
+
+/**
+ * Refreshable query scope: chart is driven by the stored query; refresh re-runs it.
+ */
+export interface ChartDataSourceRefreshableQuery {
+  mode: "refreshable";
+  scope: "query";
+  query: ChartDataQuery;
+  previousQuery?: ChartDataQuery;
+}
+
+/**
+ * Refreshable fixed scope: chart is tied to the listed entities; refresh re-fetches by ID only.
+ */
+export interface ChartDataSourceRefreshableFixed {
+  mode: "refreshable";
+  scope: "fixed";
+  entityType: "task" | "timeline_event" | "table_row";
+  entityIds: string[];
+  previousQuery?: ChartDataQuery;
+}
+
+/**
+ * Snapshot: no refresh, no scope selector. Use for saved/locked charts.
+ */
+export interface ChartDataSourceSnapshot {
+  mode: "snapshot";
+}
+
+export type ChartDataSource =
+  | ChartDataSourceRefreshableQuery
+  | ChartDataSourceRefreshableFixed
+  | ChartDataSourceSnapshot;
+
+export function isRefreshableDataSource(
+  ds: ChartDataSource | undefined
+): ds is ChartDataSourceRefreshableQuery | ChartDataSourceRefreshableFixed {
+  return ds !== undefined && ds.mode === "refreshable";
+}
+
 export interface ChartSimulationMetadata {
   isSimulation?: boolean;
   originalChartId?: string | null;
@@ -54,6 +104,11 @@ export interface SpecChartBlockContent {
   chartType: ChartType;
   title?: string | null;
   metadata?: ChartMetadata;
+  /**
+   * When set (and mode === "refreshable"), the chart can be refreshed and scope can be switched.
+   * When missing or mode === "snapshot", the chart is static (current rows only).
+   */
+  dataSource?: ChartDataSource;
 }
 
 /** Union — ChartBlock handles both shapes transparently */

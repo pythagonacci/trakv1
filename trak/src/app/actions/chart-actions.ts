@@ -13,7 +13,11 @@ import { searchAll, searchBlocks, searchTables } from "@/app/actions/ai-search";
 import { detectFileKind } from "@/lib/file-analysis/extractor";
 import { getSessionFiles, getTabAttachedFiles } from "@/lib/file-analysis/context";
 import { ensureFileArtifact, type FileRecord } from "@/lib/file-analysis/service";
-import type { ChartBlockContent, ChartType } from "@/types/chart";
+import type { ChartBlockContent, ChartType, ChartDataSource, ChartDataQuery, SpecChartBlockContent } from "@/types/chart";
+import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
+import { normalizeToChartRows } from "@/lib/charts/normalizeToChartRows";
+import type { ChartRow } from "@/lib/charts/chartSpec";
+import { searchTasks, searchTimelineEvents, searchTableRows } from "@/app/actions/ai-search";
 import type { TableField } from "@/types/table";
 
 export type ChartActionResult<T> = { data: T } | { error: string };
@@ -796,6 +800,8 @@ export async function createSpecChartBlock(params: {
   isSimulation?: boolean;
   originalChartId?: string | null;
   simulationDescription?: string | null;
+  /** When provided (refreshable query or fixed), chart can be refreshed and scope switched. Omit for snapshot-only. */
+  dataSource?: ChartDataSource;
   authContext?: AuthContext;
 }): Promise<ChartActionResult<{ blockId: string }>> {
   try {
@@ -821,9 +827,9 @@ export async function createSpecChartBlock(params: {
 
     const safeSpec = applySpecFallbacks(parsedSpec);
 
-    const chartContent = {
+    const chartContent: SpecChartBlockContent = {
       spec: safeSpec,
-      rows: params.rows,
+      rows: params.rows as ChartRow[],
       universeTotal: params.universeTotal,
       chartType: safeSpec.chartType,
       title: params.title ?? safeSpec.title ?? undefined,
@@ -834,6 +840,9 @@ export async function createSpecChartBlock(params: {
         description: params.simulationDescription ?? undefined,
       },
     };
+    if (params.dataSource && isRefreshableDataSource(params.dataSource)) {
+      chartContent.dataSource = params.dataSource;
+    }
 
     const blockResult = await createBlock({
       tabId: params.tabId,
@@ -849,5 +858,235 @@ export async function createSpecChartBlock(params: {
     return { data: { blockId: blockResult.data.id } };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to create spec chart" };
+  }
+}
+
+// ─── Chart tracking: refresh, snapshot, scope ─────────────────────────────────
+
+async function getSpecChartBlockWithAuth(blockId: string, authContext: AuthContext): Promise<
+  | { error: string }
+  | { block: { id: string; tab_id: string; type: string; content: unknown }; workspaceId: string }
+> {
+  const supabase = authContext.supabase;
+  const userId = authContext.userId;
+
+  const { data: block, error: blockError } = await supabase
+    .from("blocks")
+    .select("id, tab_id, type, content")
+    .eq("id", blockId)
+    .single();
+
+  if (blockError || !block) return { error: "Block not found" };
+  if (block.type !== "chart") return { error: "Block is not a chart" };
+
+  const content = block.content as ChartBlockContent | null;
+  if (!content || !isSpecChart(content)) return { error: "Chart block has no spec content" };
+
+  const tabMeta = await getTabMetadata(block.tab_id);
+  if (!tabMeta) return { error: "Tab not found" };
+  const workspaceId = (tabMeta.projects as { workspace_id?: string })?.workspace_id;
+  if (!workspaceId) return { error: "Workspace not found" };
+
+  const membership = await checkWorkspaceMembership(workspaceId, userId);
+  if (!membership) return { error: "Not a member of this workspace" };
+
+  return { block, workspaceId };
+}
+
+function queryTypeToEntityType(
+  type: ChartDataQuery["type"]
+): "task" | "timeline_event" | "table_row" {
+  if (type === "tasks") return "task";
+  if (type === "timeline_events") return "timeline_event";
+  return "table_row";
+}
+
+export async function refreshChartBlock(
+  blockId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<ChartActionResult<{ blockId: string }>> {
+  try {
+    const authContext = opts?.authContext ?? (await getAuthContext());
+    if ("error" in authContext) return { error: authContext.error };
+
+    const got = await getSpecChartBlockWithAuth(blockId, authContext);
+    if ("error" in got) return { error: got.error };
+
+    const { block, workspaceId } = got;
+    const content = block.content as SpecChartBlockContent;
+    const dataSource = content.dataSource;
+
+    if (!dataSource || dataSource.mode !== "refreshable") {
+      return { error: "Chart is not refreshable" };
+    }
+
+    const safeSpec = (await import("@/lib/charts/chartSpec")).applySpecFallbacks(content.spec);
+    const needsUniverseTotal = safeSpec.normalizeTo === "universe";
+    const limit = 500;
+
+    let newRows: ChartRow[] = [];
+    let universeTotal: number | undefined = content.universeTotal;
+
+    if (dataSource.scope === "query" && "query" in dataSource) {
+      const q = dataSource.query;
+      const params = { ...(q.params as Record<string, unknown>), limit, authContext };
+
+      if (q.type === "tasks") {
+        const res = await searchTasks(params as Parameters<typeof searchTasks>[0]);
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("tasks", res.data ?? []);
+        if (needsUniverseTotal) {
+          const countRes = await searchTasks({
+            ...(q.params as Record<string, unknown>),
+            limit: 5000,
+            authContext,
+          } as Parameters<typeof searchTasks>[0]);
+          universeTotal = countRes.data?.length ?? newRows.length;
+        }
+      } else if (q.type === "timeline_events") {
+        const res = await searchTimelineEvents(params as Parameters<typeof searchTimelineEvents>[0]);
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("timeline_events", res.data ?? []);
+        if (needsUniverseTotal) {
+          const countRes = await searchTimelineEvents({
+            ...(q.params as Record<string, unknown>),
+            limit: 5000,
+            authContext,
+          } as Parameters<typeof searchTimelineEvents>[0]);
+          universeTotal = countRes.data?.length ?? newRows.length;
+        }
+      } else {
+        const res = await searchTableRows(params as Parameters<typeof searchTableRows>[0]);
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("table_rows", res.data ?? []);
+        if (needsUniverseTotal) {
+          const countRes = await searchTableRows({
+            ...(q.params as Record<string, unknown>),
+            limit: 5000,
+            authContext,
+          } as Parameters<typeof searchTableRows>[0]);
+          universeTotal = countRes.data?.length ?? newRows.length;
+        }
+      }
+    } else if (dataSource.scope === "fixed" && "entityIds" in dataSource) {
+      const { entityType, entityIds } = dataSource;
+      const idLimit = Math.max(entityIds.length, limit);
+
+      if (entityType === "task") {
+        const res = await searchTasks({ taskIds: entityIds, limit: idLimit, authContext });
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("tasks", res.data ?? []);
+      } else if (entityType === "timeline_event") {
+        const res = await searchTimelineEvents({ eventIds: entityIds, limit: idLimit, authContext });
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("timeline_events", res.data ?? []);
+      } else {
+        const res = await searchTableRows({ rowIds: entityIds, limit: idLimit, authContext });
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("table_rows", res.data ?? []);
+      }
+      // Fixed scope: keep existing universeTotal; do not recompute
+    }
+
+    const updatedContent: SpecChartBlockContent = {
+      ...content,
+      rows: newRows as SpecChartBlockContent["rows"],
+      universeTotal,
+    };
+
+    const result = await updateBlock({
+      blockId,
+      content: updatedContent as any,
+    });
+    if ("error" in result) return { error: result.error ?? "Failed to update chart" };
+    return { data: { blockId } };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to refresh chart" };
+  }
+}
+
+export async function saveChartAsSnapshot(
+  blockId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<ChartActionResult<{ blockId: string }>> {
+  try {
+    const authContext = opts?.authContext ?? (await getAuthContext());
+    if ("error" in authContext) return { error: authContext.error };
+
+    const got = await getSpecChartBlockWithAuth(blockId, authContext);
+    if ("error" in got) return { error: got.error };
+
+    const content = got.block.content as SpecChartBlockContent;
+    const updatedContent: SpecChartBlockContent = {
+      ...content,
+      dataSource: undefined,
+    };
+
+    const result = await updateBlock({
+      blockId,
+      content: updatedContent as any,
+    });
+    if ("error" in result) return { error: result.error ?? "Failed to update chart" };
+    return { data: { blockId } };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to save chart as snapshot" };
+  }
+}
+
+export async function setChartDataScope(
+  blockId: string,
+  scope: "fixed" | "query",
+  opts?: { authContext?: AuthContext }
+): Promise<ChartActionResult<{ blockId: string }>> {
+  try {
+    const authContext = opts?.authContext ?? (await getAuthContext());
+    if ("error" in authContext) return { error: authContext.error };
+
+    const got = await getSpecChartBlockWithAuth(blockId, authContext);
+    if ("error" in got) return { error: got.error };
+
+    const content = got.block.content as SpecChartBlockContent;
+    const dataSource = content.dataSource;
+
+    if (!dataSource || dataSource.mode !== "refreshable") {
+      return { error: "Chart is not refreshable" };
+    }
+
+    let newDataSource: ChartDataSource;
+
+    if (scope === "fixed") {
+      const query = dataSource.scope === "query" ? dataSource.query : dataSource.previousQuery;
+      if (!query) return { error: "No query stored; cannot switch to fixed scope" };
+      const entityIds = content.rows.map((r) => r.id);
+      newDataSource = {
+        mode: "refreshable",
+        scope: "fixed",
+        entityType: queryTypeToEntityType(query.type),
+        entityIds,
+        previousQuery: dataSource.scope === "query" ? dataSource.query : dataSource.previousQuery,
+      };
+    } else {
+      const query = dataSource.scope === "fixed" ? dataSource.previousQuery : (dataSource as any).query;
+      if (!query) return { error: "No query stored; cannot switch to query scope" };
+      newDataSource = {
+        mode: "refreshable",
+        scope: "query",
+        query,
+      };
+    }
+
+    const updatedContent: SpecChartBlockContent = {
+      ...content,
+      dataSource: newDataSource,
+    };
+
+    const result = await updateBlock({
+      blockId,
+      content: updatedContent as any,
+    });
+    if ("error" in result) return { error: result.error ?? "Failed to update chart" };
+    return { data: { blockId } };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to set chart scope" };
   }
 }

@@ -198,11 +198,11 @@ How many tasks? 3+ tasks
 \`\`\`
 What is the user asking for?
 
-Priority field (Critical/High/Medium/Low)?
+Priority field (Low/Medium/High/Urgent)?
   └─> createField with type: "priority"
       ⚠️  NOT type: "select" named "Priority"
 
-Status field (Not Started/In Progress/Complete)?
+Status field (Todo/In Progress/Done/Blocked)?
   └─> createField with type: "status"
       ⚠️  NOT type: "select" named "Status"
 
@@ -661,7 +661,7 @@ bulkUpdateRows({
 **CRITICAL: When creating fields, use the correct field type - do NOT use 'select' and name it 'Priority' or 'Status'!**
 
 **Correct field types:**
-- Use \`type: "priority"\` for priority fields (has built-in levels: Critical/High/Medium/Low)
+- Use \`type: "priority"\` for priority fields (has built-in levels: Low/Medium/High/Urgent)
 - Use \`type: "status"\` for status fields (has built-in status options)
 - Use \`type: "select"\` only for custom dropdowns that are NOT priority or status
 
@@ -826,6 +826,7 @@ When a user requests a chart/graph/visualization over Trak entities, use createS
    - Custom field names from table fields are also fine.
 3. Build a ChartSpec v1 object (see createSpecChartBlock tool description for full schema).
 4. Call createSpecChartBlock with spec, rows, and optionally universeTotal.
+5. **When the chart is built from a single search** (searchTasks, searchTimelineEvents, or searchTableRows), include **dataSource** with the same query you used: dataSource: { mode: "refreshable", scope: "query", query: { type: "tasks" | "timeline_events" | "table_rows", params: { ...same params as the search call } } }. This makes the chart refreshable and lets the user choose “Track only these items” or “Track future items that meet these requirements” in the UI. Omit dataSource for mixed or inline data (snapshot-only chart).
 
 ### Chart type selection
 - pie / doughnut: categorical breakdown, 8 or fewer categories, shows proportions
@@ -858,7 +859,7 @@ Universe-normalised doughnut — Figma files out of all files:
   universeTotal: 10
 
 ### Fallback
-Use createSpecChartBlock for all chart/visualization requests. Pre-fetch data via search tools, then pass spec + rows.
+Use createSpecChartBlock for all chart/visualization requests. Pre-fetch data via search tools, then pass spec + rows. When data comes from one search call, pass dataSource so the chart is refreshable by default.
 
 ## Response Format
 
