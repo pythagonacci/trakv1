@@ -245,7 +245,7 @@ export function useConfigureRelationField(tableId: string) {
 // Rows
 // ---------------------------------------------------------------------------
 
-export function useCreateRow(tableId: string, viewId?: string | null) {
+export function useCreateRow(tableId: string, _viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data?: Record<string, unknown> | { data?: Record<string, unknown>; order?: number | string | null }) => {
@@ -256,19 +256,33 @@ export function useCreateRow(tableId: string, viewId?: string | null) {
       return createRow({ tableId, data: data as Record<string, unknown> | undefined });
     },
     onSuccess: (res) => {
-      // Optimistically append the new row to the cached dataset if present
+      // Append the new row to all cached datasets for this table
       if ("data" in res && res.data) {
-        const key = queryKeys.tableRows(tableId, viewId);
-        const existing = qc.getQueryData<{ rows: TableRow[]; view?: any }>(key);
-        if (existing) {
-          qc.setQueryData(key, { ...existing, rows: [...existing.rows, res.data] });
-        }
+        const newRow = res.data as TableRow;
+        qc.setQueriesData(
+          { queryKey: ["tableRows", tableId] },
+          (old: unknown) => {
+            if (!old || typeof old !== "object") return old;
+            if ("pages" in (old as Record<string, unknown>)) {
+              const inf = old as { pages: Array<{ rows: TableRow[]; [k: string]: unknown }>; pageParams: unknown[] };
+              // Append to last page
+              const pages = inf.pages.map((page, i) =>
+                i === inf.pages.length - 1
+                  ? { ...page, rows: [...(page.rows ?? []), newRow] }
+                  : page
+              );
+              return { ...inf, pages };
+            }
+            if ("rows" in (old as Record<string, unknown>)) {
+              const reg = old as { rows: TableRow[]; [k: string]: unknown };
+              return { ...reg, rows: [...(reg.rows ?? []), newRow] };
+            }
+            return old;
+          }
+        );
       }
       // Invalidate all tableRows queries for this table to ensure fresh data
-      qc.invalidateQueries({
-        queryKey: ['tableRows', tableId],
-        refetchType: 'active' // Only refetch active queries
-      });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId], refetchType: "active" });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
@@ -282,6 +296,56 @@ export function useUpdateRow(tableId: string, viewId?: string | null) {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Cache shape helpers
+// The perf refactor (commit 42c526d) switched table-view to useInfiniteTableRows,
+// which stores data as { pages: [...], pageParams: [...] } under the same query key
+// that useUpdateCell/useDeleteRow etc. previously assumed was { rows: [...] }.
+// These helpers handle both shapes so optimistic updates work correctly.
+// ---------------------------------------------------------------------------
+
+function patchRowInCache(
+  data: unknown,
+  rowId: string,
+  patch: (row: TableRow) => TableRow
+): unknown {
+  if (!data || typeof data !== "object") return data;
+  if ("pages" in (data as Record<string, unknown>)) {
+    const inf = data as { pages: Array<{ rows: TableRow[]; [k: string]: unknown }>; pageParams: unknown[] };
+    return {
+      ...inf,
+      pages: inf.pages.map((page) => ({
+        ...page,
+        rows: (page.rows ?? []).map((row) => (row.id === rowId ? patch(row) : row)),
+      })),
+    };
+  }
+  if ("rows" in (data as Record<string, unknown>)) {
+    const reg = data as { rows: TableRow[]; [k: string]: unknown };
+    return { ...reg, rows: (reg.rows ?? []).map((row) => (row.id === rowId ? patch(row) : row)) };
+  }
+  return data;
+}
+
+function filterRowsInCache(data: unknown, predicate: (row: TableRow) => boolean): unknown {
+  if (!data || typeof data !== "object") return data;
+  if ("pages" in (data as Record<string, unknown>)) {
+    const inf = data as { pages: Array<{ rows: TableRow[]; [k: string]: unknown }>; pageParams: unknown[] };
+    return {
+      ...inf,
+      pages: inf.pages.map((page) => ({
+        ...page,
+        rows: (page.rows ?? []).filter(predicate),
+      })),
+    };
+  }
+  if ("rows" in (data as Record<string, unknown>)) {
+    const reg = data as { rows: TableRow[]; [k: string]: unknown };
+    return { ...reg, rows: (reg.rows ?? []).filter(predicate) };
+  }
+  return data;
 }
 
 export function useUpdateCell(tableId: string, viewId?: string | null) {
@@ -298,57 +362,43 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
       return result;
     },
     onMutate: async (args) => {
-      // Cancel outgoing refetches
-      await qc.cancelQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
+      // Use broad prefix key — the exact viewId key used by useInfiniteTableRows diverges
+      // from effectiveViewId after bootstrap loads (infinite uses undefined→'default', but
+      // effectiveViewId resolves to the actual view UUID). Broad prefix catches both.
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
 
-      // Snapshot previous value
-      const previous = qc.getQueryData<{ rows: TableRow[]; view?: any }>(
-        queryKeys.tableRows(tableId, viewId)
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: unknown) =>
+          patchRowInCache(old, args.rowId, (row) => ({
+            ...row,
+            data: { ...row.data, [args.fieldId]: args.value },
+          }))
       );
-
-      // Optimistically update
-      if (previous) {
-        qc.setQueryData(queryKeys.tableRows(tableId, viewId), {
-          ...previous,
-          rows: previous.rows.map((row) =>
-            row.id === args.rowId
-              ? { ...row, data: { ...row.data, [args.fieldId]: args.value } }
-              : row
-          ),
-        });
-      }
 
       return { previous };
     },
     onError: (err, args, context) => {
       console.error("useUpdateCell onError:", err, args);
       // Rollback on error
-      if (context?.previous) {
-        qc.setQueryData(queryKeys.tableRows(tableId, viewId), context.previous);
-      }
+      (context?.previous ?? []).forEach(([key, data]) => {
+        if (data !== undefined) qc.setQueryData(key, data);
+      });
       // Re-throw so the component can handle it
       throw err;
     },
     onSuccess: (result) => {
       // Result is guaranteed to have data at this point (error would have thrown)
       if ("data" in result && result.data) {
-        // Update cache with server response
-        const key = queryKeys.tableRows(tableId, viewId);
-        const existing = qc.getQueryData<{ rows: TableRow[]; view?: any }>(key);
-        if (existing) {
-          qc.setQueryData(key, {
-            ...existing,
-            rows: existing.rows.map((row) =>
-              row.id === result.data.id ? result.data : row
-            ),
-          });
-        }
+        const updatedRow = result.data as TableRow;
+        qc.setQueriesData(
+          { queryKey: ["tableRows", tableId] },
+          (old: unknown) => patchRowInCache(old, updatedRow.id, () => updatedRow)
+        );
       }
-      // Invalidate to ensure consistency — scoped to current table only
-      qc.invalidateQueries({
-        queryKey: queryKeys.tableRows(tableId, viewId),
-        refetchType: 'active'
-      });
+      // Invalidate to ensure consistency
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId], refetchType: "active" });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
@@ -360,13 +410,10 @@ export function useDeleteRow(tableId: string, viewId?: string | null) {
     mutationFn: (rowId: string) => deleteRow(rowId),
     onMutate: async (rowId) => {
       await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
-      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
       qc.setQueriesData(
         { queryKey: ["tableRows", tableId] },
-        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
-          if (!old) return old;
-          return { ...old, rows: old.rows.filter((r) => r.id !== rowId) };
-        }
+        (old: unknown) => filterRowsInCache(old, (r) => r.id !== rowId)
       );
       return { previous };
     },
@@ -388,13 +435,10 @@ export function useDeleteRows(tableId: string, viewId?: string | null) {
     onMutate: async (rowIds) => {
       const ids = new Set(rowIds);
       await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
-      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
       qc.setQueriesData(
         { queryKey: ["tableRows", tableId] },
-        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
-          if (!old) return old;
-          return { ...old, rows: old.rows.filter((r) => !ids.has(r.id)) };
-        }
+        (old: unknown) => filterRowsInCache(old, (r) => !ids.has(r.id))
       );
       return { previous };
     },
@@ -646,13 +690,10 @@ export function useBulkDeleteRows(tableId: string) {
     onMutate: async (rowIds) => {
       const ids = new Set(rowIds);
       await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
-      const previous = qc.getQueriesData<{ rows: TableRow[]; view?: unknown }>({ queryKey: ["tableRows", tableId] });
+      const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
       qc.setQueriesData(
         { queryKey: ["tableRows", tableId] },
-        (old: { rows: TableRow[]; view?: unknown } | undefined) => {
-          if (!old) return old;
-          return { ...old, rows: old.rows.filter((r) => !ids.has(r.id)) };
-        }
+        (old: unknown) => filterRowsInCache(old, (r) => !ids.has(r.id))
       );
       return { previous };
     },

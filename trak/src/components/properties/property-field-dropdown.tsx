@@ -104,7 +104,10 @@ export function PropertyFieldDropdown({
   const setProperties = useSetEntityProperties(entityType, entityId, workspaceId);
   const buildDrafts = group === "priority" ? buildPriorityDrafts : buildStatusDrafts;
   const drafts = buildDrafts(direct);
-  const editingDraft = fieldId ? drafts.find((d) => d.id === fieldId) : drafts[0];
+  // Fall back to drafts[0] if fieldId doesn't match any draft — can happen during the brief
+  // window where the per-entity cache has an optimistic update but the bulk cache still has
+  // the old IDs (they generate index-based IDs like "priority-0-priority" vs real UUIDs).
+  const editingDraft = (fieldId ? drafts.find((d) => d.id === fieldId) : null) ?? drafts[0];
   const [fieldName, setFieldName] = useState(editingDraft?.field_name ?? (group === "priority" ? "Priority" : "Status"));
   const [value, setValue] = useState<Priority | Status | null>((editingDraft?.value as Priority | Status | null) ?? null);
   const nameRef = useRef(fieldName);

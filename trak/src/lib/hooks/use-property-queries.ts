@@ -83,6 +83,42 @@ export function useEntitiesProperties(
   });
 }
 
+// Merge an optimistic property update into existing cached data, preserving real IDs
+// from the server on priorities/statuses arrays (updates often omit IDs, which causes
+// buildPriorityDrafts to generate index-based IDs that don't match bulk-cache IDs).
+function mergePropertiesOptimistic(
+  previous: EntityProperties | null | undefined,
+  updates: SetEntityPropertiesInput["updates"]
+): EntityProperties {
+  const base = previous ?? ({} as EntityProperties);
+  const merged = { ...base, ...updates } as EntityProperties;
+
+  // For priorities/statuses arrays, match by field_name to preserve existing IDs
+  if (updates.priorities && Array.isArray(base.priorities)) {
+    merged.priorities = (updates.priorities as Array<{ field_name?: string; value?: unknown; id?: string }>).map((upd) => {
+      const existing = (base.priorities as Array<{ field_name?: string; id?: string }> | undefined)?.find(
+        (p) => p.field_name === upd.field_name
+      );
+      return existing ? { ...existing, ...upd } : upd;
+    }) as EntityProperties["priorities"];
+  }
+  if (updates.statuses && Array.isArray(base.statuses)) {
+    merged.statuses = (updates.statuses as Array<{ field_name?: string; value?: unknown; id?: string }>).map((upd) => {
+      const existing = (base.statuses as Array<{ field_name?: string; id?: string }> | undefined)?.find(
+        (s) => s.field_name === upd.field_name
+      );
+      return existing ? { ...existing, ...upd } : upd;
+    }) as EntityProperties["statuses"];
+  }
+
+  return merged;
+}
+
+function idsKeyContainsEntity(idsKey: string, entityId: string): boolean {
+  if (!idsKey || !entityId) return false;
+  return idsKey.split(",").includes(entityId);
+}
+
 /**
  * Set/update entity properties
  */
@@ -108,22 +144,34 @@ export function useSetEntityProperties(
       await qc.cancelQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
+      await qc.cancelQueries({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
 
       const previous = qc.getQueryData<EntityProperties | null>(
         queryKeys.entityProperties(entityType, entityId)
       );
+      const previousBulk = qc.getQueriesData<Record<string, EntityProperties>>({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
 
-      if (previous) {
-        qc.setQueryData(
-          queryKeys.entityProperties(entityType, entityId),
-          {
-            ...previous,
-            ...updates,
-          }
-        );
+      qc.setQueryData(
+        queryKeys.entityProperties(entityType, entityId),
+        mergePropertiesOptimistic(previous, updates)
+      );
+
+      for (const [queryKey, data] of previousBulk) {
+        if (!Array.isArray(queryKey)) continue;
+        const idsKey = typeof queryKey[3] === "string" ? queryKey[3] : "";
+        if (!idsKeyContainsEntity(idsKey, entityId)) continue;
+
+        qc.setQueryData<Record<string, EntityProperties>>(queryKey, {
+          ...(data ?? {}),
+          [entityId]: mergePropertiesOptimistic(data?.[entityId], updates),
+        });
       }
 
-      return { previous };
+      return { previous, previousBulk };
     },
     onError: (err, updates, context) => {
       // Rollback on error
@@ -132,6 +180,11 @@ export function useSetEntityProperties(
           queryKeys.entityProperties(entityType, entityId),
           context.previous
         );
+      }
+      if (context?.previousBulk) {
+        for (const [queryKey, data] of context.previousBulk) {
+          qc.setQueryData(queryKey, data);
+        }
       }
     },
     onSuccess: () => {
@@ -166,10 +219,11 @@ export function useSetEntityPropertiesForType(entityType: EntityType, workspaceI
       if ("error" in result) throw new Error(result.error);
       return result.data;
     },
+    // No onMutate here: this hook is used by task lists that read from the BULK
+    // entitiesProperties cache. Updating the per-entity cache optimistically would
+    // only trigger unexpected re-renders in PropertyFieldDropdown (which reads per-entity
+    // cache) without providing any visible benefit to the task list itself.
     onSuccess: (_result, args) => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityProperties(entityType, args.entityId),
-      });
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, args.entityId),
       });

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import TabCanvas from "./tab-canvas";
 import { type Block } from "@/app/actions/block";
 import type { EntityProperties } from "@/types/properties";
 import { TAB_THEMES } from "./tab-themes";
 import { useTabBlocks, useBatchFileUrls } from "@/lib/hooks/use-tab-data";
+import { useEntitiesProperties } from "@/lib/hooks/use-property-queries";
 
 interface TabCanvasWrapperProps {
   tabId: string;
@@ -83,6 +84,18 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
     note: fileIds.length === 0 ? 'Query disabled (no file IDs)' : 'Query active'
   });
 
+  const blockIds = useMemo(
+    () => (blocks || []).map((block) => block.id),
+    [blocks]
+  );
+  const {
+    data: queriedBlockPropertiesById = {},
+    isSuccess: hasLoadedBlockProperties,
+  } = useEntitiesProperties("block", blockIds, workspaceId);
+  const blockPropertiesById = hasLoadedBlockProperties
+    ? queriedBlockPropertiesById
+    : initialBlockPropertiesById;
+
   // Load theme from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -125,7 +138,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
       projectId={projectId}
       workspaceId={workspaceId}
       blocks={blocks || []}
-      initialBlockPropertiesById={initialBlockPropertiesById}
+      initialBlockPropertiesById={blockPropertiesById}
       scrollToTaskId={scrollToTaskId}
       onThemeChange={handleThemeChange}
       currentTheme={tabTheme}
