@@ -662,6 +662,130 @@ function toSearchableText(value: unknown): string {
   }
 }
 
+function normalizeForFuzzyMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactForFuzzyMatch(value: string): string {
+  return normalizeForFuzzyMatch(value).replace(/\s+/g, "");
+}
+
+function maxFuzzyEdits(length: number): number {
+  if (length <= 4) return 1;
+  if (length <= 7) return 2;
+  return 3;
+}
+
+function damerauLevenshteinDistance(a: string, b: string): number {
+  const aLen = a.length;
+  const bLen = b.length;
+  if (aLen === 0) return bLen;
+  if (bLen === 0) return aLen;
+
+  const d: number[][] = Array.from({ length: aLen + 1 }, () => new Array<number>(bLen + 1).fill(0));
+  for (let i = 0; i <= aLen; i++) d[i][0] = i;
+  for (let j = 0; j <= bLen; j++) d[0][j] = j;
+
+  for (let i = 1; i <= aLen; i++) {
+    for (let j = 1; j <= bLen; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        best = Math.min(best, d[i - 2][j - 2] + 1);
+      }
+      d[i][j] = best;
+    }
+  }
+
+  return d[aLen][bLen];
+}
+
+function fuzzyMatchesText(candidate: string, query: string): boolean {
+  const normalizedCandidate = normalizeForFuzzyMatch(candidate);
+  const normalizedQuery = normalizeForFuzzyMatch(query);
+  if (!normalizedQuery) return true;
+  if (!normalizedCandidate) return false;
+  if (normalizedCandidate.includes(normalizedQuery)) return true;
+
+  const compactCandidate = compactForFuzzyMatch(candidate);
+  const compactQuery = compactForFuzzyMatch(query);
+  if (!compactQuery) return true;
+  if (compactCandidate.includes(compactQuery)) return true;
+
+  const queryTokens = normalizedQuery
+    .split(" ")
+    .filter((token) => token.length > 0 && token.length <= 48 && !SEARCH_STOP_WORDS.has(token));
+  const candidateTokens = normalizedCandidate
+    .split(" ")
+    .filter((token) => token.length > 0 && token.length <= 64 && !SEARCH_STOP_WORDS.has(token));
+
+  const queryUnits = queryTokens.length > 0 ? queryTokens : [normalizedQuery];
+  if (candidateTokens.length === 0) return false;
+
+  return queryUnits.every((queryToken) => {
+    if (candidateTokens.some((token) => token.includes(queryToken) || queryToken.includes(token))) {
+      return true;
+    }
+
+    const maxEdits = maxFuzzyEdits(queryToken.length);
+    return candidateTokens.some((token) => {
+      if (queryToken.length > 48 || token.length > 64) return false;
+      if (Math.abs(token.length - queryToken.length) > maxEdits + 1) return false;
+      return damerauLevenshteinDistance(token, queryToken) <= maxEdits;
+    });
+  });
+}
+
+function fuzzyMatchesValue(value: unknown, query: string): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return fuzzyMatchesText(String(value), query);
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => fuzzyMatchesValue(item, query));
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["name", "label", "title", "value", "id"]) {
+      const candidate = record[key];
+      if (
+        (typeof candidate === "string" || typeof candidate === "number" || typeof candidate === "boolean") &&
+        fuzzyMatchesText(String(candidate), query)
+      ) {
+        return true;
+      }
+    }
+  }
+  return fuzzyMatchesText(toSearchableText(value), query);
+}
+
+function getMatchConfidence(
+  candidate: string,
+  query: string
+): "exact" | "high" | "partial" | null {
+  const normalizedCandidate = normalizeForFuzzyMatch(candidate);
+  const normalizedQuery = normalizeForFuzzyMatch(query);
+  if (!normalizedQuery || !normalizedCandidate) return null;
+  if (normalizedCandidate === normalizedQuery) return "exact";
+  if (
+    normalizedCandidate.startsWith(normalizedQuery) ||
+    compactForFuzzyMatch(candidate).startsWith(compactForFuzzyMatch(query))
+  ) {
+    return "high";
+  }
+  if (fuzzyMatchesText(candidate, query)) return "partial";
+  return null;
+}
+
 /**
  * Applies date filters to a Supabase query.
  */
