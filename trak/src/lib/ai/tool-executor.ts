@@ -116,6 +116,7 @@ import {
   createField,
   updateField,
   deleteField,
+  reorderFields,
 } from "@/app/actions/tables/field-actions";
 import {
   createRow,
@@ -2420,7 +2421,8 @@ export async function executeTool(
             }
 
             // Build reusable default columns.
-            // Keep primary "Name" separate so only an explicit primary field can claim it.
+            // Keep primary "Name" separate so explicit primary fields can claim it first,
+            // or the first requested field can claim it when no explicit primary is provided.
             const defaultCandidates = isEmpty
               ? existingFields.filter((f) => (f.is_primary ? normalizeFieldName(f.name) === "name" : isDefaultFieldName(f.name)))
               : [];
@@ -2437,7 +2439,7 @@ export async function executeTool(
               | { kind: "create"; name: string; type: string; config?: Record<string, unknown>; isPrimary?: boolean };
 
             const plans: FieldPlan[] = [];
-            for (const field of fields) {
+            for (const [fieldIndex, field] of fields.entries()) {
               // Check if a field with this name already exists
               const normalized = normalizeFieldName(field.name);
               const existing = existingFields.find(
@@ -2455,7 +2457,13 @@ export async function executeTool(
                   candidate = primaryDefault;
                   primaryDefault = undefined;
                 } else if (!field.isPrimary) {
-                  candidate = nonPrimaryDefaults.shift();
+                  if (!hasExplicitPrimary && fieldIndex === 0 && primaryDefault) {
+                    candidate = primaryDefault;
+                    primaryDefault = undefined;
+                  }
+                  if (!candidate) {
+                    candidate = nonPrimaryDefaults.shift();
+                  }
                   // If no explicit primary field is requested, allow one non-primary field to claim Name.
                   if (!candidate && !hasExplicitPrimary && primaryDefault) {
                     candidate = primaryDefault;
@@ -2562,6 +2570,36 @@ export async function executeTool(
                 data: results.map((r) => r.data),
                 error: errorSummary,
               };
+            }
+
+            // Enforce deterministic field order for fresh tables created via slow path.
+            // This makes final column ordering match the requested schema order exactly.
+            if (isEmpty) {
+              const fieldIdsInRequestedOrder = results
+                .map((result) => {
+                  const data = result.data as Record<string, unknown> | undefined;
+                  return typeof data?.id === "string" ? data.id : null;
+                })
+                .filter((id): id is string => Boolean(id));
+              if (fieldIdsInRequestedOrder.length > 0) {
+                const reorderResult = await wrapResult(
+                  reorderFields(
+                    tableId,
+                    fieldIdsInRequestedOrder.map((fieldId, index) => ({
+                      fieldId,
+                      order: index + 1,
+                    })),
+                    { authContext: authContext ?? undefined }
+                  )
+                );
+                if (!reorderResult.success) {
+                  return {
+                    success: false,
+                    data: results.map((r) => r.data),
+                    error: reorderResult.error ?? "Failed to apply deterministic field ordering.",
+                  };
+                }
+              }
             }
 
             return {

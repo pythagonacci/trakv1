@@ -34,6 +34,24 @@ function safeTextFromContent(content: unknown): string {
   }
 }
 
+function scrubInternalIdsFromResponse(text: string): string {
+  if (!text) return "";
+
+  const withoutKeyedIds = text.replace(
+    /\b(?:blockId|tableId|sessionId|tabId|workspaceId|projectId|source_entity_id)\s*[:=]\s*[A-Za-z0-9_-]+\b/g,
+    ""
+  );
+  const withoutUuids = withoutKeyedIds.replace(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
+    ""
+  );
+
+  return withoutUuids
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Extract a compact search history context from recent workflow messages.
  * Walks backward through history and collects searchManifest data from the
@@ -966,7 +984,11 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.${hasSearchHistory ? "\n" + searchHistory : ""}`,
+   - If you did not create blocks: provide the answer directly in chat.
+4. User-facing wording:
+   - NEVER include internal IDs (UUIDs, blockId, tableId, sessionId, tabId, workspaceId, projectId, source_entity_id) in chat responses.
+   - Refer to items by human-readable names/titles and plain-language context instead of IDs.
+   - Format answers for readability with short paragraphs and bullets, with blank lines between sections.${hasSearchHistory ? "\n" + searchHistory : ""}`,
     },
   ];
 
@@ -1214,6 +1236,8 @@ RESPONSE PATTERN:
     mergedSkipped.push(...workflowUndoTracker.skippedTools);
   }
 
+  finalResponse = scrubInternalIdsFromResponse(finalResponse);
+
   await addWorkflowMessage({
     sessionId: session.id,
     role: "assistant",
@@ -1452,7 +1476,11 @@ RESPONSE PATTERN:
 2. Create or update blocks only if a persistent artifact is needed; otherwise keep it in chat.
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
-   - If you did not create blocks: provide the answer directly in chat.${streamHasSearchHistory ? "\n" + streamSearchHistory : ""}`,
+   - If you did not create blocks: provide the answer directly in chat.
+4. User-facing wording:
+   - NEVER include internal IDs (UUIDs, blockId, tableId, sessionId, tabId, workspaceId, projectId, source_entity_id) in chat responses.
+   - Refer to items by human-readable names/titles and plain-language context instead of IDs.
+   - Format answers for readability with short paragraphs and bullets, with blank lines between sections.${streamHasSearchHistory ? "\n" + streamSearchHistory : ""}`,
     },
   ];
 
@@ -1736,6 +1764,8 @@ RESPONSE PATTERN:
   if (workflowUndoTracker.skippedTools.length > 0) {
     mergedSkipped.push(...workflowUndoTracker.skippedTools);
   }
+
+  finalResponse = scrubInternalIdsFromResponse(finalResponse);
 
   if (persistSession && sessionId) {
     await addWorkflowMessage({

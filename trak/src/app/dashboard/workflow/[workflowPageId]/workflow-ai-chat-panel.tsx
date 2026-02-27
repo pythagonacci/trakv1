@@ -51,6 +51,35 @@ function getText(content: Record<string, unknown> | null | undefined) {
   return "";
 }
 
+const assistantMarkdownComponents = {
+  h1: ({ children }: { children: React.ReactNode }) => (
+    <h1 className="mt-4 mb-2 text-base font-semibold leading-[1.25]">{children}</h1>
+  ),
+  h2: ({ children }: { children: React.ReactNode }) => (
+    <h2 className="mt-4 mb-2 text-sm font-semibold leading-[1.25]">{children}</h2>
+  ),
+  h3: ({ children }: { children: React.ReactNode }) => (
+    <h3 className="mt-3 mb-1.5 text-sm font-medium leading-[1.25]">{children}</h3>
+  ),
+  p: ({ children }: { children: React.ReactNode }) => (
+    <p className="my-3 whitespace-pre-wrap leading-[1.25]">{children}</p>
+  ),
+  ul: ({ children }: { children: React.ReactNode }) => (
+    <ul className="my-3 list-disc space-y-2 pl-6">{children}</ul>
+  ),
+  ol: ({ children }: { children: React.ReactNode }) => (
+    <ol className="my-3 list-decimal space-y-2 pl-6">{children}</ol>
+  ),
+  li: ({ children }: { children: React.ReactNode }) => (
+    <li className="pl-1 leading-[1.25]">{children}</li>
+  ),
+  blockquote: ({ children }: { children: React.ReactNode }) => (
+    <blockquote className="my-3 border-l-2 border-[var(--border)] pl-3 italic text-[var(--muted-foreground)]">
+      {children}
+    </blockquote>
+  ),
+} as const;
+
 export default function WorkflowAIChatPanel(props: {
   tabId: string;
   workspaceId: string;
@@ -564,9 +593,6 @@ export default function WorkflowAIChatPanel(props: {
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-semibold">AI</span>
-          {sessionId ? (
-            <span className="text-[11px] text-[var(--muted-foreground)] truncate">Session {sessionId.slice(0, 8)}</span>
-          ) : null}
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
@@ -593,7 +619,7 @@ export default function WorkflowAIChatPanel(props: {
         </div>
       </div>
 
-      <div ref={messagesContainerRef} className="min-h-0 flex-1 overflow-auto px-4 py-3 space-y-3">
+      <div ref={messagesContainerRef} className="min-h-0 flex-1 overflow-auto px-4 py-4 space-y-4">
         {renderedMessages.length === 0 && !loading && (
           <div className="rounded-md border border-[var(--border)] bg-[var(--secondary)]/5 p-3 text-xs text-[var(--muted-foreground)]">
             Ask a question and I’ll build this page with blocks.
@@ -620,7 +646,7 @@ export default function WorkflowAIChatPanel(props: {
               />
             ) : (
               <div className="prose prose-sm max-w-none text-[var(--foreground)]">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                   {getText(m.content)}
                 </ReactMarkdown>
               </div>
