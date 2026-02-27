@@ -7,9 +7,15 @@ interface SlackClientProps {
   workspaceId: string;
   connection?: SlackConnection;
   userLink?: SlackUserLink;
+  canManage: boolean;
 }
 
-export default function SlackClient({ workspaceId, connection, userLink }: SlackClientProps) {
+export default function SlackClient({
+  workspaceId,
+  connection,
+  userLink,
+  canManage,
+}: SlackClientProps) {
   const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   const handleInstall = () => {
@@ -60,12 +66,18 @@ export default function SlackClient({ workspaceId, connection, userLink }: Slack
             <p className="text-gray-600 mb-4">
               Install the TWOD app to your Slack workspace and use AI-powered commands directly in Slack.
             </p>
-            <button
-              onClick={handleInstall}
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium"
-            >
-              Install Slack App
-            </button>
+            {canManage ? (
+              <button
+                onClick={handleInstall}
+                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium"
+              >
+                Install Slack App
+              </button>
+            ) : (
+              <p className="text-sm text-gray-500">
+                Only workspace owners and admins can install the Slack integration.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -109,15 +121,17 @@ export default function SlackClient({ workspaceId, connection, userLink }: Slack
           </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <button
-            onClick={handleDisconnect}
-            disabled={isDisconnecting}
-            className="text-red-600 hover:text-red-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isDisconnecting ? "Disconnecting..." : "Disconnect Slack"}
-          </button>
-        </div>
+        {canManage && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <button
+              onClick={handleDisconnect}
+              disabled={isDisconnecting}
+              className="text-red-600 hover:text-red-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDisconnecting ? "Disconnecting..." : "Disconnect Slack"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Account Linking Status */}

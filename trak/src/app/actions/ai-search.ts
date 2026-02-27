@@ -713,7 +713,7 @@ interface EnrichedProperty {
 async function getEntitiesWithPropertyFilter(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
-  entityType: "task" | "subtask" | "block" | "timeline_event",
+  entityType: "task" | "subtask" | "block" | "timeline_event" | "table_row",
   fieldType: string,
   filterType: "id" | "name",
   filterValue: string | string[]
@@ -739,27 +739,9 @@ async function getEntitiesWithPropertyFilter(
   const matchingIds: string[] = [];
   const filterValues = Array.isArray(filterValue) ? filterValue : [filterValue];
 
-  console.log(`[getEntitiesWithPropertyFilter] Filtering ${entityType}, filterType: ${filterType}, filterValues:`, filterValues, `total rows: ${data.length}`);
-
-  // Log all the actual values in the database for debugging
-  if (entityType === "task" && filterType === "name" && data.length > 0) {
-    console.log("[getEntitiesWithPropertyFilter] All database status values:", data.map(r => {
-      const v = r.value;
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        return (v as Record<string, unknown>).name;
-      }
-      return v;
-    }));
-  }
-
   for (const row of data) {
     const value = row.value;
     let matches = false;
-
-    // Debug: log value structure for task status filtering
-    if (entityType === "task" && filterType === "name") {
-      console.log(`[getEntitiesWithPropertyFilter] Row value:`, JSON.stringify(value), `type:`, typeof value, `isArray:`, Array.isArray(value));
-    }
 
     if (filterType === "id") {
       // For person property: value is { id, name }
@@ -777,50 +759,12 @@ async function getEntitiesWithPropertyFilter(
         }
       }
     } else {
-      // Name-based fuzzy matching - support array of names (match any)
-      // Normalize search strings: replace underscores/hyphens with spaces for flexible matching
-      const normalizeForMatching = (str: string) => str.toLowerCase().replace(/[_-]/g, " ");
-      const searchNames = filterValues.map(v => normalizeForMatching(v));
-
-      if (typeof value === "string") {
-        // Handle plain string values (e.g., status stored as "todo" instead of {name: "todo"})
-        const valueNormalized = normalizeForMatching(value);
-        matches = searchNames.some(searchName => valueNormalized.includes(searchName));
-
-        if (entityType === "task" && filterType === "name") {
-          console.log(`[getEntitiesWithPropertyFilter] String comparison - DB: "${value}", normalized: "${valueNormalized}", search:`, searchNames, `matches:`, matches);
-        }
-      } else if (value && typeof value === "object") {
-        if (Array.isArray(value)) {
-          // Multi-select: items can be plain strings (e.g. tags) or objects with .name (e.g. assignee)
-          matches = value.some((item: any) => {
-            const itemLabel = typeof item === "string" ? item : (item?.name ?? "");
-            const itemNameNormalized = normalizeForMatching(itemLabel);
-            return searchNames.some(searchName => itemNameNormalized.includes(searchName));
-          });
-        } else {
-          // Single object: check if value.name matches any search name
-          const valueObj = value as Record<string, unknown>;
-          const name = valueObj.name as string | undefined;
-          const nameNormalized = name ? normalizeForMatching(name) : "";
-
-          // Debug logging for status filtering
-          if (entityType === "task" && filterType === "name") {
-            console.log(`[getEntitiesWithPropertyFilter] Object comparison - DB value: "${name}", normalized: "${nameNormalized}", searchNames:`, searchNames, `matches:`, searchNames.some(searchName => nameNormalized.includes(searchName)));
-          }
-
-          matches = nameNormalized ? searchNames.some(searchName => nameNormalized.includes(searchName)) : false;
-        }
-      }
+      // Name-based matching with typo tolerance
+      matches = filterValues.some((filterName) => fuzzyMatchesValue(value, String(filterName)));
     }
 
     if (matches) {
       matchingIds.push(row.entity_id);
-    }
-
-    // Debug: log match result
-    if (entityType === "task" && filterType === "name") {
-      console.log(`[getEntitiesWithPropertyFilter] Final matches result:`, matches);
     }
   }
 
@@ -2902,41 +2846,81 @@ export async function searchTableRows(params: {
 
   const { supabase, workspaceId } = ctx;
   const limit = params.limit ?? 50;
+  const searchText = params.searchText?.trim() ?? "";
 
   // Determine if we need post-query filtering
   const projectFilter = normalizeArrayFilter(params.projectId);
-  const hasPostFilters = !!(projectFilter || params.fieldFilters || params.searchText);
+  const hasPostFilters = !!(projectFilter || params.fieldFilters || searchText);
   const hasRowIds = params.rowIds?.length;
+  const tableFilter = normalizeArrayFilter(params.tableId);
 
   // Overfetch when post-filtering is needed; when fetching by rowIds use at least that many
   const fetchLimit = hasRowIds ? Math.max(limit, params.rowIds!.length) : hasPostFilters ? limit * 10 : limit;
 
   try {
-    let query = supabase
-      .from("table_rows")
-      .select(`
-        id, data, order, table_id, created_at, updated_at,
-        tables!inner(workspace_id, title, project_id, projects(name))
-      `)
-      .eq("tables.workspace_id", workspaceId);
+    let results: Record<string, unknown>[] = [];
+    let usedRpcPrimary = false;
 
-    if (hasRowIds) {
-      query = query.in("id", params.rowIds!);
+    if (searchText.length > 0) {
+      const rpcTableIds = tableFilter?.filter((id) => isUuidLike(id)) ?? null;
+      const rpcProjectIds = projectFilter?.filter((id) => isUuidLike(id)) ?? null;
+      const rpcRowIds = (params.rowIds ?? []).filter((id) => isUuidLike(id));
+
+      const { data: rpcRows, error: rpcError } = await supabase.rpc("search_table_rows_fuzzy", {
+        filter_workspace_id: workspaceId,
+        search_text: searchText,
+        filter_table_ids: rpcTableIds && rpcTableIds.length > 0 ? rpcTableIds : null,
+        filter_project_ids: rpcProjectIds && rpcProjectIds.length > 0 ? rpcProjectIds : null,
+        filter_row_ids: rpcRowIds.length > 0 ? rpcRowIds : null,
+        result_limit: fetchLimit,
+      });
+
+      if (rpcError) {
+        console.warn("searchTableRows fuzzy rpc error; falling back to JS filter path:", rpcError.message);
+      } else if (Array.isArray(rpcRows) && rpcRows.length > 0) {
+        usedRpcPrimary = true;
+        results = rpcRows.map((row: Record<string, unknown>) => ({
+          id: row.id,
+          data: row.data,
+          order: row.order,
+          table_id: row.table_id,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          tables: {
+            title: row.table_title,
+            project_id: row.project_id,
+            projects: row.project_name ? { name: row.project_name } : null,
+          },
+        }));
+      }
     }
 
-    const tableFilter = normalizeArrayFilter(params.tableId);
-    if (tableFilter) {
-      query = query.in("table_id", tableFilter);
+    if (!usedRpcPrimary) {
+      let query = supabase
+        .from("table_rows")
+        .select(`
+          id, data, order, table_id, created_at, updated_at,
+          tables!inner(workspace_id, title, project_id, projects(name))
+        `)
+        .eq("tables.workspace_id", workspaceId);
+
+      if (hasRowIds) {
+        query = query.in("id", params.rowIds!);
+      }
+
+      if (tableFilter) {
+        query = query.in("table_id", tableFilter);
+      }
+
+      const { data, error } = await query.order("order").limit(fetchLimit);
+
+      if (error) {
+        console.error("searchTableRows error:", error);
+        return { data: null, error: error.message };
+      }
+
+      results = (data ?? []) as Record<string, unknown>[];
     }
-
-    const { data, error } = await query.order("order").limit(fetchLimit);
-
-    if (error) {
-      console.error("searchTableRows error:", error);
-      return { data: null, error: error.message };
-    }
-
-    let results = data ?? [];
 
     // Filter by project if specified
     if (projectFilter) {
@@ -2992,27 +2976,8 @@ export async function searchTableRows(params: {
             }
 
             case "contains": {
-              // String contains (case-insensitive)
-              const searchValue = String(value).toLowerCase();
-              if (typeof actualValue === "string") {
-                if (!actualValue.toLowerCase().includes(searchValue)) {
-                  return false;
-                }
-              } else if (Array.isArray(actualValue)) {
-                if (!actualValue.some((v) => String(v).toLowerCase().includes(searchValue))) {
-                  return false;
-                }
-              } else if (typeof actualValue === "object") {
-                const obj = actualValue as Record<string, unknown>;
-                const name = obj.name as string | undefined;
-                if (!name?.toLowerCase().includes(searchValue)) {
-                  return false;
-                }
-              } else {
-                if (!String(actualValue).toLowerCase().includes(searchValue)) {
-                  return false;
-                }
-              }
+              // Fuzzy contains with typo tolerance across scalar, array, and object values
+              if (!fuzzyMatchesValue(actualValue, String(value))) return false;
               break;
             }
 
@@ -3053,10 +3018,10 @@ export async function searchTableRows(params: {
     // Filter by search text across row data (post-query)
     // Tokenizes multi-word searches so any individual word can match any cell value.
     // Also checks the parent table title for matches.
-    if (params.searchText) {
-      const searchWords = tokenizeSearchText(params.searchText).map((w) => w.toLowerCase());
+    if (searchText && !usedRpcPrimary) {
+      const searchWords = tokenizeSearchText(searchText).map((w) => w.toLowerCase());
       if (searchWords.length === 0) {
-        searchWords.push(params.searchText.toLowerCase());
+        searchWords.push(searchText.toLowerCase());
       }
 
       results = results.filter((r: Record<string, unknown>) => {
@@ -3067,26 +3032,10 @@ export async function searchTableRows(params: {
         // Check if any search word matches any cell value OR the table title
         return searchWords.some((word) => {
           // Check table title
-          if (tableTitle.includes(word)) return true;
+          if (fuzzyMatchesText(tableTitle, word)) return true;
 
           // Check row data values
-          return Object.values(rowData).some((value) => {
-            if (value === null || value === undefined) return false;
-            if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-              return String(value).toLowerCase().includes(word);
-            }
-            if (Array.isArray(value)) {
-              return value.some((v) => String(v).toLowerCase().includes(word));
-            }
-            if (typeof value === "object") {
-              try {
-                return JSON.stringify(value).toLowerCase().includes(word);
-              } catch {
-                return false;
-              }
-            }
-            return false;
-          });
+          return Object.values(rowData).some((value) => fuzzyMatchesValue(value, word));
         });
       });
     }
@@ -3857,56 +3806,46 @@ export async function searchTags(params: {
   const limit = params.limit ?? 50;
 
   try {
+    const searchText = params.searchText?.trim() ?? "";
+
+    // Primary path: pg_trgm-backed fuzzy search RPC
+    if (searchText.length > 0) {
+      const { data: rpcTags, error: rpcError } = await supabase.rpc("search_tags_fuzzy", {
+        filter_workspace_id: workspaceId,
+        search_text: searchText,
+        result_limit: limit,
+      });
+
+      if (!rpcError && Array.isArray(rpcTags)) {
+        const mapped = rpcTags.map((row: Record<string, unknown>) => ({
+          id: String(row.id ?? ""),
+          name: String(row.name ?? ""),
+          color: (row.color as string | null) ?? null,
+          workspace_id: workspaceId,
+          created_at: null,
+        })).filter((tag) => tag.id && tag.name);
+
+        if (mapped.length > 0) {
+          return { data: mapped.slice(0, limit), error: null };
+        }
+      } else if (rpcError) {
+        console.warn("searchTags fuzzy rpc error; falling back to JS filter path:", rpcError.message);
+      }
+    }
+
     // Aggregate tags from entity_properties (field_type="tags") across entities
     const { data, error } = await supabase
       .from("entity_properties")
       .select("entity_id, value")
       .eq("workspace_id", workspaceId)
       .eq("field_type", "tags")
-      .in("entity_type", ["task", "block", "timeline_event"]);
+      .in("entity_type", ["task", "block", "timeline_event", "table_row"]);
 
     if (error) {
       console.error("searchTags error:", error);
       return { data: null, error: error.message };
     }
 
-    const searchLower = params.searchText?.toLowerCase() ?? null;
-    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const normalizedSearch = searchLower ? normalize(searchLower) : null;
-    const editDistance = (a: string, b: string): number => {
-      const aLen = a.length;
-      const bLen = b.length;
-      if (aLen === 0) return bLen;
-      if (bLen === 0) return aLen;
-
-      const dp = new Array(bLen + 1);
-      for (let j = 0; j <= bLen; j++) dp[j] = j;
-
-      for (let i = 1; i <= aLen; i++) {
-        let prev = dp[0];
-        dp[0] = i;
-        for (let j = 1; j <= bLen; j++) {
-          const temp = dp[j];
-          if (a[i - 1] === b[j - 1]) {
-            dp[j] = prev;
-          } else {
-            dp[j] = Math.min(prev + 1, dp[j] + 1, dp[j - 1] + 1);
-          }
-          prev = temp;
-        }
-      }
-      return dp[bLen];
-    };
-    const isFuzzyMatch = (name: string): boolean => {
-      if (!searchLower || !normalizedSearch) return true;
-      const nameLower = name.toLowerCase();
-      const normalizedName = normalize(name);
-      if (nameLower.includes(searchLower)) return true;
-      if (normalizedName.includes(normalizedSearch)) return true;
-
-      const maxEdits = normalizedSearch.length <= 4 ? 1 : normalizedSearch.length <= 7 ? 2 : 3;
-      return editDistance(normalizedName, normalizedSearch) <= maxEdits;
-    };
     const tagMap = new Map<string, TagResult>();
 
     for (const row of data ?? []) {
@@ -3916,11 +3855,12 @@ export async function searchTags(params: {
       for (const tag of tags) {
         if (typeof tag === "string") {
           const name = tag;
-          if (searchLower && !isFuzzyMatch(name)) {
+          if (searchText && !fuzzyMatchesText(name, searchText)) {
             continue;
           }
-          if (!tagMap.has(tag)) {
-            tagMap.set(tag, {
+          const key = `name:${compactForFuzzyMatch(name) || name.toLowerCase()}`;
+          if (!tagMap.has(key)) {
+            tagMap.set(key, {
               id: tag,
               name,
               color: null,
@@ -3937,7 +3877,7 @@ export async function searchTags(params: {
         const name = label;
         if (!id || !name) continue;
 
-        if (searchLower && !isFuzzyMatch(name)) {
+        if (searchText && !fuzzyMatchesText(name, searchText)) {
           continue;
         }
 
@@ -5786,19 +5726,35 @@ export async function resolveEntityByName(params: {
       }
 
       case "tag": {
-        const { data } = await supabase
-          .from("task_tags")
-          .select("id, name")
-          .eq("workspace_id", workspaceId)
-          .ilike("name", `%${searchName}%`)
-          .limit(limit * 2);
+        const [taskTagsResult, propertyTagsResult] = await Promise.all([
+          supabase
+            .from("task_tags")
+            .select("id, name")
+            .eq("workspace_id", workspaceId)
+            .ilike("name", `%${searchName}%`)
+            .limit(limit * 2),
+          searchTags({ searchText: searchName, limit: limit * 2, authContext: params.authContext }),
+        ]);
+        const { data } = taskTagsResult;
+        const propertyTags = propertyTagsResult.data ?? [];
 
+        const mergedByName = new Map<string, { id: string; name: string }>();
         for (const tag of data ?? []) {
-          const nameLower = tag.name.toLowerCase();
+          mergedByName.set(compactForFuzzyMatch(tag.name) || tag.name.toLowerCase(), {
+            id: tag.id,
+            name: tag.name,
+          });
+        }
+        for (const tag of propertyTags) {
+          const normalizedKey = compactForFuzzyMatch(tag.name) || tag.name.toLowerCase();
+          if (!mergedByName.has(normalizedKey)) {
+            mergedByName.set(normalizedKey, { id: tag.id, name: tag.name });
+          }
+        }
 
-          let confidence: "exact" | "high" | "partial" = "partial";
-          if (nameLower === searchName) confidence = "exact";
-          else if (nameLower.startsWith(searchName)) confidence = "high";
+        for (const tag of mergedByName.values()) {
+          const confidence = getMatchConfidence(tag.name, searchName);
+          if (!confidence) continue;
 
           results.push({
             id: tag.id,

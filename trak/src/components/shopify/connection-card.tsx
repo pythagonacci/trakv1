@@ -11,9 +11,10 @@ import { ShopifyProductPicker } from "./product-picker";
 interface ShopifyConnectionCardProps {
   connection: ShopifyConnection;
   onUpdate: () => void;
+  canManage: boolean;
 }
 
-export function ShopifyConnectionCard({ connection, onUpdate }: ShopifyConnectionCardProps) {
+export function ShopifyConnectionCard({ connection, onUpdate, canManage }: ShopifyConnectionCardProps) {
   const router = useRouter();
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -143,15 +144,17 @@ export function ShopifyConnectionCard({ connection, onUpdate }: ShopifyConnectio
                 </>
               )}
 
-              <Button
-                onClick={handleDisconnect}
-                disabled={isPending || isDisconnecting}
-                variant="outline"
-                size="sm"
-                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-              >
-                {isDisconnecting ? "Disconnecting..." : "Disconnect"}
-              </Button>
+              {canManage && (
+                <Button
+                  onClick={handleDisconnect}
+                  disabled={isPending || isDisconnecting}
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  {isDisconnecting ? "Disconnecting..." : "Disconnect"}
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuthenticatedUser } from "@/lib/auth-utils";
-import { createClient } from "@/lib/supabase/server";
+import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { listShopifyConnections } from "@/app/actions/shopify-connection";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { IntegrationsClient } from "./integrations-client";
@@ -15,16 +14,19 @@ export default async function IntegrationsPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  // Check authentication
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login");
-  }
-
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) {
     redirect("/onboarding");
   }
+
+  // Verify workspace access and get role
+  const access = await requireWorkspaceAccess(workspaceId);
+  if ("error" in access) {
+    redirect("/login");
+  }
+
+  const { membership } = access;
+  const canManage = membership.role === "owner" || membership.role === "admin";
 
   // Fetch Shopify connections
   const connectionsResult = await listShopifyConnections(workspaceId);
@@ -39,6 +41,7 @@ export default async function IntegrationsPage({
     <IntegrationsClient
       workspaceId={workspaceId}
       initialConnections={connections}
+      canManage={canManage}
       success={success}
       error={error}
     />

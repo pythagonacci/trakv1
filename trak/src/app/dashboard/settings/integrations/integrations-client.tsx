@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 interface IntegrationsClientProps {
   workspaceId: string;
   initialConnections: ShopifyConnection[];
+  canManage: boolean;
   success?: boolean;
   error?: string;
 }
@@ -17,6 +18,7 @@ interface IntegrationsClientProps {
 export function IntegrationsClient({
   workspaceId,
   initialConnections,
+  canManage,
   success,
   error,
 }: IntegrationsClientProps) {
@@ -66,9 +68,11 @@ export function IntegrationsClient({
                 Connect your Shopify stores to import products, track inventory, and compute sales
               </CardDescription>
             </div>
-            <Button onClick={() => setShowConnectDialog(true)} className="ml-4">
-              + Connect Store
-            </Button>
+            {canManage && (
+              <Button onClick={() => setShowConnectDialog(true)} className="ml-4">
+                + Connect Store
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -90,9 +94,15 @@ export function IntegrationsClient({
                 </svg>
               </div>
               <p className="text-gray-600 mb-4">No Shopify stores connected yet</p>
-              <Button onClick={() => setShowConnectDialog(true)} variant="outline">
-                Connect Your First Store
-              </Button>
+              {canManage ? (
+                <Button onClick={() => setShowConnectDialog(true)} variant="outline">
+                  Connect Your First Store
+                </Button>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  Only workspace owners and admins can connect Shopify stores.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -100,6 +110,7 @@ export function IntegrationsClient({
                 <ShopifyConnectionCard
                   key={connection.id}
                   connection={connection}
+                  canManage={canManage}
                   onUpdate={handleConnectionUpdate}
                 />
               ))}
@@ -109,11 +120,13 @@ export function IntegrationsClient({
       </Card>
 
       {/* Connect Dialog */}
-      <ConnectShopifyDialog
-        isOpen={showConnectDialog}
-        onClose={() => setShowConnectDialog(false)}
-        workspaceId={workspaceId}
-      />
+      {canManage && (
+        <ConnectShopifyDialog
+          isOpen={showConnectDialog}
+          onClose={() => setShowConnectDialog(false)}
+          workspaceId={workspaceId}
+        />
+      )}
     </div>
   );
 }

@@ -42,11 +42,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 4. Verify workspace membership
+    // 4. Verify workspace membership and role
     const supabase = await createClient();
     const { data: membership, error: membershipError } = await supabase
       .from("workspace_members")
-      .select("id")
+      .select("id, role")
       .eq("workspace_id", workspaceId)
       .eq("user_id", user.id)
       .single();
@@ -54,6 +54,13 @@ export async function GET(request: NextRequest) {
     if (membershipError || !membership) {
       return NextResponse.json(
         { error: "Not a member of this workspace" },
+        { status: 403 }
+      );
+    }
+
+    if (!["owner", "admin"].includes(membership.role)) {
+      return NextResponse.json(
+        { error: "Only workspace owners and admins can connect Shopify stores" },
         { status: 403 }
       );
     }

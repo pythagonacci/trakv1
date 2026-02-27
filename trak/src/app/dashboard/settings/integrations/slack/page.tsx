@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { getSlackConnection, getCurrentUserSlackLink } from "@/app/actions/slack-connection";
 import SlackClient from "./slack-client";
 
@@ -10,17 +10,20 @@ import SlackClient from "./slack-client";
  * /dashboard/settings/integrations/slack
  */
 export default async function SlackIntegrationPage() {
-  // Check authentication
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login");
-  }
-
   // Get current workspace
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) {
     redirect("/dashboard");
   }
+
+  // Verify workspace access and get role
+  const access = await requireWorkspaceAccess(workspaceId);
+  if ("error" in access) {
+    redirect("/login");
+  }
+
+  const { membership } = access;
+  const canManage = membership.role === "owner" || membership.role === "admin";
 
   // Get Slack connection
   const connectionResult = await getSlackConnection(workspaceId);
@@ -49,6 +52,7 @@ export default async function SlackIntegrationPage() {
         workspaceId={workspaceId}
         connection={connection}
         userLink={userLink}
+        canManage={canManage}
       />
     </div>
   );

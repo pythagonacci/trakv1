@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // 3. Verify the connection exists and user has access (RLS will handle this)
+    // 3. Verify the connection exists
     const { data: connection, error: fetchError } = await supabase
       .from("shopify_connections")
       .select("workspace_id")
@@ -45,7 +45,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Soft delete: Update sync_status to 'disconnected'
+    // 4. Check workspace role (only owners/admins can disconnect stores)
+    const { data: membership } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", connection.workspace_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!membership || !["owner", "admin"].includes(membership.role)) {
+      return NextResponse.json(
+        { error: "Only workspace owners and admins can disconnect Shopify stores" },
+        { status: 403 }
+      );
+    }
+
+    // 5. Soft delete: Update sync_status to 'disconnected'
     const { error: updateError } = await supabase
       .from("shopify_connections")
       .update({ sync_status: "disconnected" })
@@ -59,7 +74,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Delete all pending sync jobs for this connection
+    // 6. Delete all pending sync jobs for this connection
     const { error: jobsError } = await supabase
       .from("shopify_sync_jobs")
       .delete()
@@ -71,7 +86,7 @@ export async function POST(request: NextRequest) {
       // Don't fail the request if job deletion fails
     }
 
-    // 6. Return success
+    // 7. Return success
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error in Shopify disconnect route:", error);

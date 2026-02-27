@@ -118,7 +118,7 @@ export async function disconnectShopify(
       return { error: "Unauthorized" };
     }
 
-    // Create Supabase client (RLS will handle workspace membership check)
+    // Create Supabase client
     const supabase = await createClient();
 
     // Get connection to know workspace for revalidation
@@ -130,6 +130,18 @@ export async function disconnectShopify(
 
     if (fetchError || !connection) {
       return { error: "Connection not found or access denied" };
+    }
+
+    // Check workspace role (only owners/admins can disconnect stores)
+    const { data: membership } = await supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", connection.workspace_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!membership || !["owner", "admin"].includes(membership.role)) {
+      return { error: "Only workspace owners and admins can disconnect Shopify stores" };
     }
 
     // Update sync_status to 'disconnected'
