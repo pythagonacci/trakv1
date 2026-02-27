@@ -88,6 +88,8 @@ interface PropertyFieldDropdownProps {
   fieldId?: string;
   children: React.ReactNode;
   className?: string;
+  /** When true, renders children without opening the dropdown editor. */
+  disabled?: boolean;
 }
 
 export function PropertyFieldDropdown({
@@ -98,7 +100,11 @@ export function PropertyFieldDropdown({
   fieldId,
   children,
   className,
+  disabled = false,
 }: PropertyFieldDropdownProps) {
+  if (disabled) {
+    return <>{children}</>;
+  }
   const [open, setOpen] = useState(false);
   const { data: direct, isLoading } = useEntityProperties(entityType, entityId);
   const setProperties = useSetEntityProperties(entityType, entityId, workspaceId);

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText, RotateCcw } from "lucide-react";
+import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText, RotateCcw, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
@@ -135,6 +135,7 @@ export function AICommandPalette() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initializedModeRef = useRef(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const pathMatch = useMemo(() => {
     // Match project ID anywhere after /dashboard/projects/
@@ -301,6 +302,8 @@ export function AICommandPalette() {
     setStreamingStatus(null);
     setStreamingResponse(null);
 
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
       const response = await fetch("/api/ai/stream", {
         method: "POST",
@@ -317,6 +320,7 @@ export function AICommandPalette() {
           })),
           confirmation,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -466,12 +470,30 @@ export function AICommandPalette() {
           undoBatches: responseUndoBatches,
         },
       ]);
-    } catch {
-      setToast({ message: "Failed to send message", type: "error" });
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") {
+        setAssistantMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "Stopped.",
+          },
+        ]);
+      } else {
+        setToast({ message: "Failed to send message", type: "error" });
+      }
     } finally {
+      streamAbortRef.current = null;
       setAssistantLoading(false);
       setStreamingStatus(null);
       setStreamingResponse(null);
+    }
+  };
+
+  const stopStreaming = () => {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
     }
   };
 
@@ -1512,23 +1534,37 @@ export function AICommandPalette() {
                 )}
               />
             </div>
-            <button
-              type="submit"
-              disabled={
-                !input.trim() ||
-                (mode === "file"
-                  ? isLoading || !sessionId
-                  : mode === "assistant"
-                    ? assistantLoading
-                    : searchLoading)
-              }
-              className={cn(
-                "rounded-md bg-[var(--primary)] px-3 py-2 text-xs text-[var(--primary-foreground)]",
-                "disabled:opacity-50"
-              )}
-            >
-              <Send className="h-4 w-4" />
-            </button>
+            {mode === "assistant" && assistantLoading ? (
+              <button
+                type="button"
+                onClick={stopStreaming}
+                className={cn(
+                  "rounded-md border border-[var(--destructive)]/60 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]",
+                  "hover:bg-[var(--destructive)]/20"
+                )}
+                title="Stop"
+              >
+                <Square className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={
+                  !input.trim() ||
+                  (mode === "file"
+                    ? isLoading || !sessionId
+                    : mode === "assistant"
+                      ? assistantLoading
+                      : searchLoading)
+                }
+                className={cn(
+                  "rounded-md bg-[var(--primary)] px-3 py-2 text-xs text-[var(--primary-foreground)]",
+                  "disabled:opacity-50"
+                )}
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           {mode === "file" && showMentions && mentionSuggestions.length > 0 && (

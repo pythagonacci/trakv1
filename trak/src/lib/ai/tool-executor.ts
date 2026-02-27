@@ -239,7 +239,7 @@ export interface ToolExecutionContext {
   currentProjectId?: string;
   undoTracker?: UndoTracker;
   authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }>;
 }
 
 const shouldUseTestContext = () => process.env.NODE_ENV === "test";
@@ -5432,7 +5432,7 @@ async function annotateRowsWithSourceMetadataForTable(params: {
   tableId: string;
   rows: Array<Record<string, unknown>>;
   authContext?: AuthContext;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }>;
 }): Promise<Array<Record<string, unknown>>> {
   if (!params.rows.length) return params.rows;
   const tableResult = await getTable(params.tableId, { authContext: params.authContext });
@@ -5449,7 +5449,7 @@ async function annotateRowsWithSourceMetadata(params: {
   rows: Array<Record<string, unknown>>;
   workspaceId: string;
   supabase: SupabaseClient;
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }>;
 }): Promise<Array<Record<string, unknown>>> {
   const normalizedRows = params.rows.map((row) => normalizeSourceMetadataOnRow(row as SourceLinkedInsertRow));
   const candidateIds = new Set<string>();
@@ -5494,7 +5494,7 @@ async function annotateRowsWithSourceMetadata(params: {
   }
 
   const ids = Array.from(candidateIds);
-  const [taskResult, timelineResult, tableRowResult, blockResult] = await Promise.all([
+  const [taskResult, timelineResult, tableRowResult, blockResult, subtaskResult] = await Promise.all([
     params.supabase
       .from("task_items")
       .select("id")
@@ -5515,6 +5515,11 @@ async function annotateRowsWithSourceMetadata(params: {
       .select("id, tabs!inner(projects!inner(workspace_id))")
       .eq("tabs.projects.workspace_id", params.workspaceId)
       .in("id", ids),
+    params.supabase
+      .from("task_subtasks")
+      .select("id, task_items!inner(workspace_id)")
+      .eq("task_items.workspace_id", params.workspaceId)
+      .in("id", ids),
   ]);
 
   const taskIds = new Set(
@@ -5529,13 +5534,16 @@ async function annotateRowsWithSourceMetadata(params: {
   const blockIds = new Set(
     ((blockResult.data || []) as Array<{ id: string }>).map((item) => item.id)
   );
+  const subtaskIds = new Set(
+    ((subtaskResult.data || []) as Array<{ id: string }>).map((item) => item.id)
+  );
 
   // Build a title-to-entity map for title matching (case-insensitive)
-  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" | "table_row" | "block" }>();
+  const titleToEntity = new Map<string, { id: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }>();
   if (params.searchedEntities) {
     for (const entity of params.searchedEntities) {
       // Only include entities that are validated (exist in DB)
-      if (taskIds.has(entity.id) || timelineIds.has(entity.id) || tableRowIds.has(entity.id) || blockIds.has(entity.id)) {
+      if (taskIds.has(entity.id) || timelineIds.has(entity.id) || tableRowIds.has(entity.id) || blockIds.has(entity.id) || subtaskIds.has(entity.id)) {
         titleToEntity.set(entity.title.toLowerCase(), { id: entity.id, entityType: entity.entityType });
       }
     }
@@ -5545,7 +5553,7 @@ async function annotateRowsWithSourceMetadata(params: {
   const llmValidated = normalizedRows.filter((row) => {
     if (!hasValidRowSourceMetadata(row.source_entity_type, row.source_entity_id)) return false;
     const id = row.source_entity_id as string;
-    return taskIds.has(id) || timelineIds.has(id) || tableRowIds.has(id) || blockIds.has(id);
+    return taskIds.has(id) || timelineIds.has(id) || tableRowIds.has(id) || blockIds.has(id) || subtaskIds.has(id);
   });
   const llmInvalid = llmProvidedCount - llmValidated.length;
 
@@ -5554,6 +5562,7 @@ async function annotateRowsWithSourceMetadata(params: {
     validTimelineIds: timelineIds.size,
     validTableRowIds: tableRowIds.size,
     validBlockIds: blockIds.size,
+    validSubtaskIds: subtaskIds.size,
     titleMapEntries: titleToEntity.size,
   });
   aiDebug("sourceTracking:llmAnnotation", {
@@ -5573,7 +5582,7 @@ async function annotateRowsWithSourceMetadata(params: {
     // Pass 1: Key-name and UUID candidate extraction
     const candidate = extractSourceCandidateIdFromRow(row);
     if (candidate) {
-      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds, tableRowIds, blockIds);
+      const inferredType = inferSourceEntityTypeForCandidate(candidate, taskIds, timelineIds, tableRowIds, blockIds, subtaskIds);
       if (inferredType) {
         keyMatchCount++;
         aiDebug("sourceTracking:deterministicMatch", {
@@ -5706,7 +5715,7 @@ function hasValidRowSourceMetadata(sourceType: unknown, sourceId: unknown): bool
   return Boolean(normalizeSourceEntityType(sourceType) && normalizeSourceEntityId(sourceId));
 }
 
-function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | "block" | null {
+function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | "table_row" | "block" | "subtask" | null {
   if (value && typeof value === "object") {
     const source = value as Record<string, unknown>;
     return normalizeSourceEntityType(
@@ -5720,6 +5729,7 @@ function normalizeSourceEntityType(value: unknown): "task" | "timeline_event" | 
   if (normalized === "timeline_event" || normalized === "timelineevent" || normalized === "event") return "timeline_event";
   if (normalized === "table_row" || normalized === "tablerow" || normalized === "row") return "table_row";
   if (normalized === "block" || normalized === "blocks") return "block";
+  if (normalized === "subtask" || normalized === "subtasks") return "subtask";
   return null;
 }
 
@@ -5741,7 +5751,7 @@ function normalizeSourceSyncMode(value: unknown): "snapshot" | "live" {
 }
 
 function extractSourceMetadataFromArgs(args: Record<string, unknown>): {
-  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block";
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block" | "subtask";
   sourceEntityId?: string;
   sourceSyncMode: "snapshot" | "live";
 } {
@@ -5786,16 +5796,17 @@ function extractSourceMetadataFromArgs(args: Record<string, unknown>): {
 
 function extractSourceCandidateIdFromRow(
   row: SourceLinkedInsertRow
-): { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" } | null {
+): { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" | "subtask" } | null {
   const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {};
   const normalizedEntries = Object.entries(data).map(([key, value]) => [normalizeSourceKey(key), value] as const);
   const normalizedMap = new Map(normalizedEntries);
 
-  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" | "table_row" | "block" }> = [
+  const candidateKeys: Array<{ keys: string[]; hintedType?: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
     { keys: ["task_id", "taskid"], hintedType: "task" },
     { keys: ["timeline_event_id", "timelineeventid", "event_id", "eventid"], hintedType: "timeline_event" },
     { keys: ["table_row_id", "tablerowid", "row_id", "rowid"], hintedType: "table_row" },
     { keys: ["block_id", "blockid"], hintedType: "block" },
+    { keys: ["subtask_id", "subtaskid"], hintedType: "subtask" },
     { keys: ["source_id", "entity_id", "id"] },
   ];
 
@@ -5821,25 +5832,29 @@ function normalizeSourceKey(value: string): string {
 }
 
 function inferSourceEntityTypeForCandidate(
-  candidate: { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" },
+  candidate: { id: string; hintedType?: "task" | "timeline_event" | "table_row" | "block" | "subtask" },
   taskIds: Set<string>,
   timelineIds: Set<string>,
   tableRowIds: Set<string> = new Set(),
-  blockIds: Set<string> = new Set()
-): "task" | "timeline_event" | "table_row" | "block" | null {
+  blockIds: Set<string> = new Set(),
+  subtaskIds: Set<string> = new Set()
+): "task" | "timeline_event" | "table_row" | "block" | "subtask" | null {
   if (candidate.hintedType === "block" && blockIds.has(candidate.id)) return "block";
   if (candidate.hintedType === "task" && taskIds.has(candidate.id)) return "task";
   if (candidate.hintedType === "timeline_event" && timelineIds.has(candidate.id)) return "timeline_event";
   if (candidate.hintedType === "table_row" && tableRowIds.has(candidate.id)) return "table_row";
+  if (candidate.hintedType === "subtask" && subtaskIds.has(candidate.id)) return "subtask";
 
   const inTasks = taskIds.has(candidate.id);
   const inTimeline = timelineIds.has(candidate.id);
   const inTableRows = tableRowIds.has(candidate.id);
   const inBlocks = blockIds.has(candidate.id);
-  if (inBlocks && !inTasks && !inTimeline && !inTableRows) return "block";
-  if (inTasks && !inTimeline && !inTableRows && !inBlocks) return "task";
-  if (!inTasks && inTimeline && !inTableRows && !inBlocks) return "timeline_event";
-  if (!inTasks && !inTimeline && inTableRows && !inBlocks) return "table_row";
+  const inSubtasks = subtaskIds.has(candidate.id);
+  if (inBlocks && !inTasks && !inTimeline && !inTableRows && !inSubtasks) return "block";
+  if (inTasks && !inTimeline && !inTableRows && !inBlocks && !inSubtasks) return "task";
+  if (!inTasks && inTimeline && !inTableRows && !inBlocks && !inSubtasks) return "timeline_event";
+  if (!inTasks && !inTimeline && inTableRows && !inBlocks && !inSubtasks) return "table_row";
+  if (!inTasks && !inTimeline && !inTableRows && !inBlocks && inSubtasks) return "subtask";
   return null;
 }
 

@@ -603,9 +603,11 @@ interface TaskBlockProps {
   workspaceId: string;
   projectId?: string;
   scrollToTaskId?: string | null;
+  /** When true, task properties/status/priorities should be treated as read-only. */
+  locked?: boolean;
 }
 
-export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scrollToTaskId }: TaskBlockProps) {
+export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scrollToTaskId, locked = false }: TaskBlockProps) {
   const content = (block.content || {}) as TaskBlockContent & { tasks?: Task[] };
   const title = content.title || "Task list";
   const isTempBlock = block.id.startsWith("temp-");
@@ -663,6 +665,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
     fieldId?: string;
   } | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [propertiesAnchorRect, setPropertiesAnchorRect] = useState<DOMRect | null>(null);
   const [taskOrder, setTaskOrder] = useState<string[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<BoardItemId | null>(null);
@@ -670,6 +673,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
   const taskListScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const openPropertiesFromElement = (
+    element: HTMLElement | null,
+    target: { type: EntityType; id: string; title: string },
+    focus?: {
+      group: "status" | "priority" | "assignees" | "due_date" | "tags";
+      fieldId?: string;
+    } | null
+  ) => {
+    setPropertiesTarget(target);
+    setPropertiesFocus(focus ?? null);
+    const rect = element?.getBoundingClientRect() ?? null;
+    setPropertiesAnchorRect(rect);
+    setPropertiesOpen(true);
+  };
 
   const createTaskMutation = useCreateTaskItem(block.id);
   const updateTaskMutation = useUpdateTaskItem(block.id);
@@ -2623,6 +2641,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           entityId={taskEntityId}
                           workspaceId={workspaceId}
                           group="status"
+                          disabled={locked}
                         >
                           <button
                             onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
@@ -2873,18 +2892,21 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                       )}
                                       {subtaskProps && (
                                         <div className="pt-1">
-                                          <PropertyBadges
-                                            properties={subtaskProps}
-                                            memberNames={subtaskAssigneeNames}
-                                            onClick={() => {
-                                              setPropertiesTarget({
-                                                type: "subtask",
-                                                id: subtaskId,
-                                                title: subtask.text || "Subtask",
-                                              });
-                                              setPropertiesOpen(true);
-                                            }}
-                                          />
+                                      <PropertyBadges
+                                        properties={subtaskProps}
+                                        memberNames={subtaskAssigneeNames}
+                                        onClick={(event) => {
+                                          openPropertiesFromElement(
+                                            event.currentTarget as HTMLElement,
+                                            {
+                                              type: "subtask",
+                                              id: subtaskId,
+                                              title: subtask.text || "Subtask",
+                                            },
+                                            null
+                                          );
+                                        }}
+                                      />
                                         </div>
                                       )}
                                     </div>
@@ -2898,14 +2920,17 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                         {canUseProperties && (
                                           <>
                                             <DropdownMenuItem
-                                              onClick={() => {
-                                                setPropertiesTarget({
-                                                  type: "subtask",
-                                                  id: subtaskId,
-                                                  title: subtask.text || "Subtask",
-                                                });
-                                                setPropertiesOpen(true);
-                                              }}
+                                              onClick={(event) =>
+                                                openPropertiesFromElement(
+                                                  event.currentTarget as HTMLElement,
+                                                  {
+                                                    type: "subtask",
+                                                    id: subtaskId,
+                                                    title: subtask.text || "Subtask",
+                                                  },
+                                                  null
+                                                )
+                                              }
                                             >
                                               <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
                                               Properties
@@ -2980,6 +3005,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                   workspaceId={workspaceId}
                                   group="priority"
                                   fieldId={fieldId}
+                                  disabled={locked}
                                 >
                                   <button
                                     type="button"
@@ -3145,16 +3171,20 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           entityId={taskEntityId}
                           properties={entityPropertiesByTaskId[task.id]}
                           workspaceId={workspaceId}
-                          onOpen={() => {
-                            setPropertiesFocus(null);
-                            setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                            setPropertiesOpen(true);
+                          onOpen={(event) => {
+                            openPropertiesFromElement(
+                              (event?.currentTarget as HTMLElement) ?? null,
+                              { type: "task", id: taskEntityId, title: task.text || "Task" },
+                              null
+                            );
                           }}
-                          onOpenField={(info) => {
-                            setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                            setPropertiesFocus(info);
-                            setPropertiesOpen(true);
-                          }}
+                          onOpenField={(info, event) =>
+                            openPropertiesFromElement(
+                              (event?.currentTarget as HTMLElement) ?? null,
+                              { type: "task", id: taskEntityId, title: task.text || "Task" },
+                              info
+                            )
+                          }
                         />
                       )}
 
@@ -3169,11 +3199,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           {canUseProperties && taskEntityId && (
                             <>
                               <DropdownMenuItem
-                                onClick={() => {
-                                  setPropertiesFocus(null);
-                                  setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                                  setPropertiesOpen(true);
-                                }}
+                                onClick={(event) =>
+                                  openPropertiesFromElement(
+                                    event.currentTarget as HTMLElement,
+                                    { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                    null
+                                  )
+                                }
                               >
                                 <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
                                 Properties
@@ -3536,11 +3568,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                 {canUseProperties && taskEntityId && (
                                   <>
                                     <DropdownMenuItem
-                                      onClick={() => {
-                                        setPropertiesFocus(null);
-                                        setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                                        setPropertiesOpen(true);
-                                      }}
+                                      onClick={(event) =>
+                                        openPropertiesFromElement(
+                                          event.currentTarget as HTMLElement,
+                                          { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                          null
+                                        )
+                                      }
                                     >
                                       <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
                                       Properties
@@ -3756,10 +3790,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                                 {canUseSubtaskProperties && subtaskEntityId && (
                                   <>
                                     <DropdownMenuItem
-                                      onClick={() => {
-                                        setPropertiesTarget({ type: "subtask", id: subtaskEntityId, title: subtask.text || "Subtask" });
-                                        setPropertiesOpen(true);
-                                      }}
+                                      onClick={(event) =>
+                                        openPropertiesFromElement(
+                                          event.currentTarget as HTMLElement,
+                                          { type: "subtask", id: subtaskEntityId, title: subtask.text || "Subtask" },
+                                          null
+                                        )
+                                      }
                                     >
                                       <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
                                       Properties
@@ -3897,6 +3934,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           entityId={taskEntityId}
                           workspaceId={workspaceId}
                           group="status"
+                          disabled={locked}
                         >
                           <button
                             onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
@@ -4291,10 +4329,13 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                           {canUseProperties && taskEntityId && (
                             <>
                               <DropdownMenuItem
-                                onClick={() => {
-                                  setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                                  setPropertiesOpen(true);
-                                }}
+                                onClick={(event) =>
+                                  openPropertiesFromElement(
+                                    event.currentTarget as HTMLElement,
+                                    { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                    null
+                                  )
+                                }
                               >
                                 <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
                                 Properties
@@ -4807,17 +4848,27 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               if (!open) {
                 setPropertiesTarget(null);
                 setPropertiesFocus(null);
+                setPropertiesAnchorRect(null);
               }
             }}
+            anchorRect={propertiesAnchorRect}
             entityType={propertiesTarget.type}
             entityId={propertiesTarget.id}
             workspaceId={workspaceId}
             entityTitle={propertiesTarget.title}
             projectId={projectId}
             disabledFields={
-              propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length
-                ? { status: true, assignees: true }
-                : undefined
+              locked
+                ? {
+                    status: true,
+                    priority: true,
+                    assignees: true,
+                    dueDate: true,
+                    tags: true,
+                  }
+                : propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length
+                  ? { status: true, assignees: true }
+                  : undefined
             }
             displayStatus={
               propertiesTarget.type === "task" && propertiesTargetTask?.subtasks?.length && propertiesTargetTask
