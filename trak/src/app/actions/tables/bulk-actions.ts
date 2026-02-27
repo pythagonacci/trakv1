@@ -42,15 +42,42 @@ function sanitizeRowData(rowData: Record<string, unknown>, validIds: Set<string>
 
 function normalizeUniversalPropertyValuesForRow(
   rowData: Record<string, unknown>,
-  fieldTypeById: Map<string, string>
+  fieldById: Map<string, { type: string; config?: Record<string, unknown> }>
 ): { data: Record<string, unknown>; invalidValues: string[] } {
   const normalized: Record<string, unknown> = {};
   const invalidValues: string[] = [];
 
   for (const [fieldId, rawValue] of Object.entries(rowData || {})) {
-    const fieldType = fieldTypeById.get(fieldId);
+    const field = fieldById.get(fieldId);
+    const fieldType = field?.type;
     if (!isUniversalPropertyFieldType(fieldType)) {
-      normalized[fieldId] = rawValue;
+      if (fieldType === "select" || fieldType === "multi_select") {
+        const options =
+          ((field?.config?.options as Array<{ id?: string; label?: string }> | undefined) ?? []);
+        const resolveLabel = (value: unknown): string | null => {
+          if (value === null || value === undefined || value === "") return null;
+          const raw = String(value).trim();
+          if (!raw) return null;
+          const matched = options.find((option) => option.label === raw || option.id === raw);
+          return matched?.label ?? raw;
+        };
+
+        if (fieldType === "multi_select") {
+          const values = Array.isArray(rawValue)
+            ? rawValue
+            : rawValue === null || rawValue === undefined
+              ? []
+              : [rawValue];
+          const labels = values
+            .map((value) => resolveLabel(value))
+            .filter((value): value is string => Boolean(value));
+          normalized[fieldId] = labels.length > 0 ? labels : null;
+        } else {
+          normalized[fieldId] = resolveLabel(rawValue);
+        }
+      } else {
+        normalized[fieldId] = rawValue;
+      }
       continue;
     }
 
@@ -108,8 +135,10 @@ export async function bulkUpdateRows(input: {
     .eq("table_id", input.tableId);
   if (timingEnabled) t_fetch_fields_ms = Date.now() - fetchFieldsStart;
 
-  const fieldTypeById = new Map((fields || []).map((field) => [field.id, String(field.type)]));
-  const normalizedUpdatesResult = normalizeUniversalPropertyValuesForRow(input.updates || {}, fieldTypeById);
+  const fieldById = new Map(
+    (fields || []).map((field) => [field.id, { type: String(field.type), config: (field.config || {}) as Record<string, unknown> }])
+  );
+  const normalizedUpdatesResult = normalizeUniversalPropertyValuesForRow(input.updates || {}, fieldById);
   if (normalizedUpdatesResult.invalidValues.length > 0) {
     return {
       error:
@@ -448,12 +477,14 @@ export async function bulkInsertRows(input: {
 
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id, type")
+    .select("id, type, config")
     .eq("table_id", input.tableId);
-  const fieldTypeById = new Map((fields || []).map((field) => [field.id, String(field.type)]));
+  const fieldById = new Map(
+    (fields || []).map((field) => [field.id, { type: String(field.type), config: (field.config || {}) as Record<string, unknown> }])
+  );
 
   const normalizedRows = input.rows.map((row) => {
-    const normalized = normalizeUniversalPropertyValuesForRow(row.data || {}, fieldTypeById);
+    const normalized = normalizeUniversalPropertyValuesForRow(row.data || {}, fieldById);
     return { ...row, data: normalized.data, _invalidValues: normalized.invalidValues };
   });
   const normalizedRowsForInsert = normalizedRows.map((row) => ({

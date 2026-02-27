@@ -110,9 +110,28 @@ interface BlockRendererProps {
   onOpenDoc?: (docId: string) => void;
   isDragging?: boolean;
   scrollToTaskId?: string | null;
+  readOnly?: boolean;
+  publicToken?: string;
 }
 
-export default function BlockRenderer({ block, workspaceId, projectId, tabId, blockProperties, propertiesById, onUpdate, onDelete, onConvert, onAddBlockAbove, onAddBlockBelow, onOpenDoc, isDragging, scrollToTaskId }: BlockRendererProps) {
+export default function BlockRenderer({
+  block,
+  workspaceId,
+  projectId,
+  tabId,
+  blockProperties,
+  propertiesById,
+  onUpdate,
+  onDelete,
+  onConvert,
+  onAddBlockAbove,
+  onAddBlockBelow,
+  onOpenDoc,
+  isDragging,
+  scrollToTaskId,
+  readOnly = false,
+  publicToken,
+}: BlockRendererProps) {
   // Ensure block type exists - critical validation
   if (!block.type) {
     console.error("BlockRenderer: Block missing type property:", block);
@@ -165,7 +184,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, bl
             projectId={projectId}
             onUpdate={onUpdate}
             scrollToTaskId={scrollToTaskId}
-            locked={Boolean((block as any).locked)}
+            locked={readOnly || Boolean((block as any).locked)}
+            publicToken={readOnly ? publicToken : undefined}
           />
         );
       case "link":
@@ -210,8 +230,8 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, bl
   };
 
   return (
-      <LazyBlockWrapper blockId={block.id} blockType={block.type}>
-        <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
+    <LazyBlockWrapper blockId={block.id} blockType={block.type}>
+      <BlockReferencePickerProvider blockId={block.id} workspaceId={workspaceId} projectId={projectId}>
         <BlockWrapper
           block={block}
           workspaceId={workspaceId}
@@ -223,6 +243,7 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, bl
           onAddBlockAbove={onAddBlockAbove}
           onAddBlockBelow={onAddBlockBelow}
           isDragging={isDragging}
+          readOnly={readOnly}
         >
           {/* Use key to force re-render when type changes - ensures correct component renders */}
           <div key={`${block.id}-${block.type}`}>

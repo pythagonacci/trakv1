@@ -951,7 +951,7 @@ export default function BlockWrapper({
             {children}
 
             {/* Property Badges */}
-            {workspaceId && hasProperties && direct && (
+            {(workspaceId || readOnly) && hasProperties && direct && (
               <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
                 <PropertyBadges
                   properties={direct}

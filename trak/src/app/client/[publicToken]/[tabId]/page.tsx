@@ -42,7 +42,14 @@ export default async function ClientTabPage({
     notFound();
   }
 
-  const blocks = blocksResult.data || [];
+  const blocksPayload = blocksResult.data as
+    | Block[]
+    | { blocks: Block[]; blockPropertiesById: Record<string, any> }
+    | undefined;
+  const blocks = Array.isArray(blocksPayload) ? blocksPayload : blocksPayload?.blocks || [];
+  const blockPropertiesById = Array.isArray(blocksPayload)
+    ? {}
+    : (blocksPayload?.blockPropertiesById as Record<string, any>) || {};
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
@@ -136,6 +143,7 @@ export default async function ClientTabPage({
             publicToken={publicToken}
             allowComments={project.client_comments_enabled ?? false}
             initialFileUrls={initialFileUrls}
+            blockPropertiesById={blockPropertiesById}
           />
         </div>
       </div>

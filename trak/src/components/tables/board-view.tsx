@@ -193,7 +193,7 @@ export function BoardView({
     }
     if (field.type === "select" || field.type === "multi_select") {
       const options = ((field.config || {}) as SelectFieldConfig).options || [];
-      return options.find((opt) => opt.id === value) || null;
+      return options.find((opt) => opt.id === value || opt.label === value) || null;
     }
     if (field.type === "status") {
       const options = ((field.config || {}) as StatusFieldConfig).options || [];

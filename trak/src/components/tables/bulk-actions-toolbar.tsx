@@ -171,7 +171,7 @@ export function BulkActionsToolbar({
           >
             <option value="">Select...</option>
             {options.map((opt: any) => (
-              <option key={opt.id} value={opt.id}>
+              <option key={opt.id} value={opt.label}>
                 {opt.label}
               </option>
             ))}
@@ -188,7 +188,7 @@ export function BulkActionsToolbar({
             }}
           >
             {options.map((opt: any) => (
-              <option key={opt.id} value={opt.id}>
+              <option key={opt.id} value={opt.label}>
                 {opt.label}
               </option>
             ))}

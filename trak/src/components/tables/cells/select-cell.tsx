@@ -124,6 +124,7 @@ export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCan
   const handleDeleteOption = (optionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!onUpdateConfig) return;
+    const deletedOpt = options.find((opt) => opt.id === optionId);
 
     const newConfig: SelectFieldConfig = {
       ...config,
@@ -131,10 +132,20 @@ export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCan
     };
 
     onUpdateConfig(newConfig);
-    if (draft === optionId) {
+    if (draft === optionId || draft === deletedOpt?.label) {
       setDraft(undefined);
       onCommit(null);
     }
+  };
+
+  const resolveLabel = (raw: unknown): string | undefined => {
+    if (typeof raw !== "string") return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return undefined;
+    const matched = options.find(
+      (opt) => opt.label.trim().toLowerCase() === normalized || opt.id.trim().toLowerCase() === normalized
+    );
+    return matched?.label ?? raw;
   };
 
   if (editing && dropdownOpen) {
@@ -163,8 +174,8 @@ export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCan
                   key={opt.id}
                   className="px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs flex items-center gap-2 group"
                   onClick={() => {
-                    setDraft(opt.id);
-                    onCommit(opt.id);
+                    setDraft(opt.label);
+                    onCommit(opt.label);
                     setDropdownOpen(false);
                   }}
                 >
@@ -216,7 +227,7 @@ export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCan
     );
   }
 
-  const display = options.find((opt) => opt.id === value)?.label;
+  const display = resolveLabel(value);
 
   if (!display) {
     return (

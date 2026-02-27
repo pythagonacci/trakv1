@@ -302,7 +302,7 @@ export function TableTimelineView({
     }
     if (field.type === "select") {
       const options = ((field.config || {}) as SelectFieldConfig).options || [];
-      return options.find((opt) => opt.id === value) || null;
+      return options.find((opt) => opt.id === value || opt.label === value) || null;
     }
     return null;
   };

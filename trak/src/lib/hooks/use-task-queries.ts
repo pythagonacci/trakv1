@@ -24,11 +24,23 @@ const taskKeys = {
   subtaskReferences: (subtaskId: string) => ["subtaskReferences", subtaskId] as const,
 };
 
-export function useTaskItems(blockId: string, options?: { enabled?: boolean }) {
+export function useTaskItems(
+  blockId: string,
+  options?: { enabled?: boolean; publicToken?: string }
+) {
+  const publicToken = options?.publicToken;
+
   return useQuery({
-    queryKey: taskKeys.items(blockId),
+    queryKey: publicToken
+      ? [...taskKeys.items(blockId), "public", publicToken]
+      : taskKeys.items(blockId),
     queryFn: async () => {
-      const response = await fetch(`/api/task-blocks/${blockId}/items`, {
+      const basePath = publicToken ? "/api/client-task-blocks" : "/api/task-blocks";
+      const url = publicToken
+        ? `${basePath}/${blockId}/items?publicToken=${encodeURIComponent(publicToken)}`
+        : `${basePath}/${blockId}/items`;
+
+      const response = await fetch(url, {
         cache: "no-store",
       });
       const result = await response.json();

@@ -1608,8 +1608,13 @@ export async function executeAICommand(
                 tool: toolName,
                 reason: "truncated_repair_on_write_tool",
               });
+              const retryHint = toolName === "bulkInsertRows"
+                ? "Retry bulkInsertRows with a much smaller chunk (max 10 rows when any long_text fields are present; otherwise max 25 rows)."
+                : toolName === "createTableFull"
+                  ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
+                  : "Retry with a smaller payload.";
               parseFailure =
-                "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+                `Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. ${retryHint}`;
             }
           }
 
@@ -3046,8 +3051,13 @@ export async function* executeAICommandStream(
                 tool: toolName,
                 reason: "truncated_repair_on_write_tool",
               });
+              const retryHint = toolName === "bulkInsertRows"
+                ? "Retry bulkInsertRows with a much smaller chunk (max 10 rows when any long_text fields are present; otherwise max 25 rows)."
+                : toolName === "createTableFull"
+                  ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
+                  : "Retry with a smaller payload.";
               parseFailure =
-                "Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. Retry with a smaller payload (fewer rows per call).";
+                `Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. ${retryHint}`;
             }
           }
 

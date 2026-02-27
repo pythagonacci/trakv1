@@ -42,7 +42,7 @@ interface CreateRowInput {
 
 function normalizeUniversalPropertyRowData(
   inputData: Record<string, unknown> | undefined,
-  fields: Array<Pick<TableField, "id" | "name" | "type">>
+  fields: Array<Pick<TableField, "id" | "name" | "type" | "config">>
 ): { data: Record<string, unknown>; invalidValues: string[] } {
   const data = inputData || {};
   const fieldById = new Map(fields.map((field) => [field.id, field]));
@@ -51,7 +51,35 @@ function normalizeUniversalPropertyRowData(
 
   for (const [fieldId, rawValue] of Object.entries(data)) {
     const field = fieldById.get(fieldId);
-    if (!field || !isUniversalPropertyFieldType(field.type)) {
+    if (!field) {
+      normalized[fieldId] = rawValue;
+      continue;
+    }
+
+    if (!isUniversalPropertyFieldType(field.type) && (field.type === "select" || field.type === "multi_select")) {
+      const config = (field.config || {}) as Record<string, unknown>;
+      const options = (config.options as Array<{ id?: string; label?: string }> | undefined) ?? [];
+      const resolveLabel = (value: unknown): string | null => {
+        if (value === null || value === undefined || value === "") return null;
+        const raw = String(value).trim();
+        if (!raw) return null;
+        const matched = options.find((opt) => opt.label === raw || opt.id === raw);
+        return matched?.label ?? raw;
+      };
+
+      if (field.type === "multi_select") {
+        const input = Array.isArray(rawValue) ? rawValue : rawValue === null || rawValue === undefined ? [] : [rawValue];
+        const labels = input
+          .map((entry) => resolveLabel(entry))
+          .filter((entry): entry is string => Boolean(entry));
+        normalized[fieldId] = labels.length > 0 ? labels : null;
+      } else {
+        normalized[fieldId] = resolveLabel(rawValue);
+      }
+      continue;
+    }
+
+    if (!isUniversalPropertyFieldType(field.type)) {
       normalized[fieldId] = rawValue;
       continue;
     }
@@ -81,11 +109,11 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
   const sourceEntityType = sourceEntityId ? input.sourceEntityType ?? null : null;
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id, name, type")
+    .select("id, name, type, config")
     .eq("table_id", input.tableId);
   const normalizedInput = normalizeUniversalPropertyRowData(
     input.data,
-    (fields ?? []) as Array<Pick<TableField, "id" | "name" | "type">>
+    (fields ?? []) as Array<Pick<TableField, "id" | "name" | "type" | "config">>
   );
   if (normalizedInput.invalidValues.length > 0) {
     return {
@@ -134,11 +162,11 @@ export async function updateRow(rowId: string, updates: { data?: Record<string, 
   const mergedData = { ...(row?.data || {}), ...(updates.data || {}) };
   const { data: fields } = await supabase
     .from("table_fields")
-    .select("id, name, type")
+    .select("id, name, type, config")
     .eq("table_id", row.table_id);
   const normalizedInput = normalizeUniversalPropertyRowData(
     mergedData,
-    (fields ?? []) as Array<Pick<TableField, "id" | "name" | "type">>
+    (fields ?? []) as Array<Pick<TableField, "id" | "name" | "type" | "config">>
   );
   if (normalizedInput.invalidValues.length > 0) {
     return {
@@ -219,6 +247,26 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
         };
       }
       normalizedCellValue = canonical;
+    }
+  } else if (field.type === "select" || field.type === "multi_select") {
+    const config = (field.config || {}) as Record<string, unknown>;
+    const options = (config.options as Array<{ id?: string; label?: string }> | undefined) ?? [];
+    const resolveLabel = (entry: unknown): string | null => {
+      if (entry === null || entry === undefined || entry === "") return null;
+      const raw = String(entry).trim();
+      if (!raw) return null;
+      const matched = options.find((opt) => opt.label === raw || opt.id === raw);
+      return matched?.label ?? raw;
+    };
+
+    if (field.type === "multi_select") {
+      const input = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+      const labels = input
+        .map((entry) => resolveLabel(entry))
+        .filter((entry): entry is string => Boolean(entry));
+      normalizedCellValue = labels.length > 0 ? labels : null;
+    } else {
+      normalizedCellValue = resolveLabel(value);
     }
   }
 
@@ -1297,7 +1345,7 @@ function resolveSelectLikeValue(field: TableField, value: unknown): unknown {
     field.type === "priority"
       ? ((config.levels as Array<{ id?: string; label?: string }> | undefined) ?? [])
       : ((config.options as Array<{ id?: string; label?: string }> | undefined) ?? []);
-  const match = options.find((option) => option.id === raw);
+  const match = options.find((option) => option.id === raw || option.label === raw);
   return match?.label ?? value;
 }
 

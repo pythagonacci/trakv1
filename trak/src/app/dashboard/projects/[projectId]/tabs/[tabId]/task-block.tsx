@@ -411,7 +411,22 @@ function TaskPropertyBadges({
 }) {
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
 
-  const direct = properties;
+  // Avoid duplicating core fields (status, priority, assignee, due date)
+  // that are already shown via the main task icons/UI.
+  const direct: EntityProperties | undefined = properties
+    ? {
+        ...properties,
+        status: null,
+        statuses: [],
+        priority: null,
+        priorities: [],
+        assignee_id: null,
+        assignee_ids: [],
+        assignees: [],
+        due_date: null,
+        due_dates: [],
+      }
+    : undefined;
 
   const getMemberName = (assigneeId: string | null) => {
     if (!assigneeId) return undefined;
@@ -605,13 +620,28 @@ interface TaskBlockProps {
   scrollToTaskId?: string | null;
   /** When true, task properties/status/priorities should be treated as read-only. */
   locked?: boolean;
+  /** Optional public token when rendering on a client page (read-only). */
+  publicToken?: string;
 }
 
-export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scrollToTaskId, locked = false }: TaskBlockProps) {
+export default function TaskBlock({
+  block,
+  onUpdate,
+  workspaceId,
+  projectId,
+  scrollToTaskId,
+  locked = false,
+  publicToken,
+}: TaskBlockProps) {
   const content = (block.content || {}) as TaskBlockContent & { tasks?: Task[] };
   const title = content.title || "Task list";
   const isTempBlock = block.id.startsWith("temp-");
-  const { data: { tasks: serverTasks = [], entityPropertiesByTaskId = {} } = {} } = useTaskItems(block.id, { enabled: !isTempBlock });
+  const {
+    data: {
+      tasks: serverTasks = [],
+      entityPropertiesByTaskId = {},
+    } = {},
+  } = useTaskItems(block.id, { enabled: !isTempBlock, publicToken });
   const tasks = isTempBlock ? (content.tasks || []) : (serverTasks as Task[]);
   const initialGlobalHideIcons = content.hideIcons || false;
   const initialViewMode = content.viewMode || "list";
@@ -2594,6 +2624,7 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
               const statusIsDerived = hasSubtasks;
               const taskEntityId = typeof task.id === "string" ? task.id : null;
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
+              const showReadOnlyProperties = Boolean(taskEntityId) && !isTempBlock;
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
               const isDone = effectiveStatus === "done";
               const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
@@ -3165,25 +3196,33 @@ export default function TaskBlock({ block, onUpdate, workspaceId, projectId, scr
                         )}
                       </div>
 
-                      {/* When icons are hidden, show compact universal property badges instead */}
-                      {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
+                      {/* Client pages (publicToken) should always show read-only property pills.
+                          Internal dashboard falls back to pills when icons are hidden. */}
+                      {showReadOnlyProperties && taskEntityId && (publicToken || !shouldShowIcons(task)) && (
                         <TaskPropertyBadges
                           entityId={taskEntityId}
                           properties={entityPropertiesByTaskId[task.id]}
                           workspaceId={workspaceId}
-                          onOpen={(event) => {
-                            openPropertiesFromElement(
-                              (event?.currentTarget as HTMLElement) ?? null,
-                              { type: "task", id: taskEntityId, title: task.text || "Task" },
-                              null
-                            );
-                          }}
-                          onOpenField={(info, event) =>
-                            openPropertiesFromElement(
-                              (event?.currentTarget as HTMLElement) ?? null,
-                              { type: "task", id: taskEntityId, title: task.text || "Task" },
-                              info
-                            )
+                          onOpen={
+                            canUseProperties
+                              ? (event) => {
+                                  openPropertiesFromElement(
+                                    (event?.currentTarget as HTMLElement) ?? null,
+                                    { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                    null
+                                  );
+                                }
+                              : () => {}
+                          }
+                          onOpenField={
+                            canUseProperties
+                              ? (info, event) =>
+                                  openPropertiesFromElement(
+                                    (event?.currentTarget as HTMLElement) ?? null,
+                                    { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                    info
+                                  )
+                              : undefined
                           }
                         />
                       )}

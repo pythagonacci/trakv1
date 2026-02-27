@@ -20,59 +20,67 @@ const randomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)];
 };
 
-export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving, onUpdateConfig }: Props) {
+export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, saving, onUpdateConfig }: Props) {
   const config = (field.config || {}) as SelectFieldConfig;
   const options = config.options || [];
-  const [selectedIds, setSelectedIds] = useState<string[]>(
-    Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []
-  );
+
+  const resolveLabel = (raw: unknown): string | null => {
+    if (typeof raw !== "string") return null;
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return null;
+    const matched = options.find(
+      (opt) => opt.label.trim().toLowerCase() === normalized || opt.id.trim().toLowerCase() === normalized
+    );
+    return matched?.label ?? raw.trim();
+  };
+
+  const normalizeValues = (raw: unknown): string[] =>
+    (Array.isArray(raw) ? raw : [])
+      .map((entry) => resolveLabel(entry))
+      .filter((entry): entry is string => Boolean(entry));
+
+  const [selectedValues, setSelectedValues] = useState<string[]>(normalizeValues(value));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [newOptionName, setNewOptionName] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setSelectedIds(Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
-  }, [value]);
+    setSelectedValues(normalizeValues(value));
+  }, [value, options]);
 
   useEffect(() => {
-    if (editing) {
-      setDropdownOpen(true);
-    } else {
-      setDropdownOpen(false);
-    }
+    setDropdownOpen(editing);
   }, [editing]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     if (!dropdownOpen) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
-        onCommit(selectedIds);
+        onCommit(selectedValues);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [dropdownOpen, selectedIds, onCommit]);
+  }, [dropdownOpen, selectedValues, onCommit]);
 
-  const toggleOption = (optionId: string) => {
-    setSelectedIds((prev) => {
-      if (prev.includes(optionId)) {
-        return prev.filter((id) => id !== optionId);
-      } else {
-        return [...prev, optionId];
+  const toggleOption = (optionLabel: string) => {
+    setSelectedValues((prev) => {
+      if (prev.includes(optionLabel)) {
+        return prev.filter((label) => label !== optionLabel);
       }
+      return [...prev, optionLabel];
     });
   };
 
-  const removeOption = (optionId: string, e: React.MouseEvent) => {
+  const removeOption = (optionLabel: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newIds = selectedIds.filter((id) => id !== optionId);
-    setSelectedIds(newIds);
-    onCommit(newIds);
+    const newValues = selectedValues.filter((label) => label !== optionLabel);
+    setSelectedValues(newValues);
+    onCommit(newValues);
   };
 
   const handleAddOption = () => {
@@ -90,9 +98,9 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
     };
 
     onUpdateConfig(newConfig);
-    const newIds = [...selectedIds, newOption.id];
-    setSelectedIds(newIds);
-    onCommit(newIds);
+    const newValues = [...selectedValues, newOption.label];
+    setSelectedValues(newValues);
+    onCommit(newValues);
     setNewOptionName("");
   };
 
@@ -100,6 +108,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
     e.stopPropagation();
     if (!onUpdateConfig) return;
 
+    const deletedOpt = options.find((opt) => opt.id === optionId);
     const newConfig: SelectFieldConfig = {
       ...config,
       options: options.filter((opt) => opt.id !== optionId),
@@ -107,15 +116,14 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
 
     onUpdateConfig(newConfig);
 
-    // Remove from selected if it was selected
-    if (selectedIds.includes(optionId)) {
-      const newIds = selectedIds.filter((id) => id !== optionId);
-      setSelectedIds(newIds);
-      onCommit(newIds);
+    if (deletedOpt && selectedValues.includes(deletedOpt.label)) {
+      const newValues = selectedValues.filter((label) => label !== deletedOpt.label);
+      setSelectedValues(newValues);
+      onCommit(newValues);
     }
   };
 
-  const selectedOptions = options.filter((opt) => selectedIds.includes(opt.id));
+  const selectedOptions = options.filter((opt) => selectedValues.includes(opt.label));
 
   if (editing && dropdownOpen) {
     return (
@@ -132,7 +140,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    toggleOption(opt.id);
+                    toggleOption(opt.label);
                   }}
                   className="hover:text-[var(--error)]"
                 >
@@ -141,18 +149,18 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
               </span>
             ))}
             <span className="text-xs text-[var(--muted-foreground)] py-0.5">
-              {selectedIds.length === 0 ? "Select options..." : ""}
+              {selectedValues.length === 0 ? "Select options..." : ""}
             </span>
           </div>
         </div>
         <div className="absolute top-full left-0 min-w-[240px] mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] shadow-lg z-10 max-h-60 overflow-y-auto">
           {options.map((opt) => {
-            const isSelected = selectedIds.includes(opt.id);
+            const isSelected = selectedValues.includes(opt.label);
             return (
               <div
                 key={opt.id}
                 className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs group"
-                onClick={() => toggleOption(opt.id)}
+                onClick={() => toggleOption(opt.label)}
               >
                 <input
                   type="checkbox"
@@ -242,7 +250,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
           >
             {opt.label}
             <button
-              onClick={(e) => removeOption(opt.id, e)}
+              onClick={(e) => removeOption(opt.label, e)}
               className="hover:text-[var(--error)]"
             >
               <X className="h-3 w-3" />

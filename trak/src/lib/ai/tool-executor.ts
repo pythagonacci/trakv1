@@ -243,6 +243,10 @@ export interface ToolExecutionContext {
 }
 
 const shouldUseTestContext = () => process.env.NODE_ENV === "test";
+const CREATE_TABLE_FULL_MAX_INLINE_ROWS = 2;
+const BULK_INSERT_DEFAULT_CHUNK_ROWS = 50;
+const BULK_INSERT_MIN_CHUNK_ROWS = 2;
+const BULK_INSERT_TARGET_PAYLOAD_CHARS = 14000;
 
 function summarizeToolArgs(args: Record<string, unknown>) {
   const keys = Object.keys(args || {});
@@ -278,6 +282,111 @@ function summarizeToolResult(result: ToolCallResult) {
     dataCount,
     dataKeys,
     warningsCount: Array.isArray(result.warnings) ? result.warnings.length : 0,
+  };
+}
+
+function isLikelyPayloadTooLargeError(error: string | undefined): boolean {
+  if (!error) return false;
+  const normalized = error.toLowerCase();
+  return (
+    normalized.includes("too large") ||
+    normalized.includes("payload") ||
+    normalized.includes("request entity too large") ||
+    normalized.includes("413") ||
+    normalized.includes("body size") ||
+    normalized.includes("max size")
+  );
+}
+
+function estimateBulkInsertRowsChars(
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>
+): number {
+  try {
+    return JSON.stringify({ rows }).length;
+  } catch {
+    return rows.length * 200;
+  }
+}
+
+function chooseInitialBulkInsertChunkSize(
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>
+): number {
+  if (rows.length <= BULK_INSERT_DEFAULT_CHUNK_ROWS) return rows.length;
+  const sample = rows.slice(0, Math.min(rows.length, 10));
+  const sampleChars = Math.max(1, estimateBulkInsertRowsChars(sample));
+  const perRow = Math.max(50, Math.ceil(sampleChars / sample.length));
+  const sizeByChars = Math.max(
+    BULK_INSERT_MIN_CHUNK_ROWS,
+    Math.floor(BULK_INSERT_TARGET_PAYLOAD_CHARS / perRow)
+  );
+  return Math.max(
+    BULK_INSERT_MIN_CHUNK_ROWS,
+    Math.min(BULK_INSERT_DEFAULT_CHUNK_ROWS, sizeByChars, rows.length)
+  );
+}
+
+async function insertRowsAdaptive(
+  tableId: string,
+  rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>,
+  options?: { authContext?: AuthContext }
+): Promise<ToolCallResult> {
+  if (rows.length === 0) return { success: true, data: { insertedIds: [] } };
+
+  const insertedIds: string[] = [];
+  const warnings: string[] = [];
+  let index = 0;
+  let chunkSize = chooseInitialBulkInsertChunkSize(rows);
+
+  while (index < rows.length) {
+    const chunk = rows.slice(index, index + chunkSize);
+    const result = await wrapResult(
+      bulkInsertRows({
+        tableId,
+        rows: chunk,
+      })
+    );
+    if (result.success) {
+      const chunkInserted = Array.isArray((result.data as Record<string, unknown> | undefined)?.insertedIds)
+        ? ((result.data as Record<string, unknown>).insertedIds as string[])
+        : [];
+      insertedIds.push(...chunkInserted);
+      index += chunk.length;
+      continue;
+    }
+
+    if (!isLikelyPayloadTooLargeError(result.error) || chunkSize <= BULK_INSERT_MIN_CHUNK_ROWS) {
+      return {
+        success: false,
+        error: result.error ?? "Failed to insert rows.",
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
+    }
+
+    const reduced = Math.max(
+      BULK_INSERT_MIN_CHUNK_ROWS,
+      chunkSize - Math.max(1, Math.ceil(chunkSize / 3))
+    );
+    warnings.push(
+      `bulkInsertRows chunk reduced from ${chunkSize} to ${reduced} after payload-size failure.`
+    );
+    aiDebug("bulkInsertRows:chunkReduced", {
+      tableId,
+      from: chunkSize,
+      to: reduced,
+      rowIndex: index,
+      reason: result.error,
+    });
+    chunkSize = reduced;
+  }
+
+  if (insertedIds.length > 0) {
+    await syncPriorityStatusToEntityProperties(tableId, insertedIds, options?.authContext);
+  }
+
+  return {
+    success: true,
+    data: { insertedIds },
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 
@@ -2887,23 +2996,11 @@ export async function executeTool(
               mappingResult.rows
             );
 
-            const result = await wrapResult(
-              bulkInsertRows({
-                tableId: resolvedTableId,
-                rows: rowsWithNormalizedSelects,
-              })
+            const result = await insertRowsAdaptive(
+              resolvedTableId,
+              rowsWithNormalizedSelects,
+              { authContext: authContext ?? undefined }
             );
-
-            if (result.success) {
-              const insertedIds = (result.data as { insertedIds?: string[] } | undefined)?.insertedIds ?? [];
-              if (insertedIds.length > 0) {
-                await syncPriorityStatusToEntityProperties(
-                  resolvedTableId,
-                  insertedIds,
-                  authContext ?? undefined
-                );
-              }
-            }
 
             // Attach warnings if any fields were unmatched
             if (mappingResult.warnings.length > 0) {
@@ -2953,21 +3050,26 @@ export async function executeTool(
               if (!isSelectLike(field.type)) continue;
 
               const { kind, options } = getOptionEntries(field);
-              const optionIds = new Set(options.map((opt) => opt.id));
               const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-              const allValid = values.every((value) => optionIds.has(String(value)));
-              if (!allValid) {
+              const { values: normalizedValues, missing } = resolveSelectValues(
+                { type: field.type, config: (field.config ?? {}) as Record<string, unknown> },
+                values,
+                false
+              );
+              if (missing || normalizedValues.length !== values.length) {
                 return {
                   success: false,
-                  error: `bulkUpdateRows: "${field.name}" expects option IDs, but provided values were not found. Use updateTableRowsByFieldNames to update by labels.`,
+                  error: `bulkUpdateRows: "${field.name}" values were not found in field options. Provide valid labels (or IDs that map to labels).`,
                 };
               }
-              if ((kind === "options" || kind === "levels") && optionIds.size === 0) {
+              if ((kind === "options" || kind === "levels") && options.length === 0) {
                 return {
                   success: false,
                   error: `bulkUpdateRows: "${field.name}" has no options configured. Use updateTableRowsByFieldNames to create options and update rows.`,
                 };
               }
+              (args.updates as Record<string, unknown>)[fieldId] =
+                field.type === "multi_select" ? normalizedValues : normalizedValues[0] ?? null;
             }
           }
           return await wrapResult(
@@ -3347,6 +3449,8 @@ export async function executeTool(
             // Enhance field types with smart inference from row data
             fields = enhanceFieldsWithInference(fields, rows);
             rows = normalizeRowsForSelectFields(fields, rows);
+            const normalizedInlineRows = rows.slice(0, CREATE_TABLE_FULL_MAX_INLINE_ROWS);
+            const normalizedOverflowRows = rows.slice(CREATE_TABLE_FULL_MAX_INLINE_ROWS);
             if (hasSourceMetadata) {
               fields = pruneEmptySourceColumns(fields, rows);
             }
@@ -3360,7 +3464,7 @@ export async function executeTool(
                 projectId,
                 tabId: tabId ?? null,
                 fields,
-                rows,
+                rows: normalizedInlineRows,
                 authContext: authContext ?? undefined,
               });
 
@@ -3383,10 +3487,34 @@ export async function executeTool(
                   blockId = blockResult.data.id;
                 }
 
+                let totalInserted = rowsInserted;
+                const warnings: string[] = [];
+                if (normalizedOverflowRows.length > 0) {
+                  const overflowResult = await executeTool(
+                    { name: "bulkInsertRows", arguments: { tableId, rows: normalizedOverflowRows } },
+                    context
+                  );
+                  if (!overflowResult.success) {
+                    if (blockId) {
+                      await deleteBlock(blockId, { authContext: authContext ?? undefined });
+                    }
+                    await deleteTable(tableId, { authContext: authContext ?? undefined });
+                    return { success: false, error: overflowResult.error ?? "Failed to insert overflow rows." };
+                  }
+                  const overflowInserted = Array.isArray((overflowResult.data as Record<string, unknown> | undefined)?.insertedIds)
+                    ? ((overflowResult.data as Record<string, unknown>).insertedIds as string[])
+                    : [];
+                  totalInserted += overflowInserted.length;
+                  if (overflowResult.warnings?.length) {
+                    warnings.push(...overflowResult.warnings);
+                  }
+                }
+
                 return {
                   success: true,
-                  data: { tableId, fieldsCreated, rowsInserted, blockId },
-                  hint: `Created table "${title}" with ${fieldsCreated} fields and ${rowsInserted} rows.`,
+                  data: { tableId, fieldsCreated, rowsInserted: totalInserted, blockId },
+                  hint: `Created table "${title}" with ${fieldsCreated} fields and ${totalInserted} rows.`,
+                  warnings: warnings.length > 0 ? warnings : undefined,
                 };
               }
             }
@@ -3445,9 +3573,9 @@ export async function executeTool(
 
             // Step 3: Insert rows if provided
             let insertedRows: unknown[] = [];
-            if (rows.length > 0) {
+            if (normalizedInlineRows.length > 0) {
               const rowsResult = await executeTool(
-                { name: "bulkInsertRows", arguments: { tableId, rows } },
+                { name: "bulkInsertRows", arguments: { tableId, rows: normalizedInlineRows } },
                 context
               );
               if (!rowsResult.success) {
@@ -3461,9 +3589,24 @@ export async function executeTool(
                 ? ((rowsResult.data as Record<string, unknown>).insertedIds as unknown[])
                 : [];
 
-              if (insertedRows.length > 0) {
-                await syncPriorityStatusToEntityProperties(tableId, insertedRows as string[], authContext ?? undefined);
+            }
+
+            if (normalizedOverflowRows.length > 0) {
+              const overflowResult = await executeTool(
+                { name: "bulkInsertRows", arguments: { tableId, rows: normalizedOverflowRows } },
+                context
+              );
+              if (!overflowResult.success) {
+                if (blockId) {
+                  await deleteBlock(blockId, { authContext: authContext ?? undefined });
+                }
+                await deleteTable(tableId, { authContext: authContext ?? undefined });
+                return { success: false, error: overflowResult.error ?? "Failed to insert overflow rows." };
               }
+              const overflowInserted = Array.isArray((overflowResult.data as Record<string, unknown> | undefined)?.insertedIds)
+                ? ((overflowResult.data as Record<string, unknown>).insertedIds as unknown[])
+                : [];
+              insertedRows = insertedRows.concat(overflowInserted);
             }
 
             return {
@@ -3474,7 +3617,7 @@ export async function executeTool(
                 rowsInserted: insertedRows.length,
                 blockId,
               },
-              hint: `Created table "${title}" with ${createdFields.length} fields and ${insertedRows.length} rows.`,
+              hint: `Created table "${title}" with ${createdFields.length} fields and ${insertedRows.length} rows (max ${CREATE_TABLE_FULL_MAX_INLINE_ROWS} inline, overflow batched).`,
             };
           }
 
@@ -4909,21 +5052,26 @@ function hasUsableFieldConfig(
   if (normalizedType === "priority") {
     const levels = (config as any)?.levels;
     if (!Array.isArray(levels) || levels.length === 0) return false;
-    // Validate that levels have proper IDs (not semantic IDs)
+    // Priority levels need stable ids + labels and hex colors.
     return levels.every((level: any) =>
       level.id &&
       typeof level.id === "string" &&
-      level.id.startsWith("opt_")
+      level.label &&
+      typeof level.label === "string" &&
+      level.color &&
+      typeof level.color === "string" &&
+      level.color.startsWith("#")
     );
   }
   if (normalizedType === "status" || normalizedType === "select" || normalizedType === "multi_select") {
     const options = (config as any)?.options;
     if (!Array.isArray(options) || options.length === 0) return false;
-    // Validate that options have proper IDs (not semantic IDs) and hex colors
+    // Select-like options need stable ids + labels and hex colors.
     return options.every((opt: any) =>
       opt.id &&
       typeof opt.id === "string" &&
-      opt.id.startsWith("opt_") &&
+      opt.label &&
+      typeof opt.label === "string" &&
       opt.color &&
       typeof opt.color === "string" &&
       opt.color.startsWith("#")
@@ -4990,8 +5138,8 @@ function normalizeRowsForSelectFields(
       const { options } = getOptionEntries({ type: fieldType, config });
       if (!options.length) continue;
 
-      const optionById = new Map(options.map((opt) => [normalizeOptionId(opt.id), opt.id]));
-      const optionByLabel = new Map(options.map((opt) => [normalizeOptionId(opt.label), opt.id]));
+      const optionById = new Map(options.map((opt) => [normalizeOptionId(opt.id), opt.label]));
+      const optionByLabel = new Map(options.map((opt) => [normalizeOptionId(opt.label), opt.label]));
 
       const mapValue = (value: unknown): unknown => {
         if (value && typeof value === "object") {
@@ -5883,19 +6031,16 @@ function getOptionEntries(field: { type: string; config: Record<string, unknown>
 }
 
 function generateOptionId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `opt_${Math.random().toString(36).slice(2, 10)}`;
+  return `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function resolveSelectValues(
   field: { type: string; config: Record<string, unknown> },
   rawValue: unknown,
   allowCreate: boolean
-): { ids: string[]; updatedConfig?: Record<string, unknown>; missing: boolean } {
+): { values: string[]; updatedConfig?: Record<string, unknown>; missing: boolean } {
   if (rawValue === null || rawValue === undefined) {
-    return { ids: [], missing: false };
+    return { values: [], missing: false };
   }
 
   if (isUniversalPropertyFieldType(field.type)) {
@@ -5903,64 +6048,66 @@ function resolveSelectValues(
     const normalized = values
       .map((value) => normalizeUniversalPropertyValue(field.type, value))
       .filter((value): value is string => Boolean(value));
-    if (normalized.length === 0) return { ids: [], missing: true };
-    return { ids: normalized, missing: false };
+    if (normalized.length === 0) return { values: [], missing: true };
+    return { values: normalized, missing: false };
   }
 
   // All select-like fields: use field config options
   const { kind, options } = getOptionEntries(field);
   if (!kind) {
-    return { ids: [], missing: true };
+    return { values: [], missing: true };
   }
 
   const inputValues = Array.isArray(rawValue) ? rawValue : [rawValue];
-  const normalizedOptions = new Map(options.map((opt) => [normalizeFieldKey(opt.label), opt]));
+  const normalizedByLabel = new Map(options.map((opt) => [normalizeFieldKey(opt.label), opt]));
+  const normalizedById = new Map(options.map((opt) => [normalizeFieldKey(opt.id), opt]));
 
-  const resolvedIds: string[] = [];
+  const resolvedValues: string[] = [];
   const newOptions: Array<{ id: string; label: string; color?: string; order?: number }> = [...options];
   let added = false;
 
   for (const value of inputValues) {
+    let raw = "";
     if (value && typeof value === "object") {
       const asObj = value as Record<string, unknown>;
-      const id = typeof asObj.id === "string" ? asObj.id : undefined;
-      if (id) {
-        resolvedIds.push(id);
-        continue;
-      }
+      if (typeof asObj.label === "string") raw = asObj.label;
+      else if (typeof asObj.id === "string") raw = asObj.id;
+    } else {
+      raw = String(value ?? "");
     }
 
-    const label = normalizeFieldKey(String(value ?? ""));
-    const existing = normalizedOptions.get(label);
+    const normalized = normalizeFieldKey(raw);
+    const existing = normalizedByLabel.get(normalized) ?? normalizedById.get(normalized);
     if (existing) {
-      resolvedIds.push(existing.id);
+      resolvedValues.push(existing.label);
       continue;
     }
 
     if (!allowCreate) {
-      return { ids: [], missing: true };
+      return { values: [], missing: true };
     }
 
     const next = {
       id: generateOptionId(),
-      label: String(value ?? "").trim() || "Option",
-      color: "gray",
+      label: String(raw ?? "").trim() || "Option",
+      color: "#6b7280",
       order: newOptions.length + 1,
     };
     newOptions.push(next);
-    normalizedOptions.set(label, next);
-    resolvedIds.push(next.id);
+    normalizedByLabel.set(normalizeFieldKey(next.label), next);
+    normalizedById.set(normalizeFieldKey(next.id), next);
+    resolvedValues.push(next.label);
     added = true;
   }
 
   if (added) {
     if (kind === "levels") {
-      return { ids: resolvedIds, updatedConfig: { ...field.config, levels: newOptions }, missing: false };
+      return { values: resolvedValues, updatedConfig: { ...field.config, levels: newOptions }, missing: false };
     }
-    return { ids: resolvedIds, updatedConfig: { ...field.config, options: newOptions }, missing: false };
+    return { values: resolvedValues, updatedConfig: { ...field.config, options: newOptions }, missing: false };
   }
 
-  return { ids: resolvedIds, missing: false };
+  return { values: resolvedValues, missing: false };
 }
 
 function resolveUpdateValue(
@@ -5984,7 +6131,7 @@ function resolveUpdateValue(
     if (resolved.missing) {
       return { value: null };
     }
-    const value = field.type === "multi_select" ? resolved.ids : resolved.ids[0] ?? null;
+    const value = field.type === "multi_select" ? resolved.values : resolved.values[0] ?? null;
     return { value, updatedConfig: resolved.updatedConfig };
   }
 
@@ -6057,7 +6204,7 @@ async function enhanceFieldsAndNormalizeSelectValues(
   const updatedFields = updatedTableResult.data.fields;
   const fieldsById = new Map(updatedFields.map((f) => [f.id, f]));
 
-  // Now normalize the row values to option IDs
+  // Now normalize select-like row values to canonical labels
   return rows.map((row) => {
     const data = row.data || {};
     const normalized: Record<string, unknown> = {};
@@ -6084,18 +6231,18 @@ async function enhanceFieldsAndNormalizeSelectValues(
         continue;
       }
 
-      // Field is a select-like field - normalize the value to option ID
+      // Field is a select-like field - normalize the value to canonical label
       const config = (field.config || {}) as Record<string, unknown>;
-      const { ids, missing } = resolveSelectValues(
+      const { values, missing } = resolveSelectValues(
         { type: field.type, config },
         rawValue,
         false
       );
 
-      if (ids.length > 0) {
-        normalized[fieldId] = field.type === "multi_select" ? ids : ids[0];
+      if (values.length > 0) {
+        normalized[fieldId] = field.type === "multi_select" ? values : values[0];
       } else {
-        // Drop invalid select-like values to avoid persisting unknown option IDs.
+        // Drop invalid select-like values to avoid persisting unknown labels.
         normalized[fieldId] = missing ? null : rawValue;
       }
     }
@@ -6158,12 +6305,12 @@ function matchesRowFilters(
     if (isSelectLike(field.type)) {
       const resolved = resolveSelectValues(field, filterValue, false);
       if (resolved.missing) return false;
-      const ids = resolved.ids;
+      const values = resolved.values.map((value) => String(value).toLowerCase());
 
       if (Array.isArray(actualValue)) {
-        if (!actualValue.some((v) => ids.includes(String(v)))) return false;
+        if (!actualValue.some((v) => values.includes(String(v).toLowerCase()))) return false;
       } else if (typeof actualValue === "string") {
-        if (!ids.includes(actualValue)) return false;
+        if (!values.includes(actualValue.toLowerCase())) return false;
       } else {
         return false;
       }

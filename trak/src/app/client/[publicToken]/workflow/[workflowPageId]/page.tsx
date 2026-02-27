@@ -77,7 +77,14 @@ export default async function PublicWorkflowPage({
     notFound();
   }
 
-  const blocks = (blocksResult.data || []) as PublicBlock[];
+  const blocksPayload = blocksResult.data as
+    | PublicBlock[]
+    | { blocks: PublicBlock[]; blockPropertiesById: Record<string, any> }
+    | undefined;
+  const blocks = Array.isArray(blocksPayload) ? blocksPayload : blocksPayload?.blocks || [];
+  const blockPropertiesById = Array.isArray(blocksPayload)
+    ? {}
+    : (blocksPayload?.blockPropertiesById as Record<string, any>) || {};
   const fileIds: string[] = extractFileIdsFromBlocks(blocks);
   const fileBlockIds = blocks.filter((b) => b.type === "file").map((b) => b.id);
   if (fileBlockIds.length > 0) {
@@ -127,6 +134,7 @@ export default async function PublicWorkflowPage({
             publicToken={publicToken}
             allowComments={false}
             initialFileUrls={initialFileUrls}
+            blockPropertiesById={blockPropertiesById}
           />
         </div>
       </div>

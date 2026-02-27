@@ -14,6 +14,7 @@ export interface ToolParameter {
   description: string;
   required?: boolean;
   enum?: string[];
+  maxItems?: number;
   items?: {
     type: "string" | "number" | "boolean" | "object" | "array";
     description?: string;
@@ -73,7 +74,7 @@ const controlTools: ToolDefinition[] = [
       toolGroups: {
         type: "array",
         description:
-          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, file, client, property, comment, workspace.",
+          "List of tool groups needed. Allowed: task, project, table, timeline, block, tab, doc, file, client, property, comment, workspace, shopify.",
         items: { type: "string" },
       },
       reason: {
@@ -1229,7 +1230,7 @@ const tableActionTools: ToolDefinition[] = [
     name: "bulkInsertRows",
     description:
       "INSERT 3+ rows efficiently in ONE call. ⚠️ REQUIRED for 3+ rows. DO NOT call createRow multiple times.\n\n" +
-      "Use for: Populating tables with data (50 states → ONE call, not 50)\n" +
+      "Use for: Populating tables with data after createTableFull.\n" +
       "Format: [{ data: { 'FieldName': 'value' } }, ...]\n" +
       "⚠️ Use field NAMES (not IDs) - system resolves automatically\n\n" +
       "⚠️ CANONICAL VALUES for Priority/Status fields:\n" +
@@ -1242,6 +1243,7 @@ const tableActionTools: ToolDefinition[] = [
       "- source_sync_mode: 'snapshot' | 'live'\n\n" +
       "SUBTASKS: When inserting tasks that have subtasks, each subtask must be its OWN row with Subtask=true. Parent row has Subtask=false. Place subtask rows immediately after their parent. Do NOT put multiple subtask names in one cell.\n\n" +
       "Example: [{ data: { 'Task': 'Fix bug', 'Priority': 'high', 'Status': 'todo' } }, { data: { 'Task': 'Write docs', 'Priority': 'medium', 'Status': 'in_progress' } }]\n\n" +
+      "If a large payload fails, retry with smaller chunks (for example: 50 -> 34 -> 23 rows per call).\n\n" +
       "Returns: Array of created row objects with rowIds.",
     category: "table",
     parameters: {
@@ -1249,7 +1251,8 @@ const tableActionTools: ToolDefinition[] = [
       tableName: { type: "string", description: "Target Table Name (e.g. 'Q1 Goals'). System finds fuzzy match." },
       rows: {
         type: "array",
-        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. MUST provide at least 3 rows. Use field names (e.g., 'State', 'Capital') not field IDs. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        description: "REQUIRED. Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Use field names (e.g., 'State', 'Capital') not field IDs. Keep payloads compact and split large inserts across multiple calls. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        maxItems: 25,
         items: { type: "object" },
       },
     },
@@ -1347,7 +1350,7 @@ const tableActionTools: ToolDefinition[] = [
       "- Creating a table with a VERY SMALL number of initial rows (1-2 max)\n\n" +
       "Example: 'Create a table with columns Name, Email'\n" +
       "Example: 'Create a table of 50 states' -> Call createTableFull (schema) then bulkInsertRows (data)\n\n" +
-      "⚠️ RELIABILITY WARNING: Do NOT put many rows in this call. It will fail.\n" +
+      "⚠️ RELIABILITY WARNING: HARD LIMIT = 2 rows in this call.\n" +
       "1. Use createTableFull to create the table definition (columns)\n" +
       "2. Use bulkInsertRows to add the actual data rows in subsequent calls\n\n" +
       "🚨 CRITICAL: When creating tables FROM EXISTING DATA (tasks, timeline events, etc.):\n" +
@@ -1379,7 +1382,8 @@ const tableActionTools: ToolDefinition[] = [
       },
       rows: {
         type: "array",
-        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        description: "Array of row objects where each object has a 'data' property containing field names and values. HARD LIMIT: max 2 rows in createTableFull. If there are 3+ rows, use bulkInsertRows for the remainder. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
+        maxItems: 2,
         items: { type: "object" },
       },
     },
@@ -2178,6 +2182,7 @@ export function toOpenAIFormat(tools: ToolDefinition[]): Array<{
               type: param.type,
               description: param.description,
               ...(param.enum && { enum: param.enum }),
+              ...(typeof param.maxItems === "number" ? { maxItems: param.maxItems } : {}),
               ...(param.items && { items: param.items }),
               ...(param.properties && { properties: param.properties }),
             },
@@ -2210,11 +2215,12 @@ export function toAnthropicFormat(tools: ToolDefinition[]): Array<{
         Object.entries(tool.parameters).map(([key, param]) => [
           key,
           {
-            type: param.type,
-            description: param.description,
-            ...(param.enum && { enum: param.enum }),
-            ...(param.items && { items: param.items }),
-            ...(param.properties && { properties: param.properties }),
+              type: param.type,
+              description: param.description,
+              ...(param.enum && { enum: param.enum }),
+              ...(typeof param.maxItems === "number" ? { maxItems: param.maxItems } : {}),
+              ...(param.items && { items: param.items }),
+              ...(param.properties && { properties: param.properties }),
           },
         ])
       ),

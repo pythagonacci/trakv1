@@ -9,6 +9,7 @@ import { ClientBlockCommentsPanel } from "./client-block-comments";
 import { BlockComment } from "@/types/block-comment";
 import { MessageSquare } from "lucide-react";
 import { AIProvider } from "@/components/ai/ai-context";
+import type { EntityProperties } from "@/types/properties";
 
 // Import the exact same BlockRenderer as internal pages for perfect duplication
 const BlockRenderer = dynamic(() => import("@/app/dashboard/projects/[projectId]/tabs/[tabId]/block-renderer"));
@@ -21,6 +22,7 @@ interface ClientPageContentProps {
   publicToken: string;
   allowComments?: boolean;
   initialFileUrls?: Record<string, string>;
+  blockPropertiesById?: Record<string, EntityProperties>;
 }
 
 interface BlockRow {
@@ -40,7 +42,13 @@ const formatShortDate = (date?: string) => {
   });
 };
 
-export default function ClientPageContent({ blocks, publicToken, allowComments = false, initialFileUrls = {} }: ClientPageContentProps) {
+export default function ClientPageContent({
+  blocks,
+  publicToken,
+  allowComments = false,
+  initialFileUrls = {},
+  blockPropertiesById = {},
+}: ClientPageContentProps) {
   const [blockState, setBlockState] = useState(blocks);
   const { identity, setIdentityName } = useClientCommentIdentity(publicToken, allowComments);
 
@@ -121,6 +129,10 @@ export default function ClientPageContent({ blocks, publicToken, allowComments =
                       workspaceId=""
                       projectId=""
                       tabId=""
+                      blockProperties={blockPropertiesById[block.id]}
+                      propertiesById={blockPropertiesById}
+                      readOnly
+                      publicToken={publicToken}
                       onUpdate={() => {}}
                       onDelete={() => {}}
                       onConvert={() => {}}

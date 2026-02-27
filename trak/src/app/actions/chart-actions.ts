@@ -212,14 +212,14 @@ function mapSelectValue(value: unknown, field: TableField) {
 
   if (field.type === "select" || field.type === "status") {
     const options = Array.isArray(config.options) ? config.options : [];
-    const match = options.find((opt: any) => opt.id === value);
+    const match = options.find((opt: any) => opt.id === value || opt.label === value);
     return match?.label ?? value;
   }
 
   if (field.type === "multi_select") {
     const options = Array.isArray(config.options) ? config.options : [];
     if (!Array.isArray(value)) return value;
-    return value.map((entry) => options.find((opt: any) => opt.id === entry)?.label ?? entry);
+    return value.map((entry) => options.find((opt: any) => opt.id === entry || opt.label === entry)?.label ?? entry);
   }
 
   if (field.type === "priority") {

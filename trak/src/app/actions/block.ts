@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
 import { IndexingQueue } from "@/lib/search/job-queue";
+import type { EntityProperties } from "@/types/properties";
+import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 
 // ============================================================================
 // TYPES
@@ -1148,7 +1150,7 @@ export async function getTabBlocksPublic(tabId: string, publicToken: string) {
     // 1. Verify the public token is valid and client page is enabled
     const { data: project, error: projectError } = await supabase
       .from("projects")
-      .select("id, client_page_enabled")
+      .select("id, workspace_id, client_page_enabled")
       .eq("public_token", publicToken)
       .eq("client_page_enabled", true)
       .single();
@@ -1187,9 +1189,45 @@ export async function getTabBlocksPublic(tabId: string, publicToken: string) {
       return { error: "Failed to fetch blocks" };
     }
 
-    console.log(`✅ Public access: Fetched ${blocks?.length || 0} blocks for tab ${tabId}`);
+    const blockList = blocks || [];
 
-    return { data: blocks || [] };
+    // 4. Fetch read-only properties for these blocks (status, priority, assignee, due date, tags)
+    const blockIds = blockList.map((b) => String(b.id));
+    const blockPropertiesById: Record<string, EntityProperties> = {};
+
+    if (blockIds.length > 0) {
+      const { data: propRows, error: propsError } = await supabase
+        .from("entity_properties")
+        .select("id, entity_id, field_name, field_type, value, created_at, updated_at, workspace_id")
+        .eq("workspace_id", project.workspace_id)
+        .eq("entity_type", "block")
+        .in("entity_id", blockIds);
+
+      if (propsError) {
+        console.error("Get public block properties error:", propsError);
+      } else {
+        const grouped = new Map<string, any[]>();
+        for (const row of propRows ?? []) {
+          const key = String((row as any).entity_id);
+          const list = grouped.get(key) ?? [];
+          list.push(row);
+          grouped.set(key, list);
+        }
+
+        for (const [id, rows] of grouped.entries()) {
+          blockPropertiesById[id] = await buildEntityPropertiesFromRows(
+            "block",
+            id,
+            project.workspace_id,
+            rows
+          );
+        }
+      }
+    }
+
+    console.log(`✅ Public access: Fetched ${blockList.length} blocks with properties for tab ${tabId}`);
+
+    return { data: { blocks: blockList, blockPropertiesById } };
   } catch (error) {
     console.error("Get tab blocks public exception:", error);
     return { error: "Failed to fetch blocks" };
@@ -1244,8 +1282,44 @@ export async function getWorkflowTabBlocksPublic(tabId: string, publicToken: str
       return { error: "Failed to fetch blocks" };
     }
 
-    console.log(`✅ Public access: Fetched ${blocks?.length || 0} blocks for workflow tab ${tabId}`);
-    return { data: blocks || [] };
+    const blockList = blocks || [];
+
+    // 4. Fetch read-only properties for these blocks
+    const blockIds = blockList.map((b) => String(b.id));
+    const blockPropertiesById: Record<string, EntityProperties> = {};
+
+    if (blockIds.length > 0) {
+      const { data: propRows, error: propsError } = await supabase
+        .from("entity_properties")
+        .select("id, entity_id, field_name, field_type, value, created_at, updated_at, workspace_id")
+        .eq("workspace_id", project.workspace_id)
+        .eq("entity_type", "block")
+        .in("entity_id", blockIds);
+
+      if (propsError) {
+        console.error("Get public workflow block properties error:", propsError);
+      } else {
+        const grouped = new Map<string, any[]>();
+        for (const row of propRows ?? []) {
+          const key = String((row as any).entity_id);
+          const list = grouped.get(key) ?? [];
+          list.push(row);
+          grouped.set(key, list);
+        }
+
+        for (const [id, rows] of grouped.entries()) {
+          blockPropertiesById[id] = await buildEntityPropertiesFromRows(
+            "block",
+            id,
+            project.workspace_id,
+            rows
+          );
+        }
+      }
+    }
+
+    console.log(`✅ Public access: Fetched ${blockList.length} workflow blocks with properties for tab ${tabId}`);
+    return { data: { blocks: blockList, blockPropertiesById } };
   } catch (error) {
     console.error("Get workflow tab blocks public exception:", error);
     return { error: "Failed to fetch blocks" };

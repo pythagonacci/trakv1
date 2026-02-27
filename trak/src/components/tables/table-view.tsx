@@ -858,7 +858,7 @@ export function TableView({ tableId }: Props) {
           const newOptions: Array<{ id: string; label: string; color: string }> = [];
           const ensureOption = (label: string) => {
             const existing = findOptionByLabel(options, label);
-            if (existing) return existing.id;
+            if (existing) return existing.label;
             const nextOption = {
               id: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               label: label.trim(),
@@ -866,7 +866,7 @@ export function TableView({ tableId }: Props) {
             };
             options.push(nextOption);
             newOptions.push(nextOption);
-            return nextOption.id;
+            return nextOption.label;
           };
 
           parsed.rows.forEach((row) => {
@@ -886,11 +886,11 @@ export function TableView({ tableId }: Props) {
           if (newOptions.length > 0) {
             fieldConfigUpdates.set(field.id, { ...config, options });
             const lookup = new Map<string, string>();
-            options.forEach((opt) => lookup.set(opt.label.trim().toLowerCase(), opt.id));
+            options.forEach((opt) => lookup.set(opt.label.trim().toLowerCase(), opt.label));
             optionLookup.set(field.id, lookup);
           } else if (options.length > 0) {
             const lookup = new Map<string, string>();
-            options.forEach((opt) => lookup.set(opt.label.trim().toLowerCase(), opt.id));
+            options.forEach((opt) => lookup.set(opt.label.trim().toLowerCase(), opt.label));
             optionLookup.set(field.id, lookup);
           }
         });
@@ -917,8 +917,8 @@ export function TableView({ tableId }: Props) {
             if (field.type === "select") {
               const lookup = optionLookup.get(field.id);
               if (lookup) {
-                const id = lookup.get(rawValue.trim().toLowerCase());
-                data[field.id] = id ?? null;
+                const label = lookup.get(rawValue.trim().toLowerCase());
+                data[field.id] = label ?? null;
               } else {
                 data[field.id] = rawValue.trim();
               }

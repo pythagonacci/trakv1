@@ -106,6 +106,13 @@ function getAllGroups(field: TableField, members?: Member[]): Option[] {
         color: option.color,
       }));
     }
+    if (type === "select" || type === "multi_select") {
+      return options.map((option: any) => ({
+        id: option.label,
+        label: option.label,
+        color: option.color,
+      }));
+    }
     return options;
   }
 
