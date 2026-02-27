@@ -24,6 +24,7 @@ export interface Block {
   is_template: boolean; // Whether this block is reusable across projects
   template_name: string | null; // Optional name for template blocks
   original_block_id: string | null; // If this is a reference, points to the original block
+  locked: boolean; // When true, block is locked for direct edits in the UI
   created_at: string;
   updated_at: string;
 }
@@ -80,7 +81,7 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     const _tQuery0 = performance.now();
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
-      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, locked, created_at, updated_at")
       .eq("tab_id", tabId)
       .is("parent_block_id", null)
       .order("column", { ascending: true })
@@ -153,7 +154,7 @@ export async function getChildBlocks(parentBlockId: string) {
     const _tQuery0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
     const { data: blocks, error: blocksError } = await supabase
       .from("blocks")
-      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, created_at, updated_at")
+      .select("id, tab_id, parent_block_id, type, content, position, column, is_template, template_name, original_block_id, locked, created_at, updated_at")
       .eq("parent_block_id", parentBlockId)
       .order("position", { ascending: true });
 
@@ -543,6 +544,7 @@ export async function updateBlock(data: {
   type?: BlockType;
   position?: number;
   column?: number; // Column index: 0, 1, or 2
+  locked?: boolean; // Optional: toggle lock state
 }) {
   try {
     const supabase = await createClient();
@@ -606,7 +608,7 @@ export async function updateBlock(data: {
 
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id, type")
+      .select("id, tab_id, type, locked")
       .eq("id", data.blockId.trim())
       .single();
 
@@ -620,12 +622,27 @@ export async function updateBlock(data: {
       return { error: `Block not found: ${blockError.message}` };
     }
 
+    const currentlyLocked = (block as any).locked === true;
+
     if (!block) {
       console.error("Block not found in database:", {
         blockId: data.blockId,
         blockIdType: typeof data.blockId
       });
       return { error: "Block not found" };
+    }
+
+    // If the block is currently locked, only allow unlocking via this action.
+    // Any other edits (content, type, position, column) are rejected while locked.
+    const isUnlocking = currentlyLocked && data.locked === false;
+    const isChangingOtherFields =
+      data.content !== undefined ||
+      data.type !== undefined ||
+      data.position !== undefined ||
+      data.column !== undefined;
+
+    if (currentlyLocked && !isUnlocking && isChangingOtherFields) {
+      return { error: "Block is locked and cannot be edited" };
     }
 
     // 3. Get tab to get project_id
@@ -684,6 +701,9 @@ export async function updateBlock(data: {
         return { error: "Column must be between 0 and 2" };
       }
       updates.column = data.column;
+    }
+    if (data.locked !== undefined) {
+      updates.locked = data.locked;
     }
 
     // 7. Update the block
@@ -754,12 +774,16 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
     // 2. Get block and verify it exists
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id, type, content")
+      .select("id, tab_id, type, content, locked")
       .eq("id", blockId)
       .single();
 
     if (blockError || !block) {
       return { error: "Block not found" };
+    }
+
+    if ((block as any).locked) {
+      return { error: "Block is locked and cannot be deleted" };
     }
 
     // 3. Get tab to get project_id
@@ -865,12 +889,16 @@ export async function moveBlock(data: {
     // 2. Get source block and verify it exists
     const { data: sourceBlock, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id, parent_block_id, type, position")
+      .select("id, tab_id, parent_block_id, type, position, locked")
       .eq("id", data.blockId)
       .single();
 
     if (blockError || !sourceBlock) {
       return { error: "Block not found" };
+    }
+
+    if ((sourceBlock as any).locked) {
+      return { error: "Block is locked and cannot be moved" };
     }
 
     // 3. Get source tab to get project_id
@@ -1000,6 +1028,10 @@ export async function duplicateBlock(blockId: string) {
 
     if (blockError || !sourceBlock) {
       return { error: "Block not found" };
+    }
+
+    if ((sourceBlock as any).locked) {
+      return { error: "Block is locked and cannot be duplicated" };
     }
 
     // 3. Get tab to get project_id

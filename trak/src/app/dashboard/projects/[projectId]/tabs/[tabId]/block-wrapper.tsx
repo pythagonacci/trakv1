@@ -22,12 +22,14 @@ import {
   Plus,
   Tags,
   Sparkles,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { hasDueDate, normalizeDueDateRange } from "@/lib/due-date";
-import { type Block } from "@/app/actions/block";
+import { type Block, updateBlock } from "@/app/actions/block";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,7 +59,7 @@ interface BlockWrapperProps {
   properties?: EntityProperties | null;
   onDelete?: (blockId: string) => void;
   onConvert?: (blockId: string, newType: Block["type"], content?: Record<string, unknown>) => void;
-  onUpdate?: () => void;
+  onUpdate?: (updatedBlock?: Block) => void;
   onAddBlockAbove?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
   onAddBlockBelow?: (blockId: string, type?: Block["type"], content?: Record<string, unknown>) => void;
   isDragging?: boolean;
@@ -86,6 +88,7 @@ export default function BlockWrapper({
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesAnchorRect, setPropertiesAnchorRect] = useState<DOMRect | null>(null);
   const blockMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const [isTogglingLock, setIsTogglingLock] = useState(false);
 
   const openPropertiesMenu = () => {
     const rect = blockMenuTriggerRef.current?.getBoundingClientRect();
@@ -121,9 +124,11 @@ export default function BlockWrapper({
   const comments = blockContent._blockComments || [];
   const hasComments = comments.length > 0;
 
+  const isLocked = Boolean((block as any).locked);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
-    disabled: readOnly || block.type === "divider",
+    disabled: readOnly || block.type === "divider" || isLocked,
   });
 
   const isDragging = externalIsDragging || isDraggingInternal;
@@ -158,6 +163,34 @@ export default function BlockWrapper({
   })();
 
   const isContextBlock = contextBlock?.blockId === block.id;
+
+  const handleToggleLock = async () => {
+    if (isTogglingLock) return;
+    setIsTogglingLock(true);
+    try {
+      // Optimistic: immediately notify parent to refetch/update, but rely on server as source of truth
+      const result = await updateBlock({
+        blockId: block.id,
+        locked: !isLocked,
+      });
+
+      if ("error" in result && result.error) {
+        console.error("Failed to toggle block lock:", result.error);
+        if (typeof window !== "undefined") {
+          alert(result.error);
+        }
+        return;
+      }
+
+      if ("data" in result && result.data) {
+        onUpdate?.(result.data);
+      } else {
+        onUpdate?.();
+      }
+    } finally {
+      setIsTogglingLock(false);
+    }
+  };
 
   if (block.type === "divider") {
     return <div ref={setNodeRef} style={style}>{children}</div>;
@@ -243,7 +276,34 @@ export default function BlockWrapper({
         }}
       >
         {!borderless && (
-          <div className="absolute -top-3 right-3 flex items-center gap-2 z-[60]">
+          <div className="absolute -top-3 right-3 flex items-center gap-2 z-[70]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleToggleLock();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              disabled={isTogglingLock}
+              className={cn(
+                "inline-flex items-center justify-center rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] transition-colors",
+                isLocked
+                  ? "border-amber-300 bg-amber-50 text-amber-800"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+              )}
+              title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
+            >
+              {isLocked ? (
+                <>
+                  <Lock className="mr-1 h-3 w-3" />
+                  Locked
+                </>
+              ) : (
+                <>
+                  <Unlock className="mr-1 h-3 w-3" />
+                  Lock
+                </>
+              )}
+            </button>
             {!readOnly && (
               <>
                 <button
@@ -436,7 +496,28 @@ export default function BlockWrapper({
         )}
 
         {borderless && !readOnly && (
-          <div className="absolute right-2 top-2 z-[60] flex items-center gap-2">
+          <div className="absolute right-2 top-2 z-[70] flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleToggleLock();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              disabled={isTogglingLock}
+              className={cn(
+                "inline-flex items-center justify-center rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] transition-colors",
+                isLocked
+                  ? "border-amber-300 bg-amber-50 text-amber-800"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+              )}
+              title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
+            >
+              {isLocked ? (
+                <Lock className="h-3 w-3" />
+              ) : (
+                <Unlock className="h-3 w-3" />
+              )}
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -924,6 +1005,17 @@ export default function BlockWrapper({
           workspaceId={workspaceId}
           entityTitle={getBlockTitle(block)}
           projectId={projectId}
+          disabledFields={
+            isLocked
+              ? {
+                  status: true,
+                  priority: true,
+                  assignees: true,
+                  dueDate: true,
+                  tags: true,
+                }
+              : undefined
+          }
         />
       )}
     </div>

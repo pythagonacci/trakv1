@@ -158,7 +158,16 @@ export default function BlockRenderer({ block, workspaceId, projectId, tabId, bl
       case "text":
         return <TextBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "task":
-        return <TaskBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} scrollToTaskId={scrollToTaskId} />;
+        return (
+          <TaskBlock
+            block={block}
+            workspaceId={workspaceId}
+            projectId={projectId}
+            onUpdate={onUpdate}
+            scrollToTaskId={scrollToTaskId}
+            locked={Boolean((block as any).locked)}
+          />
+        );
       case "link":
         return <LinkBlock block={block} onUpdate={onUpdate} />;
       case "divider":

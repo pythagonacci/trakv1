@@ -352,6 +352,11 @@ export function PropertyMenu({
   const removeTagMutation = useRemoveTag(entityType, entityId);
   const statusDisabled = Boolean(disabledFields?.status);
   const assigneesDisabled = Boolean(disabledFields?.assignees);
+  const priorityDisabled = Boolean(disabledFields?.priority);
+  const dueDateDisabled = Boolean(disabledFields?.dueDate);
+  const tagsDisabled = Boolean(disabledFields?.tags);
+  const allFieldsDisabled =
+    statusDisabled && assigneesDisabled && priorityDisabled && dueDateDisabled && tagsDisabled;
 
   const focusedGroup = focus?.group;
   const usePopover = Boolean(open && (anchorRect ?? anchorRef?.current));
@@ -402,7 +407,10 @@ export function PropertyMenu({
     if (!open || !usePopover) return;
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (popoverRef.current && !popoverRef.current.contains(target) && anchorRef?.current && !anchorRef.current.contains(target)) {
+      const clickedInsidePopover = popoverRef.current?.contains(target) ?? false;
+      const clickedInsideAnchor = anchorRef?.current ? anchorRef.current.contains(target) : false;
+      // Close when clicking outside both the popover panel and (if present) its trigger anchor
+      if (!clickedInsidePopover && !clickedInsideAnchor) {
         onOpenChange(false);
       }
     };
@@ -472,6 +480,7 @@ export function PropertyMenu({
   // ============================================================================
 
   const handleAddTag = () => {
+    if (allFieldsDisabled) return;
     const tag = newTagInput.trim();
     if (!tag) return;
     addTagMutation.mutate(tag, {
@@ -483,10 +492,15 @@ export function PropertyMenu({
   };
 
   const handleRemoveTag = (tag: string) => {
+    if (allFieldsDisabled) return;
     removeTagMutation.mutate(tag);
   };
 
   const handleSave = () => {
+    if (allFieldsDisabled) {
+      onOpenChange(false);
+      return;
+    }
     persistStatusDrafts(statusDrafts);
     persistPriorityDrafts(priorityDrafts);
     persistAssigneeDrafts(assigneeDrafts);
@@ -545,35 +559,97 @@ export function PropertyMenu({
         <>
           <PopoverSection
             title="Priorities"
-            onAdd={focusedGroup === undefined ? () => setPriorityDrafts((prev) => [...prev, { id: `priority-new-${Date.now()}`, field_name: getNextPriorityFieldName(prev), value: direct?.priority ?? null } as PriorityFieldDraft]) : undefined}
+            onAdd={
+              focusedGroup === undefined && !priorityDisabled
+                ? () =>
+                    setPriorityDrafts((prev) => [
+                      ...prev,
+                      {
+                        id: `priority-new-${Date.now()}`,
+                        field_name: getNextPriorityFieldName(prev),
+                        value: direct?.priority ?? null,
+                      } as PriorityFieldDraft,
+                    ])
+                : undefined
+            }
           >
-            {priorityDrafts.filter((f) => focusedGroup === "priority" && focus?.fieldId ? f.id === focus.fieldId : true).map((field) => (
-              <div key={field.id} className="group rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
-                <div className="mt-0.5 flex items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <Dot tone={field.value ? PRIORITY_TONE[field.value] : "neutral"} />
-                    <Select value={field.value ?? PRIORITY_NONE} onValueChange={(v) => { const next = v === PRIORITY_NONE ? null : (v as Priority); setPriorityDrafts((prev) => prev.map((e) => e.id === field.id ? { ...e, value: next } : e)); }}>
-                      <SelectTrigger className="h-6 border-0 shadow-none gap-0.5 text-[11px] font-semibold p-0 bg-transparent">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={PRIORITY_NONE}>None</SelectItem>
-                        {PRIORITY_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}><span className={cn("font-medium", PRIORITY_COLORS[opt.value])}>{opt.label}</span></SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {priorityDrafts.length > 1 && (
-                      <button type="button" onClick={() => setPriorityDrafts((prev) => prev.filter((e) => e.id !== field.id))} className="rounded p-0.5 hover:bg-[var(--surface)] text-[var(--muted-foreground)]"><X className="h-2.5 w-2.5" /></button>
-                    )}
-                    <ChevronDown className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-                  </div>
-                </div>
+            {priorityDisabled ? (
+              <div className="rounded px-1.5 py-1 text-[11px] space-y-1">
+                {priorityDrafts.length === 0 ? (
+                  <div className="text-[var(--muted-foreground)]">None</div>
+                ) : (
+                  priorityDrafts.map((field) => {
+                    const opt = field.value ? PRIORITY_OPTIONS.find((o) => o.value === field.value) : null;
+                    const label = opt?.label ?? "None";
+                    const tone = field.value ? PRIORITY_TONE[field.value] : "neutral";
+                    const colorClass = field.value ? PRIORITY_COLORS[field.value] : "";
+                    return (
+                      <div key={field.id} className="flex items-center gap-1.5">
+                        <Dot tone={tone} />
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium",
+                            colorClass
+                          )}
+                        >
+                          {field.field_name && field.field_name.toLowerCase() !== "priority"
+                            ? `${field.field_name}: ${label}`
+                            : label}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            ))}
+            ) : (
+              priorityDrafts
+                .filter((f) => (focusedGroup === "priority" && focus?.fieldId ? f.id === focus.fieldId : true))
+                .map((field) => (
+                  <div key={field.id} className="group rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
+                    <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
+                    <div className="mt-0.5 flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Dot tone={field.value ? PRIORITY_TONE[field.value] : "neutral"} />
+                        <Select
+                          value={field.value ?? PRIORITY_NONE}
+                          onValueChange={(v) => {
+                            const next = v === PRIORITY_NONE ? null : (v as Priority);
+                            setPriorityDrafts((prev) =>
+                              prev.map((e) => (e.id === field.id ? { ...e, value: next } : e))
+                            );
+                          }}
+                        >
+                          <SelectTrigger className="h-6 border-0 shadow-none gap-0.5 text-[11px] font-semibold p-0 bg-transparent">
+                            <SelectValue placeholder="None" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={PRIORITY_NONE}>None</SelectItem>
+                            {PRIORITY_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                <span className={cn("font-medium", PRIORITY_COLORS[opt.value])}>{opt.label}</span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {priorityDrafts.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPriorityDrafts((prev) => prev.filter((e) => e.id !== field.id))
+                            }
+                            className="rounded p-0.5 hover:bg-[var(--surface)] text-[var(--muted-foreground)]"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        )}
+                        <ChevronDown className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                      </div>
+                    </div>
+                  </div>
+                ))
+            )}
           </PopoverSection>
           <PopoverDivider />
         </>
@@ -632,34 +708,84 @@ export function PropertyMenu({
         <>
           <PopoverSection
             title="Due dates"
-            onAdd={focusedGroup === undefined ? () => setDueDateDrafts((prev) => [...prev, { id: `due-date-new-${Date.now()}`, field_name: getNextDueDateFieldName(prev), value: { start: null, end: null } } as DueDateFieldDraft]) : undefined}
+            onAdd={
+              focusedGroup === undefined && !dueDateDisabled
+                ? () =>
+                    setDueDateDrafts((prev) => [
+                      ...prev,
+                      {
+                        id: `due-date-new-${Date.now()}`,
+                        field_name: getNextDueDateFieldName(prev),
+                        value: { start: null, end: null },
+                      } as DueDateFieldDraft,
+                    ])
+                : undefined
+            }
           >
-            {dueDateDrafts.filter((f) => focusedGroup === "due_date" && focus?.fieldId ? f.id === focus.fieldId : true).map((field) => {
-              const startStr = field.value.start ? format(new Date(field.value.start), "MMM d, yyyy") : null;
-              const endStr = field.value.end ? format(new Date(field.value.end), "MMM d, yyyy") : null;
-              return (
-                <div key={field.id} className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                  <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
-                  <div className="mt-0.5 flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Dot tone="neutral" />
-                      <span className="text-[11px] font-semibold">
-                        {startStr ?? "—"}
-                        <span className="text-[var(--muted-foreground)] font-medium"> {"\u2192"} </span>
-                        {endStr ?? "—"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <input type="date" value={field.value.start ?? ""} onChange={(e) => setDueDateDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, value: { ...entry.value, start: e.target.value || null } } : entry))} className="w-20 text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5" />
-                      <input type="date" value={field.value.end ?? ""} onChange={(e) => setDueDateDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, value: { ...entry.value, end: e.target.value || null } } : entry))} className="w-20 text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5" />
-                      {dueDateDrafts.length > 1 && (
-                        <button type="button" onClick={() => setDueDateDrafts((prev) => prev.filter((e) => e.id !== field.id))} className="rounded p-0.5 text-[var(--muted-foreground)]"><X className="h-2.5 w-2.5" /></button>
+            {dueDateDrafts
+              .filter((f) => (focusedGroup === "due_date" && focus?.fieldId ? f.id === focus.fieldId : true))
+              .map((field) => {
+                const startStr = field.value.start ? format(new Date(field.value.start), "MMM d, yyyy") : null;
+                const endStr = field.value.end ? format(new Date(field.value.end), "MMM d, yyyy") : null;
+                return (
+                  <div key={field.id} className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
+                    <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
+                    <div className="mt-0.5 flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Dot tone="neutral" />
+                        <span className="text-[11px] font-semibold whitespace-nowrap">
+                          {startStr ?? "—"}
+                          <span className="text-[var(--muted-foreground)] font-medium"> {"\u2192"} </span>
+                          {endStr ?? "—"}
+                        </span>
+                      </div>
+                      {!dueDateDisabled && (
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <input
+                            type="date"
+                            value={field.value.start ?? ""}
+                            onChange={(e) =>
+                              setDueDateDrafts((prev) =>
+                                prev.map((entry) =>
+                                  entry.id === field.id
+                                    ? { ...entry, value: { ...entry.value, start: e.target.value || null } }
+                                    : entry
+                                )
+                              )
+                            }
+                            className="w-20 text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5"
+                          />
+                          <input
+                            type="date"
+                            value={field.value.end ?? ""}
+                            onChange={(e) =>
+                              setDueDateDrafts((prev) =>
+                                prev.map((entry) =>
+                                  entry.id === field.id
+                                    ? { ...entry, value: { ...entry.value, end: e.target.value || null } }
+                                    : entry
+                                )
+                              )
+                            }
+                            className="w-20 text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5"
+                          />
+                          {dueDateDrafts.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDueDateDrafts((prev) => prev.filter((e) => e.id !== field.id))
+                              }
+                              className="rounded p-0.5 text-[var(--muted-foreground)]"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </PopoverSection>
           <PopoverDivider />
         </>
@@ -675,7 +801,24 @@ export function PropertyMenu({
                   const currentTags = direct?.tags || [];
                   const isOnEntity = currentTags.some((t) => t.toLowerCase() === tag.toLowerCase());
                   return (
-                    <button key={tag} type="button" disabled={isOnEntity} onClick={() => { if (!isOnEntity) addTagMutation.mutate(tag, { onSuccess: () => projectId && addProjectTagMutation.mutate(tag) }); }} className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px]", isOnEntity ? "border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]" : "border-[var(--border)] hover:bg-[var(--surface-hover)]")}>
+                    <button
+                      key={tag}
+                      type="button"
+                      disabled={isOnEntity || tagsDisabled}
+                      onClick={() => {
+                        if (!isOnEntity && !tagsDisabled) {
+                          addTagMutation.mutate(tag, {
+                            onSuccess: () => projectId && addProjectTagMutation.mutate(tag),
+                          });
+                        }
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px]",
+                        isOnEntity || tagsDisabled
+                          ? "border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]"
+                          : "border-[var(--border)] hover:bg-[var(--surface-hover)]"
+                      )}
+                    >
                       <TagIcon className="h-2.5 w-2.5" />{tag}
                     </button>
                   );
@@ -683,19 +826,46 @@ export function PropertyMenu({
               </div>
             </div>
           )}
-          <div className="flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 focus-within:ring-1 focus-within:ring-[var(--focus-ring)]">
-            <input type="text" value={newTagInput} onChange={(e) => setNewTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddTag(); } }} placeholder="Add tag…" className="h-6 flex-1 min-w-0 bg-transparent text-[11px] placeholder:text-[var(--muted-foreground)] focus:outline-none" />
-            <button type="button" onClick={handleAddTag} className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]" aria-label="Add tag">
-              <span className="text-xs leading-none">+</span>
-            </button>
-          </div>
+          {!tagsDisabled && (
+            <div className="flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 focus-within:ring-1 focus-within:ring-[var(--focus-ring)]">
+              <input
+                type="text"
+                value={newTagInput}
+                onChange={(e) => setNewTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddTag();
+                  }
+                }}
+                placeholder="Add tag…"
+                className="h-6 flex-1 min-w-0 bg-transparent text-[11px] placeholder:text-[var(--muted-foreground)] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddTag}
+                className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                aria-label="Add tag"
+              >
+                <span className="text-xs leading-none">+</span>
+              </button>
+            </div>
+          )}
           {(direct?.tags ?? []).length > 0 && (
             <div className="flex flex-wrap gap-0.5 mt-0.5">
               {(direct?.tags ?? []).map((tag) => (
                 <span key={tag} className="inline-flex items-center gap-0.5 rounded border border-[var(--border)] bg-[var(--surface)] px-1 py-0.5 text-[10px]">
                   <TagIcon className="h-2 w-2" />
                   {tag}
-                  <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-[var(--error)]"><X className="h-2 w-2" /></button>
+                  {!tagsDisabled && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(tag)}
+                      className="hover:text-[var(--error)]"
+                    >
+                      <X className="h-2 w-2" />
+                    </button>
+                  )}
                 </span>
               ))}
             </div>
@@ -811,7 +981,7 @@ export function PropertyMenu({
                             <Label className="text-xs font-medium text-[var(--foreground)]">
                               Priorities
                             </Label>
-                            {focusedGroup === undefined && (
+                            {focusedGroup === undefined && !priorityDisabled && (
                               <Button
                                 type="button"
                                 size="sm"
@@ -1064,7 +1234,7 @@ export function PropertyMenu({
                             <Label className="text-xs font-medium text-[var(--foreground)]">
                               Due Dates
                             </Label>
-                            {focusedGroup === undefined && (
+                            {focusedGroup === undefined && !dueDateDisabled && (
                               <Button
                                 type="button"
                                 size="sm"
@@ -1256,7 +1426,7 @@ export function PropertyMenu({
     </div>
   );
 
-  const footerContent = (
+  const footerContent = allFieldsDisabled ? null : (
     <div className="flex justify-end border-t border-[var(--border)] pt-4 mt-4">
       <Button
         type="button"
