@@ -128,7 +128,7 @@ export interface EntityReference {
 export interface SetEntityPropertiesInput {
   entity_type: EntityType;
   entity_id: string;
-  workspace_id: string;
+  workspace_id?: string;
   updates: {
     status?: Status | null;
     priority?: Priority | null;

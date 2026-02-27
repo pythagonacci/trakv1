@@ -29,9 +29,19 @@ function toPriorities(priority?: string | null): TaskItemPriority[] {
 
 function toStatuses(status?: string | null): any {
   if (!status) return [];
-  if (status !== "todo" && status !== "in-progress" && status !== "blocked" && status !== "done") return [];
-  const validStatus = status === "in-progress" ? "in_progress" : status;
-  return [{ field_name: "Status", value: validStatus }];
+  const normalizedStatus =
+    status === "in-progress" || status === "in progress"
+      ? "in_progress"
+      : status;
+  if (
+    normalizedStatus !== "todo" &&
+    normalizedStatus !== "in_progress" &&
+    normalizedStatus !== "blocked" &&
+    normalizedStatus !== "done"
+  ) {
+    return [];
+  }
+  return [{ field_name: "Status", value: normalizedStatus }];
 }
 
 function normalizeTaskRow(row: any): TaskItem {

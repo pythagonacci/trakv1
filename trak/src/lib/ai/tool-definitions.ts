@@ -110,7 +110,7 @@ const searchTools: ToolDefinition[] = [
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search tasks by text (matches title)" },
-      status: { type: "string", description: "Filter by status. Example: \"todo\" (use quoted strings in JSON)", enum: ["todo", "in-progress", "blocked", "done"] },
+      status: { type: "string", description: "Filter by status. Example: \"todo\" (use quoted strings in JSON)", enum: ["todo", "in_progress", "blocked", "done"] },
       priority: { type: "string", description: "Filter by priority. Example: \"high\" (use quoted strings in JSON)", enum: ["low", "medium", "high", "urgent"] },
       assigneeId: { type: "string", description: "Filter by assignee user ID" },
       assigneeName: { type: "string", description: "Filter by assignee name (partial match)" },
@@ -501,15 +501,15 @@ const taskActionTools: ToolDefinition[] = [
       title: { type: "string", description: "Task title" },
       assignees: { type: "array", description: "List of assignee NAMES (e.g. ['Amna', 'John']). Do NOT look up IDs. System resolves names automatically.", items: { type: "string" } },
       tags: { type: "array", description: "List of tag names.", items: { type: "string" } },
-      status: { type: "string", description: "Task status using canonical IDs. Use this only when there is one status field.", enum: ["todo", "in-progress", "blocked", "done"] },
+      status: { type: "string", description: "Task status using canonical IDs. Use this only when there is one status field.", enum: ["todo", "in_progress", "blocked", "done"] },
       statuses: {
         type: "array",
-        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done. If this is provided, it should be used instead of `status`.",
         items: {
           type: "object",
           properties: {
             field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
-            value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+            value: { type: "string", description: "Status value.", enum: ["todo", "in_progress", "blocked", "done"] },
           },
           required: ["field_name", "value"],
         },
@@ -556,15 +556,15 @@ const taskActionTools: ToolDefinition[] = [
       taskId: { type: "string", description: "The task ID to update (optional if lookupName provided)" },
       lookupName: { type: "string", description: "Find task by title to update (use this if you don't have the ID yet)" },
       title: { type: "string", description: "New title" },
-      status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
+      status: { type: "string", description: "New status", enum: ["todo", "in_progress", "blocked", "done"] },
       statuses: {
         type: "array",
-        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+        description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done. If this is provided, it should be used instead of `status`.",
         items: {
           type: "object",
           properties: {
             field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
-            value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+            value: { type: "string", description: "Status value.", enum: ["todo", "in_progress", "blocked", "done"] },
           },
           required: ["field_name", "value"],
         },
@@ -602,15 +602,15 @@ const taskActionTools: ToolDefinition[] = [
         description: "Updates to apply to all tasks. Same format as updateTaskItem.",
         properties: {
           title: { type: "string", description: "New title" },
-          status: { type: "string", description: "New status", enum: ["todo", "in-progress", "blocked", "done"] },
+          status: { type: "string", description: "New status", enum: ["todo", "in_progress", "blocked", "done"] },
           statuses: {
             type: "array",
-            description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in-progress|blocked|done. If this is provided, it should be used instead of `status`.",
+            description: "Named statuses array for multi-status tasks. Each entry must be { field_name, value } where value is todo|in_progress|blocked|done. If this is provided, it should be used instead of `status`.",
             items: {
               type: "object",
               properties: {
                 field_name: { type: "string", description: "Status field display name (for example: Status, Approval Status)." },
-                value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+                value: { type: "string", description: "Status value.", enum: ["todo", "in_progress", "blocked", "done"] },
               },
               required: ["field_name", "value"],
             },
@@ -734,7 +734,7 @@ const taskActionTools: ToolDefinition[] = [
               description: "Optional list of tag names.",
               items: { type: "string" },
             },
-            status: { type: "string", description: "Optional single task status", enum: ["todo", "in-progress", "blocked", "done"] },
+            status: { type: "string", description: "Optional single task status", enum: ["todo", "in_progress", "blocked", "done"] },
             statuses: {
               type: "array",
               description: "Optional named statuses array for multi-status tasks. Each entry must be { field_name, value }. If this is provided, it should be used instead of `status`.",
@@ -742,7 +742,7 @@ const taskActionTools: ToolDefinition[] = [
                 type: "object",
                 properties: {
                   field_name: { type: "string", description: "Status field display name (e.g., Status)." },
-                  value: { type: "string", description: "Status value.", enum: ["todo", "in-progress", "blocked", "done"] },
+                  value: { type: "string", description: "Status value.", enum: ["todo", "in_progress", "blocked", "done"] },
                 },
                 required: ["field_name", "value"],
               },

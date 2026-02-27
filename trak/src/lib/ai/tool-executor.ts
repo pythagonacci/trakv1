@@ -492,6 +492,85 @@ async function syncTaskEntityPropertiesAfterCreate(params: {
   }
 }
 
+async function syncTaskEntityPropertiesAfterMutation(params: {
+  taskId: string;
+  updates?: Record<string, unknown>;
+  tags?: unknown;
+  tagsSet?: boolean;
+  assignees?: Array<{ id?: string | null; name?: string | null }>;
+  assigneesSet?: boolean;
+}) {
+  const updates = params.updates ?? {};
+  const propertyUpdates: Record<string, unknown> = {};
+
+  if (Object.prototype.hasOwnProperty.call(updates, "statuses")) {
+    propertyUpdates.statuses = normalizeNamedStatuses((updates as any).statuses);
+  } else if (Object.prototype.hasOwnProperty.call(updates, "status")) {
+    const status = normalizeTaskStatusValue((updates as any).status);
+    if (status) propertyUpdates.status = status;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "priorities")) {
+    propertyUpdates.priorities = normalizeNamedPriorities((updates as any).priorities);
+  } else if (Object.prototype.hasOwnProperty.call(updates, "priority")) {
+    const rawPriority = (updates as any).priority;
+    const priority = normalizeTaskPriorityValue((updates as any).priority);
+    if (priority) {
+      propertyUpdates.priority = priority;
+    } else if (typeof rawPriority === "string" && rawPriority.trim().toLowerCase() === "none") {
+      propertyUpdates.priority = null;
+    }
+  }
+
+  const touchedDueDate =
+    Object.prototype.hasOwnProperty.call(updates, "dueDate") ||
+    Object.prototype.hasOwnProperty.call(updates, "startDate");
+  if (touchedDueDate) {
+    propertyUpdates.due_date = buildDueDateRangeFromTaskInput((updates as any).dueDate, (updates as any).startDate);
+  }
+
+  if (params.tagsSet) {
+    propertyUpdates.tags = Array.isArray(params.tags)
+      ? Array.from(
+        new Set(
+          params.tags
+            .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+            .filter(Boolean)
+        )
+      )
+      : [];
+  }
+
+  if (params.assigneesSet) {
+    propertyUpdates.assignee_ids = Array.isArray(params.assignees)
+      ? Array.from(
+        new Set(
+          params.assignees
+            .map((assignee) => (typeof assignee?.id === "string" ? assignee.id : null))
+            .filter((id): id is string => Boolean(id))
+        )
+      )
+      : [];
+  }
+
+  if (Object.keys(propertyUpdates).length === 0) {
+    return;
+  }
+
+  const result = await setEntityProperties({
+    entity_type: "task",
+    entity_id: params.taskId,
+    updates: propertyUpdates as any,
+  });
+  if ("error" in result) {
+    aiDebug("updateTaskItem:propertySyncError", {
+      taskId: params.taskId,
+      error: result.error,
+      updates: Object.keys(propertyUpdates),
+    });
+  }
+}
+
 const LEGACY_TOOL_ALIASES: Record<string, string> = {
   createSubtask: "createTaskSubtask",
   updateSubtask: "updateTaskSubtask",
@@ -1585,6 +1664,14 @@ export async function executeTool(
                 authContext: authContext ?? undefined,
               });
               if (!("error" in rpcResult)) {
+                await syncTaskEntityPropertiesAfterMutation({
+                  taskId,
+                  updates: baseUpdates,
+                  assignees: resolvedAssignees,
+                  assigneesSet: assigneesProvided,
+                  tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+                  tagsSet: tagsProvided,
+                });
                 return { success: true, data: rpcResult.data };
               }
             }
@@ -1631,6 +1718,15 @@ export async function executeTool(
               await setTaskTags(taskId, args.tags as string[], { authContext: authContext ?? undefined });
             }
 
+            await syncTaskEntityPropertiesAfterMutation({
+              taskId,
+              updates: baseUpdates,
+              assignees: resolvedAssignees,
+              assigneesSet: assigneesProvided,
+              tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
+              tagsSet: tagsProvided,
+            });
+
             return updateResult;
           }
 
@@ -1649,10 +1745,20 @@ export async function executeTool(
               authContext: authContext ?? undefined,
             });
             if (!("error" in rpcResult)) {
+              const skipped = new Set((rpcResult.data.skipped ?? []).map((id) => String(id)));
+              const successfulTaskIds = (args.taskIds as string[]).filter((id) => !skipped.has(id));
+              await Promise.all(
+                successfulTaskIds.map((taskId) =>
+                  syncTaskEntityPropertiesAfterMutation({
+                    taskId,
+                    updates: updatesArg ?? {},
+                  })
+                )
+              );
               return { success: true, data: rpcResult.data };
             }
           }
-          return await wrapResult(
+          const fallbackResult = await wrapResult(
             bulkUpdateTaskItems({
               taskIds: args.taskIds as string[],
               updates: {
@@ -1669,6 +1775,17 @@ export async function executeTool(
               authContext: authContext ?? undefined,
             })
           );
+          if (fallbackResult.success) {
+            await Promise.all(
+              (args.taskIds as string[]).map((taskId) =>
+                syncTaskEntityPropertiesAfterMutation({
+                  taskId,
+                  updates: updatesArg ?? {},
+                })
+              )
+            );
+          }
+          return fallbackResult;
 
         case "deleteTaskItem":
           return await wrapResult(deleteTaskItem(args.taskId as string, { authContext: authContext ?? undefined }));

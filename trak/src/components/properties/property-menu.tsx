@@ -281,7 +281,7 @@ export function PropertyMenu({
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
   const setProperties = useSetEntityProperties(entityType, entityId, workspaceId);
   const addTagMutation = useAddTag(entityType, entityId, workspaceId);
-  const removeTagMutation = useRemoveTag(entityType, entityId);
+  const removeTagMutation = useRemoveTag(entityType, entityId, workspaceId);
   const statusDisabled = Boolean(disabledFields?.status);
   const assigneesDisabled = Boolean(disabledFields?.assignees);
 

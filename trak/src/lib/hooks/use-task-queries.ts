@@ -107,8 +107,7 @@ export function useUpdateTaskItem(blockId: string) {
         qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       }
     },
-    // No invalidation needed — onMutate already updates the cache optimistically.
-    // Keeping invalidation only for structural mutations (create/delete/reorder).
+    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
 
@@ -265,6 +264,7 @@ export function useTaskTags(blockId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
 
@@ -287,6 +287,7 @@ export function useTaskAssignees(blockId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
   });
 }
 

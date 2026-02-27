@@ -256,7 +256,7 @@ export function useAddTag(
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityProperties(entityType, entityId),
+        queryKey: ["entitiesProperties", entityType, workspaceId],
       });
     },
   });
@@ -300,7 +300,11 @@ export function useAddProjectTag(projectId?: string) {
 /**
  * Remove a tag from an entity
  */
-export function useRemoveTag(entityType: EntityType, entityId: string) {
+export function useRemoveTag(
+  entityType: EntityType,
+  entityId: string,
+  workspaceId: string
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (tag: string) =>
@@ -314,7 +318,7 @@ export function useRemoveTag(entityType: EntityType, entityId: string) {
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
       qc.invalidateQueries({
-        queryKey: queryKeys.entityProperties(entityType, entityId),
+        queryKey: ["entitiesProperties", entityType, workspaceId],
       });
     },
   });
@@ -328,9 +332,6 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
   return useMutation({
     mutationFn: () => clearEntityProperties(entityType, entityId),
     onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityProperties(entityType, entityId),
-      });
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
