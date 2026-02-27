@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   GripVertical,
   Trash2,
@@ -84,6 +84,15 @@ export default function BlockWrapper({
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [propertiesAnchorRect, setPropertiesAnchorRect] = useState<DOMRect | null>(null);
+  const blockMenuTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const openPropertiesMenu = () => {
+    const rect = blockMenuTriggerRef.current?.getBoundingClientRect();
+    if (rect) setPropertiesAnchorRect(rect);
+    setPropertiesOpen(true);
+    setMenuOpen(false);
+  };
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
   const referencePicker = useBlockReferencePicker();
 
@@ -293,7 +302,8 @@ export default function BlockWrapper({
                 {block.type === "table" && (
                   <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                     <DropdownMenuTrigger asChild>
-                      <button 
+                      <button
+                        ref={blockMenuTriggerRef}
                         className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
@@ -399,10 +409,7 @@ export default function BlockWrapper({
                       </DropdownMenuItem>
 
                       <DropdownMenuItem
-                        onClick={() => {
-                          setPropertiesOpen(true);
-                          setMenuOpen(false);
-                        }}
+                        onClick={openPropertiesMenu}
                       >
                         <Tags className="h-4 w-4" />
                         <span>Properties</span>
@@ -464,7 +471,8 @@ export default function BlockWrapper({
             {block.type === "table" && (
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
-                  <button 
+                  <button
+                    ref={blockMenuTriggerRef}
                     className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -629,10 +637,7 @@ export default function BlockWrapper({
                   </DropdownMenuItem>
 
                   <DropdownMenuItem
-                    onClick={() => {
-                      setPropertiesOpen(true);
-                      setMenuOpen(false);
-                    }}
+                    onClick={openPropertiesMenu}
                   >
                     <Tags className="h-4 w-4" />
                     <span>Properties</span>
@@ -673,7 +678,10 @@ export default function BlockWrapper({
           >
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
-                <button className="flex h-7 w-7 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                <button
+                  ref={blockMenuTriggerRef}
+                  className="flex h-7 w-7 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
@@ -834,10 +842,7 @@ export default function BlockWrapper({
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onClick={() => {
-                    setPropertiesOpen(true);
-                    setMenuOpen(false);
-                  }}
+                  onClick={openPropertiesMenu}
                 >
                   <Tags className="h-4 w-4" />
                   <span>Properties</span>
@@ -869,7 +874,7 @@ export default function BlockWrapper({
               <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
                 <PropertyBadges
                   properties={direct}
-                  onClick={() => setPropertiesOpen(true)}
+                  onClick={openPropertiesMenu}
                   memberNames={getMemberNames(direct)}
                 />
               </div>
@@ -908,7 +913,12 @@ export default function BlockWrapper({
       {!readOnly && workspaceId && (
         <PropertyMenu
           open={propertiesOpen}
-          onOpenChange={setPropertiesOpen}
+          onOpenChange={(open) => {
+            setPropertiesOpen(open);
+            if (!open) setPropertiesAnchorRect(null);
+          }}
+          anchorRef={blockMenuTriggerRef}
+          anchorRect={propertiesAnchorRect}
           entityType="block"
           entityId={block.id}
           workspaceId={workspaceId}

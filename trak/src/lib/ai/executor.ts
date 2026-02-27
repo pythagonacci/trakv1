@@ -42,7 +42,7 @@ export interface AIToolCall {
   };
 }
 
-export type SearchManifestEntity = { id: string; title: string; entityType: "task" | "timeline_event" | "table_row" };
+export type SearchManifestEntity = { id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" };
 
 export interface SearchManifest {
   entities: SearchManifestEntity[];
@@ -907,7 +907,7 @@ function compactToolResult(result: ToolCallResult): ToolCallResult {
  * Only injects _source on entity types that support source data columns:
  * task (task_items), timeline_event (timeline_events), table_row (table_rows).
  */
-const SOURCE_SUPPORTED_TYPES = new Set(["task", "timeline_event", "table_row"]);
+const SOURCE_SUPPORTED_TYPES = new Set(["task", "timeline_event", "table_row", "subtask"]);
 
 function injectSourceMetadata(
   toolName: string,
@@ -968,7 +968,7 @@ function injectSourceMetadata(
 
   return data.map((item) => {
     const entityId = toolName === "searchSubtasks"
-      ? (item.task_id as string)  // subtasks link to parent task
+      ? (item.id as string)  // subtask's own id for table rows; parent task_id is for context only
       : (item.id as string);
     if (!entityId) return item;
     return {
@@ -978,6 +978,31 @@ function injectSourceMetadata(
         source_entity_type: entityType,
         source_sync_mode: "live",
       },
+    };
+  });
+}
+
+/** Enrich searchTasks result so each nested subtask has _source for table row creation. */
+function injectSubtaskSourceOnSearchTasksData(
+  data: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  return data.map((task) => {
+    const subtasks = Array.isArray(task.subtasks) ? task.subtasks as Array<Record<string, unknown>> : [];
+    if (subtasks.length === 0) return task;
+    return {
+      ...task,
+      subtasks: subtasks.map((st) => {
+        const id = st.id as string;
+        if (!id) return st;
+        return {
+          ...st,
+          _source: {
+            source_entity_type: "subtask",
+            source_entity_id: id,
+            source_sync_mode: "live",
+          },
+        };
+      }),
     };
   });
 }
@@ -1108,7 +1133,7 @@ export async function executeAICommand(
   const commandForModel = cleanedCommand;
   let timingLogged = false;
   // Initialize source-tracking state before any early-return paths call withTiming().
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
     ...(options.initialSearchedEntities ?? []),
   ];
   const searchToolsUsed = new Set<string>();
@@ -1770,6 +1795,16 @@ export async function executeAICommand(
               if (task.id && task.title) {
                 searchedEntities.push({ id: task.id, title: task.title, entityType: "task" });
               }
+              const subtasks = Array.isArray((task as any).subtasks) ? (task as any).subtasks : [];
+              for (const subtask of subtasks) {
+                if (subtask?.id && (subtask?.title != null || subtask?.id)) {
+                  searchedEntities.push({
+                    id: subtask.id,
+                    title: typeof subtask.title === "string" ? subtask.title : "Subtask",
+                    entityType: "subtask",
+                  });
+                }
+              }
             }
             aiDebug("sourceTracking:entitiesTracked", {
               tool: toolName,
@@ -1795,9 +1830,12 @@ export async function executeAICommand(
           if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data)) {
             const beforeCount = searchedEntities.length;
             for (const subtask of result.data) {
-              if (subtask.id && subtask.title && subtask.task_id) {
-                // Subtasks link back to their parent task for source tracking
-                searchedEntities.push({ id: subtask.task_id, title: subtask.title, entityType: "task" });
+              if (subtask.id && (subtask.title != null || subtask.id)) {
+                searchedEntities.push({
+                  id: subtask.id,
+                  title: typeof subtask.title === "string" ? subtask.title : "Subtask",
+                  entityType: "subtask",
+                });
               }
             }
             aiDebug("sourceTracking:entitiesTracked", {
@@ -1894,7 +1932,11 @@ export async function executeAICommand(
           const searchToolsForTracking = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties", "unstructuredSearchWorkspace"]);
           let resultForModel = result;
           if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            resultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+            let injectedData = injectSourceMetadata(toolName, result.data);
+            if (toolName === "searchTasks") {
+              injectedData = injectSubtaskSourceOnSearchTasksData(injectedData as Array<Record<string, unknown>>);
+            }
+            resultForModel = { ...result, data: injectedData };
             searchToolsUsed.add(toolName);
           }
           const compactedForMetrics = compactToolResult(resultForModel);
@@ -1903,7 +1945,7 @@ export async function executeAICommand(
 
           // Inject strict source tracking reminder for search tools
           if (searchToolsForTracking.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            toolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Valid source_entity_type values: "task", "timeline_event", "table_row", "block". For task/timeline creation from table rows, use source_entity_type "table_row" and the row ID. For creation from blocks, use source_entity_type "block" and the block ID.\n3. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n4. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n5. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
+            toolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Valid source_entity_type values: "task", "timeline_event", "table_row", "block", "subtask". For task/timeline creation from table rows, use source_entity_type "table_row" and the row ID. For creation from blocks, use source_entity_type "block" and the block ID. For table rows that represent subtasks (nested under a task), use source_entity_type "subtask" and the subtask's own ID from the result.\n3. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n4. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n5. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
             aiDebug("sourceTracking:llmReminderInjected", {
               tool: toolName,
               resultCount: result.data.length,
@@ -2641,7 +2683,7 @@ export async function* executeAICommandStream(
   let approvedWriteConsumed = false;
   // Track searched entities for deterministic source metadata annotation (streaming path)
   // Seed with entities from previous conversation turns if available
-  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" }> = [
+  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
     ...(options.initialSearchedEntities ?? []),
   ];
   if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
@@ -3083,6 +3125,16 @@ export async function* executeAICommandStream(
               if (task.id && task.title) {
                 searchedEntitiesStream.push({ id: task.id, title: task.title, entityType: "task" });
               }
+              const subtasks = Array.isArray((task as any).subtasks) ? (task as any).subtasks : [];
+              for (const subtask of subtasks) {
+                if (subtask?.id && (subtask?.title != null || subtask?.id)) {
+                  searchedEntitiesStream.push({
+                    id: subtask.id,
+                    title: typeof subtask.title === "string" ? subtask.title : "Subtask",
+                    entityType: "subtask",
+                  });
+                }
+              }
             }
             aiDebug("sourceTracking:entitiesTracked:stream", {
               tool: toolName,
@@ -3108,8 +3160,12 @@ export async function* executeAICommandStream(
           if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data)) {
             const beforeCount = searchedEntitiesStream.length;
             for (const subtask of result.data) {
-              if (subtask.id && subtask.title && subtask.task_id) {
-                searchedEntitiesStream.push({ id: subtask.task_id, title: subtask.title, entityType: "task" });
+              if (subtask.id && (subtask.title != null || subtask.id)) {
+                searchedEntitiesStream.push({
+                  id: subtask.id,
+                  title: typeof subtask.title === "string" ? subtask.title : "Subtask",
+                  entityType: "subtask",
+                });
               }
             }
             aiDebug("sourceTracking:entitiesTracked:stream", {
@@ -3246,7 +3302,11 @@ export async function* executeAICommandStream(
           const searchToolsForTrackingStream = new Set(["searchTasks", "searchTimelineEvents", "searchSubtasks", "searchEntitiesByProperties", "unstructuredSearchWorkspace"]);
           let streamResultForModel = result;
           if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            streamResultForModel = { ...result, data: injectSourceMetadata(toolName, result.data) };
+            let injectedData = injectSourceMetadata(toolName, result.data);
+            if (toolName === "searchTasks") {
+              injectedData = injectSubtaskSourceOnSearchTasksData(injectedData as Array<Record<string, unknown>>);
+            }
+            streamResultForModel = { ...result, data: injectedData };
             searchToolsUsedStream.add(toolName);
           }
           const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(streamResultForModel) : streamResultForModel;
@@ -3254,7 +3314,7 @@ export async function* executeAICommandStream(
 
           // Inject strict source tracking reminder for search tools (streaming path)
           if (searchToolsForTrackingStream.has(toolName) && result.success && Array.isArray(result.data) && result.data.length > 0) {
-            streamToolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Valid source_entity_type values: "task", "timeline_event", "table_row", "block". For task/timeline creation from table rows, use source_entity_type "table_row" and the row ID. For creation from blocks, use source_entity_type "block" and the block ID.\n3. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n4. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n5. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
+            streamToolMessageContent += `\n\n⚠️ SOURCE TRACKING — NON-NEGOTIABLE ⚠️\nEvery result above has a \`_source\` field containing source_entity_id, source_entity_type, and source_sync_mode.\n\nRULES:\n1. When you use ANY of these results in a write operation — table row, task, timeline event, or ANY other entity — you MUST copy the _source values onto the created item: source_entity_id, source_entity_type, and source_sync_mode. This is NOT optional.\n2. Valid source_entity_type values: "task", "timeline_event", "table_row", "block", "subtask". For task/timeline creation from table rows, use source_entity_type "table_row" and the row ID. For creation from blocks, use source_entity_type "block" and the block ID. For table rows that represent subtasks (nested under a task), use source_entity_type "subtask" and the subtask's own ID from the result.\n3. Do NOT try to construct these values yourself. Copy them EXACTLY from the _source field on the matching result.\n4. If you create new, summarized, or derived content that does NOT directly correspond to a specific result above, do NOT include source metadata on that item.\n5. Omitting source metadata on items that directly use these results is a CRITICAL ERROR that breaks sync functionality.`;
             aiDebug("sourceTracking:llmReminderInjected:stream", {
               tool: toolName,
               resultCount: result.data.length,

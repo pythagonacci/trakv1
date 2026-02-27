@@ -792,13 +792,12 @@ async function getEntitiesWithPropertyFilter(
         }
       } else if (value && typeof value === "object") {
         if (Array.isArray(value)) {
-          // Multi-select: check if any item.name matches any search name
-          matches = value.some((item: any) =>
-            searchNames.some(searchName => {
-              const itemNameNormalized = normalizeForMatching(item?.name || "");
-              return itemNameNormalized.includes(searchName);
-            })
-          );
+          // Multi-select: items can be plain strings (e.g. tags) or objects with .name (e.g. assignee)
+          matches = value.some((item: any) => {
+            const itemLabel = typeof item === "string" ? item : (item?.name ?? "");
+            const itemNameNormalized = normalizeForMatching(itemLabel);
+            return searchNames.some(searchName => itemNameNormalized.includes(searchName));
+          });
         } else {
           // Single object: check if value.name matches any search name
           const valueObj = value as Record<string, unknown>;
