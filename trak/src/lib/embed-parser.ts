@@ -16,6 +16,8 @@ export interface EmbedConfig {
   embedUrl: string;
   originalUrl: string;
   title?: string;
+  /** Video or resource ID for thumbnail derivation (YouTube, Loom) */
+  videoId?: string;
 }
 
 /**
@@ -124,6 +126,7 @@ export function parseEmbedUrl(url: string): EmbedConfig | null {
         type: "youtube",
         embedUrl,
         originalUrl: normalizedUrl,
+        videoId,
       };
     }
 
@@ -137,6 +140,7 @@ export function parseEmbedUrl(url: string): EmbedConfig | null {
         type: "loom",
         embedUrl,
         originalUrl: normalizedUrl,
+        videoId,
       };
     }
 
@@ -165,6 +169,17 @@ export function parseEmbedUrl(url: string): EmbedConfig | null {
     // Invalid URL
     return null;
   }
+}
+
+/**
+ * Returns a thumbnail URL for the embed when derivable from config (e.g. YouTube).
+ * For Loom and others that need oEmbed, returns null.
+ */
+export function getEmbedThumbnailUrl(config: EmbedConfig): string | null {
+  if (config.videoId && config.type === "youtube") {
+    return `https://img.youtube.com/vi/${config.videoId}/hqdefault.jpg`;
+  }
+  return null;
 }
 
 /**

@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { ExternalLink, Link2, Loader2, AlertCircle, Maximize2 } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
-import { parseEmbedUrl, isValidUrl, type EmbedType } from "@/lib/embed-parser";
+import { parseEmbedUrl, isValidUrl, getEmbedThumbnailUrl, type EmbedType } from "@/lib/embed-parser";
+import { fetchEmbedMetadata } from "@/app/actions/embed-actions";
 
 interface EmbedBlockProps {
   block: Block;
@@ -22,6 +23,12 @@ interface EmbedContent {
   embedUrl?: string;
   displayMode?: DisplayMode;
   caption?: string;
+  /** Optional custom height (in pixels) for inline embed iframe. */
+  heightPx?: number;
+  /** Resolved title (e.g. video title) for link preview */
+  title?: string;
+  /** Thumbnail URL for link preview */
+  thumbnailUrl?: string;
 }
 
 export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
@@ -81,7 +88,7 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
     }
   };
 
-  // Save content
+  // Save content and fetch metadata for link preview (title + thumbnail)
   const handleSave = async (urlToSave?: string) => {
     const finalUrl = urlToSave || url;
     
@@ -92,14 +99,20 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
     setSaveStatus("saving");
     try {
       const config = parseEmbedUrl(finalUrl);
+      const metadata = await fetchEmbedMetadata(finalUrl);
+      const thumbnailUrl = metadata.thumbnailUrl ?? (config ? getEmbedThumbnailUrl(config) : null);
+      const updatedContent: EmbedContent = {
+        ...content,
+        url: finalUrl,
+        embedType: config?.type,
+        embedUrl: config?.embedUrl,
+        displayMode,
+        title: metadata.title ?? undefined,
+        thumbnailUrl: thumbnailUrl ?? undefined,
+      };
       await updateBlock({
         blockId: block.id,
-        content: {
-          url: finalUrl,
-          embedType: config?.type,
-          embedUrl: config?.embedUrl,
-          displayMode,
-        },
+        content: updatedContent,
       });
       setSaveStatus("saved");
       setEmbedConfig(config);
@@ -191,6 +204,36 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
       setIsEditing(true);
     }
   }, [content.url, isEditing]);
+
+  // Backfill title/thumbnail for existing embeds (linked mode) that don't have them yet
+  const lastBackfillUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (content.url && content.url !== lastBackfillUrlRef.current) {
+      lastBackfillUrlRef.current = null;
+    }
+    if (
+      content.url &&
+      (displayMode === "linked" || !embedConfig || embedError) &&
+      !content.title &&
+      lastBackfillUrlRef.current !== content.url
+    ) {
+      lastBackfillUrlRef.current = content.url;
+      fetchEmbedMetadata(content.url).then((meta) => {
+        if (meta.title || meta.thumbnailUrl) {
+          const config = parseEmbedUrl(content.url);
+          const thumb = meta.thumbnailUrl ?? (config ? getEmbedThumbnailUrl(config) : null);
+          updateBlock({
+            blockId: block.id,
+            content: {
+              ...content,
+              title: meta.title ?? undefined,
+              thumbnailUrl: thumb ?? undefined,
+            },
+          }).then(() => onUpdate?.());
+        }
+      });
+    }
+  }, [content.url, content.title, content.thumbnailUrl, displayMode, embedConfig, embedError, block.id]);
 
   const handleCaptionChange = (value: string) => {
     setCaption(value);
@@ -298,8 +341,10 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
     );
   }
 
-  // Linked mode - show as a link card
+  // Linked mode - show as a link card with thumbnail and real title
   if (displayMode === "linked" || !embedConfig || embedError) {
+    const thumbnailUrl = content.thumbnailUrl ?? (embedConfig ? getEmbedThumbnailUrl(embedConfig) : null);
+    const displayTitle = content.title ?? (embedConfig?.type === "generic" ? "Web Page" : embedConfig?.type || "Link");
     return (
       <div className="p-5">
         <a
@@ -308,15 +353,23 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
           rel="noopener noreferrer"
           className="flex items-start gap-3 p-4 border border-neutral-200 dark:border-neutral-800 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors group"
         >
-          <div className="w-10 h-10 rounded bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
-            <Link2 className="w-5 h-5 text-neutral-600 dark:text-neutral-400" />
+          <div className="w-24 h-14 shrink-0 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center">
+            {thumbnailUrl ? (
+              <img
+                src={thumbnailUrl}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <Link2 className="w-6 h-6 text-neutral-500 dark:text-neutral-400" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-semibold text-neutral-900 dark:text-white">
-                {embedConfig?.type === "generic" ? "Web Page" : embedConfig?.type || "Link"}
+              <span className="text-sm font-semibold text-neutral-900 dark:text-white line-clamp-2">
+                {displayTitle}
               </span>
-              <ExternalLink className="w-3 h-3 text-neutral-500 group-hover:text-neutral-700 dark:group-hover:text-neutral-300 transition-colors" />
+              <ExternalLink className="w-3 h-3 text-neutral-500 shrink-0 group-hover:text-neutral-700 dark:group-hover:text-neutral-300 transition-colors" />
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-500 font-mono truncate">
               {content.url}
@@ -341,9 +394,9 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
     <div className="p-5 space-y-3">
       {/* Header with controls */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase">
-            {embedConfig.type}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase truncate">
+            {content.title ?? embedConfig.type}
           </span>
           <button
             onClick={() => setIsEditing(true)}
@@ -407,8 +460,21 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
           </div>
         )}
 
-        {/* Responsive iframe container */}
-        <div className="relative w-full" style={{ paddingBottom: embedConfig.type === "youtube" ? "56.25%" : "600px" }}>
+        {/* Iframe container – height controlled by CSS variable from BlockWrapper with a content-based fallback */}
+        <div
+          className="relative w-full"
+          style={{
+            height: `var(--embed-height-px, ${
+              typeof content.heightPx === "number" && content.heightPx > 0
+                ? content.heightPx
+                : embedConfig.type === "calendly"
+                  ? 700
+                  : embedConfig.type === "youtube"
+                    ? 400
+                    : 600
+            }px)`,
+          }}
+        >
           <iframe
             ref={iframeRef}
             src={embedUrl}
@@ -417,7 +483,6 @@ export default function EmbedBlock({ block, onUpdate }: EmbedBlockProps) {
             allowFullScreen
             loading="lazy"
             onLoad={handleIframeLoad}
-            style={{ minHeight: embedConfig.type === "calendly" ? "700px" : "400px" }}
           />
         </div>
       </div>
