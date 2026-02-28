@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { usePathname } from "next/navigation";
 
 interface AIContextValue {
   isOpen: boolean;
@@ -41,6 +42,25 @@ export function AIProvider({ children }: AIProviderProps) {
   const [suppressInlineSidebar, setSuppressInlineSidebar] = useState(false);
   const [contextBlock, setContextBlock] = useState<AIBlockContext | null>(null);
   const [pendingFileIds, setPendingFileIds] = useState<string[]>([]);
+  const pathname = usePathname();
+
+  const routeScopeKey = useMemo(() => {
+    const tabMatch = pathname?.match(/\/tabs\/([^/]+)/);
+    const workflowMatch = pathname?.match(/\/dashboard\/workflow\/([^/]+)/);
+    const projectMatch = pathname?.match(/\/dashboard\/projects\/([^/]+)/);
+
+    if (tabMatch?.[1]) {
+      return `tab:${tabMatch[1]}`;
+    }
+    if (workflowMatch?.[1]) {
+      return `workflow:${workflowMatch[1]}`;
+    }
+    if (projectMatch?.[1]) {
+      return `project:${projectMatch[1]}`;
+    }
+    return `route:${pathname ?? "unknown"}`;
+  }, [pathname]);
+  const previousRouteScopeKeyRef = useRef(routeScopeKey);
 
   const openCommandPalette = useCallback(() => setIsOpen(true), []);
   const closeCommandPalette = useCallback(() => setIsOpen(false), []);
@@ -79,6 +99,15 @@ export function AIProvider({ children }: AIProviderProps) {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, toggleCommandPalette, closeCommandPalette]);
+
+  // Keep the command palette scoped to the active route context.
+  useEffect(() => {
+    if (previousRouteScopeKeyRef.current === routeScopeKey) return;
+    previousRouteScopeKeyRef.current = routeScopeKey;
+    setIsOpen(false);
+    setContextBlock(null);
+    setPendingFileIds([]);
+  }, [routeScopeKey]);
 
   return (
     <AIContext.Provider

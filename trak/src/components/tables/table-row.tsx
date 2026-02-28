@@ -188,7 +188,7 @@ export const TableRow = memo(function TableRow({
           </div>
         );
       })}
-      <div className="px-2 py-2 border-l border-[var(--border)]" />
+      <div className="px-2 py-2 border-l border-[var(--border)] sticky right-0 z-10 bg-[var(--surface)]" />
     </div>
   );
 });

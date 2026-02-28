@@ -36,6 +36,7 @@ function availableCalculations(type: string): CalculationType[] {
     case "multi_select":
     case "status":
     case "priority":
+    case "tags":
       return ["count_values", "count_unique"];
     default:
       return ["count_all", "count_values"];

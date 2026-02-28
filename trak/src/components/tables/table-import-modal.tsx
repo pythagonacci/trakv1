@@ -20,6 +20,7 @@ const FIELD_TYPE_OPTIONS: Array<{ value: FieldType; label: string }> = [
   { value: "subtask", label: "Subtask" },
   { value: "select", label: "Select" },
   { value: "multi_select", label: "Multi-select" },
+  { value: "tags", label: "Tags" },
   { value: "url", label: "URL" },
   { value: "email", label: "Email" },
   { value: "phone", label: "Phone" },

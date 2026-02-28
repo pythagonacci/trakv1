@@ -4,7 +4,7 @@
 // Popover menu for managing fixed properties (status, priority, assignee, due date, tags).
 // When anchorRef is provided, opens as a dropdown from the trigger; otherwise falls back to centered dialog.
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   Dialog,
@@ -342,7 +342,6 @@ export function PropertyMenu({
   const [dueDateDrafts, setDueDateDrafts] = useState<DueDateFieldDraft[]>([]);
 
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
 
   const { data: direct, isLoading } =
     useEntityProperties(entityType, entityId);
@@ -403,23 +402,10 @@ export function PropertyMenu({
     return () => window.removeEventListener("resize", onResize);
   }, [open, anchorRect, anchorRef]);
 
-  useEffect(() => {
-    if (!open || !usePopover) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const clickedInsidePopover = popoverRef.current?.contains(target) ?? false;
-      const clickedInsideAnchor = anchorRef?.current ? anchorRef.current.contains(target) : false;
-      // Close when clicking outside both the popover panel and (if present) its trigger anchor
-      if (!clickedInsidePopover && !clickedInsideAnchor) {
-        onOpenChange(false);
-      }
-    };
-    const t = setTimeout(() => document.addEventListener("click", handleClick, true), 0);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener("click", handleClick, true);
-    };
-  }, [open, usePopover, onOpenChange, anchorRef]);
+  // Click-outside is handled by the backdrop div rendered in the portal (see below).
+  // We do NOT use a document-level click listener because Radix Select v2 unmounts
+  // its portal content on pointerdown (before the click event fires), so any
+  // composedPath / contains check against the Radix portal wrapper is unreliable.
 
   const memberLookup = React.useMemo(() => {
     const map = new Map<string, (typeof members)[number]>();
@@ -501,10 +487,19 @@ export function PropertyMenu({
       onOpenChange(false);
       return;
     }
-    persistStatusDrafts(statusDrafts);
-    persistPriorityDrafts(priorityDrafts);
-    persistAssigneeDrafts(assigneeDrafts);
-    persistDueDateDrafts(dueDateDrafts);
+    // Build one combined update and fire a single mutation to avoid race conditions.
+    // Firing 4 separate mutations simultaneously caused each to call getEntityProperties
+    // before the others had inserted their rows, triggering false "no rows" errors.
+    const normalizedStatuses = deduplicateByName(statusDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
+    const normalizedPriorities = deduplicateByName(priorityDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
+    const normalizedAssignees = deduplicateByName(assigneeDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
+    const normalizedDueDates = deduplicateByName(dueDateDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
+    setProperties.mutate({
+      statuses: normalizedStatuses.length > 0 ? normalizedStatuses : null,
+      priorities: normalizedPriorities.length > 0 ? normalizedPriorities : null,
+      assignees: normalizedAssignees.length > 0 ? normalizedAssignees : null,
+      due_dates: normalizedDueDates.length > 0 ? normalizedDueDates : null,
+    });
     onOpenChange(false);
   };
 
@@ -1443,21 +1438,26 @@ export function PropertyMenu({
 
   if (usePopover && popoverPosition) {
     return createPortal(
-      <div
-        ref={popoverRef}
-        className="z-[100] w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col max-h-[min(85vh,380px)]"
-        style={{
-          position: "fixed",
-          left: popoverPosition.left,
-          top: popoverPosition.top,
-        }}
-        role="dialog"
-        aria-label="Properties"
-      >
+      <>
+        {/* Backdrop: z-[99] sits below the menu (z-[100]) and below Radix portals (z-[200]).
+            Uses onPointerDown (not onClick) because Radix DismissableLayer calls
+            event.preventDefault() on pointerdown when closing a Select, which suppresses
+            the subsequent click event — making onClick unreliable when a dropdown is open. */}
+        <div className="fixed inset-0 z-[99]" onPointerDown={() => onOpenChange(false)} />
+        <div
+          className="z-[100] w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col max-h-[min(85vh,380px)]"
+          style={{
+            position: "fixed",
+            left: popoverPosition.left,
+            top: popoverPosition.top,
+          }}
+          role="dialog"
+          aria-label="Properties"
+        >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5 shrink-0">
           <button
             type="button"
-            onClick={() => onOpenChange(false)}
+            onPointerDown={() => onOpenChange(false)}
             className="rounded px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             aria-label="Back"
           >
@@ -1466,7 +1466,7 @@ export function PropertyMenu({
           <span className="text-[11px] font-semibold text-[var(--foreground)]">Properties</span>
           <button
             type="button"
-            onClick={() => onOpenChange(false)}
+            onPointerDown={() => onOpenChange(false)}
             className="rounded px-1.5 py-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             aria-label="Close"
           >
@@ -1478,13 +1478,14 @@ export function PropertyMenu({
         </div>
         <div className="shrink-0 px-2 pb-2 pt-1.5 border-t border-[var(--border)]">
           <div className="flex justify-end">
-            <Button type="button" size="sm" onClick={handleSave} disabled={isLoading || setProperties.isPending} className="h-6 gap-1 px-1.5 text-[11px]">
+            <Button type="button" size="sm" onPointerDown={handleSave} disabled={isLoading || setProperties.isPending} className="h-6 gap-1 px-1.5 text-[11px]">
               <Save className="h-2.5 w-2.5" />
               {setProperties.isPending ? "Saving…" : "Save"}
             </Button>
           </div>
         </div>
-      </div>,
+      </div>
+      </>,
       document.body
     );
   }

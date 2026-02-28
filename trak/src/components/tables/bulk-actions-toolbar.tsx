@@ -22,7 +22,7 @@ function getEditableFields(fields: TableField[]) {
 
 function getFieldOptions(field: TableField) {
   const config = (field.config || {}) as Record<string, any>;
-  if (field.type === "select" || field.type === "multi_select" || field.type === "status") {
+  if (field.type === "select" || field.type === "multi_select" || field.type === "tags" || field.type === "status") {
     return Array.isArray(config.options) ? config.options : [];
   }
   if (field.type === "priority") {
@@ -50,7 +50,7 @@ export function BulkActionsToolbar({
   const editableFields = useMemo(() => getEditableFields(fields), [fields]);
   const selectedField = editableFields.find((field) => field.id === selectedFieldId) || null;
   const options = selectedField ? getFieldOptions(selectedField) : [];
-  const isMulti = selectedField?.type === "multi_select";
+  const isMulti = selectedField?.type === "multi_select" || selectedField?.type === "tags";
 
   const resetEditor = () => {
     setTextValue("");
@@ -74,6 +74,7 @@ export function BulkActionsToolbar({
       case "priority":
         return optionValue.trim() !== "";
       case "multi_select":
+      case "tags":
         return multiValue.length > 0;
       case "long_text":
       case "text":

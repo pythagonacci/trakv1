@@ -35,6 +35,7 @@ function availableCalculations(type: string): CalculationType[] {
     case "multi_select":
     case "status":
     case "priority":
+    case "tags":
       return ["count_values", "count_unique"];
     default:
       return ["count_all", "count_values"];
@@ -115,6 +116,7 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string; category?: string }
   { value: "multi_select", label: "Multi-select", category: "Select" },
   { value: "status", label: "Status", category: "Select" },
   { value: "priority", label: "Priority", category: "Select" },
+  { value: "tags", label: "Tags", category: "Select" },
 
   // Contact Types
   { value: "email", label: "Email", category: "Contact" },
@@ -273,7 +275,7 @@ export function TableHeaderRow({
         </div>
       );
     })}
-        <div className="flex items-center justify-center border-l border-black/10 bg-[var(--primary)]/10 min-w-[40px]">
+        <div className="flex items-center justify-center border-l border-black/10 bg-[var(--primary)]/10 min-w-[40px] sticky right-0 z-30 shadow-[-4px_0_8px_rgba(0,0,0,0.06)]">
           <button
             onClick={onAddField}
             className="inline-flex items-center justify-center w-8 h-6 rounded-[4px] border border-dashed border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)] transition-colors duration-150 text-sm"
@@ -314,7 +316,7 @@ interface FieldHeaderProps {
 }
 
 function isOptionField(type: FieldType) {
-  return type === "select" || type === "multi_select" || type === "status";
+  return type === "select" || type === "multi_select" || type === "status" || type === "tags";
 }
 
 function isConfigurableField(type: FieldType) {

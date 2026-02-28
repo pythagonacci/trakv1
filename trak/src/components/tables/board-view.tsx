@@ -90,7 +90,7 @@ export function BoardView({
   const priorityField = useMemo(() => fields.find((f) => f.type === "priority"), [fields]);
   const statusField = useMemo(() => fields.find((f) => f.type === "status"), [fields]);
   const selectField = useMemo(() => fields.find((f) => f.type === "select"), [fields]);
-  const tagsField = useMemo(() => fields.find((f) => f.type === "multi_select"), [fields]);
+  const tagsField = useMemo(() => fields.find((f) => f.type === "tags"), [fields]);
 
   if (!groupByField || !grouped) {
     return (
@@ -103,14 +103,14 @@ export function BoardView({
   const handleAddRow = (groupId: string) => {
     const data: Record<string, unknown> = {};
     if (groupId !== "__ungrouped__") {
-      if (groupByField.type === "multi_select") {
+      if (groupByField.type === "multi_select" || groupByField.type === "tags") {
         data[groupByField.id] = [groupId];
       } else if (groupByField.type === "checkbox" || groupByField.type === "subtask") {
         data[groupByField.id] = groupId === "true";
       } else {
         data[groupByField.id] = groupId;
       }
-    } else if (groupByField.type === "multi_select") {
+    } else if (groupByField.type === "multi_select" || groupByField.type === "tags") {
       data[groupByField.id] = [];
     } else {
       data[groupByField.id] = null;
@@ -120,7 +120,7 @@ export function BoardView({
 
   const handleDrop = (rowId: string, sourceGroupId: string, targetGroupId: string) => {
     if (!groupByField) return;
-    if (groupByField.type === "multi_select") {
+    if (groupByField.type === "multi_select" || groupByField.type === "tags") {
       const current = rows.find((row) => row.id === rowId)?.data?.[groupByField.id];
       const currentValues = Array.isArray(current) ? current.map(String) : [];
       const withoutSource = currentValues.filter((value) => value !== sourceGroupId);
@@ -191,7 +191,7 @@ export function BoardView({
         ? { id: fallback.id, label: fallback.label, color: fallback.color, order: fallback.order }
         : null;
     }
-    if (field.type === "select" || field.type === "multi_select") {
+    if (field.type === "select" || field.type === "multi_select" || field.type === "tags") {
       const options = ((field.config || {}) as SelectFieldConfig).options || [];
       return options.find((opt) => opt.id === value || opt.label === value) || null;
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, ExternalLink, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBlockReferences, useDeleteBlockReference } from "@/lib/hooks/use-block-references";
@@ -21,18 +21,7 @@ export default function BlockReferencesPanel({
   const picker = useBlockReferencePicker();
 
   const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    if (references.length > 0) {
-      setIsOpen(true);
-    }
-  }, [references.length]);
-
-  const countLabel = useMemo(() => {
-    if (references.length === 0) return "No attachments";
-    if (references.length === 1) return "1 attachment";
-    return `${references.length} attachments`;
-  }, [references.length]);
+  const addAttachmentButtonRef = useRef<HTMLButtonElement>(null);
 
   if (!picker) {
     return null;
@@ -43,34 +32,41 @@ export default function BlockReferencesPanel({
   }
 
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[#d8d8d8]/20 text-[11px]">
-      <div className="flex items-center justify-between px-2.5 py-1.5">
+    <div className="text-[11px]">
+      <div className="inline-flex items-center gap-1">
         <button
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
-          className="flex items-center gap-2 text-xs font-medium text-[var(--muted-foreground)]"
+          className="flex items-center gap-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
         >
-          <ChevronDown
-            className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-180")}
-          />
-          <span>Attachments</span>
-          <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-            {countLabel}
+          <span className={cn("font-medium underline underline-offset-2", isOpen && "text-[var(--foreground)]")}>
+            Attachments ({references.length})
           </span>
+          <ChevronDown
+            className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")}
+          />
         </button>
         {!readOnly && (
           <button
+            ref={addAttachmentButtonRef}
             type="button"
-            onClick={() => picker.openPicker()}
-            className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+            onClick={(e) => {
+              const el = e.currentTarget as HTMLElement;
+              picker.openPicker({
+                anchorRect: el.getBoundingClientRect(),
+                getAnchorRect: () => addAttachmentButtonRef.current?.getBoundingClientRect() ?? null,
+              });
+            }}
+            className="inline-flex items-center justify-center text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-colors"
             title="Add attachment"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
           </button>
         )}
       </div>
+
       {isOpen && (
-        <div className="border-t border-[var(--border)] px-2.5 py-1.5">
+        <div className="mt-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 shadow-popover">
           {references.length === 0 ? (
             <div className="rounded-[4px] border border-dashed border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--muted-foreground)]">
               No attachments yet.

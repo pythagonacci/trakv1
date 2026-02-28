@@ -210,22 +210,54 @@ export function TableHeaderCompact({
                   className={cn(
                     "group inline-flex items-center gap-1.5 rounded-[4px] px-2 py-1 transition-colors duration-150",
                     isActive
-                      ? "bg-[var(--foreground)] text-[var(--background)]"
+                      ? "bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/30"
                       : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                   )}
                   title={tabMeta}
                 >
-                  <button
-                    onClick={() => onSwitchView(view.id)}
-                    className="flex items-center gap-1.5"
-                  >
-                    <span className="text-[10px] font-medium">{view.name}</span>
-                    {view.type === "board" && groupField && (
-                      <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-                        {groupLabel}
+                  {editingView === view.id ? (
+                    <input
+                      className="min-w-[60px] max-w-[120px] bg-transparent outline-none text-[10px] font-medium text-inherit border-b border-current px-0.5 py-0"
+                      defaultValue={view.name}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => {
+                        setEditingView(null);
+                        const next = e.target.value.trim();
+                        if (next && next !== view.name) onRenameView(view.id, next);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") {
+                          setEditingView(null);
+                          e.currentTarget.value = view.name;
+                        }
+                        e.stopPropagation();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => onSwitchView(view.id)}
+                      className="flex items-center gap-1.5 text-left"
+                    >
+                      <span
+                        className="text-[10px] font-medium"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setEditingView(view.id);
+                        }}
+                        title="Double-click to rename view"
+                      >
+                        {view.name}
                       </span>
-                    )}
-                  </button>
+                      {view.type === "board" && groupField && (
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                          {groupLabel}
+                        </span>
+                      )}
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -234,7 +266,7 @@ export function TableHeaderCompact({
                     className={cn(
                       "text-[10px] opacity-0 group-hover:opacity-100 transition",
                       isActive
-                        ? "text-[var(--background)]/70 hover:text-[var(--background)]"
+                        ? "text-[var(--primary)]/70 hover:text-[var(--primary)]"
                         : "text-[var(--muted-foreground)] hover:text-[var(--error)]"
                     )}
                     title="Delete view"
@@ -332,7 +364,7 @@ export function TableHeaderCompact({
                 </button>
                 <div className="mt-1 border-t border-[var(--border)]" />
                 {fields
-                  .filter((f) => ["select", "multi_select", "status", "priority", "person", "checkbox", "subtask"].includes(f.type))
+                  .filter((f) => ["select", "multi_select", "status", "priority", "tags", "person", "checkbox", "subtask"].includes(f.type))
                   .map((f) => (
                     <button
                       key={f.id}
@@ -610,6 +642,15 @@ export function TableHeaderCompact({
                   </option>
                 ))}
               </select>
+              {filters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(false)}
+                  className="mt-3 w-full rounded-[6px] bg-[var(--dome-teal)] px-2 py-1.5 text-xs font-medium text-[var(--success-foreground)] transition-colors hover:opacity-90"
+                >
+                  Apply filters
+                </button>
+              )}
             </div>
           )}
         </div>
