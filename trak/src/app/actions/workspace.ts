@@ -109,6 +109,19 @@ export async function updateCurrentWorkspace(workspaceId: string) {
   
   return { success: true };
 }
+
+/** Set current workspace cookie after invite accept (user was just added; no auth check). */
+export async function setCurrentWorkspaceAfterInvite(workspaceId: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(CURRENT_WORKSPACE_COOKIE, workspaceId, {
+    maxAge: 60 * 60 * 24 * 365,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  });
+  return { success: true };
+}
+
 //create workspace action 
 export async function createWorkspace(name: string) {
   const authResult = await getServerUser()
@@ -203,81 +216,106 @@ export const getUserWorkspaces = cache(async () => {
     return { data: workspaces }
 });
 
-  //invite member server action. this invites different people to the workspace.
-  //the inviter must have admin/owner permissions 
-  //if the inviter alread exists within the Trak system, they will be added when they login. If they do not exist within the Trak system, they will be added when they sign up through a magic link.
+  // Invite member: add existing users to workspace_members; create workspace_invitation + send email for new users.
 
 export async function inviteMember(workspaceId: string, email: string, role: 'admin' | 'teammate') {
     const authResult = await getServerUser()
-    
-    // 1. Get authenticated user
-    if (!authResult) {
-      return { error: 'Unauthorized' }
-    }
+    if (!authResult) return { error: 'Unauthorized' }
     const { supabase, user } = authResult
-    
-    // 2. Validate inviter has admin/owner permissions
+
     const { data: inviterMembership } = await supabase
       .from('workspace_members')
       .select('role')
       .eq('workspace_id', workspaceId)
       .eq('user_id', user.id)
       .single()
-    
     if (!inviterMembership || (inviterMembership.role !== 'owner' && inviterMembership.role !== 'admin')) {
       return { error: 'Insufficient permissions. Only owners and admins can invite members.' }
     }
-    
-    // 3. Check if invitee email exists in profiles
+
+    const normalizedEmail = email.toLowerCase().trim()
+
     const { data: inviteeProfile, error: profileError } = await supabase
       .from('profiles')
       .select('id')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .maybeSingle()
-    
-    if (profileError || !inviteeProfile) {
-      return { error: 'User with this email does not exist. They must sign up first.' }
+    if (profileError) return { error: profileError.message }
+
+    if (inviteeProfile) {
+      const { data: existingMember } = await supabase
+        .from('workspace_members')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', inviteeProfile.id)
+        .maybeSingle()
+      if (existingMember) return { error: 'User is already a member of this workspace.' }
+
+      const { data: newMember, error: memberError } = await supabase
+        .from('workspace_members')
+        .insert({ workspace_id: workspaceId, user_id: inviteeProfile.id, role })
+        .select('id, role, created_at, user_id')
+        .single()
+      if (memberError) return { error: memberError.message }
+      safeRevalidatePath('/dashboard')
+      return { data: newMember }
     }
-    
-    // 4. Check if user is already a member
-    const { data: existingMember } = await supabase
-      .from('workspace_members')
+
+    // Invitee not in Trak: create invitation and send email
+    const { data: workspace } = await supabase
+      .from('workspaces')
+      .select('name')
+      .eq('id', workspaceId)
+      .single()
+    if (!workspace) return { error: 'Workspace not found.' }
+
+    const token = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+    const { data: existingInvite } = await supabase
+      .from('workspace_invitations')
       .select('id')
       .eq('workspace_id', workspaceId)
-      .eq('user_id', inviteeProfile.id)
+      .eq('email', normalizedEmail)
       .maybeSingle()
-    
-    if (existingMember) {
-      return { error: 'User is already a member of this workspace.' }
+
+    if (existingInvite) {
+      const { error: updateErr } = await supabase
+        .from('workspace_invitations')
+        .update({ token, expires_at: expiresAt, role, created_by: user.id })
+        .eq('id', existingInvite.id)
+      if (updateErr) return { error: updateErr.message }
+    } else {
+      const { error: insertErr } = await supabase
+        .from('workspace_invitations')
+        .insert({
+          workspace_id: workspaceId,
+          email: normalizedEmail,
+          role,
+          token,
+          expires_at: expiresAt,
+          created_by: user.id,
+        })
+      if (insertErr) return { error: insertErr.message }
     }
-    
-    // 5. Create workspace_member record
-    const { data: newMember, error: memberError } = await supabase
-      .from('workspace_members')
-      .insert({
-        workspace_id: workspaceId,
-        user_id: inviteeProfile.id,
-        role: role
-      })
-      .select(`
-        id,
-        role,
-        created_at,
-        user_id
-      `)
-      .single()
-    
-    if (memberError) {
-      return { error: memberError.message }
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const acceptUrl = `${baseUrl}/invite/accept?token=${token}`
+    const { sendWorkspaceInvitationEmail } = await import('@/lib/email')
+    const inviterProfile = await supabase.from('profiles').select('email').eq('id', user.id).maybeSingle()
+    const sendResult = await sendWorkspaceInvitationEmail({
+      to: normalizedEmail,
+      workspaceName: workspace.name,
+      acceptUrl,
+      inviterEmail: inviterProfile.data?.email ?? undefined,
+    })
+    if (!sendResult.ok && sendResult.error && process.env.NODE_ENV !== 'development') {
+      return { error: `Invitation created but email failed: ${sendResult.error}` }
     }
-    
-    // 6. TODO: Send invitation email (placeholder)
-    // await sendInvitationEmail(email, workspaceName)
-    
-    revalidatePath('/dashboard')
-    
-    return { data: newMember }
-}
+
+    safeRevalidatePath('/dashboard')
+    return { data: { invited: true, email: normalizedEmail } }
+  }
 
   //Update member role server action. This updates the role of a member in a workspace. The updater must either be the owner or have admin permissions. This code updates the member's role and prevents demoting the last owner. 
 

@@ -8,7 +8,7 @@ import { login } from "@/lib/auth/actions";
 import { redirect } from "next/navigation";
 
 interface PageProps {
-  searchParams: Promise<{ redirectedFrom?: string; error?: string; message?: string }>;
+  searchParams: Promise<{ redirectedFrom?: string; error?: string; message?: string; email?: string }>;
 }
 
 function normalizeLoginErrorMessage(message?: string) {
@@ -39,7 +39,8 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const redirectTo = params?.redirectedFrom || "/dashboard";
   const errorMessage = normalizeLoginErrorMessage(params?.error);
   const infoMessage = params?.message;
-  
+  const prefilledEmail = params?.email ?? "";
+
   return (
     <AuthShell title="Sign in" subtitle="Welcome back.">
       {errorMessage && (
@@ -57,7 +58,7 @@ export default async function LoginPage({ searchParams }: PageProps) {
         <div>
           <Label htmlFor="email">Email</Label>
           <div className="relative">
-            <Input id="email" name="email" type="email" placeholder="you@company.com" required />
+            <Input id="email" name="email" type="email" placeholder="you@company.com" defaultValue={prefilledEmail} required />
             <Mail className="absolute right-3 top-2.5 h-4 w-4 text-[var(--tertiary-foreground)]" />
           </div>
         </div>

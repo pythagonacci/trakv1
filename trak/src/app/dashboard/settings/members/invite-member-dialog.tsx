@@ -111,7 +111,7 @@ export default function InviteMemberDialog({
               autoFocus
             />
             <p className="text-xs text-[var(--muted-foreground)]">
-              They must already have a Trak account
+              If they don’t have an account, we’ll send an invite email to sign up and join this workspace.
             </p>
           </div>
 
