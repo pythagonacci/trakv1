@@ -34,6 +34,7 @@ export function validateFieldType(type: string): type is FieldType {
     "rollup",
     "status",
     "priority",
+    "tags",
   ].includes(type);
 }
 
@@ -59,6 +60,7 @@ export function validateRowDataAgainstFields(data: Record<string, unknown>, fiel
         }
         break;
       case "multi_select":
+      case "tags":
       case "files":
       case "relation":
         if (value !== null && value !== undefined && !Array.isArray(value)) {

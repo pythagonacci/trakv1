@@ -16,6 +16,7 @@ import { PersonCell } from "./cells/person-cell";
 import { FilesCell } from "./cells/files-cell";
 import { StatusCell } from "./cells/status-cell";
 import { PriorityCell } from "./cells/priority-cell";
+import { TagsCell } from "./cells/tags-cell";
 import { RelationCell } from "./cells/relation-cell";
 import { RollupCell } from "./cells/rollup-cell";
 import { FormulaCell } from "./cells/formula-cell";
@@ -110,6 +111,8 @@ export const TableCell = memo(function TableCell({
       return <StatusCell {...commonProps} field={field} onUpdateConfig={onUpdateFieldConfig} />;
     case "priority":
       return <PriorityCell {...commonProps} field={field} />;
+    case "tags":
+      return <TagsCell {...commonProps} field={field} />;
     case "url":
       return <UrlCell {...commonProps} field={field} initialValue={initialValue} />;
     case "email":

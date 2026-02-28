@@ -26,7 +26,8 @@ export type FieldType =
   | "relation"
   | "rollup"
   | "status"
-  | "priority";
+  | "priority"
+  | "tags";
 
 export type ViewType = "table" | "board" | "timeline" | "calendar" | "list" | "gallery";
 
