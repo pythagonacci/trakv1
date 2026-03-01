@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { type Block } from "@/app/actions/block";
+import { type Block, updateBlock } from "@/app/actions/block";
 import { detachFileFromBlock } from "@/app/actions/file";
 import { deleteFileAnalysisComment } from "@/app/actions/file-analysis";
 import { useFileUrls } from "./tab-canvas";
@@ -81,6 +81,10 @@ interface PdfAttachmentProps {
   currentUserId?: string | null;
   deletingCommentIds?: Set<string>;
   onDeleteComment?: (commentId: string, fileId: string) => void;
+  /** Optional shared preview max height (in pixels) for the PDF viewer. */
+  previewHeightPx?: number | null;
+  /** Mouse-down handler to start resizing the shared preview height. */
+  onResizeHeightStart?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 function PdfAttachment({
@@ -97,6 +101,8 @@ function PdfAttachment({
   currentUserId,
   deletingCommentIds,
   onDeleteComment,
+  previewHeightPx,
+  onResizeHeightStart,
 }: PdfAttachmentProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -293,23 +299,39 @@ function PdfAttachment({
             </button>
           </div>
         ) : (
-          <div className="w-full border rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800" style={{ maxHeight: "600px", overflowY: "auto" }}>
+          <>
             <div
-              ref={pdfViewerRef}
-              style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center", minHeight: "800px" }}
+              className="w-full border rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
+              style={{
+                maxHeight: previewHeightPx && previewHeightPx > 0 ? `${previewHeightPx}px` : "600px",
+                overflowY: "auto",
+              }}
             >
-              <iframe
-                src={`${pdfUrl}#page=${currentPage}`}
-                className="w-full border-0"
-                style={{ minHeight: "800px" }}
-                title={`PDF Viewer - ${file.file_name}`}
-                loading="lazy"
-                onError={() => {
-                  setIframeError(true);
-                }}
-              />
+              <div
+                ref={pdfViewerRef}
+                style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center", minHeight: "800px" }}
+              >
+                <iframe
+                  src={`${pdfUrl}#page=${currentPage}`}
+                  className="w-full border-0"
+                  style={{ minHeight: "800px" }}
+                  title={`PDF Viewer - ${file.file_name}`}
+                  loading="lazy"
+                  onError={() => {
+                    setIframeError(true);
+                  }}
+                />
+              </div>
             </div>
-          </div>
+            {onResizeHeightStart && (
+              <div
+                className="mt-1 flex justify-end cursor-row-resize select-none"
+                onMouseDown={onResizeHeightStart}
+              >
+                <div className="h-1 w-8 rounded-full bg-neutral-300 dark:bg-neutral-600 hover:bg-neutral-500 dark:hover:bg-neutral-400" />
+              </div>
+            )}
+          </>
         )
       ) : isExpanded ? (
         <div className="p-8 text-center border rounded-lg bg-neutral-100 dark:bg-neutral-800">
@@ -327,6 +349,10 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   // Get file URLs from context (prefetched at page level)
   const fileUrls = useFileUrls();
   
+  const content = (block.content || {}) as { heightPx?: number };
+  const initialPreviewHeight =
+    typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
+
   const [files, setFiles] = useState<BlockFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
@@ -337,6 +363,12 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [deletingCommentIds, setDeletingCommentIds] = useState<Set<string>>(new Set());
+  const [previewHeightPx, setPreviewHeightPx] = useState<number | null>(initialPreviewHeight);
+  const previewHeightRef = useRef<number | null>(initialPreviewHeight);
+
+  useEffect(() => {
+    previewHeightRef.current = previewHeightPx;
+  }, [previewHeightPx]);
 
   const loadComments = useCallback(async (fileIds: string[]) => {
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
@@ -535,6 +567,54 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     });
   };
 
+  const handlePreviewResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const MIN_HEIGHT = 240;
+    const MAX_HEIGHT = 1600;
+    const startHeight =
+      (previewHeightRef.current && previewHeightRef.current > 0 ? previewHeightRef.current : 600) ?? 600;
+
+    const state = { startY: e.clientY, startHeight };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - state.startY;
+      const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, state.startHeight + delta));
+      setPreviewHeightPx(next);
+    };
+
+    const handleMouseUp = async () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+
+      const finalHeight = previewHeightRef.current ?? state.startHeight;
+      const clamped = Math.round(
+        Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, finalHeight)),
+      );
+      setPreviewHeightPx(clamped);
+      previewHeightRef.current = clamped;
+
+      if (!block.id.startsWith("temp-")) {
+        const result = await updateBlock({
+          blockId: block.id,
+          content: {
+            ...content,
+            heightPx: clamped,
+          },
+        });
+        if ("data" in result && result.data) {
+          onUpdate?.();
+        } else if ("error" in result && result.error) {
+          console.error("Failed to update file block height:", result.error);
+        }
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
   if (loading) {
     return <div className="text-sm text-[var(--muted-foreground)]">Loading files…</div>;
   }
@@ -580,22 +660,24 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
             const pdfUrl = mergedFileUrls[file.id];
             const isLoadingUrl = loadingFileIds.has(file.id);
             return (
-                <PdfAttachment
-                  key={blockFile.id}
-                  attachmentId={blockFile.id}
-                  file={file}
-                  pdfUrl={pdfUrl}
-                  isLoadingUrl={isLoadingUrl}
-                  onDownload={handleDownloadFile}
-                  onDelete={handleDeleteFile}
-                  onAnalyze={handleAnalyzeFile}
-                  comments={fileComments[file.id] || []}
-                  commentsExpanded={Boolean(expandedComments[file.id])}
-                  onToggleComments={() => toggleComments(file.id)}
-                  currentUserId={currentUserId}
-                  deletingCommentIds={deletingCommentIds}
-                  onDeleteComment={handleDeleteComment}
-                />
+              <PdfAttachment
+                key={blockFile.id}
+                attachmentId={blockFile.id}
+                file={file}
+                pdfUrl={pdfUrl}
+                isLoadingUrl={isLoadingUrl}
+                onDownload={handleDownloadFile}
+                onDelete={handleDeleteFile}
+                onAnalyze={handleAnalyzeFile}
+                comments={fileComments[file.id] || []}
+                commentsExpanded={Boolean(expandedComments[file.id])}
+                onToggleComments={() => toggleComments(file.id)}
+                currentUserId={currentUserId}
+                deletingCommentIds={deletingCommentIds}
+                onDeleteComment={handleDeleteComment}
+                previewHeightPx={previewHeightPx}
+                onResizeHeightStart={handlePreviewResizeMouseDown}
+              />
             );
           })}
         </div>

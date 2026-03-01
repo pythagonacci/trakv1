@@ -278,7 +278,7 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
     } else if (newType === "image") {
       newContent = { fileId: null, caption: "", width: 400 };
     } else if (newType === "gallery") {
-      newContent = { layout: null, items: [] };
+      newContent = { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] };
     } else if (newType === "video") {
       newContent = { files: [] };
     } else if (newType === "embed") {

@@ -238,7 +238,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "file": return { files: [] };
       case "video": return { files: [] };
       case "image": return { fileId: null, caption: "", width: 400 };
-      case "gallery": return { layout: null, items: [] };
+      case "gallery": return { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] };
       case "embed": return { url: "", displayMode: "inline" };
       case "section": return { height: 400 };
       case "doc_reference": return { doc_id: "", doc_title: "" };
@@ -432,18 +432,11 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
                 <span className="text-xs text-[var(--tertiary-foreground)]">Natural shapes, resizable</span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => handleCreateBlock("gallery", { layout: "3x3", items: [] })}
+                onClick={() => handleCreateBlock("gallery", { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] })}
                 className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
               >
-                <span className="font-medium">3×3</span>
-                <span className="text-xs text-[var(--tertiary-foreground)]">9 cells</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleCreateBlock("gallery", { layout: "2x3", items: [] })}
-                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
-              >
-                <span className="font-medium">2×3</span>
-                <span className="text-xs text-[var(--tertiary-foreground)]">6 cells</span>
+                <span className="font-medium">Array</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">Starts at 2×2, then customize</span>
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>

@@ -10,8 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   Sparkles,
-  Target,
-  CheckCircle2,
   AlertTriangle,
   RefreshCw,
   Info,
@@ -153,8 +151,7 @@ export default function AIOverviewBlock({
           <CardContent>
             <div className="space-y-4">
               <div className="h-16 bg-[var(--muted)]/10 rounded" />
-              <div className="h-24 bg-[var(--muted)]/10 rounded" />
-              <div className="h-24 bg-[var(--muted)]/10 rounded" />
+              <div className="h-16 bg-[var(--muted)]/10 rounded" />
             </div>
           </CardContent>
         )}
@@ -234,90 +231,13 @@ export default function AIOverviewBlock({
       </CardHeader>
 
       {isExpanded && (
-      <CardContent className="space-y-6">
-        {/* Summary Section */}
+      <CardContent className="space-y-4">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="h-1 w-1 rounded-full bg-[var(--river-indigo)]" />
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">
-              Summary
-            </h3>
-          </div>
-          <p className="text-sm text-[var(--foreground)] leading-relaxed pl-3">
+          <p className="text-sm text-[var(--foreground)] leading-relaxed">
             {insights.summary}
           </p>
         </div>
 
-        {/* Top Priorities Section */}
-        {insights.priorities.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Target className="h-4 w-4 text-[var(--tile-orange)]" />
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">
-                Top Priorities
-              </h3>
-            </div>
-            <ul className="space-y-2 pl-3">
-              {insights.priorities.map((priority, index) => (
-                <li
-                  key={index}
-                  className="text-sm text-[var(--foreground)] flex items-start gap-2"
-                >
-                  <span className="text-[var(--tile-orange)] mt-0.5">•</span>
-                  <span className="flex-1">{priority}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Action Items Section */}
-        {insights.actionItems.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <CheckCircle2 className="h-4 w-4 text-[var(--dome-teal)]" />
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">
-                Action Items
-              </h3>
-            </div>
-            <ul className="space-y-2 pl-3">
-              {insights.actionItems.map((item, index) => (
-                <li
-                  key={index}
-                  className="text-sm text-[var(--foreground)] flex items-start gap-2"
-                >
-                  <span className="text-[var(--dome-teal)] mt-0.5">✓</span>
-                  <span className="flex-1">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Blockers Section */}
-        {insights.blockers.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="h-4 w-4 text-[var(--tram-yellow)]" />
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">
-                Blockers & Risks
-              </h3>
-            </div>
-            <ul className="space-y-2 pl-3">
-              {insights.blockers.map((blocker, index) => (
-                <li
-                  key={index}
-                  className="text-sm text-[var(--foreground)] flex items-start gap-2"
-                >
-                  <span className="text-[var(--tram-yellow)] mt-0.5">⚠</span>
-                  <span className="flex-1">{blocker}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Footer with timestamp */}
         <div className="pt-4 border-t border-[var(--border)]">
           <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
             <span className="flex items-center gap-1">

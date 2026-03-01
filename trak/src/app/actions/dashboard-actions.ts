@@ -62,16 +62,6 @@ export interface DashboardClientFeedback {
     timestamp?: string;
 }
 
-export interface DashboardRecentlyCompleted {
-    id: string;
-    text: string;
-    projectName: string;
-    tabName: string;
-    projectId?: string | null;
-    tabId?: string | null;
-    updatedAt?: string;
-}
-
 export interface DashboardData {
     projects: DashboardProject[];
     docs: DashboardDoc[];
@@ -79,7 +69,6 @@ export interface DashboardData {
     dueAwareItems: DashboardDueAwareItem[];
     clientFeedback: DashboardClientFeedback[];
     teamUpdates: DashboardClientFeedback[];
-    recentlyCompleted: DashboardRecentlyCompleted[];
     aiInsights: DashboardInsight | null;
     workspaceId: string;
     userId: string;
@@ -104,6 +93,20 @@ export async function getDashboardData(
         return { error: "Not authenticated" };
     }
     const { supabase, user } = authResult;
+    const doneStatuses = new Set(["done", "complete", "completed"]);
+    const isTaskDone = (task: any): boolean => {
+        const legacyStatus =
+            typeof task?.status === "string" ? task.status.toLowerCase() : "";
+        if (doneStatuses.has(legacyStatus)) return true;
+
+        const statuses = Array.isArray(task?.statuses) ? task.statuses : [];
+        for (const entry of statuses) {
+            const value =
+                typeof entry?.value === "string" ? entry.value.toLowerCase() : "";
+            if (doneStatuses.has(value)) return true;
+        }
+        return false;
+    };
 
     // Run ALL queries in parallel — including getWorkspaceEverything which was
     // previously serial (the main perf bottleneck).
@@ -111,7 +114,6 @@ export async function getDashboardData(
         projectsResult,
         docsResult,
         tasksResult,
-        completedTasksResult,
         commentBlocksResult,
         aiInsightsResult,
         everythingResult,
@@ -139,7 +141,7 @@ export async function getDashboardData(
             .select(`
         id,
         title,
-        status,
+        statuses,
         priorities,
         due_date,
         due_time,
@@ -156,36 +158,12 @@ export async function getDashboardData(
         )
       `)
             .eq("workspace_id", workspaceId)
+            .eq("is_placeholder", false)
             .order("due_date", { ascending: true, nullsFirst: false })
             .order("updated_at", { ascending: false })
             .limit(100),
 
-        // 4. Recently completed tasks
-        supabase
-            .from("task_items")
-            .select(`
-        id,
-        title,
-        status,
-        task_block_id,
-        tab_id,
-        updated_at,
-        tab:tabs(
-          id,
-          name,
-          project_id,
-          project:projects(
-            id,
-            name
-          )
-        )
-      `)
-            .eq("workspace_id", workspaceId)
-            .in("status", ["done", "complete", "completed"])
-            .order("updated_at", { ascending: false })
-            .limit(6),
-
-        // 5. Comment blocks
+        // 4. Comment blocks
         supabase
             .from("blocks")
             .select(`
@@ -208,7 +186,7 @@ export async function getDashboardData(
             .order("updated_at", { ascending: false })
             .limit(40),
 
-        // 6. AI insights (cached from DB)
+        // 5. AI insights (cached from DB)
         (async () => {
             const { getDashboardInsights } = await import(
                 "@/app/actions/dashboard-insights"
@@ -216,7 +194,7 @@ export async function getDashboardData(
             return getDashboardInsights(workspaceId);
         })(),
 
-        // 7. Everything view — NOW IN PARALLEL instead of serial
+        // 6. Everything view — NOW IN PARALLEL instead of serial
         getWorkspaceEverything(workspaceId, { limit: 500 }),
     ]);
 
@@ -237,12 +215,6 @@ export async function getDashboardData(
             ? tasksResult.value.data || []
             : [];
 
-    const completedTaskItems =
-        completedTasksResult.status === "fulfilled" &&
-            !completedTasksResult.value.error
-            ? completedTasksResult.value.data || []
-            : [];
-
     const commentBlocks =
         commentBlocksResult.status === "fulfilled" &&
             !commentBlocksResult.value.error
@@ -256,13 +228,12 @@ export async function getDashboardData(
 
     // ---- Build due-aware items from everything view ----
 
-    let dueAwareItems: DashboardDueAwareItem[] = [];
+    const dueAwareItems: DashboardDueAwareItem[] = [];
     if (
         everythingResult.status === "fulfilled" &&
         !("error" in everythingResult.value) &&
         everythingResult.value.data.items.length > 0
     ) {
-        const doneStatuses = new Set(["done", "complete", "completed"]);
         for (const item of everythingResult.value.data.items) {
             const dueDateStr = getDueDateEnd(item.properties.due_date ?? null);
             const status = (item.properties.status ?? "").toString().toLowerCase();
@@ -289,13 +260,7 @@ export async function getDashboardData(
     // ---- Transform tasks ----
 
     const tasks: DashboardTask[] = taskItems
-        .filter((task: any) => {
-            const status =
-                typeof task.status === "string" ? task.status.toLowerCase() : "";
-            return (
-                status !== "done" && status !== "complete" && status !== "completed"
-            );
-        })
+        .filter((task: any) => !isTaskDone(task))
         .map((task: any) => {
             const taskPriorities = Array.isArray(task.priorities)
                 ? task.priorities
@@ -380,19 +345,6 @@ export async function getDashboardData(
         })
         .slice(0, 10);
 
-    // ---- Recently completed ----
-
-    const recentlyCompleted: DashboardRecentlyCompleted[] =
-        completedTaskItems.map((task: any) => ({
-            id: `${task.task_block_id}-${task.id}`,
-            text: task.title,
-            projectName: task.tab?.project?.name || "Unknown",
-            tabName: task.tab?.name || "Unknown",
-            projectId: task.tab?.project?.id,
-            tabId: task.tab?.id,
-            updatedAt: task.updated_at,
-        }));
-
     return {
         data: {
             projects,
@@ -401,7 +353,6 @@ export async function getDashboardData(
             dueAwareItems,
             clientFeedback,
             teamUpdates,
-            recentlyCompleted,
             aiInsights,
             workspaceId,
             userId: user.id,

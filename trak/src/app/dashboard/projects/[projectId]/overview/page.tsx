@@ -86,7 +86,7 @@ export default async function ProjectOverviewPage({
         `
         id,
         title,
-        status,
+        statuses,
         priorities,
         due_date,
         due_time,
@@ -97,6 +97,7 @@ export default async function ProjectOverviewPage({
       )
       .in("tab_id", tabIds)
       .eq("workspace_id", workspaceId)
+      .eq("is_placeholder", false)
       .order("due_date", { ascending: true, nullsFirst: false })
       .order("updated_at", { ascending: false })
       .limit(100),
@@ -124,13 +125,23 @@ export default async function ProjectOverviewPage({
       ? commentBlocksResult.value.data || []
       : [];
 
-  const isDoneStatus = (s: string) => {
-    const status = (s || "").toLowerCase();
-    return status === "done" || status === "complete" || status === "completed";
+  const doneStatuses = new Set(["done", "complete", "completed"]);
+  const isTaskDone = (t: any): boolean => {
+    const statuses = Array.isArray(t?.statuses) ? t.statuses : [];
+    for (const entry of statuses) {
+      const value =
+        typeof entry?.value === "string" ? entry.value.toLowerCase() : "";
+      if (doneStatuses.has(value)) return true;
+    }
+    return false;
   };
+  const firstStatusFromStatuses = (statuses: unknown): string =>
+    (Array.isArray(statuses) && statuses[0]?.value != null
+      ? String((statuses[0] as any).value)
+      : "todo") as string;
 
   const openTasks = taskItems
-    .filter((t: any) => !isDoneStatus(t.status))
+    .filter((t: any) => !isTaskDone(t))
     .map((t: any) => {
       const taskPriorities = Array.isArray(t.priorities) ? t.priorities : [];
       const firstPriority = taskPriorities[0]?.value ?? null;
@@ -142,7 +153,7 @@ export default async function ProjectOverviewPage({
         priority: firstPriority,
         dueDate: t.due_date,
         dueTime: t.due_time,
-        status: t.status ?? "todo",
+        status: firstStatusFromStatuses(t.statuses),
       };
     });
 

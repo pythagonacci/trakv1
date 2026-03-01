@@ -208,7 +208,7 @@ export default function ClientAddBlockButton({
       case "image":
         return { fileId: null, caption: "", width: 400 };
       case "gallery":
-        return { layout: null, items: [] };
+        return { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] };
       case "video":
         return { files: [] };
       case "embed":
@@ -273,18 +273,11 @@ export default function ClientAddBlockButton({
               <span className="text-xs text-[var(--muted-foreground)]">Natural shapes, resizable</span>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleCreateBlock("gallery", { layout: "3x3", items: [] })}
+              onClick={() => handleCreateBlock("gallery", { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] })}
               className="flex items-center gap-2 px-3 py-1.5"
             >
-              <span className="font-medium">3×3</span>
-              <span className="text-xs text-[var(--muted-foreground)]">9 cells</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleCreateBlock("gallery", { layout: "2x3", items: [] })}
-              className="flex items-center gap-2 px-3 py-1.5"
-            >
-              <span className="font-medium">2×3</span>
-              <span className="text-xs text-[var(--muted-foreground)]">6 cells</span>
+              <span className="font-medium">Array</span>
+              <span className="text-xs text-[var(--muted-foreground)]">Starts at 2×2, then customize</span>
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>

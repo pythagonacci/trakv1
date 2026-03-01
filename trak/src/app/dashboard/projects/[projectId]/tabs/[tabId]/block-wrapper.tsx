@@ -9,7 +9,6 @@ import {
   CheckSquare,
   Link2,
   AtSign,
-  Minus,
   Table,
   Calendar,
   Paperclip,
@@ -88,6 +87,7 @@ export default function BlockWrapper({
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesAnchorRect, setPropertiesAnchorRect] = useState<DOMRect | null>(null);
   const blockMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const attachmentTriggerRef = useRef<HTMLButtonElement>(null);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
 
   const openPropertiesMenu = () => {
@@ -134,10 +134,21 @@ export default function BlockWrapper({
   const isDragging = externalIsDragging || isDraggingInternal;
   const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
   const isTempBlock = block.id.startsWith("temp-");
+  const initialEmbedHeight =
+    block.type === "embed" &&
+    typeof (block.content as any)?.heightPx === "number" &&
+    (block.content as any).heightPx > 0
+      ? (block.content as any).heightPx
+      : null;
+  const [embedHeightPx, setEmbedHeightPx] = useState<number | null>(initialEmbedHeight);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDraggingInternal ? 0 : 1,
+    ...(block.type === "embed" && embedHeightPx
+      ? ({ ["--embed-height-px" as string]: `${embedHeightPx}px` } as Record<string, string>)
+      : {}),
   };
 
   const contextLabel = (() => {
@@ -163,6 +174,84 @@ export default function BlockWrapper({
   })();
 
   const isContextBlock = contextBlock?.blockId === block.id;
+
+  const embedResizeStateRef = useRef<{
+    startY: number;
+    startHeight: number;
+    latestHeight: number;
+  } | null>(null);
+
+  const handleEmbedResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (block.type !== "embed" || readOnly) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const MIN_HEIGHT = 240;
+    const MAX_HEIGHT = 1400;
+
+    const currentContent = (block.content || {}) as Record<string, any>;
+    const existingHeight =
+      typeof currentContent.heightPx === "number" && currentContent.heightPx > 0
+        ? currentContent.heightPx
+        : 600;
+
+    embedResizeStateRef.current = {
+      startY: e.clientY,
+      startHeight: existingHeight,
+      latestHeight: existingHeight,
+    };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!embedResizeStateRef.current) return;
+      const delta = ev.clientY - embedResizeStateRef.current.startY;
+      const next = Math.min(
+        MAX_HEIGHT,
+        Math.max(MIN_HEIGHT, embedResizeStateRef.current.startHeight + delta),
+      );
+      embedResizeStateRef.current = {
+        ...embedResizeStateRef.current,
+        latestHeight: next,
+      };
+      setEmbedHeightPx(next);
+    };
+
+    const handleMouseUp = async () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      if (!embedResizeStateRef.current) return;
+
+      const finalHeight = embedResizeStateRef.current.latestHeight ?? embedResizeStateRef.current.startHeight;
+      const clamped = Math.round(
+        Math.min(
+          MAX_HEIGHT,
+          Math.max(MIN_HEIGHT, finalHeight),
+        ),
+      );
+
+      try {
+        const result = await updateBlock({
+          blockId: block.id,
+          content: {
+            ...currentContent,
+            heightPx: clamped,
+          },
+        });
+
+        if ("data" in result && result.data) {
+          onUpdate?.(result.data);
+        } else if ("error" in result && result.error) {
+          console.error("Failed to update embed block height:", result.error);
+        } else {
+          onUpdate?.();
+        }
+      } finally {
+        embedResizeStateRef.current = null;
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
 
   const handleToggleLock = async () => {
     if (isTogglingLock) return;
@@ -200,7 +289,6 @@ export default function BlockWrapper({
     { type: "text", label: "Text", icon: <FileText className="h-4 w-4" /> },
     { type: "task", label: "Task list", icon: <CheckSquare className="h-4 w-4" /> },
     { type: "link", label: "Link", icon: <Link2 className="h-4 w-4" /> },
-    { type: "divider", label: "Divider", icon: <Minus className="h-4 w-4" /> },
     { type: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
     { type: "timeline", label: "Timeline", icon: <Calendar className="h-4 w-4" /> },
     { type: "file", label: "File", icon: <Paperclip className="h-4 w-4" /> },
@@ -211,9 +299,12 @@ export default function BlockWrapper({
   ];
   const galleryLayouts = [
     { layout: "collage" as const, label: "Collage" },
-    { layout: "3x3" as const, label: "3×3" },
-    { layout: "2x3" as const, label: "2×3" },
+    { layout: "array" as const, label: "Array" },
   ];
+  const getGalleryContentPreset = (layout: "collage" | "array") =>
+    layout === "array"
+      ? { layout: "array" as const, arrayColumns: 2, arrayRows: 2, items: [] }
+      : { layout: "collage" as const, items: [] };
 
   const isTextBlock = block.type === "text";
 
@@ -347,9 +438,14 @@ export default function BlockWrapper({
                 </button>
                 {workspaceId && projectId && referencePicker && !isTempBlock && (
                   <button
+                    ref={attachmentTriggerRef}
                     onClick={(e) => {
                       e.stopPropagation();
-                      referencePicker.openPicker();
+                      const el = e.currentTarget as HTMLElement;
+                      referencePicker.openPicker({
+                        anchorRect: el.getBoundingClientRect(),
+                        getAnchorRect: () => attachmentTriggerRef.current?.getBoundingClientRect() ?? null,
+                      });
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
                     className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
@@ -371,110 +467,137 @@ export default function BlockWrapper({
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52">
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <span className="flex items-center gap-2">
-                            <Plus className="h-4 w-4" />
-                            Add block above
-                          </span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
-                          {blockTypeOptions.map((option) => (
-                            <DropdownMenuItem
-                              key={`add-above-${option.type}`}
-                              onClick={() => {
-                                onAddBlockAbove?.(block.id, option.type);
-                                setMenuOpen(false);
-                              }}
-                            >
-                              {option.icon}
-                              <span>{option.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <span className="flex items-center gap-2">
-                            <Plus className="h-4 w-4" />
-                            Add block below
-                          </span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
-                          {blockTypeOptions.map((option) => (
-                            <DropdownMenuItem
-                              key={`add-below-${option.type}`}
-                              onClick={() => {
-                                onAddBlockBelow?.(block.id, option.type);
-                                setMenuOpen(false);
-                              }}
-                            >
-                              {option.icon}
-                              <span>{option.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <span className="flex items-center gap-2">
-                            <Maximize2 className="h-4 w-4" />
-                            Convert block
-                          </span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
-                          {blockTypeOptions
-                            .filter((option) => option.type !== block.type)
-                            .map((option) => (
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-40 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover space-y-0.5"
+                    >
+                      <div className="flex items-center gap-1">
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                            <span className="flex items-center gap-1">
+                              <Plus className="h-3 w-3" />
+                              Above
+                            </span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {blockTypeOptions.map((option) => (
                               <DropdownMenuItem
-                                key={option.type}
+                                key={`add-above-${option.type}`}
                                 onClick={() => {
-                                  onConvert?.(block.id, option.type);
+                                  onAddBlockAbove?.(block.id, option.type);
                                   setMenuOpen(false);
                                 }}
+                                className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
                               >
                                 {option.icon}
                                 <span>{option.label}</span>
                               </DropdownMenuItem>
                             ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                                <Images className="h-3 w-3" />
+                                <span>Gallery</span>
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                                {galleryLayouts.map((g) => (
+                                  <DropdownMenuItem
+                                    key={`add-above-gallery-${g.layout}`}
+                                    onClick={() => {
+                                      onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
+                                      setMenuOpen(false);
+                                    }}
+                                    className="!py-1 !px-1.5 !text-[10px]"
+                                  >
+                                    <span>{g.label}</span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                            <span className="flex items-center gap-1">
+                              <Plus className="h-3 w-3" />
+                              Below
+                            </span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {blockTypeOptions.map((option) => (
+                              <DropdownMenuItem
+                                key={`add-below-${option.type}`}
+                                onClick={() => {
+                                  onAddBlockBelow?.(block.id, option.type);
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
+                              >
+                                {option.icon}
+                                <span>{option.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                                <Images className="h-3 w-3" />
+                                <span>Gallery</span>
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                                {galleryLayouts.map((g) => (
+                                  <DropdownMenuItem
+                                    key={`add-below-gallery-${g.layout}`}
+                                    onClick={() => {
+                                      onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
+                                      setMenuOpen(false);
+                                    }}
+                                    className="!py-1 !px-1.5 !text-[10px]"
+                                  >
+                                    <span>{g.label}</span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </div>
+
                       {!block.is_template && !block.original_block_id && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setMakeTemplateDialogOpen(true);
-                            setMenuOpen(false);
-                          }}
-                        >
-                          <Copy className="h-4 w-4" /> Make Reusable
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setMakeTemplateDialogOpen(true);
+                              setMenuOpen(false);
+                            }}
+                            className="text-[11px]"
+                          >
+                            <Copy className="h-3.5 w-3.5" /> Make Reusable
+                          </DropdownMenuItem>
+                        </>
                       )}
-                      
+
                       <DropdownMenuSeparator />
-                      
+
                       <DropdownMenuItem
                         onClick={() => {
                           setCommentsOpen(true);
                           setMenuOpen(false);
                         }}
+                        className="text-[11px]"
                       >
-                        <MessageSquare className="h-4 w-4" />
+                        <MessageSquare className="h-3.5 w-3.5" />
                         <span>{hasComments ? "Comments" : "Add comment"}</span>
                         {hasComments && (
-                          <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
+                          <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
+                            ({comments.length})
+                          </span>
                         )}
                       </DropdownMenuItem>
 
-                      <DropdownMenuItem
-                        onClick={openPropertiesMenu}
-                      >
-                        <Tags className="h-4 w-4" />
+                      <DropdownMenuItem onClick={openPropertiesMenu} className="text-[11px]">
+                        <Tags className="h-3.5 w-3.5" />
                         <span>Properties</span>
                         {hasProperties && (
-                          <span className="ml-auto text-xs text-[var(--muted-foreground)]">
+                          <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
                             ({totalPropertiesCount})
                           </span>
                         )}
@@ -483,9 +606,9 @@ export default function BlockWrapper({
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => onDelete?.(block.id)}
-                        className="text-red-500 focus:bg-red-50 focus:text-red-600"
+                        className="text-[11px] text-red-500 focus:bg-red-50 focus:text-red-600"
                       >
-                        <Trash2 className="h-4 w-4" /> Delete
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -537,9 +660,14 @@ export default function BlockWrapper({
             </button>
             {workspaceId && projectId && referencePicker && !isTempBlock && (
               <button
+                ref={attachmentTriggerRef}
                 onClick={(e) => {
                   e.stopPropagation();
-                  referencePicker.openPicker();
+                  const el = e.currentTarget as HTMLElement;
+                  referencePicker.openPicker({
+                    anchorRect: el.getBoundingClientRect(),
+                    getAnchorRect: () => attachmentTriggerRef.current?.getBoundingClientRect() ?? null,
+                  });
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
@@ -569,7 +697,7 @@ export default function BlockWrapper({
                         Add block above
                       </span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-52">
+                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                       {blockTypeOptions.map((option) => (
                         <DropdownMenuItem
                           key={`add-above-${option.type}`}
@@ -577,24 +705,26 @@ export default function BlockWrapper({
                             onAddBlockAbove?.(block.id, option.type);
                             setMenuOpen(false);
                           }}
+                          className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
                         >
                           {option.icon}
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Images className="h-4 w-4" />
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <Images className="h-3 w-3" />
                           <span>Gallery</span>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                           {galleryLayouts.map((g) => (
                             <DropdownMenuItem
                               key={`add-above-gallery-${g.layout}`}
                               onClick={() => {
-                                onAddBlockAbove?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
                                 setMenuOpen(false);
                               }}
+                              className="!py-1 !px-1.5 !text-[10px]"
                             >
                               <span>{g.label}</span>
                             </DropdownMenuItem>
@@ -610,7 +740,7 @@ export default function BlockWrapper({
                         Add block below
                       </span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-52">
+                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                       {blockTypeOptions.map((option) => (
                         <DropdownMenuItem
                           key={`add-below-${option.type}`}
@@ -618,24 +748,26 @@ export default function BlockWrapper({
                             onAddBlockBelow?.(block.id, option.type);
                             setMenuOpen(false);
                           }}
+                          className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
                         >
                           {option.icon}
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Images className="h-4 w-4" />
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <Images className="h-3 w-3" />
                           <span>Gallery</span>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                           {galleryLayouts.map((g) => (
                             <DropdownMenuItem
                               key={`add-below-gallery-${g.layout}`}
                               onClick={() => {
-                                onAddBlockBelow?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
                                 setMenuOpen(false);
                               }}
+                              className="!py-1 !px-1.5 !text-[10px]"
                             >
                               <span>{g.label}</span>
                             </DropdownMenuItem>
@@ -652,7 +784,7 @@ export default function BlockWrapper({
                         Convert block
                       </span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-52">
+                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                       {blockTypeOptions
                         .filter((option) => option.type !== block.type)
                         .map((option) => (
@@ -662,6 +794,7 @@ export default function BlockWrapper({
                               onConvert?.(block.id, option.type);
                               setMenuOpen(false);
                             }}
+                            className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
                           >
                             {option.icon}
                             <span>{option.label}</span>
@@ -669,18 +802,19 @@ export default function BlockWrapper({
                         ))}
                       {(block.type as Block["type"]) !== "gallery" && (
                         <DropdownMenuSub>
-                          <DropdownMenuSubTrigger>
-                            <Images className="h-4 w-4" />
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <Images className="h-3 w-3" />
                             <span>Gallery</span>
                           </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent className="w-52">
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                             {galleryLayouts.map((g) => (
                               <DropdownMenuItem
                                 key={`convert-gallery-${g.layout}`}
                                 onClick={() => {
-                                  onConvert?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                  onConvert?.(block.id, "gallery", getGalleryContentPreset(g.layout));
                                   setMenuOpen(false);
                                 }}
+                                className="!py-1 !px-1.5 !text-[10px]"
                               >
                                 <span>{g.label}</span>
                               </DropdownMenuItem>
@@ -766,15 +900,19 @@ export default function BlockWrapper({
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent
+                align="end"
+                className="w-40 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover space-y-0.5"
+              >
+                <div className="flex items-center gap-1">
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <span className="flex items-center gap-2">
-                        <Plus className="h-4 w-4" />
-                        Add block above
+                    <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                      <span className="flex items-center gap-1">
+                        <Plus className="h-3 w-3" />
+                        Above
                       </span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-52">
+                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                       {blockTypeOptions.map((option) => (
                         <DropdownMenuItem
                           key={`add-above-${option.type}`}
@@ -782,24 +920,26 @@ export default function BlockWrapper({
                             onAddBlockAbove?.(block.id, option.type);
                             setMenuOpen(false);
                           }}
+                          className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
                         >
                           {option.icon}
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Images className="h-4 w-4" />
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <Images className="h-3 w-3" />
                           <span>Gallery</span>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                           {galleryLayouts.map((g) => (
                             <DropdownMenuItem
                               key={`add-above-gallery-${g.layout}`}
                               onClick={() => {
-                                onAddBlockAbove?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
                                 setMenuOpen(false);
                               }}
+                              className="!py-1 !px-1.5 !text-[10px]"
                             >
                               <span>{g.label}</span>
                             </DropdownMenuItem>
@@ -809,13 +949,13 @@ export default function BlockWrapper({
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <span className="flex items-center gap-2">
-                        <Plus className="h-4 w-4" />
-                        Add block below
+                    <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                      <span className="flex items-center gap-1">
+                        <Plus className="h-3 w-3" />
+                        Below
                       </span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-52">
+                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                       {blockTypeOptions.map((option) => (
                         <DropdownMenuItem
                           key={`add-below-${option.type}`}
@@ -823,24 +963,26 @@ export default function BlockWrapper({
                             onAddBlockBelow?.(block.id, option.type);
                             setMenuOpen(false);
                           }}
+                          className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
                         >
                           {option.icon}
                           <span>{option.label}</span>
                         </DropdownMenuItem>
                       ))}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Images className="h-4 w-4" />
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <Images className="h-3 w-3" />
                           <span>Gallery</span>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
                           {galleryLayouts.map((g) => (
                             <DropdownMenuItem
                               key={`add-below-gallery-${g.layout}`}
                               onClick={() => {
-                                onAddBlockBelow?.(block.id, "gallery", { layout: g.layout, items: [] });
+                                onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
                                 setMenuOpen(false);
                               }}
+                              className="!py-1 !px-1.5 !text-[10px]"
                             >
                               <span>{g.label}</span>
                             </DropdownMenuItem>
@@ -849,86 +991,44 @@ export default function BlockWrapper({
                       </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <span className="flex items-center gap-2">
-                      <Maximize2 className="h-4 w-4" />
-                      Convert block
-                    </span>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-52">
-                    {blockTypeOptions
-                      .filter((option) => option.type !== block.type)
-                      .map((option) => (
-                        <DropdownMenuItem
-                          key={option.type}
-                          onClick={() => {
-                            onConvert?.(block.id, option.type);
-                            setMenuOpen(false);
-                          }}
-                        >
-                          {option.icon}
-                          <span>{option.label}</span>
-                        </DropdownMenuItem>
-                      ))}
-                    {block.type !== "gallery" && (
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Images className="h-4 w-4" />
-                          <span>Gallery</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
-                          {galleryLayouts.map((g) => (
-                            <DropdownMenuItem
-                              key={`convert-gallery-${g.layout}`}
-                              onClick={() => {
-                                onConvert?.(block.id, "gallery", { layout: g.layout, items: [] });
-                                setMenuOpen(false);
-                              }}
-                            >
-                              <span>{g.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    )}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                
+                </div>
+
                 {!block.is_template && !block.original_block_id && (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setMakeTemplateDialogOpen(true);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <Copy className="h-4 w-4" /> Make Reusable
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setMakeTemplateDialogOpen(true);
+                        setMenuOpen(false);
+                      }}
+                      className="text-[11px]"
+                    >
+                      <Copy className="h-3.5 w-3.5" /> Make Reusable
+                    </DropdownMenuItem>
+                  </>
                 )}
-                
+
                 <DropdownMenuSeparator />
-                
+
                 <DropdownMenuItem
                   onClick={() => {
                     setCommentsOpen(true);
                     setMenuOpen(false);
                   }}
+                  className="text-[11px]"
                 >
-                  <MessageSquare className="h-4 w-4" />
+                  <MessageSquare className="h-3.5 w-3.5" />
                   <span>{hasComments ? "Comments" : "Add comment"}</span>
                   {hasComments && (
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">({comments.length})</span>
+                    <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">({comments.length})</span>
                   )}
                 </DropdownMenuItem>
 
-                <DropdownMenuItem
-                  onClick={openPropertiesMenu}
-                >
-                  <Tags className="h-4 w-4" />
+                <DropdownMenuItem onClick={openPropertiesMenu} className="text-[11px]">
+                  <Tags className="h-3.5 w-3.5" />
                   <span>Properties</span>
                   {hasProperties && (
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)]">
+                    <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
                       ({totalPropertiesCount})
                     </span>
                   )}
@@ -937,9 +1037,9 @@ export default function BlockWrapper({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => onDelete?.(block.id)}
-                  className="text-red-500 focus:bg-red-50 focus:text-red-600"
+                  className="text-[11px] text-red-500 focus:bg-red-50 focus:text-red-600"
                 >
-                  <Trash2 className="h-4 w-4" /> Delete
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -978,6 +1078,14 @@ export default function BlockWrapper({
             />
           )}
         </div>
+        {block.type === "embed" && !readOnly && (
+          <div
+            className="mt-1 flex justify-end cursor-row-resize select-none"
+            onMouseDown={handleEmbedResizeMouseDown}
+          >
+            <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+          </div>
+        )}
       </div>
 
       {!readOnly && (

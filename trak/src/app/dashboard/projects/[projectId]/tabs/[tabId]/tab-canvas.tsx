@@ -310,6 +310,9 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       setBlocks((prev) => updateBlockList(prev));
       // Keep React Query cache in sync so file URL queries can update.
       queryClient.setQueryData(queryKeys.tabBlocks(tabId), (prev) => updateBlockList(prev as Block[] | undefined));
+      // Invalidate so TabCanvasWrapper's useTabBlocks refetches and fileIds (from blocks) update;
+      // otherwise wrapper can keep showing fileIds: 0 and useBatchFileUrls stays disabled.
+      queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
       return;
     }
 
@@ -480,7 +483,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     } else if (newType === "section") {
       newContent = { height: 400 };
     } else if (newType === "gallery") {
-      newContent = { layout: null, items: [] };
+      newContent = { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] };
     } else if (newType === "doc_reference") {
       newContent = { doc_id: "", doc_title: "" };
     } else if (newType === "chart") {
@@ -549,7 +552,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       case "image":
         return { fileId: null, caption: "", width: 400 };
       case "gallery":
-        return { layout: null, items: [] };
+        return { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] };
       case "embed":
         return { url: "", displayMode: "inline" };
       case "section":

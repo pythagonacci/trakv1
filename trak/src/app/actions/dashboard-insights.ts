@@ -196,10 +196,17 @@ ${JSON.stringify(data.highPriorityTasks)}
 Active projects:
 ${JSON.stringify(data.activeProjects)}
 
-From this data only, produce a concise dashboard overview. Prioritize: overdue > due today > due this week > blocked > high priority. Use SPECIFIC names and titles from the data. If a list is empty, say so in the summary and use empty arrays where appropriate.
+From this data only, produce one short, well-rounded overview paragraph for a dashboard.
+Hard requirements:
+- 4-5 sentences maximum (never more than 5).
+- Keep today's date context in mind and reference what should be addressed now and what is coming up next.
+- Do NOT output bullet points or numbered lists.
+- Do NOT list items mechanically by priority buckets or due-date buckets.
+- Synthesize the work into a directed narrative that helps the user decide where to focus.
+- Use specific names/titles from the data when relevant.
 
 Output valid JSON only:
-{"summary":"2-3 sentences","priorities":["item1","item2"],"actionItems":["action1","action2"],"blockers":["blocker1"]}`;
+{"summary":"one paragraph, 4-5 sentences max","priorities":[],"actionItems":[],"blockers":[]}`;
 
   return { system, user };
 }
@@ -222,8 +229,15 @@ function parseAIResponse(response: string): Omit<DashboardInsight, "generatedAt"
 
   const parsed = JSON.parse(jsonStr);
 
+  const summarizeToFiveSentences = (value: string): string => {
+    const text = value.replace(/\s+/g, " ").trim();
+    if (!text) return "No insights available.";
+    const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text];
+    return sentences.slice(0, 5).join(" ").trim();
+  };
+
   return {
-    summary: parsed.summary || "No insights available",
+    summary: summarizeToFiveSentences(parsed.summary || "No insights available."),
     priorities: Array.isArray(parsed.priorities) ? parsed.priorities : [],
     actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
     blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [],

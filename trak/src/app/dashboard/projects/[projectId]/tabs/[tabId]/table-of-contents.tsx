@@ -6,6 +6,7 @@ import { List, PanelRightClose, PanelLeftClose, ChevronLeft } from "lucide-react
 import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { useTabContents } from "./tab-contents-context";
+import { useTable } from "@/lib/hooks/use-table-queries";
 
 function getBlockTitle(block: Block): string {
   const content = (block.content ?? {}) as Record<string, unknown>;
@@ -47,6 +48,39 @@ function getBlockTitle(block: Block): string {
     default:
       return `${block.type} block`;
   }
+}
+
+function BlockTitle({ block }: { block: Block }) {
+  if (block.type === "table") {
+    const content = (block.content ?? {}) as Record<string, unknown>;
+    const rawTableId =
+      (content as any).tableId ??
+      (content as any).table_id ??
+      (content as any).table ??
+      null;
+
+    const tableId =
+      typeof rawTableId === "string" && rawTableId.length > 0
+        ? rawTableId
+        : null;
+
+    // Fallback to block content title if no tableId is present
+    if (!tableId) {
+      const titleFromBlock = (content.title as string) ?? "Table";
+      return <>{titleFromBlock}</>;
+    }
+
+    const { data: tableData } = useTable(tableId);
+    const titleFromBlock = (content.title as string) || "";
+    const effectiveTitle =
+      (typeof titleFromBlock === "string" && titleFromBlock.trim()
+        ? titleFromBlock
+        : tableData?.table?.title) || "Table";
+
+    return <>{effectiveTitle}</>;
+  }
+
+  return <>{getBlockTitle(block)}</>;
 }
 
 interface TableOfContentsProps {
@@ -171,7 +205,8 @@ export default function TableOfContents({
               {hasBlocks && (
                 <nav className="p-2 space-y-0.5">
                   {blocks.map((block) => {
-                    const title = getBlockTitle(block);
+                    const title =
+                      block.type === "table" ? undefined : getBlockTitle(block);
                     return (
                       <button
                         key={block.id}
@@ -179,7 +214,7 @@ export default function TableOfContents({
                         className="block w-full text-left text-sm text-[var(--foreground)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-md px-2 py-1.5 truncate transition-colors"
                         title={title}
                       >
-                        {title}
+                        <BlockTitle block={block} />
                       </button>
                     );
                   })}

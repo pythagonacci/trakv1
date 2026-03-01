@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   ArrowRight,
-  CheckCircle2,
   Flag,
   Calendar,
   MessageSquare,
@@ -51,16 +50,6 @@ interface Task {
   sourceUrl?: string;
 }
 
-interface RecentlyCompletedItem {
-  id: string;
-  text: string;
-  projectName: string;
-  tabName: string;
-  projectId?: string | null;
-  tabId?: string | null;
-  updatedAt?: string;
-}
-
 interface DashboardOverviewProps {
   projects: Project[];
   docs: Doc[];
@@ -81,7 +70,6 @@ interface DashboardOverviewProps {
   workspaceId: string;
   clientFeedback: ClientFeedback[];
   teamUpdates: ClientFeedback[];
-  recentlyCompleted: RecentlyCompletedItem[];
   aiInsights?: DashboardInsight | null;
   userId: string;
   userName?: string;
@@ -99,32 +87,23 @@ interface ClientFeedback {
   timestamp?: string;
 }
 
-export default function DashboardOverview({
-  projects,
-  docs,
-  tasks,
-  dueAwareItems = [],
-  clientFeedback,
-  teamUpdates,
-  recentlyCompleted,
-  aiInsights,
-  workspaceId,
-  userId,
-  userName
-}: DashboardOverviewProps) {
+export default function DashboardOverview(props: DashboardOverviewProps) {
+  const {
+    tasks,
+    dueAwareItems = [],
+    clientFeedback,
+    teamUpdates,
+    aiInsights,
+    workspaceId,
+    userId,
+    userName,
+  } = props;
   const router = useRouter();
   const { theme } = useTheme();
   const { currentWorkspace } = useWorkspace();
 
-  const activeProjects = useMemo(
-    () => projects.filter((p) => p.status !== "complete" && p.project_type === "project"),
-    [projects]
-  );
-
   const clientFeedbackItems = clientFeedback.slice(0, 4);
   const teamUpdatesItems = teamUpdates.slice(0, 6);
-  const recentlyCompletedItems = recentlyCompleted.slice(0, 6);
-  const feedbackCount = clientFeedback.length;
 
   const { pastDueTasks, dueTodayTasks, upcomingTasks } = useMemo((): {
     pastDueTasks: Task[];
@@ -263,20 +242,16 @@ export default function DashboardOverview({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Active projects"
-          value={activeProjects.length}
-          onClick={() => router.push("/dashboard/projects")}
-        />
-        <StatCard label="Open tasks" value={tasks.length} />
-        <StatCard
-          label="Documents"
-          value={docs.length}
-          onClick={() => router.push("/dashboard/docs")}
-        />
-        <StatCard label="Feedback & updates" value={feedbackCount} />
-      </div>
+      <NotificationsCard
+        clientFeedbackItems={clientFeedbackItems}
+        teamUpdatesItems={teamUpdatesItems}
+        formatRelativeTime={formatRelativeTime}
+        onNavigate={(projectId, tabId) => {
+          if (projectId && tabId) {
+            router.push(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+          }
+        }}
+      />
 
       {/* AI Overview Block */}
       <AIOverviewBlock
@@ -286,72 +261,6 @@ export default function DashboardOverview({
         userName={userName}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <UpdatesCard
-          title="Client feedback"
-          description="Latest comments left on shared client pages."
-          items={clientFeedbackItems}
-          emptyMessage="No client feedback yet."
-          renderItem={(feedback) => (
-            <UpdateRow
-              key={feedback.id}
-              title={`“${feedback.text}”`}
-              subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
-                feedback.timestamp
-              )}`}
-              icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-              onClick={
-                feedback.projectId && feedback.tabId
-                  ? () => router.push(`/dashboard/projects/${feedback.projectId}/tabs/${feedback.tabId}`)
-                  : undefined
-              }
-            />
-          )}
-        />
-
-        <UpdatesCard
-          title="Notifications"
-          description="Comments and mentions left by teammates."
-          items={teamUpdatesItems}
-          emptyMessage="No comments from teammates yet."
-          renderItem={(feedback) => (
-            <UpdateRow
-              key={feedback.id}
-              title={`"${feedback.text}"`}
-              subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
-                feedback.timestamp
-              )}`}
-              icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-              onClick={
-                feedback.projectId && feedback.tabId
-                  ? () => router.push(`/dashboard/projects/${feedback.projectId}/tabs/${feedback.tabId}`)
-                  : undefined
-              }
-            />
-          )}
-        />
-
-        <UpdatesCard
-          title="Recently completed"
-          description="Items that were recently marked as done."
-          items={recentlyCompletedItems}
-          emptyMessage="No recently completed items yet."
-          renderItem={(item) => (
-            <UpdateRow
-              key={item.id}
-              title={item.text}
-              subtitle={`${item.projectName} · ${item.tabName} · ${formatRelativeTime(item.updatedAt)}`}
-              icon={<CheckCircle2 className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-              onClick={
-                item.projectId && item.tabId
-                  ? () => router.push(`/dashboard/projects/${item.projectId}/tabs/${item.tabId}?taskId=${item.id}`)
-                  : undefined
-              }
-            />
-          )}
-        />
-      </div>
-
       <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
           <div>
@@ -359,14 +268,6 @@ export default function DashboardOverview({
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
               What matters now and coming up.
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded-full border border-border/70 px-2 py-1 text-[10px] text-[var(--muted-foreground)]">
-                Active: {activeProjects.length}
-              </span>
-              <span className="rounded-full border border-border/70 px-2 py-1 text-[10px] text-[var(--muted-foreground)]">
-                {tasks.length} open tasks
-              </span>
-            </div>
           </div>
           <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => router.push("/dashboard/projects")}>
             View all
@@ -374,12 +275,9 @@ export default function DashboardOverview({
         </CardHeader>
         <CardContent className="grid gap-6 md:grid-cols-3 px-4 pb-4">
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Due today
-              </p>
-              <span className="text-xs text-[var(--tertiary-foreground)]">{dueTodayTasks.length} items</span>
-            </div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              Due today
+            </p>
             {dueTodayTasks.length > 0 ? (
               <div className="space-y-2">
                 {dueTodayTasks.map((task) => (
@@ -402,12 +300,9 @@ export default function DashboardOverview({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Upcoming
-              </p>
-              <span className="text-xs text-[var(--tertiary-foreground)]">{upcomingTasks.length} items</span>
-            </div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              Upcoming
+            </p>
             {upcomingTasks.length > 0 ? (
               <div className="space-y-2">
                 {upcomingTasks.map((task) => (
@@ -430,12 +325,9 @@ export default function DashboardOverview({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Past due
-              </p>
-              <span className="text-xs text-[var(--tertiary-foreground)]">{pastDueTasks.length} items</span>
-            </div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              Past due
+            </p>
             {pastDueTasks.length > 0 ? (
               <div className="space-y-2">
                 {pastDueTasks.map((task) => (
@@ -514,59 +406,69 @@ function TaskRowButton({
   );
 }
 
-interface StatCardProps {
-  label: string;
-  value: number;
-  onClick?: () => void;
-}
-
-function StatCard({ label, value, onClick }: StatCardProps) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={!onClick}
-      className={cn(
-        "group flex flex-col gap-1 rounded-xl border border-transparent bg-[var(--surface)] px-4 py-4 text-left transition-colors",
-        onClick
-          ? "hover:border-[var(--secondary)] hover:bg-[var(--secondary)]/5 cursor-pointer"
-          : "cursor-default"
-      )}
-    >
-      <p className="text-2xl font-semibold text-[var(--foreground)] tabular-nums">{value}</p>
-      <p className="text-xs text-[var(--tertiary-foreground)] uppercase tracking-[0.18em]">{label}</p>
-    </button>
-  );
-}
-
-interface UpdatesCardProps<Item> {
-  title: string;
-  description: string;
-  items: Item[];
-  emptyMessage: string;
-  renderItem: (item: Item) => ReactNode;
-}
-
-function UpdatesCard<Item>({
-  title,
-  description,
-  items,
-  emptyMessage,
-  renderItem,
-}: UpdatesCardProps<Item>) {
+function NotificationsCard({
+  clientFeedbackItems,
+  teamUpdatesItems,
+  formatRelativeTime,
+  onNavigate,
+}: {
+  clientFeedbackItems: ClientFeedback[];
+  teamUpdatesItems: ClientFeedback[];
+  formatRelativeTime: (value?: string) => string;
+  onNavigate: (projectId?: string | null, tabId?: string | null) => void;
+}) {
   return (
     <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
       <CardHeader className="pb-2 px-4 pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-[var(--foreground)]" />
+          <CardTitle className="text-sm font-medium">Notifications</CardTitle>
         </div>
-        <p className="mt-1 text-xs text-[var(--muted-foreground)]">{description}</p>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Client and teammate updates in one place.
+        </p>
       </CardHeader>
-      <CardContent className="space-y-2 px-4 pb-4 pt-0 text-xs">
-        {items.length === 0 ? (
-          <p className="text-[var(--muted-foreground)]">{emptyMessage}</p>
-        ) : (
-          <div className="space-y-2">{items.map((item) => renderItem(item))}</div>
-        )}
+      <CardContent className="grid gap-4 px-4 pb-4 pt-0 text-xs md:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold tracking-wide text-[var(--foreground)]">
+            Client Feedback
+          </p>
+          {clientFeedbackItems.length === 0 ? (
+            <p className="text-[var(--muted-foreground)]">No client feedback yet.</p>
+          ) : (
+            clientFeedbackItems.map((feedback) => (
+              <UpdateRow
+                key={feedback.id}
+                title={`“${feedback.text}”`}
+                subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
+                  feedback.timestamp
+                )}`}
+                icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
+                onClick={() => onNavigate(feedback.projectId, feedback.tabId)}
+              />
+            ))
+          )}
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs font-semibold tracking-wide text-[var(--foreground)]">
+            Team Updates
+          </p>
+          {teamUpdatesItems.length === 0 ? (
+            <p className="text-[var(--muted-foreground)]">No comments from teammates yet.</p>
+          ) : (
+            teamUpdatesItems.map((feedback) => (
+              <UpdateRow
+                key={feedback.id}
+                title={`“${feedback.text}”`}
+                subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
+                  feedback.timestamp
+                )}`}
+                icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
+                onClick={() => onNavigate(feedback.projectId, feedback.tabId)}
+              />
+            ))
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -643,4 +545,3 @@ function UpdateRow({
 function cn(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(" ");
 }
-
