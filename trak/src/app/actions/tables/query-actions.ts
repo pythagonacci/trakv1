@@ -19,6 +19,19 @@ interface GetTableDataInput {
   offset?: number;
 }
 
+export type TableSourceOrigin = {
+  sourceEntityType: "task" | "timeline_event" | "table_row" | "block";
+  sourceEntityId: string;
+  sourceName: string;
+  sourceHref: string | null;
+  previewEntityType: "block" | "table";
+  previewEntityId: string;
+  projectId: string | null;
+  projectName: string | null;
+  tabId: string | null;
+  tabName: string | null;
+};
+
 export async function getTableData(input: GetTableDataInput): Promise<ActionResult<{ rows: TableRow[]; view?: TableView | null; hasMore?: boolean; nextOffset?: number | null; total?: number }>> {
   const _t0 = performance.now();
   if (process.env.PERF_DEBUG === "1") console.log(`[PERF] getTableData tableId=${input.tableId} viewId=${input.viewId ?? ""} limit=${input.limit ?? 100} offset=${input.offset ?? 0}`);
@@ -167,6 +180,233 @@ export async function getTableRows(
   return { data: { rows: rows as TableRow[], total, hasMore } };
 }
 
+function getBlockTitle(content: unknown, fallback: string): string {
+  if (content && typeof content === "object" && typeof (content as Record<string, unknown>).title === "string") {
+    const title = String((content as Record<string, unknown>).title).trim();
+    if (title.length > 0) return title;
+  }
+  return fallback;
+}
+
+export async function getTableSourceOrigins(
+  tableId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<TableSourceOrigin[]>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase } = access;
+
+  const { data: sourceRows, error: sourceRowsError } = await supabase
+    .from("table_rows")
+    .select("source_entity_type, source_entity_id")
+    .eq("table_id", tableId)
+    .not("source_entity_type", "is", null)
+    .not("source_entity_id", "is", null);
+
+  if (sourceRowsError) return { error: "Failed to load source-linked rows" };
+  if (!sourceRows || sourceRows.length === 0) return { data: [] };
+
+  const taskIds = Array.from(
+    new Set(
+      sourceRows
+        .filter((row) => row.source_entity_type === "task" && typeof row.source_entity_id === "string")
+        .map((row) => row.source_entity_id as string)
+    )
+  );
+  const timelineEventIds = Array.from(
+    new Set(
+      sourceRows
+        .filter((row) => row.source_entity_type === "timeline_event" && typeof row.source_entity_id === "string")
+        .map((row) => row.source_entity_id as string)
+    )
+  );
+  const tableRowIds = Array.from(
+    new Set(
+      sourceRows
+        .filter((row) => row.source_entity_type === "table_row" && typeof row.source_entity_id === "string")
+        .map((row) => row.source_entity_id as string)
+    )
+  );
+  const blockIds = Array.from(
+    new Set(
+      sourceRows
+        .filter((row) => row.source_entity_type === "block" && typeof row.source_entity_id === "string")
+        .map((row) => row.source_entity_id as string)
+    )
+  );
+
+  const origins = new Map<string, TableSourceOrigin>();
+
+  if (taskIds.length > 0) {
+    const { data: tasks } = await supabase
+      .from("task_items")
+      .select("id, task_block_id")
+      .in("id", taskIds);
+    const blockIdsForTasks = Array.from(new Set((tasks ?? []).map((task) => task.task_block_id).filter(Boolean)));
+    const { data: taskBlocks } = blockIdsForTasks.length
+      ? await supabase
+          .from("blocks")
+          .select("id, type, content, tab_id, tabs!inner(project_id, name, projects(name))")
+          .in("id", blockIdsForTasks)
+      : { data: [] as any[] };
+    const blockById = new Map<string, any>((taskBlocks ?? []).map((block: any) => [block.id, block]));
+
+    for (const task of tasks ?? []) {
+      const block = blockById.get(task.task_block_id as string);
+      if (!block) continue;
+      const sourceName = getBlockTitle(block.content, "Task block");
+      const tab = (block as any)?.tabs as { project_id?: string; name?: string; projects?: { name?: string } } | undefined;
+      const projectId = tab?.project_id;
+      const href = projectId && block.tab_id
+        ? `/dashboard/projects/${projectId}/tabs/${block.tab_id}#block-${block.id}`
+        : null;
+      const key = `task:${block.id}`;
+      if (!origins.has(key)) {
+        origins.set(key, {
+          sourceEntityType: "task",
+          sourceEntityId: String(task.id),
+          sourceName,
+          sourceHref: href,
+          previewEntityType: "block",
+          previewEntityId: String(block.id),
+          projectId: projectId ?? null,
+          projectName: tab?.projects?.name ?? null,
+          tabId: (block.tab_id as string | null) ?? null,
+          tabName: tab?.name ?? null,
+        });
+      }
+    }
+  }
+
+  if (timelineEventIds.length > 0) {
+    const { data: events } = await supabase
+      .from("timeline_events")
+      .select("id, timeline_block_id")
+      .in("id", timelineEventIds);
+    const blockIdsForEvents = Array.from(new Set((events ?? []).map((event) => event.timeline_block_id).filter(Boolean)));
+    const { data: timelineBlocks } = blockIdsForEvents.length
+      ? await supabase
+          .from("blocks")
+          .select("id, type, content, tab_id, tabs!inner(project_id, name, projects(name))")
+          .in("id", blockIdsForEvents)
+      : { data: [] as any[] };
+    const blockById = new Map<string, any>((timelineBlocks ?? []).map((block: any) => [block.id, block]));
+
+    for (const event of events ?? []) {
+      const block = blockById.get(event.timeline_block_id as string);
+      if (!block) continue;
+      const sourceName = getBlockTitle(block.content, "Timeline block");
+      const tab = (block as any)?.tabs as { project_id?: string; name?: string; projects?: { name?: string } } | undefined;
+      const projectId = tab?.project_id;
+      const href = projectId && block.tab_id
+        ? `/dashboard/projects/${projectId}/tabs/${block.tab_id}#block-${block.id}`
+        : null;
+      const key = `timeline_event:${block.id}`;
+      if (!origins.has(key)) {
+        origins.set(key, {
+          sourceEntityType: "timeline_event",
+          sourceEntityId: String(event.id),
+          sourceName,
+          sourceHref: href,
+          previewEntityType: "block",
+          previewEntityId: String(block.id),
+          projectId: projectId ?? null,
+          projectName: tab?.projects?.name ?? null,
+          tabId: (block.tab_id as string | null) ?? null,
+          tabName: tab?.name ?? null,
+        });
+      }
+    }
+  }
+
+  if (tableRowIds.length > 0) {
+    const { data: rows } = await supabase
+      .from("table_rows")
+      .select("id, table_id")
+      .in("id", tableRowIds);
+    const sourceTableIds = Array.from(new Set((rows ?? []).map((row) => row.table_id).filter(Boolean)));
+    const { data: tables } = sourceTableIds.length
+      ? await supabase
+          .from("tables")
+          .select("id, title, tab_id, project_id, tabs(name), projects(name)")
+          .in("id", sourceTableIds)
+      : { data: [] as any[] };
+    const tableById = new Map<string, any>((tables ?? []).map((table: any) => [table.id, table]));
+    const sourceTabIds = Array.from(new Set((tables ?? []).map((table: any) => table.tab_id).filter(Boolean)));
+    const { data: tableBlocks } = sourceTabIds.length
+      ? await supabase
+          .from("blocks")
+          .select("id, tab_id, content")
+          .eq("type", "table")
+          .in("tab_id", sourceTabIds)
+      : { data: [] as any[] };
+    const tableBlockByTableId = new Map<string, string>();
+    for (const block of tableBlocks ?? []) {
+      const content = (block as any)?.content as Record<string, unknown> | null;
+      const sourceTableId = typeof content?.tableId === "string" ? content.tableId : null;
+      if (!sourceTableId || tableBlockByTableId.has(sourceTableId)) continue;
+      tableBlockByTableId.set(sourceTableId, String((block as any).id));
+    }
+
+    for (const row of rows ?? []) {
+      const table = tableById.get(row.table_id as string);
+      if (!table) continue;
+      const sourceName = typeof table.title === "string" && table.title.trim().length > 0 ? table.title : "Table";
+      const href = table.project_id && table.tab_id
+        ? `/dashboard/projects/${table.project_id}/tabs/${table.tab_id}#table-${table.id}`
+        : null;
+      const key = `table_row:${table.id}`;
+      if (!origins.has(key)) {
+        origins.set(key, {
+          sourceEntityType: "table_row",
+          sourceEntityId: String(row.id),
+          sourceName,
+          sourceHref: href,
+          previewEntityType: tableBlockByTableId.has(String(table.id)) ? "block" : "table",
+          previewEntityId: tableBlockByTableId.get(String(table.id)) ?? String(table.id),
+          projectId: (table.project_id as string | null) ?? null,
+          projectName: ((table.projects as { name?: string } | null)?.name ?? null),
+          tabId: (table.tab_id as string | null) ?? null,
+          tabName: ((table.tabs as { name?: string } | null)?.name ?? null),
+        });
+      }
+    }
+  }
+
+  if (blockIds.length > 0) {
+    const { data: blocks } = await supabase
+      .from("blocks")
+      .select("id, type, content, tab_id, tabs!inner(project_id, name, projects(name))")
+      .in("id", blockIds);
+
+    for (const block of blocks ?? []) {
+      const sourceName = getBlockTitle((block as any).content, `${String((block as any).type || "block")} block`);
+      const tab = (block as any)?.tabs as { project_id?: string; name?: string; projects?: { name?: string } } | undefined;
+      const projectId = tab?.project_id;
+      const href = projectId && (block as any).tab_id
+        ? `/dashboard/projects/${projectId}/tabs/${(block as any).tab_id}#block-${(block as any).id}`
+        : null;
+      const key = `block:${(block as any).id}`;
+      if (!origins.has(key)) {
+        origins.set(key, {
+          sourceEntityType: "block",
+          sourceEntityId: String((block as any).id),
+          sourceName,
+          sourceHref: href,
+          previewEntityType: "block",
+          previewEntityId: String((block as any).id),
+          projectId: projectId ?? null,
+          projectName: tab?.projects?.name ?? null,
+          tabId: ((block as any).tab_id as string | null) ?? null,
+          tabName: tab?.name ?? null,
+        });
+      }
+    }
+  }
+
+  return { data: Array.from(origins.values()) };
+}
+
 // ---------------------------------------------------------------------------
 // Server-side builders with in-memory fallback
 // ---------------------------------------------------------------------------
@@ -182,36 +422,56 @@ function applyServerFilters(
 
   filters.forEach((filter) => {
     const column = `data->>${filter.fieldId}`;
+    const filterVal = filter.value;
     switch (filter.operator) {
       case "equals":
-        working = working.filter(column, "eq", filter.value ?? null);
+        working = working.filter(column, "eq", filterVal ?? null);
         break;
       case "not_equals":
-        working = working.not(column, "eq", filter.value ?? null);
+        working = working.not(column, "eq", filterVal ?? null);
         break;
       case "contains":
-        working = working.filter(column, "ilike", `%${filter.value ?? ""}%`);
+        working = working.filter(column, "ilike", `%${filterVal ?? ""}%`);
         break;
       case "not_contains":
-        working = working.not(column, "ilike", `%${filter.value ?? ""}%`);
+        working = working.not(column, "ilike", `%${filterVal ?? ""}%`);
         break;
       case "is_empty":
-        working = working.or(`${column}.is.null,${column}.eq.`); // null or empty string
+        working = working.or(`${column}.is.null,${column}.eq.`);
         break;
       case "is_not_empty":
         working = working.not(column, "is", null).not(column, "eq", "");
         break;
       case "greater_than":
-        working = working.filter(column, "gt", filter.value);
+        working = working.filter(column, "gt", filterVal);
         break;
       case "less_than":
-        working = working.filter(column, "lt", filter.value);
+        working = working.filter(column, "lt", filterVal);
         break;
       case "greater_or_equal":
-        working = working.filter(column, "gte", filter.value);
+        working = working.filter(column, "gte", filterVal);
         break;
       case "less_or_equal":
-        working = working.filter(column, "lte", filter.value);
+        working = working.filter(column, "lte", filterVal);
+        break;
+      case "is_before":
+        if (typeof filterVal === "string") working = working.filter(column, "lt", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_after":
+        if (typeof filterVal === "string") working = working.filter(column, "gt", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_on_or_before":
+        if (typeof filterVal === "string") working = working.filter(column, "lte", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_on_or_after":
+        if (typeof filterVal === "string") working = working.filter(column, "gte", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_within":
+        unsupported.push(filter);
         break;
       default:
         unsupported.push(filter);
@@ -231,33 +491,65 @@ function applyServerSorts(query: PostgrestFilterBuilder<any, any, any, any>, sor
   return working;
 }
 
+function parseDateValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (typeof value === "object" && value !== null && "start" in (value as Record<string, unknown>)) {
+    return String((value as { start?: unknown }).start ?? "").slice(0, 10) || null;
+  }
+  return null;
+}
+
 function applyFilters(rows: TableRow[], filters: FilterCondition[]): TableRow[] {
   if (!filters || filters.length === 0) return rows;
 
   return rows.filter((row) => {
     return filters.every((filter) => {
       const value = (row.data || {})[filter.fieldId];
+      const fv = filter.value;
       switch (filter.operator) {
         case "equals":
-          return value === filter.value;
+          return value === fv;
         case "not_equals":
-          return value !== filter.value;
+          return value !== fv;
         case "contains":
-          return String(value ?? "").toLowerCase().includes(String(filter.value ?? "").toLowerCase());
+          return String(value ?? "").toLowerCase().includes(String(fv ?? "").toLowerCase());
         case "not_contains":
-          return !String(value ?? "").toLowerCase().includes(String(filter.value ?? "").toLowerCase());
+          return !String(value ?? "").toLowerCase().includes(String(fv ?? "").toLowerCase());
         case "is_empty":
           return value === null || value === undefined || value === "";
         case "is_not_empty":
           return value !== null && value !== undefined && value !== "";
         case "greater_than":
-          return Number(value) > Number(filter.value);
+          return Number(value) > Number(fv);
         case "less_than":
-          return Number(value) < Number(filter.value);
+          return Number(value) < Number(fv);
         case "greater_or_equal":
-          return Number(value) >= Number(filter.value);
+          return Number(value) >= Number(fv);
         case "less_or_equal":
-          return Number(value) <= Number(filter.value);
+          return Number(value) <= Number(fv);
+        case "is_before":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! < String(fv).slice(0, 10));
+        case "is_after":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! > String(fv).slice(0, 10));
+        case "is_on_or_before":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! <= String(fv).slice(0, 10));
+        case "is_on_or_after":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! >= String(fv).slice(0, 10));
+        case "is_within": {
+          const range = fv && typeof fv === "object" && "start" in (fv as object) && "end" in (fv as object)
+            ? (fv as { start?: string; end?: string })
+            : null;
+          if (!range || (!range.start && !range.end)) return true;
+          const rowDate = parseDateValue(value);
+          const start = String(range.start ?? "").slice(0, 10);
+          const end = String(range.end ?? "").slice(0, 10);
+          if (!rowDate) return false;
+          if (start && end) return rowDate >= start && rowDate <= end;
+          if (start) return rowDate >= start;
+          if (end) return rowDate <= end;
+          return true;
+        }
         default:
           return true;
       }

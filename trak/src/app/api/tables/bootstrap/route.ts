@@ -133,18 +133,19 @@ function applyServerFilters(
 
   filters.forEach((filter) => {
     const column = `data->>${filter.fieldId}`;
+    const filterVal = filter.value;
     switch (filter.operator) {
       case "equals":
-        working = working.filter(column, "eq", filter.value ?? null);
+        working = working.filter(column, "eq", filterVal ?? null);
         break;
       case "not_equals":
-        working = working.not(column, "eq", filter.value ?? null);
+        working = working.not(column, "eq", filterVal ?? null);
         break;
       case "contains":
-        working = working.filter(column, "ilike", `%${filter.value ?? ""}%`);
+        working = working.filter(column, "ilike", `%${filterVal ?? ""}%`);
         break;
       case "not_contains":
-        working = working.not(column, "ilike", `%${filter.value ?? ""}%`);
+        working = working.not(column, "ilike", `%${filterVal ?? ""}%`);
         break;
       case "is_empty":
         working = working.or(`${column}.is.null,${column}.eq.`);
@@ -153,16 +154,35 @@ function applyServerFilters(
         working = working.not(column, "is", null).not(column, "eq", "");
         break;
       case "greater_than":
-        working = working.filter(column, "gt", filter.value);
+        working = working.filter(column, "gt", filterVal);
         break;
       case "less_than":
-        working = working.filter(column, "lt", filter.value);
+        working = working.filter(column, "lt", filterVal);
         break;
       case "greater_or_equal":
-        working = working.filter(column, "gte", filter.value);
+        working = working.filter(column, "gte", filterVal);
         break;
       case "less_or_equal":
-        working = working.filter(column, "lte", filter.value);
+        working = working.filter(column, "lte", filterVal);
+        break;
+      case "is_before":
+        if (typeof filterVal === "string") working = working.filter(column, "lt", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_after":
+        if (typeof filterVal === "string") working = working.filter(column, "gt", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_on_or_before":
+        if (typeof filterVal === "string") working = working.filter(column, "lte", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_on_or_after":
+        if (typeof filterVal === "string") working = working.filter(column, "gte", filterVal);
+        else unsupported.push(filter);
+        break;
+      case "is_within":
+        unsupported.push(filter);
         break;
       default:
         unsupported.push(filter);
@@ -182,33 +202,65 @@ function applyServerSorts(query: PostgrestFilterBuilder<any, any, any, any>, sor
   return working;
 }
 
+function parseDateValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (typeof value === "object" && value !== null && "start" in (value as Record<string, unknown>)) {
+    return String((value as { start?: unknown }).start ?? "").slice(0, 10) || null;
+  }
+  return null;
+}
+
 function applyFilters(rows: TableRow[], filters: FilterCondition[]): TableRow[] {
   if (!filters || filters.length === 0) return rows;
 
   return rows.filter((row) => {
     return filters.every((filter) => {
       const value = (row.data || {})[filter.fieldId];
+      const fv = filter.value;
       switch (filter.operator) {
         case "equals":
-          return value === filter.value;
+          return value === fv;
         case "not_equals":
-          return value !== filter.value;
+          return value !== fv;
         case "contains":
-          return String(value ?? "").toLowerCase().includes(String(filter.value ?? "").toLowerCase());
+          return String(value ?? "").toLowerCase().includes(String(fv ?? "").toLowerCase());
         case "not_contains":
-          return !String(value ?? "").toLowerCase().includes(String(filter.value ?? "").toLowerCase());
+          return !String(value ?? "").toLowerCase().includes(String(fv ?? "").toLowerCase());
         case "is_empty":
           return value === null || value === undefined || value === "";
         case "is_not_empty":
           return value !== null && value !== undefined && value !== "";
         case "greater_than":
-          return typeof value === "number" && typeof filter.value === "number" && value > filter.value;
+          return typeof value === "number" && typeof fv === "number" && value > fv;
         case "less_than":
-          return typeof value === "number" && typeof filter.value === "number" && value < filter.value;
+          return typeof value === "number" && typeof fv === "number" && value < fv;
         case "greater_or_equal":
-          return typeof value === "number" && typeof filter.value === "number" && value >= filter.value;
+          return typeof value === "number" && typeof fv === "number" && value >= fv;
         case "less_or_equal":
-          return typeof value === "number" && typeof filter.value === "number" && value <= filter.value;
+          return typeof value === "number" && typeof fv === "number" && value <= fv;
+        case "is_before":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! < String(fv).slice(0, 10));
+        case "is_after":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! > String(fv).slice(0, 10));
+        case "is_on_or_before":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! <= String(fv).slice(0, 10));
+        case "is_on_or_after":
+          return parseDateValue(value) != null && (fv == null || parseDateValue(value)! >= String(fv).slice(0, 10));
+        case "is_within": {
+          const range = fv && typeof fv === "object" && "start" in (fv as object) && "end" in (fv as object)
+            ? (fv as { start?: string; end?: string })
+            : null;
+          if (!range || (!range.start && !range.end)) return true;
+          const rowDate = parseDateValue(value);
+          const start = String(range.start ?? "").slice(0, 10);
+          const end = String(range.end ?? "").slice(0, 10);
+          if (!rowDate) return false;
+          if (start && end) return rowDate >= start && rowDate <= end;
+          if (start) return rowDate >= start;
+          if (end) return rowDate <= end;
+          return true;
+        }
         default:
           return true;
       }

@@ -47,6 +47,7 @@ import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
 import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, Table, TableField, TableView, TableRow as TableRowType } from "@/types/table";
 import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
+import { getTableSourceOrigins, type TableSourceOrigin } from "@/app/actions/tables/query-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { queryKeys } from "@/lib/react-query/query-client";
@@ -54,10 +55,12 @@ import React from "react";
 import { groupRows, canGroupByField } from "@/lib/table-grouping";
 import { GroupHeader } from "./group-header";
 import { BoardView } from "./board-view";
+import { GalleryView } from "./gallery-view";
 import { TableTimelineView } from "./table-timeline-view";
 import Toast from "@/app/dashboard/projects/toast";
 import { TableImportModal, type ImportColumnMapping } from "./table-import-modal";
 import { Switch } from "@/components/ui/switch";
+import { SourceOriginLink } from "./source-origin-link";
 import {
   parsePastedTable,
   isStructuredData,
@@ -71,6 +74,7 @@ import {
   normalizeCanonicalPriorityValue,
   normalizeCanonicalStatusValue,
 } from "@/lib/tables/universal-property";
+import { uploadFile } from "@/app/actions/file";
 
 function TableViewLoadingState() {
   return (
@@ -172,9 +176,11 @@ function buildSubtaskPresentation(
 
 interface Props {
   tableId: string;
+  /** Optional custom max height (in pixels) for the main table scroll area. */
+  maxHeightPx?: number;
 }
 
-export function TableView({ tableId }: Props) {
+export function TableView({ tableId, maxHeightPx }: Props) {
   const queryClient = useQueryClient();
   const { data: bootstrap, isLoading: bootstrapLoading } = useTableBootstrap(tableId);
   const { data: tableDataFallback } = useTable(tableId);
@@ -202,6 +208,7 @@ export function TableView({ tableId }: Props) {
   const [relationCount, setRelationCount] = useState<number | null>(null);
   const [countingRelations, setCountingRelations] = useState(false);
   const [editRequest, setEditRequest] = useState<{ rowId: string; fieldId: string; initialValue?: string } | null>(null);
+  const [scrollToFieldId, setScrollToFieldId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [importData, setImportData] = useState<ReturnType<typeof parsePastedTable> | null>(null);
   const [importMappings, setImportMappings] = useState<ImportColumnMapping[]>([]);
@@ -369,6 +376,12 @@ export function TableView({ tableId }: Props) {
     });
     return acc;
   }, [fields, getWidthForField]);
+
+  const totalTableWidthPx = useMemo(() => {
+    const fieldsWidth = fields.reduce((sum, f) => sum + (widthMap[f.id] ?? f.width ?? 180), 0);
+    return selectionWidth + fieldsWidth + 40;
+  }, [fields, widthMap, selectionWidth]);
+
   const rows: TableRowType[] = search
     ? ((searchResult.data ?? []) as TableRowType[])
     : (rowData?.rows ?? []);
@@ -451,6 +464,23 @@ export function TableView({ tableId }: Props) {
     }
   };
 
+  useEffect(() => {
+    if (!scrollToFieldId || !fields.some((f) => f.id === scrollToFieldId)) return;
+    const id = scrollToFieldId;
+    const scroll = () => {
+      const el = columnRefs.current[id];
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      } else if (scrollContainerRef.current) {
+        const container = scrollContainerRef.current;
+        container.scrollLeft = container.scrollWidth - container.clientWidth;
+      }
+      setScrollToFieldId(null);
+    };
+    const t = setTimeout(scroll, 50);
+    return () => clearTimeout(t);
+  }, [scrollToFieldId, fields]);
+
   // Rows arrive filtered/sorted from the server based on view config
   const sortedRows = rows || [];
   const subtaskPresentation = useMemo(
@@ -484,13 +514,23 @@ export function TableView({ tableId }: Props) {
         new Set(
           sourceLinkedRows
             .map((row) => row.source_entity_type)
-            .filter((type): type is "task" | "timeline_event" | "table_row" => Boolean(type))
+            .filter((type): type is "task" | "timeline_event" | "table_row" | "block" => Boolean(type))
         )
       ),
     [sourceLinkedRows]
   );
   const liveSourceSyncEnabled =
     hasSourceLinkedRows && sourceLinkedRows.every((row) => row.source_sync_mode === "live");
+  const { data: sourceOriginsResult } = useQuery({
+    queryKey: ["tableSourceOrigins", tableId],
+    queryFn: () => getTableSourceOrigins(tableId),
+    enabled: hasSourceLinkedRows,
+    staleTime: 30_000,
+  });
+  const sourceOrigins = useMemo<TableSourceOrigin[]>(
+    () => ("data" in (sourceOriginsResult || {}) ? (sourceOriginsResult as { data: TableSourceOrigin[] }).data : []),
+    [sourceOriginsResult]
+  );
   const groupByConfig = view?.config?.groupBy;
   const groupByField = groupByConfig
     ? fields.find((f) => f.id === groupByConfig.fieldId)
@@ -545,6 +585,60 @@ export function TableView({ tableId }: Props) {
       return filtered;
     });
   }, [sortedRowIds]);
+
+  const handleGalleryUploadCover = useCallback(
+    async (rowId: string, file: File) => {
+      if (!tableData?.table?.workspace_id || !tableData?.table?.project_id || !view?.id) return;
+      let coverFieldId = view.config?.galleryConfig?.coverFieldId;
+      let coverField = coverFieldId ? allFields.find((f) => f.id === coverFieldId) : undefined;
+      if (!coverField || coverField.type !== "files") {
+        const existingFiles = allFields.find((f) => f.type === "files");
+        if (existingFiles) {
+          coverFieldId = existingFiles.id;
+          await updateView.mutateAsync({
+            config: {
+              ...view.config,
+              galleryConfig: { ...view.config?.galleryConfig, coverFieldId: existingFiles.id },
+            },
+          });
+        } else {
+          const created = await createField.mutateAsync({ name: "Cover", type: "files" });
+          const newId = created?.data?.id;
+          if (!newId) throw new Error("Failed to create Cover field");
+          coverFieldId = newId;
+          await updateView.mutateAsync({
+            config: {
+              ...view.config,
+              galleryConfig: { ...view.config?.galleryConfig, coverFieldId: newId },
+            },
+          });
+        }
+        queryClient.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
+        queryClient.invalidateQueries({ queryKey: ["tableViews", tableId] });
+      }
+      const formData = new FormData();
+      formData.set("file", file);
+      const result = await uploadFile(
+        formData,
+        tableData.table.workspace_id,
+        tableData.table.project_id
+      );
+      if (result.error || !result.data?.id) throw new Error(result.error || "Upload failed");
+      updateCell.mutate({ rowId, fieldId: coverFieldId!, value: [result.data.id] });
+    },
+    [
+      tableData?.table?.workspace_id,
+      tableData?.table?.project_id,
+      view?.id,
+      view?.config,
+      allFields,
+      createField,
+      updateView,
+      updateCell,
+      queryClient,
+      tableId,
+    ]
+  );
 
   const handleCellChange = (rowId: string, fieldId: string, value: unknown) => {
     const targetField = allFields.find((field) => field.id === fieldId);
@@ -821,7 +915,7 @@ export function TableView({ tableId }: Props) {
             usedNames
           );
           const config =
-            nextType === "select" || nextType === "multi_select"
+            nextType === "select" || nextType === "multi_select" || nextType === "tags"
               ? { options: buildSelectOptions(columnValues) }
               : undefined;
           const result = await createField.mutateAsync({
@@ -851,7 +945,7 @@ export function TableView({ tableId }: Props) {
           if (mapping.mode !== "field" || !mapping.fieldId) return;
           const field = fieldMap.get(mapping.fieldId);
           if (!field) return;
-          if (!["select", "multi_select"].includes(field.type)) return;
+          if (!["select", "multi_select", "tags"].includes(field.type)) return;
 
           const config = (field.config || {}) as { options?: Array<{ id: string; label: string; color: string }> };
           const options = [...(config.options || [])];
@@ -872,7 +966,7 @@ export function TableView({ tableId }: Props) {
           parsed.rows.forEach((row) => {
             const raw = row[mapping.columnIndex] ?? "";
             if (!raw || !raw.trim()) return;
-            if (field.type === "multi_select") {
+            if (field.type === "multi_select" || field.type === "tags") {
               raw
                 .split(/[,;]+/)
                 .map((part) => part.trim())
@@ -932,7 +1026,7 @@ export function TableView({ tableId }: Props) {
               data[field.id] = normalizeCanonicalPriorityValue(rawValue.trim());
               return;
             }
-            if (field.type === "multi_select") {
+            if (field.type === "multi_select" || field.type === "tags") {
               const lookup = optionLookup.get(field.id);
               const parts = rawValue
                 .split(/[,;]+/)
@@ -980,6 +1074,13 @@ export function TableView({ tableId }: Props) {
     setError(null);
     createField.mutate({ name: "New Field", type: "text" }, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to add field"),
+      onSuccess: (result: unknown) => {
+        const newFieldId =
+          result && typeof result === "object" && "data" in result && result.data && typeof result.data === "object" && "id" in result.data
+            ? (result.data as { id: string }).id
+            : null;
+        if (newFieldId) setScrollToFieldId(newFieldId);
+      },
     });
   }, [createField]);
 
@@ -1284,7 +1385,7 @@ export function TableView({ tableId }: Props) {
 
   const handleDropRowInGroup = (rowId: string, targetGroupId: string) => {
     if (!groupByField) return;
-    if (groupByField.type === "multi_select") {
+    if (groupByField.type === "multi_select" || groupByField.type === "tags") {
       const current = sortedRows.find((row) => row.id === rowId)?.data?.[groupByField.id];
       const currentValues = Array.isArray(current) ? current.map(String) : [];
       const next =
@@ -1531,9 +1632,25 @@ export function TableView({ tableId }: Props) {
 
   const sourceTypeLabel = sourceEntityTypes
     .map((type) =>
-      type === "timeline_event" ? "timeline events" : type === "table_row" ? "table rows" : "tasks"
+      type === "timeline_event"
+        ? "timeline events"
+        : type === "table_row"
+          ? "table rows"
+          : type === "block"
+            ? "blocks"
+            : "tasks"
     )
     .join(" and ");
+  const renderedEntityLabel = sourceLinkedRows.length === 1 ? "table row" : "table rows";
+  const sourceCopyPrefix = sourceLinkedRows.length === 1 ? "This" : "These";
+  const sourceTypePhrase = (type: TableSourceOrigin["sourceEntityType"]) =>
+    type === "timeline_event"
+      ? "timeline events"
+      : type === "table_row"
+        ? "table rows"
+        : type === "block"
+          ? "blocks"
+          : "tasks";
 
   return (
     <div className="p-3">
@@ -1562,10 +1679,26 @@ export function TableView({ tableId }: Props) {
           onGroupByChange={handleGroupByChange}
           onCreateView={(type) => {
             const label = type.charAt(0).toUpperCase() + type.slice(1);
-            const config: ViewConfig | undefined =
+            let config: ViewConfig | undefined =
               type === "timeline" && dateFields.length > 0
                 ? { timelineConfig: { dateFieldId: dateFields[0].id } }
                 : undefined;
+            if (type === "board" && allFields.length > 0) {
+              const groupableTypes = ["status", "priority", "select", "multi_select", "tags", "person", "checkbox"];
+              const firstGroupable = allFields.find((f) => groupableTypes.includes(f.type));
+              if (firstGroupable) {
+                config = { ...(config || {}), groupBy: { fieldId: firstGroupable.id, showEmptyGroups: true, sortOrder: "asc" } };
+              }
+            }
+            if (type === "gallery") {
+              const urlOrFiles = allFields.find((f) => f.type === "url" || f.type === "files");
+              config = { ...(config || {}), galleryConfig: { cardSize: "medium", coverFieldId: urlOrFiles?.id } };
+              const groupableTypes = ["status", "priority", "select", "multi_select", "tags", "person", "checkbox"];
+              const firstGroupable = allFields.find((f) => groupableTypes.includes(f.type));
+              if (firstGroupable) {
+                config = { ...config, groupBy: { fieldId: firstGroupable.id, showEmptyGroups: true, sortOrder: "asc" } };
+              }
+            }
             createView.mutate(
               { name: `${label} view`, type, config },
               {
@@ -1578,8 +1711,7 @@ export function TableView({ tableId }: Props) {
             );
           }}
           onRenameView={(viewId, name) => {
-            setActiveViewId(viewId);
-            updateView.mutate({ name });
+            updateView.mutate({ viewId, name });
           }}
           onDeleteView={(viewId) => {
             deleteView.mutate(viewId);
@@ -1594,12 +1726,45 @@ export function TableView({ tableId }: Props) {
             });
           }}
           hasDateFields={dateFields.length > 0}
+          galleryCoverFieldId={view?.config?.galleryConfig?.coverFieldId ?? null}
+          onSetGalleryCoverField={
+            viewType === "gallery" && view?.id
+              ? (fieldId) => {
+                  const nextConfig: ViewConfig = {
+                    ...(view.config || {}),
+                    galleryConfig: {
+                      ...(view.config?.galleryConfig || {}),
+                      coverFieldId: fieldId ?? undefined,
+                    },
+                  };
+                  updateView.mutate({ config: nextConfig });
+                }
+              : undefined
+          }
         />
       </div>
       {hasSourceLinkedRows && (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
           <p className="text-[10px] text-[var(--muted-foreground)]">
-            Source-linked {sourceTypeLabel || "rows"} are editable copies. Global search and Everything use the source entity once.
+            {sourceCopyPrefix} {renderedEntityLabel} {sourceLinkedRows.length === 1 ? "is" : "are"} sourced from{" "}
+            {sourceOrigins.length > 0 ? (
+              <>
+                {sourceOrigins.map((origin, idx) => (
+                  <React.Fragment key={`${origin.sourceEntityType}:${origin.sourceName}:${idx}`}>
+                    {idx > 0 ? ", " : ""}
+                    {sourceTypePhrase(origin.sourceEntityType)} in{" "}
+                    <SourceOriginLink
+                      origin={origin}
+                      workspaceId={tableData?.table.workspace_id ?? ""}
+                      fallbackProjectId={tableData?.table.project_id ?? null}
+                    />
+                  </React.Fragment>
+                ))}
+              </>
+            ) : (
+              sourceTypeLabel || "source entities"
+            )}
+            .
           </p>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-medium text-[var(--muted-foreground)]">Sync edits to source</span>
@@ -1753,11 +1918,14 @@ export function TableView({ tableId }: Props) {
             <div
               ref={scrollContainerRef}
               className="overflow-x-auto w-full scrollbar-thin"
-              style={{ maxHeight: "480px", overflowY: "scroll" }}
+              style={{
+                maxHeight: maxHeightPx && maxHeightPx > 0 ? `${maxHeightPx}px` : "480px",
+                overflowY: "scroll",
+              }}
             >
-              <div style={{ width: "100%" }}>
+              <div style={{ width: "100%", minWidth: totalTableWidthPx }}>
                 <div
-                  style={{ width: "100%" }}
+                  style={{ width: "100%", minWidth: totalTableWidthPx }}
                 >
                   <TableHeaderRow
                     fields={fields}
@@ -2003,8 +2171,41 @@ export function TableView({ tableId }: Props) {
         )
       }
 
+      {viewType === "gallery" && (
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+          <GalleryView
+            fields={fields}
+            rows={sortedRows}
+            groupBy={groupByConfig}
+            galleryConfig={view?.config?.galleryConfig}
+            workspaceMembers={workspaceMembers}
+            selectedRows={selectedRows}
+            onSelectRow={handleSelectRow}
+            onUpdateCell={handleCellChange}
+            onCreateRow={(data) => {
+              setError(null);
+              createRow.mutate({ data }, {
+                onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
+              });
+            }}
+            onContextMenu={handleCellContextMenu}
+            onOpenRow={(rowId) => {
+              setPropertiesRowId(rowId);
+              setPropertiesOpen(true);
+            }}
+            workspaceId={tableData?.table.workspace_id ?? null}
+            projectId={tableData?.table.project_id ?? null}
+            onUploadCoverImage={
+              tableData?.table?.workspace_id && tableData?.table?.project_id
+                ? handleGalleryUploadCover
+                : undefined
+            }
+          />
+        </div>
+      )}
+
       {
-        ["list", "gallery", "calendar"].includes(viewType) && (
+        ["list", "calendar"].includes(viewType) && (
           <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-[var(--tertiary-foreground)]">
             This view type is coming soon.
           </div>

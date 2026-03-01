@@ -5,6 +5,12 @@ import { createPortal } from "react-dom";
 import { Search, Filter, ChevronDown, X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TableView, TableField, FilterCondition, GroupByConfig, ViewType } from "@/types/table";
+import {
+  getFilterOptionsForField,
+  fieldHasFilterOptions,
+  isDateField,
+  normalizeDateFilterValue,
+} from "@/lib/tables/filter-field-config";
 
 interface Props {
   tableId: string;
@@ -27,6 +33,10 @@ interface Props {
   groupBy?: GroupByConfig;
   onGroupByChange: (groupBy: GroupByConfig | undefined) => void;
   hasDateFields?: boolean;
+  /** When view type is gallery: which field is used as card cover. */
+  galleryCoverFieldId?: string | null;
+  /** When view type is gallery: set which field to use as cover (url or files). */
+  onSetGalleryCoverField?: (fieldId: string | null) => void;
 }
 
 export function TableHeaderCompact({
@@ -50,8 +60,11 @@ export function TableHeaderCompact({
   groupBy,
   onGroupByChange,
   hasDateFields,
+  galleryCoverFieldId,
+  onSetGalleryCoverField,
 }: Props) {
   const [showSearch, setShowSearch] = useState(false);
+  const [showCoverField, setShowCoverField] = useState(false);
   const [search, setSearch] = useState("");
   const [columnSearch, setColumnSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -68,11 +81,15 @@ export function TableHeaderCompact({
   const groupDropdownRef = useRef<HTMLDivElement>(null);
   const [groupDropdownStyle, setGroupDropdownStyle] = useState<React.CSSProperties | null>(null);
   const prevOpenSearchTickRef = useRef<number | undefined>(openSearchTick);
+  const [openFilterComboboxIdx, setOpenFilterComboboxIdx] = useState<number | null>(null);
+  const filterComboboxInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeView = views.find((v) => v.id === activeViewId);
   const viewLabel = activeView?.is_default ? "Default view" : activeView?.name || "Default view";
   const viewTypeLabel = activeView?.type ? activeView.type.toUpperCase() : "";
   const timelineEnabled = Boolean(hasDateFields);
+  const isGalleryView = activeView?.type === "gallery";
+  const coverFieldOptions = fields.filter((f) => f.type === "url" || f.type === "files");
   const viewTypeOptions: Array<{ type: ViewType; label: string; disabled?: boolean }> = [
     { type: "table", label: "Table" },
     { type: "board", label: "Board" },
@@ -134,10 +151,12 @@ export function TableHeaderCompact({
   }, [showGroupBy]);
 
   const addFilter = (fieldId: string) => {
+    const field = fields.find((f) => f.id === fieldId);
+    const isDate = isDateField(field);
     const next: FilterCondition = {
       fieldId,
-      operator: "contains",
-      value: "",
+      operator: isDate ? "equals" : "contains",
+      value: isDate ? null : "",
     };
     onFiltersChange([...filters, next]);
   };
@@ -422,6 +441,56 @@ export function TableHeaderCompact({
             )}
         </div>
 
+        {/* Gallery: Set cover field */}
+        {isGalleryView && onSetGalleryCoverField && (
+          <div className="relative">
+            <button
+              onClick={() => setShowCoverField(!showCoverField)}
+              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Set cover field"
+            >
+              Cover {galleryCoverFieldId ? "•" : ""}
+            </button>
+            {showCoverField && (
+              <div
+                className="absolute right-0 top-full z-[200] mt-1 w-48 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-popover py-1"
+                onMouseLeave={() => setShowCoverField(false)}
+              >
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">Cover field</div>
+                <button
+                  onClick={() => {
+                    onSetGalleryCoverField(null);
+                    setShowCoverField(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${!galleryCoverFieldId ? "bg-[var(--surface-muted)]" : ""}`}
+                >
+                  None
+                </button>
+                {coverFieldOptions.length > 0 && (
+                  <>
+                    <div className="my-1 border-t border-[var(--border)]" />
+                    {coverFieldOptions.map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => {
+                          onSetGalleryCoverField(f.id);
+                          setShowCoverField(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-hover)] ${galleryCoverFieldId === f.id ? "bg-[var(--surface-muted)]" : ""}`}
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {coverFieldOptions.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-[var(--muted-foreground)]">Add a URL or Files column</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search icon */}
         <button
           onClick={() => setShowSearch(!showSearch)}
@@ -578,6 +647,32 @@ export function TableHeaderCompact({
                 <div className="space-y-2 mb-3">
                   {filters.map((f, idx) => {
                     const field = fields.find((fld) => fld.id === f.fieldId);
+                    const options = getFilterOptionsForField(field);
+                    const hasOptions = fieldHasFilterOptions(field);
+                    const isDate = isDateField(field);
+                    const needsValue = f.operator !== "is_empty" && f.operator !== "is_not_empty";
+                    const isWithin = f.operator === "is_within";
+
+                    const operatorOptions = isDate
+                      ? [
+                          { value: "equals", label: "is" },
+                          { value: "not_equals", label: "is not" },
+                          { value: "is_before", label: "is before" },
+                          { value: "is_after", label: "is after" },
+                          { value: "is_on_or_before", label: "is on or before" },
+                          { value: "is_on_or_after", label: "is on or after" },
+                          { value: "is_within", label: "is within" },
+                          { value: "is_empty", label: "is empty" },
+                          { value: "is_not_empty", label: "is not empty" },
+                        ]
+                      : [
+                          { value: "contains", label: "contains" },
+                          { value: "equals", label: "is" },
+                          { value: "not_equals", label: "is not" },
+                          { value: "is_empty", label: "is empty" },
+                          { value: "is_not_empty", label: "is not empty" },
+                        ];
+
                     return (
                       <div key={`${f.fieldId}-${idx}`} className="rounded-[6px] bg-[var(--surface)] border border-[var(--border)] p-2">
                         <div className="flex items-center justify-between mb-1.5">
@@ -592,33 +687,156 @@ export function TableHeaderCompact({
                             <X className="h-3 w-3" />
                           </button>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-2">
                           <select
-                            className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
+                            className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
                             value={f.operator}
                             onChange={(e) => {
                               const next = [...filters];
-                              next[idx] = { ...f, operator: e.target.value as FilterCondition["operator"] };
+                              const newOp = e.target.value as FilterCondition["operator"];
+                              next[idx] = { ...f, operator: newOp };
+                              if (newOp === "is_within" && (f.value == null || typeof f.value !== "object" || !("start" in (f.value as object)))) {
+                                next[idx].value = { start: "", end: "" };
+                              } else if (newOp !== "is_within" && typeof f.value === "object" && f.value !== null && "start" in (f.value as object)) {
+                                next[idx].value = (f.value as { start?: string }).start ?? "";
+                              }
                               onFiltersChange(next);
                             }}
                           >
-                            <option value="contains">contains</option>
-                            <option value="equals">is</option>
-                            <option value="not_equals">is not</option>
-                            <option value="is_empty">is empty</option>
-                            <option value="is_not_empty">is not empty</option>
+                            {operatorOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
                           </select>
-                          {f.operator !== "is_empty" && f.operator !== "is_not_empty" && (
-                            <input
-                              className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)] placeholder:text-[var(--tertiary-foreground)]"
-                              value={String(f.value ?? "")}
-                              onChange={(e) => {
-                                const next = [...filters];
-                                next[idx] = { ...f, value: e.target.value };
-                                onFiltersChange(next);
-                              }}
-                              placeholder="Value"
-                            />
+                          {needsValue && (
+                            <>
+                              {hasOptions && options.length > 0 ? (
+                                <div className="relative">
+                                  {(() => {
+                                    const selectedOption = options.find((o) => o.id === f.value);
+                                    const displayValue = selectedOption ? selectedOption.label : String(f.value ?? "");
+                                    const query = (openFilterComboboxIdx === idx ? displayValue : selectedOption ? selectedOption.label : String(f.value ?? "")).toLowerCase();
+                                    const filteredOptions = query
+                                      ? options.filter((o) => o.label.toLowerCase().includes(query) || o.id.toLowerCase().includes(query))
+                                      : options;
+                                    return (
+                                      <>
+                                        <input
+                                          ref={openFilterComboboxIdx === idx ? filterComboboxInputRef : undefined}
+                                          type="text"
+                                          className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)] placeholder:text-[var(--tertiary-foreground)]"
+                                          value={displayValue}
+                                          onChange={(e) => {
+                                            const typed = e.target.value;
+                                            const next = [...filters];
+                                            const match = options.find((o) => o.label.toLowerCase() === typed.toLowerCase() || o.id === typed);
+                                            next[idx] = { ...f, value: match ? match.id : typed };
+                                            onFiltersChange(next);
+                                          }}
+                                          onFocus={() => setOpenFilterComboboxIdx(idx)}
+                                          onBlur={() => setTimeout(() => setOpenFilterComboboxIdx(null), 150)}
+                                          placeholder="Choose or type to search..."
+                                          autoComplete="off"
+                                        />
+                                        {openFilterComboboxIdx === idx && (
+                                          <div className="absolute left-0 right-0 top-full mt-0.5 max-h-48 overflow-y-auto rounded-[6px] border border-[var(--border)] bg-[var(--surface)] shadow-popover z-[201] py-1">
+                                            {filteredOptions.length === 0 ? (
+                                              <div className="px-2 py-1.5 text-xs text-[var(--muted-foreground)]">No matches</div>
+                                            ) : (
+                                              filteredOptions.map((opt) => (
+                                                <button
+                                                  key={opt.id}
+                                                  type="button"
+                                                  className="w-full text-left px-2 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                                  onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    const next = [...filters];
+                                                    next[idx] = { ...f, value: opt.id };
+                                                    onFiltersChange(next);
+                                                    setOpenFilterComboboxIdx(null);
+                                                  }}
+                                                >
+                                                  {opt.label}
+                                                </button>
+                                              ))
+                                            )}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              ) : isDate ? (
+                                isWithin ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="date"
+                                      className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
+                                      value={
+                                        typeof f.value === "object" && f.value !== null && "start" in (f.value as Record<string, unknown>)
+                                          ? String((f.value as { start?: string }).start ?? "")
+                                          : ""
+                                      }
+                                      onChange={(e) => {
+                                        const next = [...filters];
+                                        const prev = normalizeDateFilterValue(f.value);
+                                        const start = e.target.value;
+                                        const end = prev && typeof prev === "object" && "end" in prev ? (prev as { end: string }).end : "";
+                                        next[idx] = { ...f, value: { start, end } };
+                                        onFiltersChange(next);
+                                      }}
+                                    />
+                                    <span className="text-[10px] text-[var(--muted-foreground)]">to</span>
+                                    <input
+                                      type="date"
+                                      className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
+                                      value={
+                                        typeof f.value === "object" && f.value !== null && "end" in (f.value as Record<string, unknown>)
+                                          ? String((f.value as { end?: string }).end ?? "")
+                                          : ""
+                                      }
+                                      onChange={(e) => {
+                                        const next = [...filters];
+                                        const prev = normalizeDateFilterValue(f.value);
+                                        const end = e.target.value;
+                                        const start = prev && typeof prev === "object" && "start" in prev ? (prev as { start: string }).start : "";
+                                        next[idx] = { ...f, value: { start, end } };
+                                        onFiltersChange(next);
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <input
+                                    type="date"
+                                    className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)]"
+                                    value={
+                                      typeof f.value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.value)
+                                        ? f.value
+                                        : typeof f.value === "object" && f.value !== null && "start" in (f.value as Record<string, unknown>)
+                                          ? String((f.value as { start?: string }).start ?? "")
+                                          : ""
+                                    }
+                                    onChange={(e) => {
+                                      const next = [...filters];
+                                      next[idx] = { ...f, value: e.target.value || null };
+                                      onFiltersChange(next);
+                                    }}
+                                  />
+                                )
+                              ) : (
+                                <input
+                                  className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[6px] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-strong)] placeholder:text-[var(--tertiary-foreground)]"
+                                  value={String(f.value ?? "")}
+                                  onChange={(e) => {
+                                    const next = [...filters];
+                                    next[idx] = { ...f, value: e.target.value };
+                                    onFiltersChange(next);
+                                  }}
+                                  placeholder="Value"
+                                />
+                              )}
+                            </>
                           )}
                         </div>
                       </div>

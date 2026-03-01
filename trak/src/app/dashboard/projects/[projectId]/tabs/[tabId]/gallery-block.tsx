@@ -19,7 +19,7 @@ interface GalleryBlockProps {
   onUpdate?: (updatedBlock?: Block) => void;
 }
 
-type GalleryLayout = "3x3" | "2x3" | "collage";
+type GalleryLayout = "array" | "collage";
 type ImageFitMode = "contain" | "cover";
 type CaptionsMode = "always" | "hover" | "hidden";
 
@@ -35,16 +35,19 @@ type GalleryItem = {
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
-const GRID_LAYOUTS = { "3x3": { label: "3x3", columns: 3, rows: 3 }, "2x3": { label: "2x3", columns: 2, rows: 3 } } as const;
-const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string; columns?: number; rows?: number }> = {
-  ...GRID_LAYOUTS,
-  collage: { label: "Collage", columns: undefined, rows: undefined },
+const DEFAULT_ARRAY_COLUMNS = 2;
+const DEFAULT_ARRAY_ROWS = 2;
+const MIN_ARRAY_DIMENSION = 1;
+const MAX_ARRAY_DIMENSION = 8;
+const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string }> = {
+  collage: { label: "Collage" },
+  array: { label: "Array" },
 };
 
 const CELL_WIDTH = 150;
 const CELL_HEIGHT = 112;
 const CELL_GAP = 12;
-const CELL_PX = 140;
+const ARRAY_ROW_HEIGHT_PX = 190;
 const MAX_GALLERY_HEIGHT_PX = 520;
 const COLLAGE_ROW_HEIGHT = 180;
 const COLLAGE_GAP = 12;
@@ -442,24 +445,25 @@ function CollageImage({
   );
 }
 
-const buildItems = (rawItems: unknown, layout: GalleryLayout | null): GalleryItem[] => {
-  if (!layout) return [];
-  if (layout === "collage") {
-    const items = Array.isArray(rawItems) ? rawItems : [];
-    return items.map((item) => {
-      const i = item as GalleryItem | undefined;
-      return {
-        fileId: typeof i?.fileId === "string" ? i.fileId : null,
-        caption: typeof i?.caption === "string" ? i.caption : "",
-        fitMode: i?.fitMode === "contain" || i?.fitMode === "cover" ? i.fitMode : undefined,
-        width: typeof i?.width === "number" && i.width > 0 ? i.width : 200,
-        aspectRatio: typeof i?.aspectRatio === "number" && i.aspectRatio > 0 ? i.aspectRatio : 1,
-      };
-    });
+const getArrayDimension = (
+  value: unknown,
+  fallback: number,
+) => {
+  if (typeof value === "number" && value >= MIN_ARRAY_DIMENSION && value <= MAX_ARRAY_DIMENSION) {
+    return Math.floor(value);
   }
-  const config = GRID_LAYOUTS[layout];
-  const size = config.columns * config.rows;
+  return fallback;
+};
+
+const getArrayConfig = (content: Record<string, unknown> | null | undefined) => {
+  const columns = getArrayDimension(content?.arrayColumns, DEFAULT_ARRAY_COLUMNS);
+  const rows = getArrayDimension(content?.arrayRows, DEFAULT_ARRAY_ROWS);
+  return { columns, rows };
+};
+
+const buildArrayItems = (rawItems: unknown, columns: number, rows: number): GalleryItem[] => {
   const items = Array.isArray(rawItems) ? rawItems : [];
+  const size = columns * rows;
   const normalized: GalleryItem[] = [];
 
   for (let i = 0; i < size; i += 1) {
@@ -474,16 +478,52 @@ const buildItems = (rawItems: unknown, layout: GalleryLayout | null): GalleryIte
   return normalized;
 };
 
+const buildItems = (
+  rawItems: unknown,
+  layout: GalleryLayout | null,
+  arrayColumns = DEFAULT_ARRAY_COLUMNS,
+  arrayRows = DEFAULT_ARRAY_ROWS
+): GalleryItem[] => {
+  if (!layout) return [];
+  if (layout === "collage") {
+    const items = Array.isArray(rawItems) ? rawItems : [];
+    return items.map((item) => {
+      const i = item as GalleryItem | undefined;
+      return {
+        fileId: typeof i?.fileId === "string" ? i.fileId : null,
+        caption: typeof i?.caption === "string" ? i.caption : "",
+        fitMode: i?.fitMode === "contain" || i?.fitMode === "cover" ? i.fitMode : undefined,
+        width: typeof i?.width === "number" && i.width > 0 ? i.width : 200,
+        aspectRatio: typeof i?.aspectRatio === "number" && i.aspectRatio > 0 ? i.aspectRatio : 1,
+      };
+    });
+  }
+  return buildArrayItems(rawItems, arrayColumns, arrayRows);
+};
+
 export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }: GalleryBlockProps) {
   const fileUrls = useFileUrls();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const captionTimeoutsRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+  const initialRawLayout = (block.content?.layout as string | undefined) || null;
+  const initialLayout: GalleryLayout | null =
+    initialRawLayout === "3x3" || initialRawLayout === "2x3"
+      ? "array"
+      : (initialRawLayout as GalleryLayout | null);
 
   const [layout, setLayout] = useState<GalleryLayout | null>(
-    (block.content?.layout as GalleryLayout) || null
+    initialLayout
   );
+  const initialArrayConfig = getArrayConfig((block.content || {}) as Record<string, unknown>);
+  const [arrayColumns, setArrayColumns] = useState<number>(initialArrayConfig.columns);
+  const [arrayRows, setArrayRows] = useState<number>(initialArrayConfig.rows);
   const [items, setItems] = useState<GalleryItem[]>(
-    buildItems(block.content?.items, (block.content?.layout as GalleryLayout) || null)
+    buildItems(
+      block.content?.items,
+      initialLayout,
+      initialArrayConfig.columns,
+      initialArrayConfig.rows
+    )
   );
   const [imageFitMode, setImageFitMode] = useState<ImageFitMode>(
     (block.content?.imageFitMode as ImageFitMode) || "contain"
@@ -506,9 +546,14 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [isSettingsHovered, setIsSettingsHovered] = useState(false);
 
   useEffect(() => {
-    const nextLayout = (block.content?.layout as GalleryLayout) || null;
+    const rawLayout = (block.content?.layout as string | undefined) || null;
+    const nextLayout: GalleryLayout | null =
+      rawLayout === "3x3" || rawLayout === "2x3" ? "array" : (rawLayout as GalleryLayout | null);
+    const nextArrayConfig = getArrayConfig((block.content || {}) as Record<string, unknown>);
     setLayout(nextLayout);
-    setItems(buildItems(block.content?.items, nextLayout));
+    setArrayColumns(nextArrayConfig.columns);
+    setArrayRows(nextArrayConfig.rows);
+    setItems(buildItems(block.content?.items, nextLayout, nextArrayConfig.columns, nextArrayConfig.rows));
     setImageFitMode((block.content?.imageFitMode as ImageFitMode) || "contain");
     setHideEmptySlots((block.content?.hideEmptySlots as boolean) ?? false);
     setCaptionsMode((block.content?.captionsMode as CaptionsMode) || "always");
@@ -525,17 +570,26 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const persistItems = async (
     nextItems: GalleryItem[],
     nextLayout = layout,
+    nextArrayColumns = arrayColumns,
+    nextArrayRows = arrayRows,
     nextFitMode = imageFitMode,
     nextTitle = title,
     nextHideEmptySlots = hideEmptySlots,
     nextCaptionsMode = captionsMode
   ) => {
-    if (!nextLayout) return;
+    // If layout was never set (e.g. legacy block), use a default so we don't skip saving
+    // and the new image persists and triggers file URL refresh via onUpdate
+    const effectiveLayout = nextLayout || "collage";
+    if (!nextLayout) {
+      setLayout("collage");
+    }
     const result = await updateBlock({
       blockId: block.id,
       content: {
         ...(block.content || {}),
-        layout: nextLayout,
+        layout: effectiveLayout,
+        arrayColumns: nextArrayColumns,
+        arrayRows: nextArrayRows,
         items: nextItems,
         imageFitMode: nextFitMode,
         title: nextTitle,
@@ -543,29 +597,37 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         captionsMode: nextCaptionsMode,
       },
     });
+    if (result.error) {
+      console.error("Failed to persist gallery block content:", {
+        blockId: block.id,
+        error: result.error,
+      });
+      return false;
+    }
     if (result.data) {
       onUpdate?.(result.data);
     }
+    return true;
   };
 
   const handleFitModeChange = async (mode: ImageFitMode) => {
     setImageFitMode(mode);
-    await persistItems(items, layout, mode);
+    await persistItems(items, layout, arrayColumns, arrayRows, mode);
   };
 
   const handleHideEmptySlotsChange = async (value: boolean) => {
     setHideEmptySlots(value);
-    await persistItems(items, layout, imageFitMode, title, value);
+    await persistItems(items, layout, arrayColumns, arrayRows, imageFitMode, title, value);
   };
 
   const handleCaptionsModeChange = async (value: CaptionsMode) => {
     setCaptionsMode(value);
-    await persistItems(items, layout, imageFitMode, title, hideEmptySlots, value);
+    await persistItems(items, layout, arrayColumns, arrayRows, imageFitMode, title, hideEmptySlots, value);
   };
 
   const handleTitleChange = async (newTitle: string) => {
     setTitle(newTitle);
-    await persistItems(items, layout, imageFitMode, newTitle);
+    await persistItems(items, layout, arrayColumns, arrayRows, imageFitMode, newTitle);
   };
 
   const handleTitleBlur = () => {
@@ -582,24 +644,34 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     let nextItems: GalleryItem[];
     if (nextLayout === "collage") {
       nextItems = buildItems(items.filter((i) => i.fileId).length ? items : [], nextLayout);
-    } else if (nextLayout === "3x3" || nextLayout === "2x3") {
-      nextItems = items
-        .filter((i) => i.fileId)
-        .map((item) => ({ fileId: item.fileId, caption: item.caption, fitMode: item.fitMode }));
     } else {
-      nextItems = buildItems(items, nextLayout);
+      nextItems = buildArrayItems(
+        items
+          .filter((i) => i.fileId)
+          .map((item) => ({ fileId: item.fileId, caption: item.caption, fitMode: item.fitMode })),
+        arrayColumns,
+        arrayRows
+      );
     }
     setLayout(nextLayout);
     setItems(nextItems);
-    await persistItems(nextItems, nextLayout);
+    await persistItems(nextItems, nextLayout, arrayColumns, arrayRows);
   };
 
-  const handleAddGridImage = () => {
-    const newItem: GalleryItem = { fileId: null, caption: "" };
-    const nextItems = [...items, newItem];
+  const handleArrayColumnsChange = async (value: number) => {
+    const nextColumns = getArrayDimension(value, DEFAULT_ARRAY_COLUMNS);
+    const nextItems = buildArrayItems(items, nextColumns, arrayRows);
+    setArrayColumns(nextColumns);
     setItems(nextItems);
-    persistItems(nextItems);
-    openFilePicker(nextItems.length - 1);
+    await persistItems(nextItems, layout, nextColumns, arrayRows);
+  };
+
+  const handleArrayRowsChange = async (value: number) => {
+    const nextRows = getArrayDimension(value, DEFAULT_ARRAY_ROWS);
+    const nextItems = buildArrayItems(items, arrayColumns, nextRows);
+    setArrayRows(nextRows);
+    setItems(nextItems);
+    await persistItems(nextItems, layout, arrayColumns, nextRows);
   };
 
   const openFilePicker = (index: number) => {
@@ -627,6 +699,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
 
   const uploadImage = async (file: File, index: number, baseItems?: GalleryItem[]) => {
     if (!workspaceId || !projectId) return;
+    if ((block as any).locked) {
+      alert("This gallery block is locked. Unlock it before adding images.");
+      return;
+    }
 
     if (!file.type.startsWith("image/")) {
       alert("Please select an image file");
@@ -681,7 +757,11 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         idx === index ? { ...item, fileId } : item
       );
       setItems(nextItems);
-      await persistItems(nextItems);
+      const persisted = await persistItems(nextItems);
+      if (!persisted) {
+        setItems(source);
+        alert("Image uploaded, but the gallery block couldn't be saved. If this block is locked, unlock it and try again.");
+      }
     } catch (error: any) {
       console.error("Upload error:", error);
       alert("Upload failed: " + error.message);
@@ -723,11 +803,11 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     await persistItems(nextItems);
   };
 
-  const handleAddCollageImage = () => {
+  const handleAddCollageImage = async () => {
     const newItem: GalleryItem = { fileId: null, caption: "", width: 200, aspectRatio: 1 };
     const nextItems = [...items, newItem];
     setItems(nextItems);
-    persistItems(nextItems);
+    await persistItems(nextItems);
     openFilePicker(nextItems.length - 1);
   };
 
@@ -802,7 +882,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
           Choose a gallery layout
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(GALLERY_LAYOUTS) as GalleryLayout[]).map((option) => {
             const layoutConfig = GALLERY_LAYOUTS[option];
             const isCollage = option === "collage";
@@ -833,10 +913,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                   <div
                     className="mt-3 grid gap-1"
                     style={{
-                      gridTemplateColumns: `repeat(${layoutConfig.columns}, minmax(0, 1fr))`,
+                      gridTemplateColumns: `repeat(2, minmax(0, 1fr))`,
                     }}
                   >
-                    {Array.from({ length: (layoutConfig.columns ?? 0) * (layoutConfig.rows ?? 0) }).map((_, index) => (
+                    {Array.from({ length: 4 }).map((_, index) => (
                       <span
                         key={`${option}-${index}`}
                         className="block h-3 w-3 rounded-sm bg-neutral-200 dark:bg-neutral-700"
@@ -853,24 +933,17 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   }
 
   const isCollage = layout === "collage";
-  const gridConfig = isCollage ? null : GRID_LAYOUTS[layout];
-  const columns = gridConfig?.columns ?? 0;
-  const rows = gridConfig?.rows ?? 0;
+  const columns = isCollage ? 0 : arrayColumns;
+  const rows = isCollage ? 0 : arrayRows;
   const lightboxItem = lightboxIndex !== null ? items[lightboxIndex] : null;
   const lightboxUrl = lightboxItem?.fileId ? fileUrls[lightboxItem.fileId] : null;
 
   // Grid: only show filled slots + add button; block resizes
   const gridDisplayItems = !isCollage
-    ? items
-      .map((item, idx) => ({ item, idx }))
-      .filter(({ item, idx }) => item.fileId || uploadingSlots.has(idx))
+    ? items.map((item, idx) => ({ item, idx }))
     : items.map((item, idx) => ({ item, idx }));
-  const showAddSlotInGrid = !isCollage;
-  const gridCellCount = gridDisplayItems.length + (showAddSlotInGrid ? 1 : 0);
-  const displayRows = !isCollage
-    ? Math.max(1, Math.ceil(gridCellCount / columns))
-    : rows;
-  const naturalHeight = displayRows * CELL_PX + (displayRows - 1) * CELL_GAP;
+  const displayRows = !isCollage ? rows : rows;
+  const naturalHeight = displayRows * ARRAY_ROW_HEIGHT_PX + (displayRows - 1) * CELL_GAP;
   const galleryHeight = displayRows ? Math.min(MAX_GALLERY_HEIGHT_PX, naturalHeight) : 0;
 
   return (
@@ -915,7 +988,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
             </button>
             <button
               type="button"
-              onClick={() => handleLayoutChange(isCollage ? "3x3" : layout)}
+              onClick={() => handleLayoutChange("array")}
               className={cn(
                 "rounded px-2 py-0.5 text-xs font-medium transition-colors",
                 !isCollage
@@ -923,7 +996,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                   : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200"
               )}
             >
-              Grid
+              Array
             </button>
           </div>
         </div>
@@ -977,6 +1050,36 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                     <option value="hidden">Hidden</option>
                   </select>
                 </div>
+                {!isCollage && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
+                        Columns
+                      </label>
+                      <input
+                        type="number"
+                        min={MIN_ARRAY_DIMENSION}
+                        max={MAX_ARRAY_DIMENSION}
+                        value={arrayColumns}
+                        onChange={(e) => void handleArrayColumnsChange(Number(e.target.value))}
+                        className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
+                        Rows
+                      </label>
+                      <input
+                        type="number"
+                        min={MIN_ARRAY_DIMENSION}
+                        max={MAX_ARRAY_DIMENSION}
+                        value={arrayRows}
+                        onChange={(e) => void handleArrayRowsChange(Number(e.target.value))}
+                        className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+                      />
+                    </div>
+                  </div>
+                )}
                 {!isCollage && (
                   <div>
                     <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5 block">
@@ -1139,7 +1242,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                 gridTemplateRows: `repeat(${displayRows}, minmax(0, 1fr))`,
                 height: `${galleryHeight}px`,
-                minHeight: `${CELL_PX}px`,
+                minHeight: `${ARRAY_ROW_HEIGHT_PX}px`,
                 transition: 'height 150ms ease',
               }}
             >
@@ -1269,7 +1372,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                         )}
                       </>
                     ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center text-xs text-neutral-500">
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-neutral-300/90 bg-neutral-100/70 text-center text-xs text-neutral-500 dark:border-neutral-600 dark:bg-neutral-800/50">
                         {isPendingUrl ? (
                           <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
                         ) : (
@@ -1281,27 +1384,6 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                   </div>
                 );
               })}
-              {showAddSlotInGrid && (
-                <div
-                  onClick={handleAddGridImage}
-                  onDrop={async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const file = e.dataTransfer.files?.[0];
-                    if (!file) return;
-                    const newItem: GalleryItem = { fileId: null, caption: "" };
-                    const nextItems = [...items, newItem];
-                    setItems(nextItems);
-                    await persistItems(nextItems);
-                    await uploadImage(file, nextItems.length - 1, nextItems);
-                  }}
-                  onDragOver={(e) => e.preventDefault()}
-                  className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/30 text-neutral-500 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-300"
-                >
-                  <Plus className="h-8 w-8" />
-                  <span className="text-[10px]">Add image</span>
-                </div>
-              )}
             </div>
           )}
         </div>

@@ -14,7 +14,7 @@ type Option = { id: string; label: string; color?: string };
 type Member = { id: string; name?: string | null; email?: string | null };
 
 export function canGroupByField(fieldType: FieldType): boolean {
-  return ["select", "multi_select", "status", "priority", "person", "checkbox", "subtask"].includes(fieldType);
+  return ["select", "multi_select", "status", "priority", "person", "checkbox", "subtask", "tags"].includes(fieldType);
 }
 
 export function groupRows(
@@ -55,7 +55,7 @@ export function groupRows(
   for (const row of rows) {
     const value = row.data?.[fieldId];
 
-    if (field.type === "multi_select") {
+    if (field.type === "multi_select" || field.type === "tags") {
       const vals = Array.isArray(value) ? value : [];
       if (!vals.length) {
         map.get("__ungrouped__")?.rows.push(row);
@@ -97,7 +97,7 @@ export function groupRows(
 function getAllGroups(field: TableField, members?: Member[]): Option[] {
   const { type, config } = field;
 
-  if (type === "select" || type === "multi_select" || type === "status") {
+  if (type === "select" || type === "multi_select" || type === "status" || type === "tags") {
     const options = Array.isArray((config as any)?.options) ? (config as any).options : [];
     if (type === "status" && options.length === 0) {
       return TABLE_STATUS_OPTIONS.map((option) => ({
@@ -106,10 +106,10 @@ function getAllGroups(field: TableField, members?: Member[]): Option[] {
         color: option.color,
       }));
     }
-    if (type === "select" || type === "multi_select") {
+    if (type === "select" || type === "multi_select" || type === "tags") {
       return options.map((option: any) => ({
-        id: option.label,
-        label: option.label,
+        id: option.label ?? option.id,
+        label: option.label ?? option.id,
         color: option.color,
       }));
     }

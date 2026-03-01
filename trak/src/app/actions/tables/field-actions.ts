@@ -14,6 +14,10 @@ import {
   getCanonicalConfigForUniversalPropertyType,
   isUniversalPropertyFieldType,
 } from "@/lib/tables/universal-property";
+import {
+  getProjectTagOptions,
+  syncTagsFieldConfigsForProject,
+} from "@/lib/tables/tag-field-config";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -33,9 +37,12 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table } = access;
 
-  const config = isUniversalPropertyFieldType(input.type)
-    ? getCanonicalConfigForUniversalPropertyType(input.type)
-    : (input.config || {});
+  const config =
+    input.type === "tags"
+      ? { options: table.project_id ? await getProjectTagOptions(supabase, table.project_id) : [] }
+      : isUniversalPropertyFieldType(input.type)
+        ? getCanonicalConfigForUniversalPropertyType(input.type)
+        : (input.config || {});
 
   const { data, error } = await supabase
     .from("table_fields")
@@ -60,6 +67,9 @@ export async function createField(input: CreateFieldInput): Promise<ActionResult
   }
   if (input.type === "rollup") {
     await recomputeRollupField(data.id);
+  }
+  if (input.type === "tags" && table.project_id) {
+    await syncTagsFieldConfigsForProject(supabase, table.project_id);
   }
 
   return { data };
@@ -91,7 +101,11 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
   };
 
   const targetType = (updates.type ?? field.type) as string;
-  if (isUniversalPropertyFieldType(targetType)) {
+  if (targetType === "tags") {
+    updatePayload.config = {
+      options: table.project_id ? await getProjectTagOptions(supabase, table.project_id) : [],
+    };
+  } else if (isUniversalPropertyFieldType(targetType)) {
     updatePayload.config = getCanonicalConfigForUniversalPropertyType(targetType);
   } else if (updates.config !== undefined) {
     updatePayload.config = nextConfig;
@@ -109,11 +123,23 @@ export async function updateField(fieldId: string, updates: Partial<Pick<TableFi
     return { error: "Failed to update field" };
   }
 
+  const effectiveType = (updates.type ?? field.type) as FieldType;
+  await syncRenamedTableRowEntityProperties({
+    supabase,
+    tableId: table.id,
+    fieldType: effectiveType,
+    previousName: field.name,
+    nextName: data.name,
+  });
+
   if (updates.type === "formula" || data.type === "formula") {
     await recomputeFormulaField(fieldId);
   }
   if (updates.type === "rollup" || data.type === "rollup") {
     await recomputeRollupField(fieldId);
+  }
+  if ((updates.type === "tags" || data.type === "tags") && table.project_id) {
+    await syncTagsFieldConfigsForProject(supabase, table.project_id);
   }
 
   return { data };
@@ -213,7 +239,7 @@ export async function updateFieldConfig(fieldId: string, config: Record<string, 
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, table, field } = access;
 
-  if (isUniversalPropertyFieldType(field.type)) {
+  if (isUniversalPropertyFieldType(field.type) || field.type === "tags") {
     return { error: `${field.type} field config is server-managed and cannot be updated directly` };
   }
 
@@ -258,7 +284,7 @@ async function getFieldContext(fieldId: string, opts?: { authContext?: AuthConte
 
   const { data: field, error: fieldError } = await supabaseClient
     .from("table_fields")
-    .select("id, table_id, type, config")
+    .select("id, table_id, name, type, config")
     .eq("id", fieldId)
     .maybeSingle();
 
@@ -270,6 +296,70 @@ async function getFieldContext(fieldId: string, opts?: { authContext?: AuthConte
   if ("error" in access) return { error: access.error ?? "Unknown error" };
 
   return { supabase: access.supabase, table: access.table, userId, field };
+}
+
+async function syncRenamedTableRowEntityProperties(params: {
+  supabase: any;
+  tableId: string;
+  fieldType: FieldType;
+  previousName: string;
+  nextName: string;
+}): Promise<void> {
+  const { supabase, tableId, fieldType, previousName, nextName } = params;
+  if (fieldType !== "priority" && fieldType !== "status") return;
+
+  const oldName = String(previousName || "").trim();
+  const newName = String(nextName || "").trim();
+  if (!oldName || !newName) return;
+  if (oldName.toLowerCase() === newName.toLowerCase()) return;
+
+  const { data: rows } = await supabase
+    .from("table_rows")
+    .select("id")
+    .eq("table_id", tableId);
+  const rowIds = (rows ?? []).map((row: { id: string }) => row.id);
+  if (rowIds.length === 0) return;
+
+  const { data: propertyRows } = await supabase
+    .from("entity_properties")
+    .select("id, entity_id, field_name")
+    .eq("entity_type", "table_row")
+    .eq("field_type", fieldType)
+    .in("entity_id", rowIds)
+    .in("field_name", [oldName, newName]);
+
+  const oldByRowId = new Set<string>();
+  const newByRowId = new Set<string>();
+  for (const row of propertyRows ?? []) {
+    const entityId = String((row as any).entity_id || "");
+    const fieldName = String((row as any).field_name || "");
+    if (!entityId) continue;
+    if (fieldName === oldName) oldByRowId.add(entityId);
+    if (fieldName === newName) newByRowId.add(entityId);
+  }
+
+  const rowIdsToDeleteOld = Array.from(oldByRowId).filter((id) => newByRowId.has(id));
+  const rowIdsToRename = Array.from(oldByRowId).filter((id) => !newByRowId.has(id));
+
+  if (rowIdsToDeleteOld.length > 0) {
+    await supabase
+      .from("entity_properties")
+      .delete()
+      .eq("entity_type", "table_row")
+      .eq("field_type", fieldType)
+      .eq("field_name", oldName)
+      .in("entity_id", rowIdsToDeleteOld);
+  }
+
+  if (rowIdsToRename.length > 0) {
+    await supabase
+      .from("entity_properties")
+      .update({ field_name: newName })
+      .eq("entity_type", "table_row")
+      .eq("field_type", fieldType)
+      .eq("field_name", oldName)
+      .in("entity_id", rowIdsToRename);
+  }
 }
 
 async function requireFieldSupabase() {
