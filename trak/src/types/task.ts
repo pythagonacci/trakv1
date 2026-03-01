@@ -22,6 +22,16 @@ export interface TaskItemStatus {
   value: TaskStatus | null;
 }
 
+export interface TaskItemAssigneeField {
+  field_name: string;
+  value: string[] | null;
+}
+
+export interface TaskItemDueDateField {
+  field_name: string;
+  value: { start: string | null; end: string | null } | null;
+}
+
 export interface TaskItem {
   id: string;
   task_block_id: string;
@@ -31,6 +41,8 @@ export interface TaskItem {
   title: string;
   statuses: TaskItemStatus[];
   priorities: TaskItemPriority[];
+  assignees?: TaskItemAssigneeField[];
+  due_dates?: TaskItemDueDateField[];
   assignee_id: string | null;
   source_task_id: string | null;
   source_entity_type: TaskSourceEntityType | null;
@@ -123,6 +135,8 @@ export interface TaskBlockContent {
   hideIcons?: boolean;
   viewMode?: "list" | "board" | "table";
   boardGroupBy?: "status" | "priority" | "assignee" | "dueDate" | "tags";
+  /** Optional custom height in pixels for the task block container (mainly list view). */
+  heightPx?: number;
   filters?: TaskFilterExpr;
   search?: string;
   showDone?: boolean;

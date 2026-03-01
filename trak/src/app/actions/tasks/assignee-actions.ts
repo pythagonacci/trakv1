@@ -118,6 +118,32 @@ export async function setTaskAssignees(
     logDbCall("entity_properties", "delete", tEpDelMs);
   }
 
+  // Step 4: Keep task_items.assignee_id in sync (denormalized first assignee) so task_items is consistent
+  // regardless of whether assignee was set via Property menu (setEntityProperties) or via setTaskAssignees (e.g. AI).
+  const firstAssigneeId = normalized.length > 0 ? (normalized[0].id ?? null) : null;
+  const namedAssignees =
+    normalized.length > 0
+      ? [{
+          field_name: "Assignee",
+          value: normalized
+            .map((assignee) => assignee.id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        }]
+      : [];
+  const tTi0 = performance.now();
+  const { error: tiError } = await supabase
+    .from("task_items")
+    .update({ assignee_id: firstAssigneeId, assignees: namedAssignees })
+    .eq("id", taskId);
+  const tTiMs = Math.round(performance.now() - tTi0);
+  if (tiError) {
+    console.error("setTaskAssignees task_items.assignee_id sync error:", tiError);
+    // Non-fatal: task_assignees and entity_properties are already correct; UI and AI use those.
+  } else {
+    dbCalls.push({ table: "task_items", op: "update", ms: tTiMs });
+    logDbCall("task_items", "update", tTiMs);
+  }
+
   if (opts?.timing) opts.timing.t_insert_assignees_ms = Math.round(performance.now() - t0);
   aiDebug("setTaskAssignees:db_calls_summary", { count: dbCalls.length, calls: dbCalls, total_ms: Math.round(performance.now() - t0) });
   return { data: null };

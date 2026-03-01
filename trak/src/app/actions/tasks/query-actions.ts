@@ -55,7 +55,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
   // P0-2: Column projection — only fetch fields used in TaskItemView
   const { data: items, error: itemsError } = await supabase
     .from("task_items")
-    .select("id, title, statuses, priorities, source_task_id, source_entity_type, source_entity_id, source_sync_mode, due_date, due_time, due_time_end, start_date, description, display_order, recurring_enabled, recurring_frequency, recurring_interval, hide_icons")
+    .select("id, title, statuses, priorities, assignees, due_dates, source_task_id, source_entity_type, source_entity_id, source_sync_mode, due_date, due_time, due_time_end, start_date, description, display_order, recurring_enabled, recurring_frequency, recurring_interval, hide_icons")
     .eq("task_block_id", taskBlockId)
     .order("display_order", { ascending: true });
 

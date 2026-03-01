@@ -119,7 +119,12 @@ export function useUpdateTaskItem(blockId: string) {
         qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: taskKeys.items(blockId) });
+      // Source-linked table rows: when task is updated, derived rows are synced server-side; refetch tables so UI updates
+      qc.invalidateQueries({ queryKey: ["tableRows"] });
+      qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+    },
   });
 }
 

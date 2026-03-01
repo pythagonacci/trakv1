@@ -3,6 +3,7 @@
 import { requireTaskItemAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TaskTag } from "@/types/task";
+import { setEntityProperties } from "@/app/actions/entity-properties";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -61,6 +62,14 @@ export async function setTaskTags(taskId: string, tagNames: string[], opts?: { a
       .in("tag_id", toDelete);
     if (error) return { error: "Failed to detach tags" };
   }
+
+  // Canonical tags source of truth for sync/search.
+  await setEntityProperties({
+    entity_type: "task",
+    entity_id: taskId,
+    workspace_id: task.workspace_id,
+    updates: { tags: normalized },
+  });
 
   return { data: null };
 }
