@@ -10,6 +10,8 @@ interface OpenOptions {
   onSelect?: (item: LinkableItem, searchQuery?: string) => void;
   onClose?: () => void;
   anchorRect?: DOMRect | null;
+  /** Called on viewport resize/scroll to keep popover anchored to trigger. */
+  getAnchorRect?: () => DOMRect | null;
 }
 
 interface BlockReferencePickerContextValue {
@@ -41,6 +43,7 @@ export function BlockReferencePickerProvider({
   const [pendingSelect, setPendingSelect] = useState<OpenOptions["onSelect"]>();
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const pendingCloseRef = useRef<(() => void) | undefined>(undefined);
+  const getAnchorRectRef = useRef<(() => DOMRect | null) | undefined>(undefined);
 
   const createReference = useCreateBlockReference(blockId);
 
@@ -50,6 +53,7 @@ export function BlockReferencePickerProvider({
     setCurrentQuery(query);
     setPendingSelect(() => options?.onSelect);
     setAnchorRect(options?.anchorRect ?? null);
+    getAnchorRectRef.current = options?.getAnchorRect;
     pendingCloseRef.current = options?.onClose;
     setIsOpen(true);
   }, []);
@@ -67,9 +71,25 @@ export function BlockReferencePickerProvider({
     setCurrentQuery("");
     setPendingSelect(undefined);
     setAnchorRect(null);
+    getAnchorRectRef.current = undefined;
     pendingCloseRef.current?.();
     pendingCloseRef.current = undefined;
   }, []);
+
+  // Re-anchor popover on viewport resize or scroll so it stays next to the trigger
+  React.useEffect(() => {
+    if (!isOpen || !anchorRect) return;
+    const updatePosition = () => {
+      const rect = getAnchorRectRef.current?.();
+      if (rect) setAnchorRect(rect);
+    };
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, anchorRect]);
 
   const handleQueryChange = useCallback((query: string) => {
     setCurrentQuery(query);

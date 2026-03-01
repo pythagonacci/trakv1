@@ -78,6 +78,9 @@ export function useUpdateTimelineEvent(blockId: string) {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties("timeline_event", variables.eventId),
       });
+      // Source-linked table rows: when timeline event is updated, derived rows are synced server-side; refetch tables
+      qc.invalidateQueries({ queryKey: ["tableRows"] });
+      qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
     },
   });
 }

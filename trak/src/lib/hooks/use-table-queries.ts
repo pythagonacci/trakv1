@@ -396,6 +396,14 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
           { queryKey: ["tableRows", tableId] },
           (old: unknown) => patchRowInCache(old, updatedRow.id, () => updatedRow)
         );
+        // Source-linked row writeback: table cell update may have synced to source task/timeline; invalidate source caches so source view updates
+        const st = (updatedRow as { source_entity_type?: string | null }).source_entity_type;
+        const sid = (updatedRow as { source_entity_id?: string | null }).source_entity_id;
+        if (st && sid) {
+          qc.invalidateQueries({ queryKey: ["taskItems"] });
+          qc.invalidateQueries({ queryKey: ["timelineItems"] });
+          qc.invalidateQueries({ queryKey: queryKeys.entityProperties(st, sid) });
+        }
       }
       // Invalidate to ensure consistency
       qc.invalidateQueries({ queryKey: ["tableRows", tableId], refetchType: "active" });
@@ -616,32 +624,44 @@ export function useCreateView(tableId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: ["tableViews", tableId] });
     },
   });
 }
 
-export function useUpdateView(tableId: string, viewId: string) {
+export function useUpdateView(tableId: string, defaultViewId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (updates: Partial<TableView>) => updateView(viewId, updates),
-    onMutate: async (updates) => {
+    mutationFn: (payload: Partial<TableView> & { viewId?: string }) => {
+      const { viewId, ...updates } = payload;
+      const targetId = viewId ?? defaultViewId;
+      return updateView(targetId, updates);
+    },
+    onMutate: async (payload) => {
+      const { viewId, ...updates } = payload;
+      const targetId = viewId ?? defaultViewId;
       await qc.cancelQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       const previous = qc.getQueryData(queryKeys.tableBootstrap(tableId));
       qc.setQueryData(queryKeys.tableBootstrap(tableId), (old: any) => {
         if (!old?.view) return old;
+        if (old.view.id !== targetId) return old;
         return { ...old, view: { ...old.view, ...updates } };
       });
       return { previous };
     },
-    onError: (_err, _updates, context: any) => {
+    onError: (_err, _payload, context: any) => {
       if (context?.previous) {
         qc.setQueryData(queryKeys.tableBootstrap(tableId), context.previous);
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
-      qc.invalidateQueries({ queryKey: queryKeys.tableView(viewId) });
+    onSuccess: (_data, payload) => {
+      const { viewId } = payload;
+      const targetId = viewId ?? defaultViewId;
+      // Invalidate all row queries for this table (default + any viewId) so filter/sort changes refetch
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+      qc.invalidateQueries({ queryKey: queryKeys.tableView(targetId) });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+      qc.invalidateQueries({ queryKey: ["tableViews", tableId] });
     },
   });
 }

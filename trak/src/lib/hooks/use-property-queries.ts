@@ -191,13 +191,24 @@ export function useSetEntityProperties(
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
-      qc.invalidateQueries({
-        queryKey: queryKeys.entityProperties(entityType, entityId),
-      });
       // Invalidate any bulk queries for this entity type/workspace
       qc.invalidateQueries({
         queryKey: ["entitiesProperties", entityType, workspaceId],
       });
+      // Keep Everything view in sync when properties change from property menu / elsewhere
+      if (workspaceId) {
+        qc.invalidateQueries({
+          queryKey: queryKeys.workspaceEverything(workspaceId),
+        });
+      }
+      // Source-linked table rows: when source entity (task/timeline_event) is updated, tables showing derived rows should refetch
+      if (entityType === "task" || entityType === "timeline_event") {
+        qc.invalidateQueries({ queryKey: ["tableRows"] });
+        qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+      }
+      // Task/timeline blocks showing this entity should refetch so they render the new property values
+      if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
+      if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
     },
   });
 }
@@ -230,6 +241,18 @@ export function useSetEntityPropertiesForType(entityType: EntityType, workspaceI
       qc.invalidateQueries({
         queryKey: ["entitiesProperties", entityType, workspaceId],
       });
+      if (workspaceId) {
+        qc.invalidateQueries({
+          queryKey: queryKeys.workspaceEverything(workspaceId),
+        });
+      }
+      // Source-linked table rows: when source entity (task/timeline_event) is updated, tables showing derived rows should refetch
+      if (entityType === "task" || entityType === "timeline_event") {
+        qc.invalidateQueries({ queryKey: ["tableRows"] });
+        qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+      }
+      if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
+      if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
     },
   });
 }

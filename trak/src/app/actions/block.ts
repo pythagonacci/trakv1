@@ -27,6 +27,13 @@ export interface Block {
   template_name: string | null; // Optional name for template blocks
   original_block_id: string | null; // If this is a reference, points to the original block
   locked: boolean; // When true, block is locked for direct edits in the UI
+  // Optional denormalized properties for consumers that need one-shot block + property payloads.
+  tags?: string[];
+  status?: string | null;
+  priority?: string | null;
+  due_date?: { start: string | null; end: string | null } | null;
+  assignee_id?: string | null;
+  entity_properties?: EntityProperties;
   created_at: string;
   updated_at: string;
 }
@@ -97,9 +104,55 @@ export async function getTabBlocks(tabId: string, opts?: { authContext?: AuthCon
     }
 
     const blockCount = (blocks || []).length;
-    const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), 'utf8');
+    const blockList = blocks || [];
+
+    // Attach read-only universal properties (including tags) for each block.
+    const blockIds = blockList.map((b) => String(b.id));
+    const blockPropertiesById: Record<string, EntityProperties> = {};
+    if (blockIds.length > 0) {
+      const { data: propRows, error: propsError } = await supabase
+        .from("entity_properties")
+        .select("id, entity_id, field_name, field_type, value, created_at, updated_at, workspace_id")
+        .eq("workspace_id", workspaceId)
+        .eq("entity_type", "block")
+        .in("entity_id", blockIds);
+      if (propsError) {
+        console.error("Get block properties error:", propsError);
+      } else {
+        const grouped = new Map<string, any[]>();
+        for (const row of propRows ?? []) {
+          const key = String((row as any).entity_id);
+          const list = grouped.get(key) ?? [];
+          list.push(row);
+          grouped.set(key, list);
+        }
+        for (const [id, rows] of grouped.entries()) {
+          blockPropertiesById[id] = await buildEntityPropertiesFromRows(
+            "block",
+            id,
+            workspaceId,
+            rows
+          );
+        }
+      }
+    }
+
+    const enrichedBlocks = blockList.map((block) => {
+      const props = blockPropertiesById[String(block.id)];
+      return {
+        ...block,
+        tags: Array.isArray((props as any)?.tags) ? ((props as any).tags as string[]) : [],
+        status: typeof (props as any)?.status === "string" ? (props as any).status : null,
+        priority: typeof (props as any)?.priority === "string" ? (props as any).priority : null,
+        due_date: ((props as any)?.due_date ?? null) as { start: string | null; end: string | null } | null,
+        assignee_id: typeof (props as any)?.assignee_id === "string" ? (props as any).assignee_id : null,
+        entity_properties: props ?? null,
+      };
+    });
+
+    const payloadBytes = Buffer.byteLength(JSON.stringify(enrichedBlocks), "utf8");
     console.log(`[PERF] getTabBlocks query ms=${Math.round(performance.now() - _tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - _t0)}`);
-    return { data: blocks || [] };
+    return { data: enrichedBlocks };
   } catch (error) {
     console.error("Get tab blocks exception:", error);
     console.log(`[PERF] getTabBlocks tabId=${tabId} error=Exception ms=${Math.round(performance.now() - _t0)}`);
@@ -440,7 +493,7 @@ export async function createBlock(data: {
           content = { fileId: null, caption: "", width: 400 };
           break;
         case "gallery":
-          content = { layout: null, items: [] };
+          content = { layout: "array", arrayColumns: 2, arrayRows: 2, items: [] };
           break;
         case "embed":
           content = { url: "", displayMode: "inline" };

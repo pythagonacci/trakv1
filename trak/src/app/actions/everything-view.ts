@@ -63,11 +63,23 @@ export async function getWorkspaceEverything(
   );
   const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
 
+  // Only keep items that have at least one universal property
+  const withAtLeastOneProp = enrichedItems.filter((item) => {
+    const p = item.properties;
+    return (
+      p.status != null ||
+      p.priority != null ||
+      (p.assignee_ids?.length ?? 0) > 0 ||
+      p.due_date != null ||
+      (p.tags?.length ?? 0) > 0
+    );
+  });
+
   return {
     data: {
-      items: enrichedItems,
-      total: enrichedItems.length,
-      hasMore: enrichedItems.length === limit,
+      items: withAtLeastOneProp,
+      total: withAtLeastOneProp.length,
+      hasMore: withAtLeastOneProp.length === limit,
     },
   };
 }
@@ -127,7 +139,7 @@ async function getWorkspaceEverythingFallback(
     projects.map((p: any) => [p.id, p])
   );
 
-  // Query 1: Timeline Events (use statuses JSONB; legacy status column was dropped)
+  // Query 1: Timeline Events (use statuses JSONB; legacy status column was dropped). Scope by workspace.
   const { data: timelineEvents } = await supabase
     .from('timeline_events')
     .select(`
@@ -145,7 +157,8 @@ async function getWorkspaceEverythingFallback(
         content,
         tab_id
       )
-    `);
+    `)
+    .eq('workspace_id', workspaceId);
 
   // Process timeline events
   if (timelineEvents) {
@@ -189,7 +202,7 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
-  // Query 2: Task Items (use statuses JSONB; legacy status column was dropped). Exclude placeholders (default empty tasks in new blocks).
+  // Query 2: Task Items (use statuses JSONB; legacy status column was dropped). Exclude placeholders. Scope by workspace.
   const { data: taskItems } = await supabase
     .from('task_items')
     .select(`
@@ -208,6 +221,7 @@ async function getWorkspaceEverythingFallback(
         tab_id
       )
     `)
+    .eq('workspace_id', workspaceId)
     .eq('is_placeholder', false);
 
   // Process task items
@@ -252,8 +266,7 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
-  // Query 3: Table Rows
-  // First get tables with their fields
+  // Query 3: Table Rows. Only tables in this workspace.
   const { data: tables } = await supabase
     .from('tables')
     .select(`
@@ -266,7 +279,8 @@ async function getWorkspaceEverythingFallback(
         type,
         is_primary
       )
-    `);
+    `)
+    .eq('workspace_id', workspaceId);
 
   if (tables && tables.length > 0) {
     const tableIds = tables.map((t: any) => t.id);
@@ -424,6 +438,82 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
+  // Query 5: Subtasks with entity_properties (universal properties). Only include subtasks that have at least one property in entity_properties.
+  const { data: subtaskPropRows } = await supabase
+    .from('entity_properties')
+    .select('entity_id')
+    .eq('workspace_id', workspaceId)
+    .eq('entity_type', 'subtask');
+  const subtaskIds = [...new Set((subtaskPropRows ?? []).map((r: any) => r.entity_id))];
+  if (subtaskIds.length > 0) {
+    const { data: subtasks } = await supabase
+      .from('task_subtasks')
+      .select('id, task_id, title, created_at, updated_at')
+      .in('id', subtaskIds);
+    if (subtasks && subtasks.length > 0) {
+      const parentTaskIds = [...new Set(subtasks.map((s: any) => s.task_id))];
+      const { data: parentTasks } = await supabase
+        .from('task_items')
+        .select(`
+          id,
+          task_block_id,
+          tab_id,
+          project_id,
+          workspace_id,
+          blocks!task_items_task_block_id_fkey ( id, content )
+        `)
+        .in('id', parentTaskIds)
+        .eq('workspace_id', workspaceId);
+      const taskById = new Map<string, any>((parentTasks ?? []).map((t: any) => [t.id, t]));
+      const subtaskPropsResult = await getEntitiesProperties('subtask', subtaskIds, workspaceId);
+      const subtaskPropsById = 'error' in subtaskPropsResult ? {} : subtaskPropsResult.data;
+      for (const st of subtasks) {
+        const task = taskById.get(st.task_id);
+        if (!task || !task.tab_id) continue;
+        const tab = tabById.get(task.tab_id);
+        if (!tab) continue;
+        const project = projectById.get(tab.project_id);
+        if (!project) continue;
+        const block = Array.isArray(task.blocks) ? task.blocks[0] : task.blocks;
+        const blockName = (block?.content as any)?.title ?? 'Task List';
+        const props = subtaskPropsById[st.id];
+        const hasProps = Boolean(
+          props &&
+            (props.status ||
+              props.priority ||
+              (Array.isArray(props.assignee_ids) ? props.assignee_ids.length > 0 : props.assignee_id) ||
+              props.due_date ||
+              (Array.isArray(props.tags) && props.tags.length > 0))
+        );
+        if (!hasProps) continue;
+        items.push({
+          id: st.id,
+          type: 'subtask' as EntityType,
+          name: st.title,
+          source: {
+            type: 'task_list',
+            id: block?.id ?? task.task_block_id,
+            name: blockName,
+            tabId: tab.id,
+            tabName: tab.name,
+            projectId: project.id,
+            projectName: project.name,
+            url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block?.id ?? task.task_block_id}`,
+          },
+          properties: {
+            status: (props?.status as Status | null) ?? null,
+            priority: (props?.priority as Priority | null) ?? null,
+            assignee_ids: props?.assignee_ids ?? (props?.assignee_id ? [props.assignee_id] : []),
+            due_date: normalizeDueDateRange(props?.due_date ?? null),
+            tags: props?.tags ?? [],
+          },
+          created_at: st.created_at,
+          updated_at: st.updated_at,
+        });
+      }
+    }
+  }
+
   const normalizedItems = await maybeFilterWorkflowTaskCopies(
     supabase,
     items,
@@ -431,17 +521,29 @@ async function getWorkspaceEverythingFallback(
   );
   const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
 
+  // Only keep items that have at least one universal property (canonical: entity_properties)
+  const withAtLeastOneProp = enrichedItems.filter((item) => {
+    const p = item.properties;
+    return (
+      p.status != null ||
+      p.priority != null ||
+      (p.assignee_ids?.length ?? 0) > 0 ||
+      p.due_date != null ||
+      (p.tags?.length ?? 0) > 0
+    );
+  });
+
   // Sort by updated_at descending
-  enrichedItems.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  withAtLeastOneProp.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
   // Apply limit and offset
-  const paginatedItems = enrichedItems.slice(offset, offset + limit);
+  const paginatedItems = withAtLeastOneProp.slice(offset, offset + limit);
 
   return {
     data: {
       items: paginatedItems,
-      total: enrichedItems.length,
-      hasMore: offset + limit < enrichedItems.length,
+      total: withAtLeastOneProp.length,
+      hasMore: offset + limit < withAtLeastOneProp.length,
     },
   };
 }

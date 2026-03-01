@@ -40,6 +40,10 @@ export function getLinkableItemHref(input: {
     return `/dashboard/docs/${input.id}`;
   }
 
+  if (input.referenceType === "person") {
+    return `#member-${input.id}`;
+  }
+
   if (input.referenceType === "block" && input.tabId) {
     if (input.isWorkflow || !input.projectId) {
       return `/dashboard/workflow/${input.tabId}#block-${input.id}`;

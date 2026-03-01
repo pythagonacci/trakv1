@@ -7,7 +7,7 @@ import type { BlockReference, BlockReferenceSummary, BlockReferenceType } from "
 
 type ActionResult<T> = { data: T } | { error: string };
 
-const VALID_REFERENCE_TYPES: BlockReferenceType[] = ["doc", "table_row", "task", "block", "tab"];
+const VALID_REFERENCE_TYPES: BlockReferenceType[] = ["doc", "table_row", "task", "block", "tab", "person"];
 
 function validateReferenceType(referenceType: string): referenceType is BlockReferenceType {
   return VALID_REFERENCE_TYPES.includes(referenceType as BlockReferenceType);
@@ -257,6 +257,11 @@ async function resolveReferenceSummary(
   if (ref.reference_type === "tab") {
     const { data } = await supabase.from("tabs").select("name").eq("id", ref.reference_id).maybeSingle();
     return { title: data?.name || "Tab", typeLabel: "Tab" };
+  }
+
+  if (ref.reference_type === "person") {
+    const { data } = await supabase.from("profiles").select("name, email").eq("id", ref.reference_id).maybeSingle();
+    return { title: data?.name || data?.email || "Person", typeLabel: "Person" };
   }
 
   return { title: "Attachment" };

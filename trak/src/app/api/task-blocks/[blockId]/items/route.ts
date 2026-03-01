@@ -94,9 +94,9 @@ export async function GET(
     if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock auth ms=${Math.round(performance.now() - tAuth0)} taskBlockId=${blockId}`);
 
     const tItems = performance.now();
-    const { data: items, error: itemsError } = await supabase
+    const { data: rawItems, error: itemsError } = await supabase
       .from("task_items")
-      .select("id, title, statuses, priorities, source_task_id, source_entity_type, source_entity_id, source_sync_mode, due_date, due_time, due_time_end, start_date, description, display_order, recurring_enabled, recurring_frequency, recurring_interval, hide_icons")
+      .select("id, title, statuses, priorities, assignees, due_dates, source_task_id, source_entity_type, source_entity_id, source_sync_mode, due_date, due_time, due_time_end, start_date, description, display_order, recurring_enabled, recurring_frequency, recurring_interval, hide_icons, is_placeholder")
       .eq("task_block_id", blockId)
       .order("display_order", { ascending: true });
 
@@ -104,10 +104,17 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load tasks" }, { status: 500 });
     }
 
-    if (!items || items.length === 0) {
+    if (!rawItems || rawItems.length === 0) {
       if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} items=0 totalMs=${Math.round(performance.now() - t0)}`);
       return NextResponse.json({ data: { tasks: [], entityPropertiesByTaskId: {} } satisfies TaskBlockBundle });
     }
+
+    // When the block has at least one non-placeholder task (e.g. AI-created tasks), hide the default
+    // empty placeholder so it doesn't show alongside the real tasks.
+    const hasNonPlaceholder = rawItems.some((item: any) => !item.is_placeholder);
+    const items = hasNonPlaceholder
+      ? rawItems.filter((item: any) => !item.is_placeholder)
+      : rawItems;
 
     if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock items query ms=${Math.round(performance.now() - tItems)} count=${items.length}`);
 

@@ -7,6 +7,7 @@ import type { AuthContext } from '@/lib/auth-context'
 import { createTab } from './tab'
 import { createBlock } from './block'
 import type { BlockType } from './block';
+import { syncTagsFieldConfigsForProject } from '@/lib/tables/tag-field-config';
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
@@ -426,6 +427,7 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
     if (tagsError) {
       console.error('Failed to add initial tag bank:', tagsError)
     }
+    await syncTagsFieldConfigsForProject(supabase, project.id)
   }
 
   await safeRevalidatePath('/dashboard')
@@ -480,6 +482,7 @@ export async function addProjectTag(
     if (error.code === '23505') return { data: null }
     return { error: error.message }
   }
+  await syncTagsFieldConfigsForProject(supabase, projectId)
   return { data: null }
 }
 
@@ -512,6 +515,7 @@ export async function removeProjectTag(
 
   const { error } = await supabase.from('project_tags').delete().eq('id', toDelete.id)
   if (error) return { error: error.message }
+  await syncTagsFieldConfigsForProject(supabase, projectId)
   return { data: null }
 }
 
