@@ -72,7 +72,8 @@ export async function GET(request: NextRequest) {
   if (profilesError) {
     console.error("getWorkspaceMembers route profiles error:", profilesError);
     transformed = members.map((member: any) => ({
-      id: member.id || member.user_id,
+      id: member.user_id || member.id,
+      member_id: member.id || null,
       user_id: member.user_id || member.id,
       workspace_id: member.workspace_id ?? workspaceId,
       name: member.name || member.email || "Unknown",
@@ -94,7 +95,8 @@ export async function GET(request: NextRequest) {
         member.email ||
         "Unknown";
       return {
-        id: member.id || member.user_id,
+        id: member.user_id || member.id,
+        member_id: member.id || null,
         user_id: member.user_id || member.id,
         workspace_id: member.workspace_id ?? workspaceId,
         name,

@@ -471,8 +471,8 @@ function BoardColumnContainer({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex h-full min-h-[120px] flex-col gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)]/60 p-2.5 transition-colors",
-        isOver && "border-[var(--foreground)]/40 bg-[var(--surface)]"
+        "flex h-full min-h-[120px] flex-col gap-2 transition-colors",
+        isOver && "bg-[var(--surface)]/40"
       )}
     >
       {children}
@@ -811,6 +811,8 @@ export default function TaskBlock({
     () =>
       copiedTasks.filter((task) => {
         if (task.sourceEntityType === "task" && task.sourceEntityId) return true;
+        if (task.sourceEntityType === "timeline_event" && task.sourceEntityId) return true;
+        if (task.sourceEntityType === "table_row" && task.sourceEntityId) return true;
         if (!task.sourceEntityType && task.sourceTaskId) return true; // Legacy rows
         return false;
       }),
@@ -2401,7 +2403,7 @@ export default function TaskBlock({
   };
 
   const tableColumnTemplate =
-    "56px minmax(240px, 2fr) minmax(140px, 1fr) minmax(180px, 1fr) minmax(140px, 1fr) minmax(200px, 1fr) 56px";
+    "56px minmax(240px, 2fr) minmax(140px, 1fr) minmax(180px, 1fr) minmax(140px, 1fr) minmax(200px, 1fr) 36px";
 
   const handleToggleTaskSourceSync = async (checked: boolean) => {
     if (isTempBlock || !hasLiveSyncEligibleCopies || setTaskSyncModeMutation.isPending) return;
@@ -2607,7 +2609,7 @@ export default function TaskBlock({
       </div>
       {hasSourceLinkedCopies && (
         <p className="mb-2 text-[10px] text-[var(--muted-foreground)]">
-          Source-linked task copies are shown here. Global search and Everything use the source task once. Table-row sourced copies are snapshot-only.
+          Source-linked task copies are shown here. Global search and Everything use the source entity once.
         </p>
       )}
       {viewMode === "list" ? (
@@ -3379,24 +3381,30 @@ export default function TaskBlock({
           onDragEnd={handleBoardDragEnd}
         >
           <div className="overflow-x-auto">
-            <div className="flex w-full min-w-max gap-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
-              {boardColumns.map((column) => (
-                <div key={column.id} className="flex min-w-[240px] flex-1 flex-col gap-2">
+            <div className="flex w-full min-w-max rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
+              {boardColumns.map((column, columnIndex) => (
+                <div
+                  key={column.id}
+                  className={`flex min-w-[240px] flex-1 flex-col gap-2 ${columnIndex > 0 ? "border-l-2 border-[var(--border)] pl-3" : "pr-2"}`}
+                >
                   <div className="flex items-center justify-between">
                     <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
                       {column.label}
                     </div>
-                    <div className="text-[10px] text-[var(--tertiary-foreground)]">
-                      {column.itemIds.length}
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-[var(--tertiary-foreground)]">
+                        {column.itemIds.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => addTaskForColumn(column)}
+                        className="p-0.5 rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                        aria-label={`Add task to ${column.label}`}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => addTaskForColumn(column)}
-                    className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                  >
-                    <Plus className="h-3 w-3" /> Add task
-                  </button>
                   <BoardColumnContainer columnId={column.id}>
                     <SortableContext
                       items={column.itemIds}
@@ -3932,9 +3940,7 @@ export default function TaskBlock({
               <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                 Tags
               </div>
-              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Actions
-              </div>
+              <div className="w-9 flex-shrink-0" aria-hidden />
             </div>
             {orderedTasks.map((task) => {
               const taskEntityId = typeof task.id === "string" ? task.id : null;

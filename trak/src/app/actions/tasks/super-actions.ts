@@ -4,6 +4,7 @@ import type { AuthContext } from "@/lib/auth-context";
 import { aiDebug } from "@/lib/ai/debug";
 import type { TaskItem, TaskItemPriority, TaskPriority } from "@/types/task";
 import { requireTaskBlockAccess, requireTaskItemAccess } from "./context";
+import { deriveTaskSeedFromTableRowSource } from "@/lib/tasks/table-row-task-derivation";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -74,7 +75,30 @@ export async function createTaskFullRpc(input: {
 }): Promise<ActionResult<TaskItem>> {
   const access = await requireTaskBlockAccess(input.taskBlockId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase, userId } = access;
+  const { supabase, userId, block } = access;
+  const isTableRowSource = input.sourceEntityType === "table_row" && Boolean(input.sourceEntityId);
+  const derivedRowSeed = isTableRowSource && input.sourceEntityId
+    ? await deriveTaskSeedFromTableRowSource(supabase, input.sourceEntityId)
+    : null;
+  const resolvedTitle = derivedRowSeed?.title?.trim() || input.title;
+  const resolvedStatuses = input.statuses && input.statuses.length > 0
+    ? input.statuses
+    : (derivedRowSeed?.statuses?.length ? derivedRowSeed.statuses : toStatuses(input.status ?? null));
+  const resolvedPriorities =
+    input.priorities && input.priorities.length > 0
+      ? input.priorities
+      : derivedRowSeed?.priorities?.length
+        ? derivedRowSeed.priorities
+        : isTableRowSource
+          ? []
+          : toPriorities(input.priority ?? null);
+  const resolvedStartDate = input.startDate ?? derivedRowSeed?.preferred_start_date ?? null;
+  const resolvedDueDate = input.dueDate ?? derivedRowSeed?.preferred_due_date ?? null;
+  const resolvedAssignees =
+    input.assignees && input.assignees.length > 0
+      ? input.assignees
+      : (derivedRowSeed?.preferred_assignee_ids ?? []).map((id) => ({ id, name: null }));
+  const resolvedTags = input.tags && input.tags.length > 0 ? input.tags : (derivedRowSeed?.tags ?? []);
 
   if (RPC_DISABLED) {
     aiDebug("rpc:skip", { name: RPC_CREATE_TASK_FULL, reason: "disabled" });
@@ -85,14 +109,14 @@ export async function createTaskFullRpc(input: {
   aiDebug("rpc:start", { name: RPC_CREATE_TASK_FULL, table: "task_items" });
   const { data, error } = await supabase.rpc(RPC_CREATE_TASK_FULL, {
     p_task_block_id: input.taskBlockId,
-    p_title: input.title,
+    p_title: resolvedTitle,
     p_status: input.status ?? null,
-    p_statuses: input.statuses && input.statuses.length > 0 ? input.statuses : toStatuses(input.status ?? null),
-    p_priorities: input.priorities && input.priorities.length > 0 ? input.priorities : toPriorities(input.priority ?? null),
+    p_statuses: resolvedStatuses,
+    p_priorities: resolvedPriorities,
     p_description: input.description ?? null,
-    p_due_date: input.dueDate ?? null,
+    p_due_date: resolvedDueDate,
     p_due_time: input.dueTime ?? null,
-    p_start_date: input.startDate ?? null,
+    p_start_date: resolvedStartDate,
     p_hide_icons: input.hideIcons ?? null,
     p_recurring_enabled: input.recurring?.enabled ?? false,
     p_recurring_frequency: input.recurring?.frequency ?? null,
@@ -100,8 +124,8 @@ export async function createTaskFullRpc(input: {
     p_source_entity_type: input.sourceEntityType ?? null,
     p_source_entity_id: input.sourceEntityId ?? null,
     p_source_sync_mode: input.sourceSyncMode ?? null,
-    p_assignees: input.assignees ?? [],
-    p_tags: input.tags ?? [],
+    p_assignees: resolvedAssignees,
+    p_tags: resolvedTags,
     p_created_by: userId,
   });
   aiDebug("rpc:result", { name: RPC_CREATE_TASK_FULL, ok: !error, ms: Math.round(performance.now() - t0) });
@@ -121,6 +145,49 @@ export async function createTaskFullRpc(input: {
   if (!payload) return { error: "RPC create_task_full returned empty payload" };
 
   const task = normalizeTaskRow(payload.task ?? payload);
+
+  if (isTableRowSource && task?.id && derivedRowSeed) {
+    try {
+      const { setEntityProperties } = await import("@/app/actions/entity-properties");
+      const updates: Record<string, unknown> = {};
+      if (derivedRowSeed.statuses.length > 0) updates.statuses = derivedRowSeed.statuses;
+      if (derivedRowSeed.priorities.length > 0) updates.priorities = derivedRowSeed.priorities;
+      if (derivedRowSeed.assignees.length > 0) updates.assignees = derivedRowSeed.assignees;
+      if (derivedRowSeed.due_dates.length > 0) updates.due_dates = derivedRowSeed.due_dates;
+      if (derivedRowSeed.tags.length > 0) updates.tags = derivedRowSeed.tags;
+
+      if (Object.keys(updates).length > 0) {
+        await setEntityProperties({
+          entity_type: "task",
+          entity_id: task.id,
+          workspace_id: block.workspace_id,
+          updates: updates as any,
+        });
+      }
+
+      if (derivedRowSeed.tag_fields.length > 0) {
+        await supabase
+          .from("entity_properties")
+          .upsert(
+            derivedRowSeed.tag_fields.map((entry) => ({
+              workspace_id: block.workspace_id,
+              entity_type: "task",
+              entity_id: task.id,
+              field_name: entry.field_name,
+              field_type: "tags",
+              value: entry.value,
+            })),
+            { onConflict: "entity_type,entity_id,field_name" }
+          );
+      }
+    } catch (syncError) {
+      console.error("createTaskFullRpc table-row derivation sync failed", {
+        taskId: task.id,
+        error: syncError,
+      });
+    }
+  }
+
   return { data: task };
 }
 

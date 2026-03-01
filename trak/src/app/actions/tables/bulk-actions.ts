@@ -7,10 +7,12 @@ import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import { recomputeFormulasForRow } from "./formula-actions";
 import { recomputeRollupsForRow, recomputeRollupsForTargetRowChanged } from "./rollup-actions";
+import { syncBulkUpdatedRowToSourceAndDerived } from "./row-actions";
 import {
   isUniversalPropertyFieldType,
   normalizeUniversalPropertyValue,
 } from "@/lib/tables/universal-property";
+import { mapTagNamesToOptionIds } from "@/lib/tables/tag-field-config";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -51,7 +53,7 @@ function normalizeUniversalPropertyValuesForRow(
     const field = fieldById.get(fieldId);
     const fieldType = field?.type;
     if (!isUniversalPropertyFieldType(fieldType)) {
-      if (fieldType === "select" || fieldType === "multi_select") {
+      if (fieldType === "select" || fieldType === "multi_select" || fieldType === "tags") {
         const options =
           ((field?.config?.options as Array<{ id?: string; label?: string }> | undefined) ?? []);
         const resolveLabel = (value: unknown): string | null => {
@@ -59,19 +61,26 @@ function normalizeUniversalPropertyValuesForRow(
           const raw = String(value).trim();
           if (!raw) return null;
           const matched = options.find((option) => option.label === raw || option.id === raw);
-          return matched?.label ?? raw;
+          return matched?.id ?? raw;
         };
 
-        if (fieldType === "multi_select") {
+        if (fieldType === "multi_select" || fieldType === "tags") {
           const values = Array.isArray(rawValue)
             ? rawValue
             : rawValue === null || rawValue === undefined
               ? []
               : [rawValue];
-          const labels = values
+          const rawTokens = values
             .map((value) => resolveLabel(value))
             .filter((value): value is string => Boolean(value));
-          normalized[fieldId] = labels.length > 0 ? labels : null;
+          if (fieldType === "tags") {
+            const optionIds = mapTagNamesToOptionIds(rawTokens, options as Array<{ id: string; label: string }>);
+            normalized[fieldId] = (optionIds.length > 0 ? optionIds : rawTokens).length > 0
+              ? (optionIds.length > 0 ? optionIds : rawTokens)
+              : null;
+          } else {
+            normalized[fieldId] = rawTokens.length > 0 ? rawTokens : null;
+          }
         } else {
           normalized[fieldId] = resolveLabel(rawValue);
         }
@@ -121,6 +130,7 @@ export async function bulkUpdateRows(input: {
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
   const userId = user.id;
+  const authContext: AuthContext = { supabase, userId };
 
   const access = await requireTableAccess(input.tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
@@ -149,6 +159,7 @@ export async function bulkUpdateRows(input: {
   const normalizedUpdates = normalizedUpdatesResult.data;
   const validIds = new Set((fields || []).map((f) => f.id));
 
+  let usedRpc = false;
   if (!RPC_DISABLED) {
     const rpcResult = await supabase.rpc(RPC_BULK_UPDATE_ROWS, {
       p_table_id: input.tableId,
@@ -158,7 +169,7 @@ export async function bulkUpdateRows(input: {
     });
     aiDebug("rpc:result", { name: RPC_BULK_UPDATE_ROWS, ok: !rpcResult.error, table: "table_rows" });
     if (!rpcResult.error) {
-      return { data: null };
+      usedRpc = true;
     }
   } else {
     aiDebug("rpc:skip", { name: RPC_BULK_UPDATE_ROWS, reason: "disabled" });
@@ -167,7 +178,7 @@ export async function bulkUpdateRows(input: {
   const fetchRowsStart = timingEnabled ? Date.now() : 0;
   const { data: rows } = await supabase
     .from("table_rows")
-    .select("id, data, source_entity_id")
+    .select("id, table_id, data, source_entity_type, source_entity_id, source_sync_mode")
     .eq("table_id", input.tableId)
     .in("id", input.rowIds);
   if (timingEnabled) t_fetch_rows_ms = Date.now() - fetchRowsStart;
@@ -244,7 +255,7 @@ export async function bulkUpdateRows(input: {
     }
   }
 
-  if (payload.length > 0) {
+  if (!usedRpc && payload.length > 0) {
     const upsertStart = timingEnabled ? Date.now() : 0;
     const { error } = await supabase.from("table_rows").upsert(payload, { onConflict: "id" });
     if (error) {
@@ -285,6 +296,15 @@ export async function bulkUpdateRows(input: {
     skippedRollups = true;
   }
   if (timingEnabled) t_recompute_rollups_ms = Date.now() - rollupStart;
+
+  for (const row of rows || []) {
+    await syncBulkUpdatedRowToSourceAndDerived({
+      rowId: row.id,
+      tableId: input.tableId,
+      changedFieldIds,
+      authContext,
+    });
+  }
 
   if (timingEnabled) {
     aiTiming({

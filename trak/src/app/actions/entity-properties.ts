@@ -4,10 +4,17 @@
 // Fixed properties: status, priority, assignee, due date, tags
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import { getDueDateEnd, getDueDateStart, normalizeDueDateRange } from "@/lib/due-date";
 import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
+import {
+  ensureProjectTags,
+  mapTagNamesToOptionIds,
+  syncTagsFieldConfigsForProject,
+  type TagFieldOption,
+} from "@/lib/tables/tag-field-config";
 import type {
   EntityType,
   EntityProperties,
@@ -545,6 +552,58 @@ async function getWorkspaceIdForEntity(
   }
 }
 
+async function getProjectIdForEntity(
+  entityType: EntityType,
+  entityId: string
+): Promise<string | null> {
+  const supabase = await createClient();
+
+  switch (entityType) {
+    case "task": {
+      const { data } = await supabase
+        .from("task_items")
+        .select("task_block_id, blocks!task_items_task_block_id_fkey(tabs!inner(project_id))")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data as any)?.blocks?.tabs?.project_id ?? null;
+    }
+    case "subtask": {
+      const { data } = await supabase
+        .from("task_subtasks")
+        .select("task_id, task_items!inner(task_block_id, blocks!task_items_task_block_id_fkey(tabs!inner(project_id)))")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data as any)?.task_items?.blocks?.tabs?.project_id ?? null;
+    }
+    case "timeline_event": {
+      const { data } = await supabase
+        .from("timeline_events")
+        .select("timeline_block_id, blocks!inner(tabs!inner(project_id))")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data as any)?.blocks?.tabs?.project_id ?? null;
+    }
+    case "table_row": {
+      const { data } = await supabase
+        .from("table_rows")
+        .select("table_id, tables!inner(project_id)")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data as any)?.tables?.project_id ?? null;
+    }
+    case "block": {
+      const { data } = await supabase
+        .from("blocks")
+        .select("tabs!inner(project_id)")
+        .eq("id", entityId)
+        .maybeSingle();
+      return (data as any)?.tabs?.project_id ?? null;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
  * Get entity title for display
  */
@@ -906,13 +965,25 @@ export async function setEntityProperties(
     }
   }
 
-  // Assignees: support assignee_ids (array) or legacy assignee_id (single)
+  // Assignees: support assignee_ids/assignee_id and named assignees.
+  // For named assignees, flatten all field values so task_assignees stays in sync for UI/query paths.
+  const assigneeIdsFromNamedFields =
+    updates.assignees !== undefined
+      ? Array.from(
+          new Set(
+            (updates.assignees ?? [])
+              .flatMap((entry) => (Array.isArray(entry?.value) ? entry.value : []))
+              .map((id) => (typeof id === "string" ? id.trim() : ""))
+              .filter((id) => id.length > 0)
+          )
+        )
+      : null;
   const assigneeIdsToSet =
     updates.assignee_ids !== undefined
       ? (updates.assignee_ids ?? [])
       : updates.assignee_id !== undefined
         ? (updates.assignee_id ? [updates.assignee_id] : [])
-        : null;
+        : assigneeIdsFromNamedFields;
 
   const normalizedDueDate =
     updates.due_date !== undefined
@@ -941,6 +1012,9 @@ export async function setEntityProperties(
     }
   }
 
+  const hasNamedAssigneesInput = updates.assignees !== undefined;
+  const hasNamedDueDatesInput = updates.due_dates !== undefined;
+
   let assigneePayloadForTask: Array<{ id: string; name: string }> | null = null;
   if (assigneeIdsToSet !== null) {
     const assigneePayload: Array<{ id: string; name: string }> = [];
@@ -958,20 +1032,25 @@ export async function setEntityProperties(
       }
     }
     assigneePayloadForTask = assigneePayload;
-    const assigneeValue =
-      assigneePayload.length > 0 ? assigneePayload : null;
-    upsertPromises.push(
-      upsertEntityPropertyValue(
-        supabase,
-        workspaceId,
-        input.entity_type,
-        input.entity_id,
-        definitions.byKey.assignee_id,
-        assigneeValue
-      )
-    );
+    // If named assignees are being set, those rows are already written above.
+    // Avoid also writing canonical "Assignee" to prevent duplicate assignee fields.
+    if (!hasNamedAssigneesInput) {
+      const assigneeValue =
+        assigneePayload.length > 0 ? assigneePayload : null;
+      upsertPromises.push(
+        upsertEntityPropertyValue(
+          supabase,
+          workspaceId,
+          input.entity_type,
+          input.entity_id,
+          definitions.byKey.assignee_id,
+          assigneeValue
+        )
+      );
+    }
   }
-  if (updates.due_date !== undefined) {
+  if (updates.due_date !== undefined && !hasNamedDueDatesInput) {
+    // If named due_dates are being set, avoid writing canonical "Due Date".
     upsertPromises.push(
       upsertEntityPropertyValue(
         supabase,
@@ -983,10 +1062,17 @@ export async function setEntityProperties(
       )
     );
   }
+  let projectIdForTags: string | null = null;
   if (updates.tags !== undefined) {
     const normalizedTags = updates.tags
       .map((tag) => tag.trim())
       .filter((tag) => tag.length > 0);
+    projectIdForTags = await getProjectIdForEntity(input.entity_type, input.entity_id);
+    if (projectIdForTags) {
+      const adminSupabase = await createServiceClient();
+      await ensureProjectTags(adminSupabase, projectIdForTags, normalizedTags);
+      await syncTagsFieldConfigsForProject(adminSupabase, projectIdForTags);
+    }
     upsertPromises.push(
       upsertEntityPropertyValue(
         supabase,
@@ -1008,8 +1094,9 @@ export async function setEntityProperties(
 
   const refreshed = await getEntityProperties(input.entity_type, input.entity_id);
   if ("error" in refreshed) return refreshed;
-  if (!refreshed.data) return { error: "Failed to set entity properties" };
-  const data = refreshed.data;
+  // null is valid — it means all property rows were cleared (e.g. user set everything to None).
+  // Return an empty EntityProperties instead of an error so the client cache updates correctly.
+  const data = refreshed.data ?? await buildEntityPropertiesFromRows(input.entity_type, input.entity_id, workspaceId, []);
 
   // Keep legacy task fields and task_assignees in sync. Universal properties are source of truth.
   if (input.entity_type === "task") {
@@ -1038,10 +1125,30 @@ export async function setEntityProperties(
             : null,
       }))
       .filter((field: any) => field.field_name.length > 0 && field.value);
+    const taskAssignees = (((data as any).assignees ?? []) as Array<{ field_name?: unknown; value?: unknown }>)
+      .map((field) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value: Array.isArray(field?.value)
+          ? (field.value as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+          : [],
+      }))
+      .filter((field) => field.field_name.length > 0);
+    const taskDueDates = (((data as any).due_dates ?? []) as Array<{ field_name?: unknown; value?: unknown }>)
+      .map((field) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value: normalizeDueDateRange(field?.value),
+      }))
+      .filter((field) => field.field_name.length > 0 && field.value)
+      .map((field) => ({
+        field_name: field.field_name,
+        value: field.value as DueDateRange,
+      }));
 
     const taskItemUpdates: Record<string, any> = {
       statuses: taskStatuses,
       priorities: taskPriorities,
+      assignees: taskAssignees,
+      due_dates: taskDueDates,
       assignee_id: assigneeId ?? null,
       is_placeholder: false, // User edited via property menu; no longer a placeholder
     };
@@ -1059,6 +1166,106 @@ export async function setEntityProperties(
     if (assigneePayloadForTask !== null) {
       const { setTaskAssignees } = await import("@/app/actions/tasks/assignee-actions");
       await setTaskAssignees(input.entity_id, assigneePayloadForTask, { replaceExisting: true });
+    }
+
+    const shouldSyncDerivedTaskRows =
+      updates.status !== undefined ||
+      updates.statuses !== undefined ||
+      updates.priority !== undefined ||
+      updates.priorities !== undefined ||
+      updates.tags !== undefined ||
+      updates.due_date !== undefined ||
+      updates.due_dates !== undefined;
+    if (shouldSyncDerivedTaskRows) {
+      const sourceTags = Array.isArray((data as any).tags)
+        ? ((data as any).tags as unknown[]).filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+        : [];
+      const { data: derivedRows } = await supabase
+        .from("table_rows")
+        .select("id, table_id, data")
+        .eq("source_entity_type", "task")
+        .eq("source_entity_id", input.entity_id)
+        .eq("source_sync_mode", "live");
+      if (derivedRows && derivedRows.length > 0) {
+        const tableIds = Array.from(new Set((derivedRows as any[]).map((row) => row.table_id)));
+        const { data: fields } = await supabase
+          .from("table_fields")
+          .select("id, table_id, type, config, name")
+          .in("table_id", tableIds);
+        const fieldsByTable = new Map<string, any[]>();
+        for (const field of fields ?? []) {
+          const list = fieldsByTable.get((field as any).table_id) ?? [];
+          list.push(field);
+          fieldsByTable.set((field as any).table_id, list);
+        }
+        const normalizeName = (value: unknown) => String(value || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+
+        for (const row of derivedRows as any[]) {
+          const rowFields = fieldsByTable.get(row.table_id) ?? [];
+          const nextData = { ...((row.data ?? {}) as Record<string, unknown>) };
+          const statusFields = rowFields.filter((f: any) => f.type === "status");
+          const priorityFields = rowFields.filter((f: any) => f.type === "priority");
+          const tagFields = rowFields.filter((f: any) => f.type === "tags");
+          const startField = rowFields.find((f: any) => f.type === "date" && normalizeName(f.name).includes("start"))
+            ?? rowFields.find((f: any) => normalizeName(f.name).includes("start"));
+          const endField = rowFields.find((f: any) => f.type === "date" && normalizeName(f.name).includes("end"))
+            ?? rowFields.find((f: any) => normalizeName(f.name).includes("due") || normalizeName(f.name).includes("end"));
+          const singleDateField = rowFields.find((f: any) => f.type === "date");
+
+          if (updates.status !== undefined || updates.statuses !== undefined) {
+            if (taskStatuses.length > 0) {
+              for (const sourceStatus of taskStatuses) {
+                const match = statusFields.find((f: any) => normalizeName(f.name) === normalizeName(sourceStatus.field_name));
+                if (match) nextData[match.id] = sourceStatus.value;
+              }
+            } else {
+              for (const statusField of statusFields) nextData[statusField.id] = null;
+            }
+          }
+
+          if (updates.priority !== undefined || updates.priorities !== undefined) {
+            if (taskPriorities.length > 0) {
+              for (const sourcePriority of taskPriorities) {
+                const match = priorityFields.find((f: any) => normalizeName(f.name) === normalizeName(sourcePriority.field_name));
+                if (match) nextData[match.id] = sourcePriority.value;
+              }
+            } else {
+              for (const priorityField of priorityFields) nextData[priorityField.id] = null;
+            }
+          }
+
+          if (updates.due_date !== undefined || updates.due_dates !== undefined) {
+            if (dueDateRange) {
+              if (startField && startDate) nextData[startField.id] = startDate;
+              if (endField && dueDate) nextData[endField.id] = dueDate;
+              if (!startField && !endField && singleDateField) {
+                if (startDate && dueDate && startDate !== dueDate) {
+                  nextData[singleDateField.id] = { start: startDate, end: dueDate };
+                } else {
+                  nextData[singleDateField.id] = dueDate ?? startDate ?? null;
+                }
+              }
+            } else {
+              if (startField) nextData[startField.id] = null;
+              if (endField) nextData[endField.id] = null;
+              if (!startField && !endField && singleDateField) nextData[singleDateField.id] = null;
+            }
+          }
+
+          if (updates.tags !== undefined) {
+            for (const tagField of tagFields) {
+              const options = ((((tagField as any).config ?? {}) as Record<string, unknown>).options ?? []) as TagFieldOption[];
+              const tagIds = mapTagNamesToOptionIds(sourceTags, options);
+              nextData[tagField.id] = tagIds;
+            }
+          }
+
+          await supabase
+            .from("table_rows")
+            .update({ data: nextData })
+            .eq("id", row.id);
+        }
+      }
     }
   }
 
@@ -1121,6 +1328,107 @@ export async function setEntityProperties(
       .from("timeline_events")
       .update(timelineUpdate)
       .eq("id", input.entity_id);
+  }
+
+  if (
+    input.entity_type === "block" &&
+    (updates.status !== undefined || updates.statuses !== undefined ||
+      updates.priority !== undefined || updates.priorities !== undefined ||
+      updates.due_date !== undefined || updates.due_dates !== undefined ||
+      updates.tags !== undefined)
+  ) {
+    const sourceStatuses = (((data as any).statuses ?? []) as Array<{ field_name?: string; value?: string }>)
+      .filter((entry) => typeof entry?.field_name === "string" && typeof entry?.value === "string")
+      .filter((entry) => entry.value === "todo" || entry.value === "in_progress" || entry.value === "blocked" || entry.value === "done")
+      .map((entry) => ({ field_name: String(entry.field_name), value: entry.value as "todo" | "in_progress" | "blocked" | "done" }));
+    const sourcePriorities = (((data as any).priorities ?? []) as Array<{ field_name?: string; value?: string }>)
+      .filter((entry) => typeof entry?.field_name === "string" && typeof entry?.value === "string")
+      .filter((entry) => entry.value === "low" || entry.value === "medium" || entry.value === "high" || entry.value === "urgent")
+      .map((entry) => ({ field_name: String(entry.field_name), value: entry.value as "low" | "medium" | "high" | "urgent" }));
+    const sourceDueDate = normalizeDueDateRange((data as any).due_date ?? null);
+    const sourceDueStart = sourceDueDate?.start ?? null;
+    const sourceDueEnd = sourceDueDate?.end ?? null;
+    const sourceTags = Array.isArray((data as any).tags)
+      ? ((data as any).tags as unknown[])
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : [];
+
+    const { data: derivedRows } = await supabase
+      .from("table_rows")
+      .select("id, table_id, data")
+      .eq("source_entity_type", "block")
+      .eq("source_entity_id", input.entity_id)
+      .eq("source_sync_mode", "live");
+    if (derivedRows && derivedRows.length > 0) {
+      const tableIds = Array.from(new Set((derivedRows as any[]).map((r) => r.table_id)));
+      const { data: fields } = await supabase
+        .from("table_fields")
+        .select("id, table_id, name, type, config")
+        .in("table_id", tableIds);
+      const fieldsByTable = new Map<string, any[]>();
+      for (const field of fields ?? []) {
+        const list = fieldsByTable.get((field as any).table_id) ?? [];
+        list.push(field);
+        fieldsByTable.set((field as any).table_id, list);
+      }
+
+      const normalizeName = (value: unknown) => String(value || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+
+      for (const row of derivedRows as any[]) {
+        const rowFields = fieldsByTable.get(row.table_id) ?? [];
+        const nextData = { ...((row.data ?? {}) as Record<string, unknown>) };
+
+        const statusFields = rowFields.filter((f: any) => f.type === "status");
+        const priorityFields = rowFields.filter((f: any) => f.type === "priority");
+        const tagFields = rowFields.filter((f: any) => f.type === "tags");
+        const startField = rowFields.find((f: any) => f.type === "date" && normalizeName(f.name).includes("start"))
+          ?? rowFields.find((f: any) => normalizeName(f.name).includes("start"));
+        const endField = rowFields.find((f: any) => f.type === "date" && normalizeName(f.name).includes("end"))
+          ?? rowFields.find((f: any) => normalizeName(f.name).includes("due") || normalizeName(f.name).includes("end"));
+        const singleDateField = rowFields.find((f: any) => f.type === "date");
+
+        if (sourceStatuses.length > 0) {
+          for (const sourceStatus of sourceStatuses) {
+            const match = statusFields.find((f: any) => normalizeName(f.name) === normalizeName(sourceStatus.field_name));
+            if (match) nextData[match.id] = sourceStatus.value;
+          }
+        }
+
+        if (sourcePriorities.length > 0) {
+          for (const sourcePriority of sourcePriorities) {
+            const match = priorityFields.find((f: any) => normalizeName(f.name) === normalizeName(sourcePriority.field_name));
+            if (match) nextData[match.id] = sourcePriority.value;
+          }
+        }
+
+        if (sourceDueDate) {
+          if (startField && sourceDueStart) nextData[startField.id] = sourceDueStart;
+          if (endField && sourceDueEnd) nextData[endField.id] = sourceDueEnd;
+          if (!startField && !endField && singleDateField) {
+            if (sourceDueStart && sourceDueEnd && sourceDueStart !== sourceDueEnd) {
+              nextData[singleDateField.id] = { start: sourceDueStart, end: sourceDueEnd };
+            } else {
+              nextData[singleDateField.id] = sourceDueEnd ?? sourceDueStart;
+            }
+          }
+        }
+
+        if (sourceTags.length > 0 || updates.tags !== undefined) {
+          for (const tagField of tagFields) {
+            const options = ((((tagField as any).config ?? {}) as Record<string, unknown>).options ?? []) as TagFieldOption[];
+            const mappedTagIds = mapTagNamesToOptionIds(sourceTags, options);
+            nextData[tagField.id] = mappedTagIds;
+          }
+        }
+
+        await supabase
+          .from("table_rows")
+          .update({ data: nextData })
+          .eq("id", row.id);
+      }
+    }
   }
 
   return { data };

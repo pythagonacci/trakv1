@@ -18,7 +18,9 @@ import { validateEventPriority, validateEventStatus } from "@/app/actions/timeli
 import {
   mergeTimelinePriorityField,
   normalizeTimelinePriorities,
+  syncTimelinePriorityFieldsToEntityProperties,
 } from "@/lib/timeline-priority-sync";
+import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
 import { setEntityProperties } from "@/app/actions/entity-properties";
 import { parseDateSafe } from "@/lib/due-date";
 import type { Status, Priority } from "@/types/properties";
@@ -27,6 +29,8 @@ import {
   isUniversalPropertyFieldType,
   normalizeUniversalPropertyValue,
 } from "@/lib/tables/universal-property";
+import { mapOptionIdsToTagNames, type TagFieldOption } from "@/lib/tables/tag-field-config";
+import { deriveTaskSeedFromTableRowData } from "@/lib/tasks/table-row-task-derivation";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -76,6 +80,15 @@ function normalizeUniversalPropertyRowData(
       } else {
         normalized[fieldId] = resolveLabel(rawValue);
       }
+      continue;
+    }
+
+    if (field.type === "tags") {
+      const values = Array.isArray(rawValue) ? rawValue : rawValue === null || rawValue === undefined ? [] : [rawValue];
+      const tags = values
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry.length > 0);
+      normalized[fieldId] = tags.length > 0 ? tags : null;
       continue;
     }
 
@@ -158,6 +171,7 @@ export async function updateRow(rowId: string, updates: { data?: Record<string, 
   const access = await getRowContext(rowId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId, row } = access;
+  const authContext: AuthContext = opts?.authContext ?? { supabase, userId };
 
   const mergedData = { ...(row?.data || {}), ...(updates.data || {}) };
   const { data: fields } = await supabase
@@ -190,8 +204,29 @@ export async function updateRow(rowId: string, updates: { data?: Record<string, 
     return { error: "Failed to update row" };
   }
 
+  const fieldsById = new Map<string, TableField>(
+    ((fields ?? []) as TableField[]).map((field) => [field.id, field])
+  );
+  for (const fieldId of Object.keys(updates.data ?? {})) {
+    const field = fieldsById.get(fieldId);
+    if (!field) continue;
+    await syncTableRowEditToSource({
+      row,
+      field,
+      value: normalizedInput.data[fieldId],
+      authContext,
+    });
+  }
+
   await recomputeFormulasForRow(row.table_id, rowId);
   await recomputeRollupsForTargetRowChanged(rowId, row.table_id);
+  await syncSourceRowToDerived({
+    rowId,
+    tableId: row.table_id,
+    rowData: normalizedInput.data,
+    userId,
+    supabase,
+  });
 
   const { data: refreshed } = await supabase
     .from("table_rows")
@@ -268,6 +303,12 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     } else {
       normalizedCellValue = resolveLabel(value);
     }
+  } else if (field.type === "tags") {
+    const values = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+    const tags = values
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+    normalizedCellValue = tags.length > 0 ? tags : null;
   }
 
   // Get set of valid field IDs for filtering
@@ -448,6 +489,13 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
 
   await recomputeFormulasForRow(row.table_id, rowId, fieldId);
   await recomputeRollupsForTargetRowChanged(rowId, row.table_id, fieldId);
+  await syncSourceRowToDerived({
+    rowId,
+    tableId: row.table_id,
+    rowData: mergedData,
+    userId,
+    supabase,
+  });
 
   const { data: refreshed } = await supabase
     .from("table_rows")
@@ -756,6 +804,20 @@ export async function refreshEditedSnapshotRowsFromSource(input: {
           .maybeSingle();
 
         if (taskErr || !task) { failedRowIds.push(row.id); continue; }
+        const { data: taskTagsRow } = await supabase
+          .from("entity_properties")
+          .select("value")
+          .eq("entity_type", "task")
+          .eq("entity_id", row.source_entity_id!)
+          .eq("field_type", "tags")
+          .limit(1)
+          .maybeSingle();
+        const taskTags = Array.isArray((taskTagsRow as any)?.value)
+          ? ((taskTagsRow as any).value as unknown[])
+              .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+              .filter((entry) => entry.length > 0)
+          : [];
+        (task as any).tags = taskTags;
 
         // Map task fields back into row data
         for (const field of tableFields) {
@@ -850,9 +912,25 @@ function mapTaskFieldToRowValue(
   if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
     return task.description ?? null;
   }
+  if (field.type === "person") {
+    return (task as any).assignee_id ?? null;
+  }
+  if (field.type === "tags" || normalizedFieldName === "tags" || normalizedFieldName.includes("tag")) {
+    const taskTags = Array.isArray((task as any).tags) ? ((task as any).tags as string[]) : [];
+    const options = ((((field.config as any) ?? {}) as Record<string, unknown>).options ?? []) as TagFieldOption[];
+    const byLabel = new Map<string, string>();
+    for (const option of options) byLabel.set(option.label.trim().toLowerCase(), option.id);
+    return taskTags
+      .map((tag) => byLabel.get(String(tag).trim().toLowerCase()) ?? String(tag))
+      .filter((tag) => typeof tag === "string" && tag.trim().length > 0);
+  }
   if (field.type === "date" || normalizedFieldName.includes("date")) {
     if (normalizedFieldName.includes("start")) return task.start_date ?? null;
     if (normalizedFieldName.includes("due") || normalizedFieldName === "date") return task.due_date ?? null;
+    const start = typeof task.start_date === "string" ? task.start_date : null;
+    const end = typeof task.due_date === "string" ? task.due_date : null;
+    if (start && end) return formatDateRangeCellValue(start, end);
+    return end ?? start ?? null;
   }
   return undefined;
 }
@@ -894,8 +972,16 @@ function mapTimelineEventFieldToRowValue(
     return event.notes ?? null;
   }
   if (field.type === "date" || normalizedFieldName.includes("date")) {
-    if (normalizedFieldName.includes("end")) return event.end_date ?? null;
-    if (normalizedFieldName.includes("start") || normalizedFieldName === "date") return event.start_date ?? null;
+    const start = normalizeDateForTask(event.start_date);
+    const end = normalizeDateForTask(event.end_date);
+    if (normalizedFieldName.includes("end")) return end ?? null;
+    if (normalizedFieldName.includes("start")) return start ?? null;
+    if (normalizedFieldName === "date") {
+      if (start && end) return formatDateRangeCellValue(start, end);
+      return end ?? start ?? null;
+    }
+    if (start && end) return formatDateRangeCellValue(start, end);
+    return end ?? start ?? null;
   }
   return undefined;
 }
@@ -965,6 +1051,40 @@ async function syncTableRowEditToSource(params: {
     if (row.source_entity_type === "task") {
       const taskUpdates = mapTaskUpdateFromField(field, value);
       if (!taskUpdates) return;
+      const priorityUpdates = (taskUpdates as any).priorities as
+        | Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }>
+        | undefined;
+      if (Array.isArray(priorityUpdates)) {
+        const { data: sourceTask } = await authContext.supabase
+          .from("task_items")
+          .select("priorities")
+          .eq("id", row.source_entity_id)
+          .maybeSingle();
+        const existing = Array.isArray((sourceTask as any)?.priorities)
+          ? ((sourceTask as any).priorities as Array<{ field_name?: unknown; value?: unknown }>)
+              .map((entry) => {
+                const fieldName = typeof entry?.field_name === "string" ? entry.field_name : "";
+                const value = entry?.value;
+                if (!fieldName) return null;
+                if (value !== "low" && value !== "medium" && value !== "high" && value !== "urgent") return null;
+                return { field_name: fieldName, value };
+              })
+              .filter((entry): entry is { field_name: string; value: "low" | "medium" | "high" | "urgent" } => Boolean(entry))
+          : [];
+        const merged = new Map<string, { field_name: string; value: "low" | "medium" | "high" | "urgent" }>();
+        for (const item of existing) merged.set(normalizeFieldName(item.field_name), item);
+        for (const item of priorityUpdates) merged.set(normalizeFieldName(item.field_name), item);
+        const { priorities: _ignoredPriorities, ...rest } = taskUpdates as Record<string, unknown>;
+        await updateTaskItem(
+          row.source_entity_id,
+          {
+            ...(rest as any),
+            priorities: Array.from(merged.values()),
+          },
+          { authContext }
+        );
+        return;
+      }
       await updateTaskItem(row.source_entity_id, taskUpdates, { authContext });
       return;
     }
@@ -1017,6 +1137,192 @@ async function syncTableRowEditToSource(params: {
   }
 }
 
+async function syncSourceRowToDerived(params: {
+  rowId: string;
+  tableId: string;
+  rowData: Record<string, unknown>;
+  userId: string;
+  supabase: any;
+}): Promise<void> {
+  const { rowId, tableId, rowData, userId, supabase } = params;
+  const { data: sourceFields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config, is_primary")
+    .eq("table_id", tableId);
+  const fields = (sourceFields ?? []) as Array<{ id: string; name: string; type: string; config?: Record<string, unknown>; is_primary?: boolean }>;
+  if (fields.length === 0) return;
+  const { data: tableInfo } = await supabase
+    .from("tables")
+    .select("workspace_id")
+    .eq("id", tableId)
+    .maybeSingle();
+  const tableWorkspaceId = (tableInfo as any)?.workspace_id as string | undefined;
+
+  const primaryField = fields.find((f) => Boolean(f.is_primary))
+    ?? fields.find((f) => normalizeFieldName(f.name).includes("title") || normalizeFieldName(f.name) === "task" || normalizeFieldName(f.name) === "event");
+  const statusFields = fields.filter((f) => f.type === "status");
+  const priorityFields = fields.filter((f) => f.type === "priority");
+  const startField = fields.find((f) => f.type === "date" && normalizeFieldName(f.name).includes("start"))
+    ?? fields.find((f) => normalizeFieldName(f.name).includes("start"));
+  const endField = fields.find((f) => f.type === "date" && normalizeFieldName(f.name).includes("end"))
+    ?? fields.find((f) => normalizeFieldName(f.name).includes("due") || normalizeFieldName(f.name).includes("end"));
+  const singleDateField = fields.find((f) => f.type === "date");
+  const derivedSeed = deriveTaskSeedFromTableRowData(rowData, fields);
+  const title = derivedSeed.title ?? (primaryField ? valueToString(rowData[primaryField.id]) : null);
+  let startDate = derivedSeed.preferred_start_date;
+  let endDate = derivedSeed.preferred_due_date;
+  if (!startDate && !endDate) {
+    startDate = startField ? normalizeDateForTask(rowData[startField.id]) : null;
+    endDate = endField ? normalizeDateForTask(rowData[endField.id]) : null;
+    if (!startField && !endField && singleDateField) {
+      const range = normalizeDateRangeForTask(rowData[singleDateField.id]);
+      if (range) {
+        startDate = range.start ?? null;
+        endDate = range.end ?? range.start ?? null;
+      }
+    }
+  }
+  const namedTaskStatuses = derivedSeed.statuses
+    .map((entry) => ({ field_name: entry.field_name, value: entry.value }))
+    .filter((entry): entry is { field_name: string; value: "todo" | "in_progress" | "blocked" | "done" } => Boolean(entry.field_name && entry.value));
+  const namedTimelineStatuses = statusFields
+    .map((field) => {
+      const status = normalizeTimelineStatus(valueToString(rowData[field.id]));
+      return status ? ({ field_name: field.name, value: status } as const) : null;
+    })
+    .filter((entry): entry is { field_name: string; value: "todo" | "in_progress" | "blocked" | "done" } => Boolean(entry));
+  const namedTaskPriorities = derivedSeed.priorities
+    .map((entry) => ({ field_name: entry.field_name, value: entry.value }))
+    .filter((entry): entry is { field_name: string; value: "low" | "medium" | "high" | "urgent" } => Boolean(entry.field_name && entry.value));
+  const namedTimelinePriorities = priorityFields
+    .map((field) => {
+      const priority = normalizeTimelinePriority(valueToString(rowData[field.id]));
+      if (priority === undefined || priority === null) return null;
+      return { field_name: field.name, value: priority } as const;
+    })
+    .filter((entry): entry is { field_name: string; value: "low" | "medium" | "high" | "urgent" } => Boolean(entry));
+  const rowTagNames = derivedSeed.tags;
+
+  const { data: derivedTasks } = await supabase
+    .from("task_items")
+    .select("id")
+    .eq("source_entity_type", "table_row")
+    .eq("source_entity_id", rowId)
+    .eq("source_sync_mode", "live");
+  for (const task of (derivedTasks ?? []) as Array<{ id: string }>) {
+    const payload: Record<string, unknown> = { updated_by: userId };
+    if (title !== null) payload.title = title;
+    if (namedTaskStatuses.length > 0) payload.statuses = namedTaskStatuses;
+    if (namedTaskPriorities.length > 0) payload.priorities = namedTaskPriorities;
+    payload.assignees = derivedSeed.assignees;
+    payload.due_dates = derivedSeed.due_dates;
+    payload.assignee_id = derivedSeed.preferred_assignee_ids[0] ?? null;
+    if (startDate !== null) payload.start_date = startDate;
+    if (endDate !== null) payload.due_date = endDate;
+    await supabase.from("task_items").update(payload).eq("id", task.id);
+    // Keep derived task entity_properties aligned with source row universal properties.
+    if (tableWorkspaceId) {
+      const propUpdates: Record<string, unknown> = {};
+      if (namedTaskStatuses.length > 0) propUpdates.statuses = namedTaskStatuses;
+      if (namedTaskPriorities.length > 0) propUpdates.priorities = namedTaskPriorities;
+      if (derivedSeed.assignees.length > 0) propUpdates.assignees = derivedSeed.assignees;
+      if (derivedSeed.due_dates.length > 0) propUpdates.due_dates = derivedSeed.due_dates;
+      if (rowTagNames.length > 0) propUpdates.tags = rowTagNames;
+      if (Object.keys(propUpdates).length > 0) {
+        await setEntityProperties({
+          entity_type: "task",
+          entity_id: task.id,
+          workspace_id: tableWorkspaceId,
+          updates: propUpdates as any,
+        });
+      }
+      if (derivedSeed.tag_fields.length > 0) {
+        await supabase
+          .from("entity_properties")
+          .upsert(
+            derivedSeed.tag_fields.map((entry) => ({
+              workspace_id: tableWorkspaceId,
+              entity_type: "task",
+              entity_id: task.id,
+              field_name: entry.field_name,
+              field_type: "tags",
+              value: entry.value,
+            })),
+            { onConflict: "entity_type,entity_id,field_name" }
+          );
+      }
+    }
+  }
+
+  const { data: derivedEvents } = await supabase
+    .from("timeline_events")
+    .select("id, workspace_id")
+    .eq("source_entity_type", "table_row")
+    .eq("source_entity_id", rowId)
+    .eq("source_sync_mode", "live");
+  for (const event of (derivedEvents ?? []) as Array<{ id: string; workspace_id?: string }>) {
+    const payload: Record<string, unknown> = { updated_by: userId };
+    if (title !== null) payload.title = title;
+    if (namedTimelineStatuses.length > 0) payload.statuses = namedTimelineStatuses;
+    if (namedTimelinePriorities.length > 0) payload.priorities = namedTimelinePriorities;
+    if (startDate !== null) payload.start_date = new Date(`${startDate}T00:00:00.000Z`).toISOString();
+    if (endDate !== null) payload.end_date = new Date(`${endDate}T00:00:00.000Z`).toISOString();
+    await supabase.from("timeline_events").update(payload).eq("id", event.id);
+    // Bug 1.3 fix: sync entity_properties for derived timeline event
+    if (event.workspace_id) {
+      await syncTimelineStatusFieldsToEntityProperties(supabase, event.id, event.workspace_id, namedTimelineStatuses);
+      await syncTimelinePriorityFieldsToEntityProperties(supabase, event.id, event.workspace_id, namedTimelinePriorities);
+    }
+  }
+}
+
+export async function syncBulkUpdatedRowToSourceAndDerived(params: {
+  rowId: string;
+  tableId: string;
+  changedFieldIds: string[];
+  authContext: AuthContext;
+}): Promise<void> {
+  const { rowId, tableId, changedFieldIds, authContext } = params;
+  const { supabase, userId } = authContext;
+  if (changedFieldIds.length === 0) return;
+
+  const { data: row } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data, source_entity_type, source_entity_id, source_sync_mode")
+    .eq("id", rowId)
+    .maybeSingle();
+  if (!row || row.table_id !== tableId) return;
+
+  const rowData = ((row.data ?? {}) as Record<string, unknown>);
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, config, is_primary")
+    .eq("table_id", tableId);
+  const fieldsById = new Map<string, TableField>();
+  for (const field of (fields ?? []) as TableField[]) {
+    fieldsById.set(field.id, field);
+  }
+
+  for (const fieldId of Array.from(new Set(changedFieldIds))) {
+    const field = fieldsById.get(fieldId);
+    if (!field) continue;
+    await syncTableRowEditToSource({
+      row,
+      field,
+      value: rowData[fieldId],
+      authContext,
+    });
+  }
+
+  await syncSourceRowToDerived({
+    rowId,
+    tableId,
+    rowData,
+    userId,
+    supabase,
+  });
+}
+
 async function syncTableRowEditToBlock(
   blockId: string,
   field: TableField,
@@ -1036,6 +1342,54 @@ async function syncTableRowEditToBlock(
   const updates = mapBlockUpdateFromField(field, value);
   if (!updates || Object.keys(updates).length === 0) return;
 
+  // Preserve existing named priorities/statuses and merge by field_name.
+  if ((updates as any).priorities || (updates as any).statuses) {
+    const { data: existingRows } = await supabase
+      .from("entity_properties")
+      .select("field_type, field_name, value")
+      .eq("entity_type", "block")
+      .eq("entity_id", blockId)
+      .in("field_type", ["priority", "status"]);
+
+    if ((updates as any).priorities) {
+      const existingPriorities = ((existingRows ?? []) as Array<{ field_type: string; field_name: string | null; value: unknown }>)
+        .filter((row) => row.field_type === "priority" && typeof row.field_name === "string" && typeof row.value === "string")
+        .map((row) => ({
+          field_name: String(row.field_name),
+          value: row.value as "low" | "medium" | "high" | "urgent",
+        }));
+      const nextPriorities = (updates as any).priorities as Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }>;
+      const merged = new Map<string, "low" | "medium" | "high" | "urgent">();
+      for (const p of existingPriorities) merged.set(normalizeFieldName(p.field_name), p.value);
+      for (const p of nextPriorities) merged.set(normalizeFieldName(p.field_name), p.value);
+      (updates as any).priorities = Array.from(merged.entries()).map(([key, value]) => {
+        const source =
+          nextPriorities.find((p) => normalizeFieldName(p.field_name) === key)
+          ?? existingPriorities.find((p) => normalizeFieldName(p.field_name) === key);
+        return { field_name: source?.field_name ?? "Priority", value };
+      });
+    }
+
+    if ((updates as any).statuses) {
+      const existingStatuses = ((existingRows ?? []) as Array<{ field_type: string; field_name: string | null; value: unknown }>)
+        .filter((row) => row.field_type === "status" && typeof row.field_name === "string" && typeof row.value === "string")
+        .map((row) => ({
+          field_name: String(row.field_name),
+          value: row.value as "todo" | "in_progress" | "blocked" | "done",
+        }));
+      const nextStatuses = (updates as any).statuses as Array<{ field_name: string; value: "todo" | "in_progress" | "blocked" | "done" }>;
+      const merged = new Map<string, "todo" | "in_progress" | "blocked" | "done">();
+      for (const s of existingStatuses) merged.set(normalizeFieldName(s.field_name), s.value);
+      for (const s of nextStatuses) merged.set(normalizeFieldName(s.field_name), s.value);
+      (updates as any).statuses = Array.from(merged.entries()).map(([key, value]) => {
+        const source =
+          nextStatuses.find((s) => normalizeFieldName(s.field_name) === key)
+          ?? existingStatuses.find((s) => normalizeFieldName(s.field_name) === key);
+        return { field_name: source?.field_name ?? "Status", value };
+      });
+    }
+  }
+
   const result = await setEntityProperties({
     entity_type: "block",
     entity_id: blockId,
@@ -1052,7 +1406,9 @@ function mapBlockUpdateFromField(
   value: unknown
 ): Partial<{
   status: Status | null;
+  statuses: Array<{ field_name: string; value: "todo" | "in_progress" | "blocked" | "done" }>;
   priority: Priority | null;
+  priorities: Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }>;
   assignee_id: string | null;
   assignee_ids: string[] | null;
   due_date: { start: string | null; end: string | null } | null;
@@ -1063,12 +1419,16 @@ function mapBlockUpdateFromField(
 
   if (field.type === "status" || normalizedFieldName === "status") {
     const status = normalizeTimelineStatus(resolveSelectLikeValue(field, value));
-    return status !== null ? { status } : null;
+    return status !== null
+      ? { statuses: [{ field_name: field.name, value: status }] }
+      : null;
   }
 
   if (field.type === "priority" || normalizedFieldName === "priority") {
     const priority = normalizeTimelinePriority(resolveSelectLikeValue(field, value));
-    return priority !== undefined && priority !== null ? { priority } : null;
+    return priority !== undefined && priority !== null
+      ? { priorities: [{ field_name: field.name, value: priority }] }
+      : null;
   }
 
   if (normalizedFieldName.includes("assignee") || field.type === "person") {
@@ -1080,14 +1440,13 @@ function mapBlockUpdateFromField(
   }
 
   if (field.type === "date" || normalizedFieldName.includes("due") || normalizedFieldName.includes("date")) {
-    const dateValue = normalizeDateTimeForTimeline(value);
-    if (!dateValue) return null;
-    const dateOnly = dateValue.slice(0, 10);
-    return { due_date: { start: dateOnly, end: dateOnly } };
+    const range = normalizeDateRangeForTask(value);
+    if (!range) return null;
+    return { due_date: { start: range.start ?? null, end: range.end ?? range.start ?? null } };
   }
 
   if (normalizedFieldName.includes("tag")) {
-    const tags = extractTagsFromValue(value);
+    const tags = extractTagsFromValue(field, value);
     if (tags) return { tags };
     return null;
   }
@@ -1105,12 +1464,16 @@ function extractAssigneeIdFromValue(value: unknown): string | null | undefined {
   return undefined;
 }
 
-function extractTagsFromValue(value: unknown): string[] | null {
+function extractTagsFromValue(field: TableField, value: unknown): string[] | null {
   if (Array.isArray(value)) {
-    const tags = value.map((t) => (typeof t === "string" ? t.trim() : null)).filter((t): t is string => Boolean(t));
+    const options = ((((field.config as any) ?? {}) as Record<string, unknown>).options ?? []) as TagFieldOption[];
+    const stringValues = value.map((t) => (typeof t === "string" ? t.trim() : null)).filter((t): t is string => Boolean(t));
+    const tags = mapOptionIdsToTagNames(stringValues, options)
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
     return tags.length ? tags : null;
   }
-  const s = valueToString(value);
+  const s = valueToString(value)?.trim();
   return s ? [s] : null;
 }
 
@@ -1149,10 +1512,13 @@ function mapTaskUpdateFromField(
   | Partial<{
       title: string;
       status: "todo" | "in-progress" | "done";
+      statuses: Array<{ field_name: string; value: "todo" | "in_progress" | "blocked" | "done" }>;
       priority: "urgent" | "high" | "medium" | "low" | "none";
+      priorities: Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }>;
       description: string | null;
       dueDate: string | null;
       startDate: string | null;
+      tags: string[];
     }>
   | null {
   const normalizedFieldName = normalizeFieldName(field.name);
@@ -1164,26 +1530,44 @@ function mapTaskUpdateFromField(
 
   if (field.type === "status" || normalizedFieldName === "status") {
     const status = normalizeTaskStatus(resolveSelectLikeValue(field, value));
-    return status ? { status } : null;
+    if (!status) return null;
+    const normalized = status === "in-progress" ? "in_progress" : status;
+    if (normalized !== "todo" && normalized !== "in_progress" && normalized !== "blocked" && normalized !== "done") {
+      return null;
+    }
+    return { statuses: [{ field_name: field.name, value: normalized }] };
   }
 
   if (field.type === "priority" || normalizedFieldName === "priority") {
     const priority = normalizeTaskPriority(resolveSelectLikeValue(field, value));
-    return priority ? { priority } : null;
+    if (!priority || priority === "none") return null;
+    return { priorities: [{ field_name: field.name, value: priority }] };
   }
 
   if (normalizedFieldName.includes("description") || normalizedFieldName.includes("notes")) {
     return { description: textValue };
   }
 
+  if (field.type === "tags" || normalizedFieldName === "tags" || normalizedFieldName.includes("tag")) {
+    const tags = extractTagsFromValue(field, value);
+    return tags ? { tags } : { tags: [] };
+  }
+
   if (field.type === "date" || normalizedFieldName.includes("date")) {
-    const dateValue = normalizeDateForTask(value);
+    const range = normalizeDateRangeForTask(value);
+    const startDate = range?.start ?? null;
+    const dueDate = range?.end ?? range?.start ?? null;
     if (normalizedFieldName.includes("start")) {
-      return { startDate: dateValue };
+      return { startDate };
     }
     if (normalizedFieldName.includes("due") || normalizedFieldName === "date") {
-      return { dueDate: dateValue };
+      if (normalizedFieldName === "date" && startDate && dueDate && startDate !== dueDate) {
+        return { startDate, dueDate };
+      }
+      return { dueDate };
     }
+    if (startDate && dueDate && startDate !== dueDate) return { startDate, dueDate };
+    return { dueDate };
   }
 
   return null;
@@ -1237,10 +1621,22 @@ function mapTimelineUpdateFromField(
   }
 
   if (field.type === "date" || normalizedFieldName.includes("date")) {
-    const iso = normalizeDateTimeForTimeline(value);
-    if (!iso) return null;
-    if (normalizedFieldName.includes("end")) return { endDate: iso };
-    if (normalizedFieldName.includes("start") || normalizedFieldName === "date") return { startDate: iso };
+    const range = normalizeDateRangeForTimeline(value);
+    if (!range) return null;
+    const startIso = range.start ?? null;
+    const endIso = range.end ?? range.start ?? null;
+    if (normalizedFieldName.includes("end")) return endIso ? { endDate: endIso } : null;
+    if (normalizedFieldName.includes("start")) return startIso ? { startDate: startIso } : null;
+    if (normalizedFieldName === "date") {
+      if (startIso && endIso) return { startDate: startIso, endDate: endIso };
+      if (startIso) return { startDate: startIso };
+      if (endIso) return { endDate: endIso };
+      return null;
+    }
+    if (startIso && endIso) return { startDate: startIso, endDate: endIso };
+    if (startIso) return { startDate: startIso };
+    if (endIso) return { endDate: endIso };
+    return null;
   }
 
   return null;
@@ -1283,16 +1679,9 @@ function normalizeTaskPriority(value: unknown): "urgent" | "high" | "medium" | "
 }
 
 function normalizeDateForTask(value: unknown): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
-    return value.trim();
-  }
-  const parsed = parseDateSafe(String(value));
-  if (!parsed) return null;
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, "0");
-  const d = String(parsed.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  const range = normalizeDateRangeForTask(value);
+  if (!range) return null;
+  return range.end ?? range.start ?? null;
 }
 
 function normalizeTimelineStatus(value: unknown): "todo" | "in_progress" | "blocked" | "done" | null {
@@ -1314,10 +1703,74 @@ function normalizeTimelinePriority(value: unknown): "low" | "medium" | "high" | 
 }
 
 function normalizeDateTimeForTimeline(value: unknown): string | null {
+  const range = normalizeDateRangeForTimeline(value);
+  if (!range) return null;
+  return range.end ?? range.start ?? null;
+}
+
+function normalizeDateRangeForTask(value: unknown): { start: string | null; end: string | null } | null {
+  const parsed = parseDateRangeInput(value);
+  if (!parsed) return null;
+  const start = parsed.start ? normalizeDateToken(parsed.start) : null;
+  const end = parsed.end ? normalizeDateToken(parsed.end) : null;
+  if (!start && !end) return null;
+  return { start, end: end ?? start };
+}
+
+function normalizeDateRangeForTimeline(value: unknown): { start: string | null; end: string | null } | null {
+  const parsed = parseDateRangeInput(value);
+  if (!parsed) return null;
+  const start = parsed.start ? normalizeDateTimeToken(parsed.start) : null;
+  const end = parsed.end ? normalizeDateTimeToken(parsed.end) : null;
+  if (!start && !end) return null;
+  return { start, end: end ?? start };
+}
+
+function parseDateRangeInput(value: unknown): { start: unknown; end: unknown } | null {
   if (value === null || value === undefined || value === "") return null;
-  const str = String(value);
-  // For date-only YYYY-MM-DD, treat as local midnight to avoid timezone shift
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str.trim())) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const rangeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s*\.\.\s*(\d{4}-\d{2}-\d{2})$/);
+    if (rangeMatch) {
+      return { start: rangeMatch[1], end: rangeMatch[2] };
+    }
+    return { start: trimmed, end: trimmed };
+  }
+  if (typeof value !== "object") return { start: value, end: value };
+  const obj = value as Record<string, unknown>;
+  const start = obj.start ?? obj.startDate ?? obj.from ?? obj.date ?? null;
+  const end = obj.end ?? obj.endDate ?? obj.to ?? obj.dueDate ?? start ?? null;
+  if (start === null && end === null) return null;
+  return { start, end };
+}
+
+function formatDateRangeCellValue(start: string | null, end: string | null): string | null {
+  if (!start && !end) return null;
+  const resolvedStart = start ?? end;
+  const resolvedEnd = end ?? start;
+  if (!resolvedStart || !resolvedEnd) return resolvedStart ?? resolvedEnd ?? null;
+  if (resolvedStart === resolvedEnd) return resolvedEnd;
+  return `${resolvedStart}..${resolvedEnd}`;
+}
+
+function normalizeDateToken(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim();
+  }
+  const parsed = parseDateSafe(String(value));
+  if (!parsed) return null;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function normalizeDateTimeToken(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     const d = parseDateSafe(str);
     if (!d) return null;
     d.setHours(0, 0, 0, 0);

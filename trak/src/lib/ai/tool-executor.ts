@@ -247,6 +247,7 @@ const CREATE_TABLE_FULL_MAX_INLINE_ROWS = 2;
 const BULK_INSERT_DEFAULT_CHUNK_ROWS = 50;
 const BULK_INSERT_MIN_CHUNK_ROWS = 2;
 const BULK_INSERT_TARGET_PAYLOAD_CHARS = 14000;
+const CHART_ROW_COMPRESSION_MAX_EXPANSION = 5000;
 
 function summarizeToolArgs(args: Record<string, unknown>) {
   const keys = Object.keys(args || {});
@@ -323,6 +324,55 @@ function chooseInitialBulkInsertChunkSize(
     BULK_INSERT_MIN_CHUNK_ROWS,
     Math.min(BULK_INSERT_DEFAULT_CHUNK_ROWS, sizeByChars, rows.length)
   );
+}
+
+type ChartRowRecord = Record<string, unknown>;
+
+function flattenChartRowBatches(rawBatches: unknown): ChartRowRecord[] {
+  if (!Array.isArray(rawBatches)) return [];
+  const out: ChartRowRecord[] = [];
+  for (const batch of rawBatches) {
+    if (!Array.isArray(batch)) continue;
+    for (const row of batch) {
+      if (row && typeof row === "object" && !Array.isArray(row)) {
+        out.push(row as ChartRowRecord);
+      }
+    }
+  }
+  return out;
+}
+
+function normalizeChartRowsForExecution(rawRows: unknown, rawBatches: unknown): ChartRowRecord[] {
+  const baseRows = Array.isArray(rawRows)
+    ? rawRows.filter((row) => row && typeof row === "object" && !Array.isArray(row)) as ChartRowRecord[]
+    : [];
+  const rows = baseRows.length > 0 ? baseRows : flattenChartRowBatches(rawBatches);
+  if (rows.length === 0) return [];
+
+  const expanded: ChartRowRecord[] = [];
+  for (const original of rows) {
+    const row = { ...original } as ChartRowRecord;
+    const explicitCount = row.__count ?? row.count;
+    const countNumber = Number(explicitCount);
+    const repeat = Number.isFinite(countNumber) ? Math.max(1, Math.floor(countNumber)) : 1;
+    delete row.__count;
+    delete row.count;
+
+    // Drop internal source metadata from chart rows; chart rendering does not consume it.
+    delete row._source;
+
+    for (let i = 0; i < repeat; i++) {
+      if (expanded.length >= CHART_ROW_COMPRESSION_MAX_EXPANSION) {
+        return expanded;
+      }
+      const idValue = String(row.id ?? `row_${expanded.length + 1}`);
+      expanded.push({
+        ...row,
+        id: repeat > 1 ? `${idValue}__${i + 1}` : idValue,
+      });
+    }
+  }
+  return expanded;
 }
 
 async function insertRowsAdaptive(
@@ -547,11 +597,16 @@ async function syncTaskEntityPropertiesAfterCreate(params: {
   startDate?: unknown;
   tags?: unknown;
   assignees?: Array<{ id?: string | null; name?: string | null }>;
+  sourceEntityType?: unknown;
+  sourceEntityId?: unknown;
 }) {
   const namedStatuses = normalizeNamedStatuses(params.statuses);
   const namedPriorities = normalizeNamedPriorities(params.priorities);
   const singleStatus = normalizeTaskStatusValue(params.status);
   const singlePriority = normalizeTaskPriorityValue(params.priority);
+  const normalizedSourceType = normalizeSourceEntityType(params.sourceEntityType);
+  const normalizedSourceId = normalizeSourceEntityId(params.sourceEntityId);
+  const isTableRowSourcedTask = normalizedSourceType === "table_row" && Boolean(normalizedSourceId);
   const dueDateRange = buildDueDateRangeFromTaskInput(params.dueDate, params.startDate);
   const tags = Array.isArray(params.tags)
     ? Array.from(new Set(params.tags.map((tag) => (typeof tag === "string" ? tag.trim() : "")).filter(Boolean)))
@@ -569,22 +624,26 @@ async function syncTaskEntityPropertiesAfterCreate(params: {
   const updates: Record<string, unknown> = {};
   if (namedStatuses.length > 0) {
     updates.statuses = namedStatuses;
-  } else {
+  } else if (!isTableRowSourcedTask) {
     updates.status = singleStatus ?? "todo";
   }
   if (namedPriorities.length > 0) {
     updates.priorities = namedPriorities;
-  } else if (singlePriority) {
+  } else if (singlePriority && !isTableRowSourcedTask) {
     updates.priority = singlePriority;
   }
   if (dueDateRange) {
-    updates.due_date = dueDateRange;
+    if (!isTableRowSourcedTask) {
+      updates.due_date = dueDateRange;
+    }
   }
   if (tags.length > 0) {
     updates.tags = tags;
   }
   if (assigneeIds.length > 0) {
-    updates.assignee_ids = assigneeIds;
+    if (!isTableRowSourcedTask) {
+      updates.assignee_ids = assigneeIds;
+    }
   }
 
   const result = await setEntityProperties({
@@ -684,6 +743,9 @@ const LEGACY_TOOL_ALIASES: Record<string, string> = {
   createSubtask: "createTaskSubtask",
   updateSubtask: "updateTaskSubtask",
   deleteSubtask: "deleteTaskSubtask",
+  createChart: "createSpecChartBlock",
+  createChartBlock: "createSpecChartBlock",
+  createChartFromQuery: "createSpecChartBlock",
 };
 
 function normalizeToolName(name: string): string {
@@ -1508,10 +1570,11 @@ export async function executeTool(
             let rpcResult:
               | Awaited<ReturnType<typeof createTaskFullRpc>>
               | null = null;
+            const isTableRowSourceCreate = payload.sourceEntityType === "table_row" && Boolean(payload.sourceEntityId);
             try {
               rpcResult = await createTaskFullRpc({
                 ...payload,
-                assignees: resolvedAssignees,
+                assignees: isTableRowSourceCreate ? [] : resolvedAssignees,
                 tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
                 authContext: authContext ?? undefined,
               });
@@ -1533,6 +1596,8 @@ export async function executeTool(
                 startDate: payload.startDate,
                 tags: args.tags,
                 assignees: resolvedAssignees,
+                sourceEntityType: payload.sourceEntityType,
+                sourceEntityId: payload.sourceEntityId,
               });
               const out: ToolCallResult = { success: true, data: rpcResult.data };
               if (taskSourceMetadataIncomplete) out.sourceMetadataIncomplete = true;
@@ -1550,7 +1615,7 @@ export async function executeTool(
               const newTaskId = directResult.data.id;
 
               const postCreate: Promise<unknown>[] = [];
-              if (resolvedAssignees.length > 0) {
+              if (resolvedAssignees.length > 0 && !isTableRowSourceCreate) {
                 postCreate.push(setTaskAssignees(newTaskId, resolvedAssignees, { timing, replaceExisting: false, authContext: authContext ?? undefined }));
               }
               if (Array.isArray(args.tags) && args.tags.length > 0) {
@@ -1567,6 +1632,8 @@ export async function executeTool(
                 startDate: payload.startDate,
                 tags: args.tags,
                 assignees: resolvedAssignees,
+                sourceEntityType: payload.sourceEntityType,
+                sourceEntityId: payload.sourceEntityId,
               });
 
               aiDebug("createTaskItem:timing", {
@@ -1953,6 +2020,9 @@ export async function executeTool(
                     }
                   }
 
+                  const taskSourceEntityType = normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type);
+                  const taskSourceEntityId = normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id);
+                  const isTableRowSourceCreate = taskSourceEntityType === "table_row" && Boolean(taskSourceEntityId);
                   const rpcResult = await createTaskFullRpc({
                     taskBlockId,
                     title: task.title as string,
@@ -1964,16 +2034,14 @@ export async function executeTool(
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
-                    sourceEntityType:
-                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined,
-                    sourceEntityId:
-                      normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
+                    sourceEntityType: taskSourceEntityType ?? undefined,
+                    sourceEntityId: taskSourceEntityId ?? undefined,
                     sourceSyncMode:
-                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) &&
-                        normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id)
+                      taskSourceEntityType &&
+                        taskSourceEntityId
                         ? normalizeSourceSyncMode((task as Record<string, unknown>)?.source_sync_mode)
                         : undefined,
-                    assignees: resolvedAssignees,
+                    assignees: isTableRowSourceCreate ? [] : resolvedAssignees,
                     tags: Array.isArray(task.tags) ? (task.tags as string[]) : [],
                     authContext: authContext ?? undefined,
                   });
@@ -1989,6 +2057,8 @@ export async function executeTool(
                       startDate: task.startDate,
                       tags: task.tags,
                       assignees: resolvedAssignees,
+                      sourceEntityType: (task as Record<string, unknown>)?.source_entity_type,
+                      sourceEntityId: (task as Record<string, unknown>)?.source_entity_id,
                     });
                     return { input: task, data: rpcResult.data };
                   }
@@ -2024,7 +2094,7 @@ export async function executeTool(
                   if (!("error" in directResult)) {
                     // Set assignees and tags if needed
                     const postCreate: Promise<unknown>[] = [];
-                    if (resolvedAssignees.length > 0) {
+                    if (resolvedAssignees.length > 0 && !isTableRowSourceCreate) {
                       postCreate.push(setTaskAssignees(directResult.data.id, resolvedAssignees, { replaceExisting: false, authContext: authContext ?? undefined }));
                     }
                     if (Array.isArray(task.tags) && (task.tags as string[]).length > 0) {
@@ -2041,6 +2111,8 @@ export async function executeTool(
                       startDate: task.startDate,
                       tags: task.tags,
                       assignees: resolvedAssignees,
+                      sourceEntityType: (task as Record<string, unknown>)?.source_entity_type,
+                      sourceEntityId: (task as Record<string, unknown>)?.source_entity_id,
                     });
                     return { input: task, data: directResult.data };
                   }
@@ -2455,12 +2527,13 @@ export async function executeTool(
           }
           if (!tabId && context?.currentTabId) tabId = context.currentTabId;
           if (!tabId) return { success: false, error: "createSpecChartBlock: Missing tabId" };
+          const normalizedRows = normalizeChartRowsForExecution(args.rows, args.rowBatches);
 
           return await wrapResult(
             createSpecChartBlock({
               tabId,
               spec:              args.spec as Record<string, unknown>,
-              rows:              Array.isArray(args.rows) ? args.rows as Array<Record<string, unknown>> : [],
+              rows:              normalizedRows,
               universeTotal:     args.universeTotal as number | undefined,
               title:             args.title as string | undefined,
               prompt:            args.prompt as string | undefined,
@@ -4928,11 +5001,15 @@ function inferFieldTypeFromData(
     }
   }
 
-  // Status detection
-  if (normalizedName.includes("status") || normalizedName === "state") {
+  // Status detection (task/workflow status, not e.g. "State" as in US state)
+  // Only match names that contain "status"; do NOT match "state" alone so "State" (e.g. US state) stays text.
+  if (normalizedName.includes("status")) {
     const uniqueValues = Array.from(new Set(nonNullValues.map((v) => normalizeOptionId(String(v)))));
     const statusPatterns = ["todo", "to-do", "to do", "in-progress", "in progress", "done", "complete", "completed", "blocked", "cancelled", "unspecified"];
-    const isStatus = uniqueValues.length >= 2 && uniqueValues.length <= 10;
+    const isStatus =
+      uniqueValues.length >= 2 &&
+      uniqueValues.length <= 10 &&
+      uniqueValues.every((v) => statusPatterns.includes(v));
 
     if (isStatus) {
       return { type: "status" };

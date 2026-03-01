@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { type TableField } from "@/types/table";
 
@@ -28,22 +28,37 @@ function getOptions(field: TableField): TagOption[] {
     .filter((option): option is TagOption => Boolean(option));
 }
 
-function normalizeTagIds(value: unknown): string[] {
+function normalizeTagIds(value: unknown, options: TagOption[]): string[] {
   const values = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
-  return values
+  const labelToId = new Map<string, string>();
+  for (const option of options) {
+    labelToId.set(option.label.trim().toLowerCase(), option.id);
+  }
+  const normalized = values
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      if (labelToId.has(entry.toLowerCase())) return labelToId.get(entry.toLowerCase())!;
+      return entry;
+    });
+  return Array.from(new Set(normalized));
 }
 
 export function TagsCell({ field, value, editing, onStartEdit, onCommit, saving }: Props) {
-  const options = getOptions(field);
-  const [selectedIds, setSelectedIds] = useState<string[]>(normalizeTagIds(value));
+  const options = useMemo(() => getOptions(field), [field.config]);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => normalizeTagIds(value, options));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setSelectedIds(normalizeTagIds(value));
-  }, [value]);
+    const next = normalizeTagIds(value, options);
+    setSelectedIds((prev) => {
+      if (prev.length === next.length && prev.every((id, idx) => id === next[idx])) {
+        return prev;
+      }
+      return next;
+    });
+  }, [value, options]);
 
   useEffect(() => {
     setDropdownOpen(editing);
