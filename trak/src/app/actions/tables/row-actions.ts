@@ -443,8 +443,8 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
     return { error: "Failed to update cell: No data returned" };
   }
 
-  // Sync priority/status updates to entity_properties
-  if (field.type === "priority" || field.type === "status") {
+  // Sync universal property field updates to entity_properties
+  if (field.type === "priority" || field.type === "status" || field.type === "person" || field.type === "date" || field.type === "tags") {
     const { data: tableData } = await supabase
       .from("tables")
       .select("workspace_id")
@@ -452,29 +452,99 @@ export async function updateCell(rowId: string, fieldId: string, value: unknown,
       .single();
 
     if (tableData?.workspace_id) {
-      // Upsert to entity_properties
-      if (normalizedCellValue === null || normalizedCellValue === undefined || normalizedCellValue === "") {
-        // Delete entity_property if value is cleared
-        await supabase
-          .from("entity_properties")
-          .delete()
-          .eq("entity_type", "table_row")
-          .eq("entity_id", rowId)
-          .eq("field_name", field.name);
-      } else {
-        // Insert or update entity_property
-        await supabase
-          .from("entity_properties")
-          .upsert({
-            entity_type: "table_row",
-            entity_id: rowId,
-            field_name: field.name,
-            field_type: field.type,
-            value: normalizedCellValue,
-            workspace_id: tableData.workspace_id,
-          }, {
-            onConflict: "entity_type,entity_id,field_name"
-          });
+      if (field.type === "priority" || field.type === "status") {
+        // Upsert to entity_properties
+        if (normalizedCellValue === null || normalizedCellValue === undefined || normalizedCellValue === "") {
+          await supabase
+            .from("entity_properties")
+            .delete()
+            .eq("entity_type", "table_row")
+            .eq("entity_id", rowId)
+            .eq("field_name", field.name);
+        } else {
+          await supabase
+            .from("entity_properties")
+            .upsert({
+              entity_type: "table_row",
+              entity_id: rowId,
+              field_name: field.name,
+              field_type: field.type,
+              value: normalizedCellValue,
+              workspace_id: tableData.workspace_id,
+            }, {
+              onConflict: "entity_type,entity_id,field_name"
+            });
+        }
+      }
+
+      if (field.type === "person") {
+        const rawId = typeof normalizedCellValue === "string" ? normalizedCellValue.trim() : null;
+        const assigneeValue = rawId ? [{ id: rawId }] : null;
+        if (!assigneeValue) {
+          await supabase
+            .from("entity_properties")
+            .delete()
+            .eq("entity_type", "table_row")
+            .eq("entity_id", rowId)
+            .eq("field_name", field.name);
+        } else {
+          await supabase
+            .from("entity_properties")
+            .upsert({
+              entity_type: "table_row",
+              entity_id: rowId,
+              workspace_id: tableData.workspace_id,
+              field_name: field.name,
+              field_type: "assignee",
+              value: assigneeValue,
+            }, { onConflict: "entity_type,entity_id,field_name" });
+        }
+      }
+
+      if (field.type === "date") {
+        const dateRange = normalizeDateRangeForTask(normalizedCellValue);
+        if (!dateRange) {
+          await supabase
+            .from("entity_properties")
+            .delete()
+            .eq("entity_type", "table_row")
+            .eq("entity_id", rowId)
+            .eq("field_name", field.name);
+        } else {
+          await supabase
+            .from("entity_properties")
+            .upsert({
+              entity_type: "table_row",
+              entity_id: rowId,
+              workspace_id: tableData.workspace_id,
+              field_name: field.name,
+              field_type: "due_date",
+              value: dateRange,
+            }, { onConflict: "entity_type,entity_id,field_name" });
+        }
+      }
+
+      if (field.type === "tags") {
+        const tagNames = Array.isArray(normalizedCellValue) ? normalizedCellValue as string[] : [];
+        if (tagNames.length === 0) {
+          await supabase
+            .from("entity_properties")
+            .delete()
+            .eq("entity_type", "table_row")
+            .eq("entity_id", rowId)
+            .eq("field_name", field.name);
+        } else {
+          await supabase
+            .from("entity_properties")
+            .upsert({
+              entity_type: "table_row",
+              entity_id: rowId,
+              workspace_id: tableData.workspace_id,
+              field_name: field.name,
+              field_type: "tags",
+              value: tagNames,
+            }, { onConflict: "entity_type,entity_id,field_name" });
+        }
       }
     }
   }
@@ -1262,9 +1332,20 @@ async function syncSourceRowToDerived(params: {
     .eq("source_sync_mode", "live");
   for (const event of (derivedEvents ?? []) as Array<{ id: string; workspace_id?: string }>) {
     const payload: Record<string, unknown> = { updated_by: userId };
+    const timelineAssignees = derivedSeed.assignees
+      .map((entry) => ({
+        field_name: entry.field_name,
+        value: (entry.value ?? []).map((id) => ({ type: "user", id })),
+      }))
+      .filter((entry) => entry.value.length > 0);
     if (title !== null) payload.title = title;
     if (namedTimelineStatuses.length > 0) payload.statuses = namedTimelineStatuses;
     if (namedTimelinePriorities.length > 0) payload.priorities = namedTimelinePriorities;
+    if (timelineAssignees.length > 0) {
+      payload.assignees = timelineAssignees;
+      payload.assignee_id = derivedSeed.preferred_assignee_ids[0] ?? null;
+      payload.assignee_team_id = null;
+    }
     if (startDate !== null) payload.start_date = new Date(`${startDate}T00:00:00.000Z`).toISOString();
     if (endDate !== null) payload.end_date = new Date(`${endDate}T00:00:00.000Z`).toISOString();
     await supabase.from("timeline_events").update(payload).eq("id", event.id);
@@ -1519,6 +1600,7 @@ function mapTaskUpdateFromField(
       dueDate: string | null;
       startDate: string | null;
       tags: string[];
+      assignees: Array<{ field_name: string; value: string[] }>;
     }>
   | null {
   const normalizedFieldName = normalizeFieldName(field.name);
@@ -1570,6 +1652,11 @@ function mapTaskUpdateFromField(
     return { dueDate };
   }
 
+  if (field.type === "person") {
+    const idStr = typeof value === "string" ? value.trim() : null;
+    return { assignees: idStr ? [{ field_name: field.name, value: [idStr] }] : [] };
+  }
+
   return null;
 }
 
@@ -1586,6 +1673,8 @@ function mapTimelineUpdateFromField(
       progress: number;
       notes: string | null;
       isMilestone: boolean;
+      assignees: Array<{ field_name: string; value: Array<{ type: "user" | "team"; id: string }> }>;
+      tags: string[];
     }>
   | null {
   const normalizedFieldName = normalizeFieldName(field.name);
@@ -1637,6 +1726,17 @@ function mapTimelineUpdateFromField(
     if (startIso) return { startDate: startIso };
     if (endIso) return { endDate: endIso };
     return null;
+  }
+
+  if (field.type === "person") {
+    const idStr = typeof value === "string" ? value.trim() : null;
+    const values: Array<{ type: "user" | "team"; id: string }> = idStr ? [{ type: "user", id: idStr }] : [];
+    return { assignees: [{ field_name: field.name, value: values }] };
+  }
+
+  if (field.type === "tags") {
+    const tags = Array.isArray(value) ? (value as unknown[]).map(String).filter(Boolean) : [];
+    return { tags };
   }
 
   return null;

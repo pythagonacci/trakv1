@@ -62,6 +62,54 @@ export async function setEntityProperty(
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, workspaceId } = access;
 
+  const coreFieldTypes: FieldType[] = ["status", "priority", "assignee", "due_date", "tags"];
+  if (coreFieldTypes.includes(input.field_type)) {
+    const { setEntityProperties } = await import("@/app/actions/entity-properties");
+    const updates: Record<string, unknown> = {};
+    if (input.field_type === "status") {
+      updates.statuses = [{ field_name: input.field_name, value: input.value as any }];
+    } else if (input.field_type === "priority") {
+      updates.priorities = [{ field_name: input.field_name, value: input.value as any }];
+    } else if (input.field_type === "assignee") {
+      const raw = input.value;
+      const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+      const ids = values
+        .map((entry: any) => {
+          if (typeof entry === "string") return entry.trim();
+          if (entry && typeof entry === "object" && typeof entry.id === "string") return entry.id.trim();
+          return "";
+        })
+        .filter((id) => id.length > 0);
+      updates.assignees = [{ field_name: input.field_name, value: ids }];
+    } else if (input.field_type === "due_date") {
+      updates.due_dates = [{ field_name: input.field_name, value: input.value as any }];
+    } else if (input.field_type === "tags") {
+      const value = Array.isArray(input.value) ? input.value : [];
+      updates.tags = value as any;
+    }
+
+    const syncResult = await setEntityProperties({
+      entity_type: input.entity_type as any,
+      entity_id: input.entity_id,
+      workspace_id: workspaceId,
+      updates: updates as any,
+    });
+    if ("error" in syncResult) {
+      return { error: syncResult.error };
+    }
+    const { data: syncedRow, error: syncedRowError } = await supabase
+      .from("entity_properties")
+      .select("id, entity_type, entity_id, workspace_id, field_name, field_type, value, created_at, updated_at")
+      .eq("entity_type", input.entity_type)
+      .eq("entity_id", input.entity_id)
+      .eq("field_name", input.field_name)
+      .maybeSingle();
+    if (syncedRowError || !syncedRow) {
+      return { error: "Failed to set entity property" };
+    }
+    return { data: syncedRow as NamedField };
+  }
+
   const { data, error } = await supabase
     .from("entity_properties")
     .upsert(

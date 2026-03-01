@@ -1478,6 +1478,17 @@ export async function executeTool(
                   title,
                   description: args.description as string | null | undefined,
                   completed: args.status === "done" ? true : undefined,
+                  status: args.status as any,
+                  statuses: args.statuses as any,
+                  priority: args.priority as any,
+                  priorities: args.priorities as any,
+                  assignee_ids: Array.isArray(args.assigneeIds)
+                    ? (args.assigneeIds as string[])
+                    : Array.isArray(args.assignee_ids)
+                      ? (args.assignee_ids as string[])
+                      : undefined,
+                  due_date: (args.dueDate ?? args.due_date) as any,
+                  tags: Array.isArray(args.tags) ? (args.tags as string[]) : undefined,
                   displayOrder: args.displayOrder as number | undefined,
                   authContext: authContext ?? undefined,
                 })
@@ -2166,6 +2177,25 @@ export async function executeTool(
               authContext: authContext ?? undefined,
             });
             if (!("error" in rpcResult)) {
+              const newTaskIds = rpcResult.data.createdTaskIds;
+              if (newTaskIds.length > 0) {
+                const supabaseForSync = await createSupabaseClient();
+                const { data: newTasks } = await supabaseForSync
+                  .from("task_items")
+                  .select("id, statuses, priorities, due_date, start_date")
+                  .in("id", newTaskIds);
+                await Promise.all(
+                  (newTasks ?? []).map((task: any) =>
+                    syncTaskEntityPropertiesAfterCreate({
+                      taskId: task.id,
+                      statuses: task.statuses,
+                      priorities: task.priorities,
+                      dueDate: task.due_date,
+                      startDate: task.start_date,
+                    })
+                  )
+                );
+              }
               return { success: true, data: rpcResult.data };
             }
           }
@@ -2391,6 +2421,20 @@ export async function executeTool(
               title: args.title as string,
               description: args.description as string | null | undefined,
               completed: args.completed as boolean | undefined,
+              status: args.status as any,
+              statuses: args.statuses as any,
+              priority: args.priority as any,
+              priorities: args.priorities as any,
+              assignee_ids: Array.isArray(args.assigneeIds)
+                ? (args.assigneeIds as string[])
+                : Array.isArray(args.assignee_ids)
+                  ? (args.assignee_ids as string[])
+                  : undefined,
+              assignee_id: (args.assigneeId ?? args.assignee_id) as string | null | undefined,
+              assignees: args.assignees as any,
+              due_date: (args.dueDate ?? args.due_date) as any,
+              due_dates: (args.dueDates ?? args.due_dates) as any,
+              tags: Array.isArray(args.tags) ? (args.tags as string[]) : undefined,
               displayOrder: args.displayOrder as number | undefined,
               authContext: authContext ?? undefined,
             })
@@ -2404,14 +2448,18 @@ export async function executeTool(
               completed: args.completed as boolean | undefined,
               displayOrder: args.displayOrder as number | undefined,
               status: args.status as any,
+              statuses: args.statuses as any,
               priority: args.priority as any,
+              priorities: args.priorities as any,
               assignee_ids: Array.isArray(args.assigneeIds)
                 ? (args.assigneeIds as string[])
                 : Array.isArray(args.assignee_ids)
                   ? (args.assignee_ids as string[])
                   : undefined,
+              assignees: args.assignees as any,
               assignee_id: (args.assigneeId ?? args.assignee_id) as string | null | undefined,
               due_date: (args.dueDate ?? args.due_date) as any,
+              due_dates: (args.dueDates ?? args.due_dates) as any,
               tags: Array.isArray(args.tags) ? (args.tags as string[]) : undefined,
             })
           );
@@ -4026,6 +4074,19 @@ export async function executeTool(
               notes: args.notes as string | undefined,
               color: args.color as string | undefined,
               isMilestone: args.isMilestone as boolean | undefined,
+              assignees: (args as Record<string, unknown>).assignees as any,
+              assigneeIds:
+                Array.isArray((args as Record<string, unknown>).assigneeIds)
+                  ? ((args as Record<string, unknown>).assigneeIds as string[])
+                  : Array.isArray((args as Record<string, unknown>).assignee_ids)
+                    ? ((args as Record<string, unknown>).assignee_ids as string[])
+                    : undefined,
+              assigneeTeamIds:
+                Array.isArray((args as Record<string, unknown>).assigneeTeamIds)
+                  ? ((args as Record<string, unknown>).assigneeTeamIds as string[])
+                  : Array.isArray((args as Record<string, unknown>).assignee_team_ids)
+                    ? ((args as Record<string, unknown>).assignee_team_ids as string[])
+                    : undefined,
               assigneeId,
               sourceEntityType: sourceMetadata.sourceEntityType,
               sourceEntityId: sourceMetadata.sourceEntityId,
@@ -4069,8 +4130,41 @@ export async function executeTool(
               startDate: args.startDate as string,
               endDate: args.endDate as string,
               status: args.status as TimelineEventStatus | undefined,
+              statuses:
+                ((args as Record<string, unknown>).statuses ??
+                  (args as Record<string, unknown>).statusFields ??
+                  (args as Record<string, unknown>).status_fields) !== undefined
+                  ? normalizeTimelineStatuses(
+                    (args as Record<string, unknown>).statuses ??
+                    (args as Record<string, unknown>).statusFields ??
+                    (args as Record<string, unknown>).status_fields
+                  )
+                  : undefined,
               priority: args.priority as TimelineEventPriority | undefined,
+              priorities:
+                ((args as Record<string, unknown>).priorities ??
+                  (args as Record<string, unknown>).priorityFields ??
+                  (args as Record<string, unknown>).priority_fields) !== undefined
+                  ? normalizeTimelinePriorities(
+                    (args as Record<string, unknown>).priorities ??
+                    (args as Record<string, unknown>).priorityFields ??
+                    (args as Record<string, unknown>).priority_fields
+                  )
+                  : undefined,
               assigneeId,
+              assignees: (args as Record<string, unknown>).assignees as any,
+              assigneeIds:
+                Array.isArray((args as Record<string, unknown>).assigneeIds)
+                  ? ((args as Record<string, unknown>).assigneeIds as string[])
+                  : Array.isArray((args as Record<string, unknown>).assignee_ids)
+                    ? ((args as Record<string, unknown>).assignee_ids as string[])
+                    : undefined,
+              assigneeTeamIds:
+                Array.isArray((args as Record<string, unknown>).assigneeTeamIds)
+                  ? ((args as Record<string, unknown>).assigneeTeamIds as string[])
+                  : Array.isArray((args as Record<string, unknown>).assignee_team_ids)
+                    ? ((args as Record<string, unknown>).assignee_team_ids as string[])
+                    : undefined,
               notes: args.notes as string | undefined,
               color: args.color as string | undefined,
               progress: args.progress as number | undefined,
@@ -4124,6 +4218,19 @@ export async function executeTool(
                 notes: (args.notes as string | null | undefined) ?? undefined,
                 color: (args.color as string | null | undefined) ?? undefined,
                 isMilestone: args.isMilestone as boolean | undefined,
+                assignees: (args as Record<string, unknown>).assignees as any,
+                assigneeIds:
+                  Array.isArray((args as Record<string, unknown>).assigneeIds)
+                    ? ((args as Record<string, unknown>).assigneeIds as string[])
+                    : Array.isArray((args as Record<string, unknown>).assignee_ids)
+                      ? ((args as Record<string, unknown>).assignee_ids as string[])
+                      : undefined,
+                assigneeTeamIds:
+                  Array.isArray((args as Record<string, unknown>).assigneeTeamIds)
+                    ? ((args as Record<string, unknown>).assigneeTeamIds as string[])
+                    : Array.isArray((args as Record<string, unknown>).assignee_team_ids)
+                      ? ((args as Record<string, unknown>).assignee_team_ids as string[])
+                      : undefined,
                 assigneeId: assigneeId,
               }, { authContext: authContext ?? undefined })
             );

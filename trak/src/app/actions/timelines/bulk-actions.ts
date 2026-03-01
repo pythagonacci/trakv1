@@ -3,9 +3,9 @@
 import { requireTimelineAccess } from "./context";
 import {
   normalizeTimelinePriorities,
-  syncTimelinePriorityFieldsToEntityProperties,
 } from "@/lib/timeline-priority-sync";
-import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
+import { syncTimelineEventToEntityProperties } from "./event-actions";
+import { normalizeTimelineAssignees } from "@/lib/timeline-assignee-utils";
 import type { AuthContext } from "@/lib/auth-context";
 import type { TimelineEvent } from "@/types/timeline";
 
@@ -87,7 +87,10 @@ export async function bulkDuplicateTimelineEvents(input: {
     end_date: event.end_date,
     statuses: event.statuses,
     priorities: normalizeTimelinePriorities(event.priorities),
+    assignees: Array.isArray(event.assignees) ? event.assignees : [],
     assignee_id: event.assignee_id,
+    assignee_team_id: (event as any).assignee_team_id ?? null,
+    tags: Array.isArray((event as any).tags) ? (event as any).tags : [],
     progress: event.progress,
     notes: event.notes,
     color: event.color,
@@ -122,17 +125,16 @@ export async function bulkDuplicateTimelineEvents(input: {
 
   await Promise.all(
     normalized.map(async (event) => {
-      await syncTimelineStatusFieldsToEntityProperties(
+      const assignees = normalizeTimelineAssignees((event as any).assignees ?? []);
+      const tags = Array.isArray((event as any).tags) ? (event as any).tags as string[] : [];
+      await syncTimelineEventToEntityProperties(
         supabase,
         event.id,
         event.workspace_id,
-        event.statuses
-      );
-      await syncTimelinePriorityFieldsToEntityProperties(
-        supabase,
-        event.id,
-        event.workspace_id,
-        event.priorities
+        event.statuses,
+        event.priorities,
+        assignees,
+        tags
       );
     })
   );

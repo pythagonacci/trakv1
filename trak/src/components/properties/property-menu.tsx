@@ -520,7 +520,12 @@ export function PropertyMenu({
             ) : (
               statusDrafts.map((field) => (
                 <div key={field.id} className="group rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                  <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
+                  <input
+                    value={field.field_name}
+                    onChange={(e) => setStatusDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, field_name: e.target.value } : entry))}
+                    placeholder="Name"
+                    className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
+                  />
                   <div className="mt-0.5 flex items-center justify-between gap-1.5">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Dot tone={field.value ? STATUS_TONE[field.value] : "neutral"} />
@@ -601,7 +606,12 @@ export function PropertyMenu({
                 .filter((f) => (focusedGroup === "priority" && focus?.fieldId ? f.id === focus.fieldId : true))
                 .map((field) => (
                   <div key={field.id} className="group rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                    <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
+                    <input
+                      value={field.field_name}
+                      onChange={(e) => setPriorityDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, field_name: e.target.value } : entry))}
+                      placeholder="Name"
+                      className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
+                    />
                     <div className="mt-0.5 flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Dot tone={field.value ? PRIORITY_TONE[field.value] : "neutral"} />
@@ -664,7 +674,12 @@ export function PropertyMenu({
                 const names = field.value.map((uid) => memberLookup.get(uid)?.name || memberLookup.get(uid)?.email || "Unknown");
                 return (
                   <div key={field.id} className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                    <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
+                    <input
+                      value={field.field_name}
+                      onChange={(e) => setAssigneeDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, field_name: e.target.value } : entry))}
+                      placeholder="Name"
+                      className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
+                    />
                     <div className="mt-0.5 flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Dot tone="neutral" />
@@ -724,7 +739,12 @@ export function PropertyMenu({
                 const endStr = field.value.end ? format(new Date(field.value.end), "MMM d, yyyy") : null;
                 return (
                   <div key={field.id} className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                    <div className="text-[11px] font-medium text-[var(--muted-foreground)]">{field.field_name}</div>
+                    <input
+                      value={field.field_name}
+                      onChange={(e) => setDueDateDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, field_name: e.target.value } : entry))}
+                      placeholder="Name"
+                      className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
+                    />
                     <div className="mt-0.5 flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Dot tone="neutral" />

@@ -871,11 +871,25 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     });
     return map;
   }, [members]);
+  function extractTimelineUserAssigneeIds(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    const ids: string[] = [];
+    for (const field of input as any[]) {
+      const values = Array.isArray(field?.value) ? field.value : [];
+      for (const value of values) {
+        if (value?.type === "user" && typeof value?.id === "string" && value.id.trim()) {
+          ids.push(value.id.trim());
+        }
+      }
+    }
+    return Array.from(new Set(ids));
+  }
 
   const events = useMemo<TimelineEvent[]>(() => {
     return timelineItems.map((item) => {
       const props = timelinePropertiesById[item.id];
-      const assigneeId = props?.assignee_id ?? item.assignee_id ?? null;
+      const assigneeIds = extractTimelineUserAssigneeIds((item as any).assignees ?? []);
+      const assigneeId = props?.assignee_id ?? assigneeIds[0] ?? item.assignee_id ?? null;
       const assigneeTeamId = item.assignee_team_id ?? null;
       const propertyPriorities = normalizeTimelinePrioritiesClient(props?.priorities ?? []);
       const itemPriorities = normalizeTimelinePrioritiesClient(item.priorities ?? []);
@@ -889,6 +903,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         statuses: item.statuses ?? [],
         priorities,
         assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+        assignee_ids: assigneeIds,
         assigneeId,
         assigneeTeamId,
         progress: item.progress,
@@ -936,7 +951,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           parentId,
           subEvents.map((subEvent) => {
             const props = timelinePropertiesById[subEvent.id];
-            const assigneeId = props?.assignee_id ?? subEvent.assignee_id ?? null;
+            const subAssigneeIds = extractTimelineUserAssigneeIds((subEvent as any).assignees ?? []);
+            const assigneeId = props?.assignee_id ?? subAssigneeIds[0] ?? subEvent.assignee_id ?? null;
             return {
               id: subEvent.id,
               title: subEvent.title,
@@ -946,6 +962,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
               statuses: subEvent.statuses ?? [],
               priorities: normalizeTimelinePrioritiesClient(subEvent.priorities ?? []),
               assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+              assignee_ids: subAssigneeIds,
               assigneeId,
               assigneeTeamId: subEvent.assignee_team_id ?? null,
               progress: subEvent.progress ?? 0,

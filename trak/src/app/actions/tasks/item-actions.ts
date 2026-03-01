@@ -7,6 +7,7 @@ import { mapTagNamesToOptionIds, type TagFieldOption } from "@/lib/tables/tag-fi
 import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
 import { syncTimelinePriorityFieldsToEntityProperties } from "@/lib/timeline-priority-sync";
 import { deriveTaskSeedFromTableRowSource } from "@/lib/tasks/table-row-task-derivation";
+import type { TimelineNamedAssignee } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -104,6 +105,25 @@ function mapTaskTagsToFieldValue(field: any, tagNames: string[]): string[] {
   return tagNames;
 }
 
+function extractTaskAssigneeIds(task: TaskItem): string[] {
+  const namedAssignees = Array.isArray((task as any).assignees) ? (task as any).assignees : [];
+  const fromNamed = namedAssignees
+    .flatMap((entry: any) => Array.isArray(entry?.value) ? entry.value : [])
+    .map((id: unknown) => typeof id === "string" ? id.trim() : "")
+    .filter((id: string) => id.length > 0);
+  const primary = typeof (task as any).assignee_id === "string" ? (task as any).assignee_id.trim() : "";
+  return Array.from(new Set([...(primary ? [primary] : []), ...fromNamed]));
+}
+
+function buildTimelineAssigneesFromTask(task: TaskItem): TimelineNamedAssignee[] {
+  const ids = extractTaskAssigneeIds(task);
+  if (ids.length === 0) return [];
+  return [{
+    field_name: "Assignee",
+    value: ids.map((id) => ({ type: "user" as const, id })),
+  }];
+}
+
 async function syncNamedTaskTagFields(params: {
   supabase: any;
   workspaceId: string;
@@ -164,6 +184,7 @@ async function syncTaskUpdateToSourceTableRow(params: {
   const statusValue = normalizeTaskStatuses((task as any).statuses)?.[0]?.value ?? null;
   const namedPriorities = normalizeTaskPriorities((task as any).priorities);
   const namedStatuses = normalizeTaskStatuses((task as any).statuses);
+  const primaryAssigneeId = extractTaskAssigneeIds(task)[0] ?? null;
   const tagNames = await getTaskTagNames(supabase, task.id);
   const nextData: Record<string, unknown> = { ...((sourceRow.data ?? {}) as Record<string, unknown>) };
 
@@ -186,7 +207,7 @@ async function syncTaskUpdateToSourceTableRow(params: {
     if (match) nextData[match.id] = entry.value;
   }
   if (assigneeField) {
-    nextData[assigneeField.id] = (task as any).assignee_id ?? null;
+    nextData[assigneeField.id] = primaryAssigneeId;
   }
   for (const tagsField of tagsFields) {
     nextData[tagsField.id] = mapTaskTagsToFieldValue(tagsField, tagNames);
@@ -240,6 +261,7 @@ async function syncTaskUpdateToDerivedRows(params: {
 
   const namedStatuses = normalizeTaskStatuses((task as any).statuses);
   const namedPriorities = normalizeTaskPriorities((task as any).priorities);
+  const primaryAssigneeId = extractTaskAssigneeIds(task)[0] ?? null;
   const tagNames = await getTaskTagNames(supabase, sourceTaskId);
   const startDate = toDateOnly((task as any).start_date);
   const dueDate = toDateOnly((task as any).due_date);
@@ -267,7 +289,7 @@ async function syncTaskUpdateToDerivedRows(params: {
       if (match) nextData[match.id] = entry.value;
     }
     if (assigneeField) {
-      nextData[assigneeField.id] = (task as any).assignee_id ?? null;
+      nextData[assigneeField.id] = primaryAssigneeId;
     }
     for (const tagsField of tagsFields) {
       nextData[tagsField.id] = mapTaskTagsToFieldValue(tagsField, tagNames);
@@ -314,12 +336,17 @@ async function syncTaskUpdateToDerivedTimelineEvents(params: {
     field_name: entry.field_name,
     value: entry.value,
   }));
+  const timelineAssignees = buildTimelineAssigneesFromTask(task);
+  const primaryAssigneeId = extractTaskAssigneeIds(task)[0] ?? null;
 
   for (const ev of events as any[]) {
     const payload: Record<string, unknown> = {
       title: task.title ?? "",
       statuses,
       priorities,
+      assignees: timelineAssignees,
+      assignee_id: primaryAssigneeId,
+      assignee_team_id: null,
       notes: task.description ?? null,
       updated_by: userId,
     };
@@ -356,6 +383,9 @@ async function syncTaskUpdateToDerivedTasks(params: {
 
   const normalizedStatuses = normalizeTaskStatuses((task as any).statuses);
   const normalizedPriorities = normalizeTaskPriorities((task as any).priorities);
+  const assigneeIds = extractTaskAssigneeIds(task);
+  const taskNamedAssignees = Array.isArray((task as any).assignees) ? (task as any).assignees : [];
+  const sourceTagNames = await getTaskTagNames(supabase, sourceTaskId);
 
   for (const child of tasks as any[]) {
     if (child.id === sourceTaskId) continue;
@@ -366,6 +396,8 @@ async function syncTaskUpdateToDerivedTasks(params: {
         statuses: (task as any).statuses ?? [],
         priorities: (task as any).priorities ?? [],
         description: task.description ?? null,
+        assignees: taskNamedAssignees,
+        assignee_id: assigneeIds[0] ?? null,
         start_date: (task as any).start_date ?? null,
         due_date: (task as any).due_date ?? null,
         updated_by: userId,
@@ -389,7 +421,34 @@ async function syncTaskUpdateToDerivedTasks(params: {
           { onConflict: "entity_type,entity_id,field_name" }
         );
       }
+      await supabase.from("entity_properties").delete()
+        .eq("entity_type", "task").eq("entity_id", child.id).eq("field_type", "assignee");
+      if (assigneeIds.length > 0) {
+        await supabase.from("entity_properties").upsert(
+          [{
+            entity_type: "task",
+            entity_id: child.id,
+            workspace_id: child.workspace_id,
+            field_name: "Assignee",
+            field_type: "assignee",
+            value: assigneeIds.map((id) => ({ id, name: id })),
+          }],
+          { onConflict: "entity_type,entity_id,field_name" }
+        );
+      }
     }
+    await supabase.from("task_assignees").delete().eq("task_id", child.id);
+    if (assigneeIds.length > 0) {
+      await supabase.from("task_assignees").insert(
+        assigneeIds.map((assigneeId) => ({
+          task_id: child.id,
+          assignee_id: assigneeId,
+          assignee_name: assigneeId,
+        }))
+      );
+    }
+    const { setTaskTags } = await import("@/app/actions/tasks/tag-actions");
+    await setTaskTags(child.id, sourceTagNames, { authContext: { supabase, userId } });
   }
 }
 
@@ -591,6 +650,9 @@ export async function updateTaskItem(
     recurringFrequency: "daily" | "weekly" | "monthly" | null;
     recurringInterval: number | null;
     tags: string[];
+    assignee_id: string | null;
+    assignee_ids: string[];
+    assignees: Array<{ field_name: string; value: string[] }>;
   }>,
   opts?: { authContext?: AuthContext; skipDerivedFanout?: boolean; skipSourceWriteback?: boolean }
 ): Promise<ActionResult<TaskItem>> {
@@ -690,6 +752,15 @@ export async function updateTaskItem(
   if (updates.tags !== undefined) {
     entityPropertyUpdates.tags = updates.tags;
   }
+  if (updates.assignee_ids !== undefined) {
+    entityPropertyUpdates.assignee_ids = updates.assignee_ids;
+  }
+  if (updates.assignees !== undefined) {
+    entityPropertyUpdates.assignees = updates.assignees;
+  }
+  if (updates.assignee_id !== undefined) {
+    entityPropertyUpdates.assignee_id = updates.assignee_id;
+  }
 
   // Only call setEntityProperties if we have property updates
   if (Object.keys(entityPropertyUpdates).length > 0) {
@@ -721,6 +792,7 @@ export async function updateTaskItem(
               field_name: entry.field_name,
               value: entry.value,
             })),
+            assignees: buildTimelineAssigneesFromTask(normalizedTask),
             startDate: (normalizedTask as any).start_date ?? undefined,
             endDate: (normalizedTask as any).due_date ?? undefined,
             notes: normalizedTask.description ?? undefined,
@@ -1220,6 +1292,48 @@ export async function duplicateTasksToBlock(input: {
         const payload = tagIds.map((tagId) => ({ task_id: created.id, tag_id: tagId }));
         const { error: tagError } = await supabase.from("task_tag_links").insert(payload);
         if (tagError) return { error: "Failed to copy tags" };
+      }
+    }
+
+    // Copy status/priority/due_date/tags entity_properties from source task to new task
+    const { data: sourceProps } = await supabase
+      .from("entity_properties")
+      .select("field_name, field_type, value")
+      .eq("entity_type", "task")
+      .eq("entity_id", task.id)
+      .in("field_type", ["status", "priority", "due_date", "tags"]);
+
+    if (sourceProps && sourceProps.length > 0) {
+      // Build named arrays — setEntityProperties expects Array<{field_name, value}> for
+      // statuses/priorities/due_dates, not scalars. Collecting all rows per type preserves
+      // multi-field tasks (e.g. a task linked to a table with two status columns).
+      const statusRows: Array<{ field_name: string; value: unknown }> = [];
+      const priorityRows: Array<{ field_name: string; value: unknown }> = [];
+      const dueDateRows: Array<{ field_name: string; value: unknown }> = [];
+      let tagsValue: unknown;
+      let hasTags = false;
+
+      for (const prop of sourceProps as Array<{ field_name: string; field_type: string; value: unknown }>) {
+        if (prop.field_type === "status") statusRows.push({ field_name: prop.field_name, value: prop.value });
+        if (prop.field_type === "priority") priorityRows.push({ field_name: prop.field_name, value: prop.value });
+        if (prop.field_type === "due_date") dueDateRows.push({ field_name: prop.field_name, value: prop.value });
+        if (prop.field_type === "tags") { tagsValue = prop.value; hasTags = true; }
+      }
+
+      const epUpdates: Record<string, unknown> = {};
+      if (statusRows.length > 0) epUpdates.statuses = statusRows;
+      if (priorityRows.length > 0) epUpdates.priorities = priorityRows;
+      if (dueDateRows.length > 0) epUpdates.due_dates = dueDateRows;
+      if (hasTags) epUpdates.tags = tagsValue;
+
+      if (Object.keys(epUpdates).length > 0) {
+        const { setEntityProperties } = await import("@/app/actions/entity-properties");
+        await setEntityProperties({
+          entity_type: "task",
+          entity_id: created.id,
+          workspace_id: block.workspace_id,
+          updates: epUpdates as any,
+        });
       }
     }
   }

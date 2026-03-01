@@ -12,6 +12,16 @@ export async function createTaskSubtask(input: {
   title: string;
   description?: string | null;
   completed?: boolean;
+  status?: Status;
+  statuses?: Array<{ field_name: string; value: Status | null }>;
+  priority?: EntityProperties["priority"];
+  priorities?: Array<{ field_name: string; value: EntityProperties["priority"] }>;
+  assignee_ids?: string[];
+  assignee_id?: string | null;
+  assignees?: Array<{ field_name: string; value: string[] | null }>;
+  due_date?: EntityProperties["due_date"];
+  due_dates?: Array<{ field_name: string; value: EntityProperties["due_date"] }>;
+  tags?: string[];
   displayOrder?: number;
   authContext?: AuthContext;
 }): Promise<ActionResult<TaskSubtask>> {
@@ -33,11 +43,25 @@ export async function createTaskSubtask(input: {
 
   if (error || !data) return { error: "Failed to create subtask" };
   const { setEntityProperties } = await import("@/app/actions/entity-properties");
+  const propertyUpdates: Partial<EntityProperties> = {};
+  if (input.statuses !== undefined) propertyUpdates.statuses = input.statuses as any;
+  if (input.status !== undefined) propertyUpdates.status = input.status;
+  if (input.completed !== undefined && input.status === undefined && input.statuses === undefined) {
+    propertyUpdates.status = (input.completed ? "done" : "todo") as any;
+  }
+  if (input.priorities !== undefined) propertyUpdates.priorities = input.priorities as any;
+  if (input.priority !== undefined) propertyUpdates.priority = input.priority;
+  if (input.assignees !== undefined) propertyUpdates.assignees = input.assignees as any;
+  if (input.assignee_ids !== undefined) propertyUpdates.assignee_ids = input.assignee_ids;
+  if (input.assignee_id !== undefined) propertyUpdates.assignee_id = input.assignee_id;
+  if (input.due_dates !== undefined) propertyUpdates.due_dates = input.due_dates as any;
+  if (input.due_date !== undefined) propertyUpdates.due_date = input.due_date;
+  if (input.tags !== undefined) propertyUpdates.tags = input.tags;
   await setEntityProperties({
     entity_type: "subtask",
     entity_id: data.id,
     workspace_id: access.task.workspace_id,
-    updates: { status: (input.completed ? "done" : "todo") as any },
+    updates: propertyUpdates,
   });
   return { data: data as TaskSubtask };
 }
@@ -50,10 +74,14 @@ export async function updateTaskSubtask(
     completed: boolean;
     displayOrder: number;
     status: Status;
+    statuses: Array<{ field_name: string; value: Status | null }>;
     priority: EntityProperties["priority"];
+    priorities: Array<{ field_name: string; value: EntityProperties["priority"] }>;
     assignee_ids: string[];
     assignee_id: string | null;
+    assignees: Array<{ field_name: string; value: string[] | null }>;
     due_date: EntityProperties["due_date"];
+    due_dates: Array<{ field_name: string; value: EntityProperties["due_date"] }>;
     tags: string[];
   }>,
   opts?: { authContext?: AuthContext }
@@ -113,13 +141,17 @@ export async function updateTaskSubtask(
 
   const propertyUpdates: Partial<EntityProperties> = {};
   if (updates.status !== undefined) propertyUpdates.status = updates.status;
-  if (updates.completed !== undefined && updates.status === undefined) {
+  if (updates.statuses !== undefined) propertyUpdates.statuses = updates.statuses as any;
+  if (updates.completed !== undefined && updates.status === undefined && updates.statuses === undefined) {
     propertyUpdates.status = updates.completed ? "done" : "todo";
   }
   if (updates.priority !== undefined) propertyUpdates.priority = updates.priority;
+  if (updates.priorities !== undefined) propertyUpdates.priorities = updates.priorities as any;
   if (updates.assignee_ids !== undefined) propertyUpdates.assignee_ids = updates.assignee_ids;
   if (updates.assignee_id !== undefined) propertyUpdates.assignee_id = updates.assignee_id;
+  if (updates.assignees !== undefined) propertyUpdates.assignees = updates.assignees as any;
   if (updates.due_date !== undefined) propertyUpdates.due_date = updates.due_date;
+  if (updates.due_dates !== undefined) propertyUpdates.due_dates = updates.due_dates as any;
   if (updates.tags !== undefined) propertyUpdates.tags = updates.tags;
 
   if (Object.keys(payload).length === 0 && Object.keys(propertyUpdates).length === 0) {

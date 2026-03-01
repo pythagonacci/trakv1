@@ -8,6 +8,24 @@ import type { TimelineEvent, TimelineItem } from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
+function normalizeTimelineAssigneeIdsFromRow(row: any): { assignee_id: string | null; assignee_team_id: string | null } {
+  const assignees = Array.isArray(row?.assignees) ? row.assignees : [];
+  for (const field of assignees) {
+    const values = Array.isArray((field as any)?.value) ? (field as any).value : [];
+    const firstUser = values.find((entry: any) => entry?.type === "user" && typeof entry?.id === "string");
+    if (firstUser?.id) {
+      const firstTeam = values.find((entry: any) => entry?.type === "team" && typeof entry?.id === "string");
+      return { assignee_id: firstUser.id, assignee_team_id: firstTeam?.id ?? null };
+    }
+    const firstTeam = values.find((entry: any) => entry?.type === "team" && typeof entry?.id === "string");
+    if (firstTeam?.id) return { assignee_id: null, assignee_team_id: firstTeam.id };
+  }
+  return {
+    assignee_id: row?.assignee_id ?? null,
+    assignee_team_id: row?.assignee_team_id ?? null,
+  };
+}
+
 export async function getTimelineItems(timelineBlockId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<{ events: TimelineEvent[] }>> {
   const access = await requireTimelineAccess(timelineBlockId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
@@ -26,10 +44,14 @@ export async function getTimelineItems(timelineBlockId: string, opts?: { authCon
   const normalizedEvents = ((events || []) as any[]).map((event) => {
     const priorities = normalizeTimelinePriorities(event?.priorities);
     const statuses = normalizeTimelineStatuses(event?.statuses);
+    const assigneeCompat = normalizeTimelineAssigneeIdsFromRow(event);
     return {
       ...(event as TimelineEvent),
       priorities,
       statuses,
+      assignees: Array.isArray((event as any)?.assignees) ? (event as any).assignees : [],
+      assignee_id: assigneeCompat.assignee_id,
+      assignee_team_id: assigneeCompat.assignee_team_id,
     } as TimelineEvent;
   });
 
@@ -52,6 +74,7 @@ export async function getResolvedTimelineItems(timelineBlockId: string, opts?: {
     end_date: event.end_date,
     statuses: normalizeTimelineStatuses(event.statuses),
     priorities: normalizeTimelinePriorities(event.priorities),
+    assignees: Array.isArray((event as any)?.assignees) ? (event as any).assignees : [],
     assignee_id: event.assignee_id,
     assignee_team_id: (event as any).assignee_team_id ?? null,
     parent_event_id: (event as any).parent_event_id ?? null,
@@ -104,11 +127,15 @@ export async function getSubEventsByParentIds(
     if (!parentId) continue;
     const priorities = normalizeTimelinePriorities(row?.priorities);
     const statuses = normalizeTimelineStatuses(row?.statuses);
+    const assigneeCompat = normalizeTimelineAssigneeIdsFromRow(row);
     byParentId[parentId] = byParentId[parentId] ?? [];
     byParentId[parentId].push({
       ...(row as TimelineEvent),
       priorities,
       statuses,
+      assignees: Array.isArray((row as any)?.assignees) ? (row as any).assignees : [],
+      assignee_id: assigneeCompat.assignee_id,
+      assignee_team_id: assigneeCompat.assignee_team_id,
     });
   }
 

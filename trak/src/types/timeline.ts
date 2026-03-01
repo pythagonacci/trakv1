@@ -13,6 +13,19 @@ export interface TimelineNamedStatus {
   value: TimelineEventStatus;
 }
 
+export type TimelineAssigneeKind = "user" | "team";
+
+export interface TimelineAssigneeValueEntry {
+  type: TimelineAssigneeKind;
+  id: string;
+  name?: string;
+}
+
+export interface TimelineNamedAssignee {
+  field_name: string;
+  value: TimelineAssigneeValueEntry[];
+}
+
 export type TimelineSourceEntityType = "task" | "timeline_event" | "table_row" | "block" | "subtask";
 export type TimelineSourceSyncMode = "snapshot" | "live";
 
@@ -29,8 +42,10 @@ export interface TimelineEvent {
   end_date: string;
   statuses: TimelineNamedStatus[];
   priorities: TimelineNamedPriority[];
+  assignees: TimelineNamedAssignee[];
   assignee_id: string | null;
   assignee_team_id: string | null;
+  tags: string[];
   parent_event_id: string | null;
   source_entity_type: TimelineSourceEntityType | null;
   source_entity_id: string | null;
@@ -90,6 +105,7 @@ export interface TimelineItem {
   end_date: string;
   statuses?: TimelineNamedStatus[];
   priorities?: TimelineNamedPriority[];
+  assignees?: TimelineNamedAssignee[];
   assignee_id: string | null;
   assignee_team_id: string | null;
   parent_event_id?: string | null;

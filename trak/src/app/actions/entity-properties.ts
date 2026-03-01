@@ -10,6 +10,9 @@ import { getDueDateEnd, getDueDateStart, normalizeDueDateRange } from "@/lib/due
 import { normalizeTimelinePriorities } from "@/lib/timeline-priority-sync";
 import { normalizeTimelineStatuses } from "@/lib/timeline-status-sync";
 import {
+  deriveTimelineLegacyAssigneeIds,
+} from "@/lib/timeline-assignee-utils";
+import {
   ensureProjectTags,
   mapTagNamesToOptionIds,
   syncTagsFieldConfigsForProject,
@@ -808,7 +811,7 @@ export async function setEntityProperties(
   if (process.env.PERF_DEBUG === "1") console.log(`[PERF] setEntityProperties entity-properties type=${input.entity_type} entityId=${input.entity_id}`);
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
   if ("error" in access) return { error: access.error };
-  const { supabase, workspaceId } = access;
+  const { supabase, workspaceId, userId } = access;
 
   const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
   if ("error" in definitions) return { error: definitions.error };
@@ -1175,7 +1178,10 @@ export async function setEntityProperties(
       updates.priorities !== undefined ||
       updates.tags !== undefined ||
       updates.due_date !== undefined ||
-      updates.due_dates !== undefined;
+      updates.due_dates !== undefined ||
+      updates.assignees !== undefined ||
+      updates.assignee_ids !== undefined ||
+      updates.assignee_id !== undefined;
     if (shouldSyncDerivedTaskRows) {
       const sourceTags = Array.isArray((data as any).tags)
         ? ((data as any).tags as unknown[]).filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
@@ -1260,6 +1266,14 @@ export async function setEntityProperties(
             }
           }
 
+          if (updates.assignees !== undefined || updates.assignee_ids !== undefined || updates.assignee_id !== undefined) {
+            const personFields = rowFields.filter((f: any) => f.type === "person");
+            const primaryId = (assigneePayloadForTask ?? []).map((p: any) => p.id)[0] ?? null;
+            for (const pf of personFields) {
+              nextData[pf.id] = primaryId;
+            }
+          }
+
           await supabase
             .from("table_rows")
             .update({ data: nextData })
@@ -1314,20 +1328,72 @@ export async function setEntityProperties(
     }
   }
 
-  if (
-    input.entity_type === "timeline_event" &&
-    (updates.priority !== undefined || updates.priorities !== undefined ||
-      updates.status !== undefined || updates.statuses !== undefined)
-  ) {
-    const timelinePriorities = normalizeTimelinePriorities((data as any).priorities ?? []);
-    const timelineUpdate: Record<string, unknown> = { priorities: timelinePriorities };
-    if (updates.status !== undefined || updates.statuses !== undefined) {
-      timelineUpdate.statuses = normalizeTimelineStatuses((data as any).statuses ?? []);
+  if (input.entity_type === "timeline_event") {
+    const hasAnyChange =
+      updates.priority !== undefined || updates.priorities !== undefined ||
+      updates.status !== undefined || updates.statuses !== undefined ||
+      updates.assignees !== undefined || updates.assignee_id !== undefined ||
+      updates.assignee_ids !== undefined || updates.tags !== undefined;
+
+    if (hasAnyChange) {
+      // Build the update payload for timeline_events denormalized columns
+      const timelineUpdate: Record<string, unknown> = {};
+      if (updates.status !== undefined || updates.statuses !== undefined)
+        timelineUpdate.statuses = normalizeTimelineStatuses((data as any).statuses ?? []);
+      if (updates.priority !== undefined || updates.priorities !== undefined)
+        timelineUpdate.priorities = normalizeTimelinePriorities((data as any).priorities ?? []);
+      if (updates.assignees !== undefined || updates.assignee_id !== undefined || updates.assignee_ids !== undefined) {
+        // Build TimelineNamedAssignee from assigneePayloadForTask (which has profiles looked up),
+        // preserving per-field structure when named assignees were used.
+        // We cannot use data.assignees here because buildEntityPropertiesFromRows strips
+        // entity_properties values down to plain ID strings via extractAssigneeIdsFromValue.
+        const resolvedPayload = assigneePayloadForTask ?? [];
+        const profileMap = new Map(resolvedPayload.map((p) => [p.id, p]));
+        let tlAssignees: Array<{ field_name: string; value: Array<{ type: "user" | "team"; id: string; name?: string }> }>;
+        if (updates.assignees !== undefined && (updates.assignees ?? []).length > 0) {
+          tlAssignees = (updates.assignees ?? [])
+            .filter((entry) => entry && typeof entry.field_name === "string" && entry.field_name.trim())
+            .map((entry) => {
+              const fieldName = entry.field_name.trim();
+              const ids = Array.isArray(entry.value) ? entry.value.filter((v): v is string => typeof v === "string") : [];
+              const values = ids.map((id) => {
+                const p = profileMap.get(id);
+                return { type: "user" as const, id, ...(p?.name ? { name: p.name } : {}) };
+              });
+              return values.length > 0 ? { field_name: fieldName, value: values } : null;
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+        } else {
+          const values = resolvedPayload.map((p) => ({
+            type: "user" as const,
+            id: p.id,
+            ...(p.name ? { name: p.name } : {}),
+          }));
+          tlAssignees = values.length > 0 ? [{ field_name: "Assignee", value: values }] : [];
+        }
+        timelineUpdate.assignees = tlAssignees;
+        const compat = deriveTimelineLegacyAssigneeIds(tlAssignees as any);
+        timelineUpdate.assignee_id = compat.assignee_id;
+        timelineUpdate.assignee_team_id = compat.assignee_team_id;
+      }
+      if (updates.tags !== undefined)
+        timelineUpdate.tags = (data as any).tags ?? [];
+
+      // 1. Write denormalized columns to timeline_events
+      if (Object.keys(timelineUpdate).length > 0) {
+        await supabase.from("timeline_events").update(timelineUpdate).eq("id", input.entity_id);
+      }
+
+      // 2. Delegate derived fanout to updateTimelineEvent.
+      //    skipEntityPropertiesSync=true prevents double-writing entity_properties.
+      //    skipSourceWriteback=true prevents ping-pong when timeline_event has a source task.
+      const { updateTimelineEvent } = await import("@/app/actions/timelines/event-actions");
+      await updateTimelineEvent(input.entity_id, timelineUpdate as any, {
+        authContext: { supabase, userId },
+        skipEntityPropertiesSync: true,
+        skipSourceWriteback: true,
+      });
     }
-    await supabase
-      .from("timeline_events")
-      .update(timelineUpdate)
-      .eq("id", input.entity_id);
   }
 
   if (
@@ -1575,11 +1641,23 @@ export async function clearEntityProperties(
   // Best-effort sync for tasks: reset task_items fields to defaults
   if (entityType === "task") {
     await supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", entityId);
+    await supabase
+      .from("task_tag_links")
+      .delete()
+      .eq("task_id", entityId);
+    await supabase
       .from("task_items")
       .update({
         statuses: [{ field_name: "Status", value: "todo" }],
         priorities: [],
+        assignee_id: null,
+        assignees: [],
+        due_dates: [],
         due_date: null,
+        start_date: null,
       })
       .eq("id", entityId);
   }

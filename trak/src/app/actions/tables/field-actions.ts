@@ -298,6 +298,14 @@ async function getFieldContext(fieldId: string, opts?: { authContext?: AuthConte
   return { supabase: access.supabase, table: access.table, userId, field };
 }
 
+const TABLE_TYPE_TO_EP_TYPE: Partial<Record<string, string>> = {
+  status: "status",
+  priority: "priority",
+  person: "assignee",
+  date: "due_date",
+  tags: "tags",
+};
+
 async function syncRenamedTableRowEntityProperties(params: {
   supabase: any;
   tableId: string;
@@ -306,7 +314,8 @@ async function syncRenamedTableRowEntityProperties(params: {
   nextName: string;
 }): Promise<void> {
   const { supabase, tableId, fieldType, previousName, nextName } = params;
-  if (fieldType !== "priority" && fieldType !== "status") return;
+  const epFieldType = TABLE_TYPE_TO_EP_TYPE[fieldType as string];
+  if (!epFieldType) return;
 
   const oldName = String(previousName || "").trim();
   const newName = String(nextName || "").trim();
@@ -324,7 +333,7 @@ async function syncRenamedTableRowEntityProperties(params: {
     .from("entity_properties")
     .select("id, entity_id, field_name")
     .eq("entity_type", "table_row")
-    .eq("field_type", fieldType)
+    .eq("field_type", epFieldType)
     .in("entity_id", rowIds)
     .in("field_name", [oldName, newName]);
 
@@ -346,7 +355,7 @@ async function syncRenamedTableRowEntityProperties(params: {
       .from("entity_properties")
       .delete()
       .eq("entity_type", "table_row")
-      .eq("field_type", fieldType)
+      .eq("field_type", epFieldType)
       .eq("field_name", oldName)
       .in("entity_id", rowIdsToDeleteOld);
   }
@@ -356,9 +365,59 @@ async function syncRenamedTableRowEntityProperties(params: {
       .from("entity_properties")
       .update({ field_name: newName })
       .eq("entity_type", "table_row")
-      .eq("field_type", fieldType)
+      .eq("field_type", epFieldType)
       .eq("field_name", oldName)
       .in("entity_id", rowIdsToRename);
+  }
+
+  // Fan out rename to live-source entities
+  const { data: liveRows } = await supabase
+    .from("table_rows")
+    .select("id, source_entity_type, source_entity_id")
+    .eq("table_id", tableId)
+    .eq("source_sync_mode", "live")
+    .not("source_entity_id", "is", null);
+
+  if (liveRows && liveRows.length > 0) {
+    const byType = new Map<string, string[]>();
+    for (const row of liveRows as any[]) {
+      const type = row.source_entity_type as string | null;
+      const id = row.source_entity_id as string | null;
+      if (!type || !id) continue;
+      const list = byType.get(type) ?? [];
+      list.push(id);
+      byType.set(type, list);
+    }
+
+    for (const [entityType, entityIds] of byType) {
+      const { data: sourceProps } = await supabase
+        .from("entity_properties")
+        .select("id, entity_id, field_name")
+        .eq("entity_type", entityType)
+        .eq("field_type", epFieldType)
+        .in("entity_id", entityIds)
+        .in("field_name", [oldName, newName]);
+
+      const oldByEntityId = new Set<string>();
+      const newByEntityId = new Set<string>();
+      for (const row of sourceProps ?? []) {
+        if ((row as any).field_name === oldName) oldByEntityId.add((row as any).entity_id);
+        if ((row as any).field_name === newName) newByEntityId.add((row as any).entity_id);
+      }
+      const toDeleteOld = Array.from(oldByEntityId).filter((id) => newByEntityId.has(id));
+      const toRename = Array.from(oldByEntityId).filter((id) => !newByEntityId.has(id));
+
+      if (toDeleteOld.length > 0) {
+        await supabase.from("entity_properties").delete()
+          .eq("entity_type", entityType).eq("field_type", epFieldType)
+          .eq("field_name", oldName).in("entity_id", toDeleteOld);
+      }
+      if (toRename.length > 0) {
+        await supabase.from("entity_properties").update({ field_name: newName })
+          .eq("entity_type", entityType).eq("field_type", epFieldType)
+          .eq("field_name", oldName).in("entity_id", toRename);
+      }
+    }
   }
 }
 

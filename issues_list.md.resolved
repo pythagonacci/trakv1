@@ -1,0 +1,241 @@
+# Universal Properties — Issues List
+
+> Comprehensive list of data integrity, format matching, and information gaps found across all write/update/sync paths.
+
+---
+
+## Category A: Live-Sync Gaps (Source ↔ Derived Entities)
+
+### A1. 🔴 Assignees never sync between any linked entities
+
+**Severity**: High — affects every source→derived relationship
+
+| Relationship | Gap |
+|-------------|-----|
+| Task → derived task | Assignees not propagated |
+| Task → derived timeline event | Task has multi-assignee, timeline has single `assignee_id` — skipped entirely |
+| Task → derived table row | Assignees not synced to row [data](file:///Users/amnaahmad/trakmainwt/trak/src/lib/ai/tool-executor.ts#5939-5942) JSONB |
+| Timeline → derived task | Single `assignee_id` not mapped to task multi-assignees |
+| Timeline → derived timeline event | `assignee_id` not copied |
+| Timeline → derived table row | `assignee_id` not synced to row [data](file:///Users/amnaahmad/trakmainwt/trak/src/lib/ai/tool-executor.ts#5939-5942) |
+| Table row → derived task (on create) | Assignee fields in row data not read |
+| Table row → derived timeline event (on create) | Same |
+| Subtask → timeline sub-event | Assignee not included |
+
+**Root cause**: No sync function handles assignee propagation. [syncTaskUpdateToDerivedTasks](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#342-395), [syncTimelineEventUpdateToDerivedTasks](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#192-250), etc. all skip assignee fields. The format mismatch (task multi-assignee vs timeline single) is never resolved.
+
+**Files**: [item-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts), [event-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts), [entity-properties.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts)
+
+---
+
+### A2. 🔴 Tags don't sync from task → derived task
+
+**Severity**: High
+
+When a source task's tags are updated, [syncTaskUpdateToDerivedTasks](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#342-395) propagates title, statuses, priorities, dates, description — but **not tags**. Derived tasks keep whatever tags they had at creation (or none).
+
+**Also affects**: Task → derived timeline event (N/A since timeline doesn't support tags), but [setEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#801-1436) task sync to derived table rows **does** handle tags, creating an inconsistency between the two derived-entity sync paths.
+
+**File**: [item-actions.ts syncTaskUpdateToDerivedTasks](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts)
+
+---
+
+### A3. 🟡 Subtask → timeline sub-event only syncs title + dates
+
+**Severity**: Medium
+
+[syncSubEventsForTaskEvent](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#884-1011) creates/updates timeline sub-events from subtasks but only passes `title`, `startDate`, `endDate`. All other properties are dropped:
+- Status (subtask has status) → not synced
+- Priority (subtask can have priority) → not synced
+- Assignee (subtask can have assignees) → not synced
+
+**File**: [event-actions.ts syncSubEventsForTaskEvent](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#L884-L1010)
+
+---
+
+### A4. 🟡 Table rows as source never push ongoing updates
+
+**Severity**: Medium
+
+When a table row is the source entity and `source_sync_mode = "live"`, the row's data changes are **never propagated forward** to derived tasks or timeline events. Sync only happens at creation time via `buildTimeline*FromSourceEntity()` and the initial property copy.
+
+The reverse direction (task/timeline → source table row) **does** work — creating a one-way sync that should be bidirectional.
+
+**Root cause**: No trigger or action watches for table row changes to fan out to derived entities.
+
+---
+
+## Category B: Writeback Asymmetries
+
+### B1. 🔴 Task ↔ Timeline writeback only syncs status & priority
+
+**Severity**: High
+
+When a derived task (sourced from timeline) or derived timeline event (sourced from task) is updated, only [statuses](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#46-53) and [priorities](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#25-30) write back. These properties are **silently dropped**:
+
+| Property | Forward sync (source→derived)? | Writeback (derived→source)? |
+|----------|-------------------------------|---------------------------|
+| Title | ✅ | ❌ |
+| Dates | ✅ | ❌ |
+| Description/Notes | ✅ | ❌ |
+| Assignees | ❌ | ❌ |
+| Tags | ❌ | ❌ |
+
+A user updating the title or dates on a derived entity would expect those changes to flow back to the source. They don't.
+
+**Files**: 
+- [item-actions.ts updateTaskItem source writeback](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#L630-L680) — only syncs statuses/priorities to source timeline event
+- [event-actions.ts updateTimelineEvent source writeback](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#L714-L751) — only syncs statuses/priorities to source task
+
+---
+
+## Category C: Multi-Field Support Gaps
+
+### C1. 🟡 `createTimelineSubEvent` AI tool — single status/priority only
+
+**Severity**: Medium
+
+The AI tool `createTimelineSubEvent` only passes [status](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#46-53) (single) and `priority` (single) to [createTimelineEvent](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#424-572). The parent tool [createTimelineEvent](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#424-572) correctly supports `statuses[]`/`priorities[]` with alias normalization. If the LLM passes multi-value arrays to the sub-event tool, they are **silently ignored**.
+
+**File**: [tool-executor.ts L4036-L4074](file:///Users/amnaahmad/trakmainwt/trak/src/lib/ai/tool-executor.ts#L4036-L4074)
+
+**Fix**: Add the same [statuses](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#46-53)/[priorities](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#25-30)/`statusFields`/`priorityFields` alias normalization as [createTimelineEvent](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/timelines/event-actions.ts#424-572).
+
+---
+
+### C2. 🟡 [createTaskSubtask](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/subtask-actions.ts#10-44) — no status/priority/date/assignee/tag support
+
+**Severity**: Medium
+
+[createTaskSubtask](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/subtask-actions.ts#10-44) only accepts `completed: bool` (mapped to `"todo"`/`"done"`). It does not accept:
+- Custom status values (e.g. `"in_progress"`, `"blocked"`)
+- Priority at any level
+- Due date
+- Assignees
+- Tags
+
+The AI path ([createTaskItem](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#358-491) with `parentTaskId`) routes to this function and **drops** all property data except the `"done"` status check.
+
+**File**: [subtask-actions.ts createTaskSubtask](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/subtask-actions.ts#L10-L43)
+
+---
+
+### C3. 🟡 [updateTaskSubtask](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/subtask-actions.ts#45-151) — single status and single priority only
+
+**Severity**: Medium
+
+Accepts `status: Status` (single) and `priority: EntityProperties["priority"]` (single). Passes these as single keys to [setEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#801-1436), so only **one status row and one priority row** are written. Multi-field `statuses[]`/`priorities[]` are not supported.
+
+**File**: [subtask-actions.ts updateTaskSubtask](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/subtask-actions.ts#L45-L150)
+
+---
+
+### C4. 🟢 [bulkUpdateTaskItems](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#786-932) — no assignee or tag parameter
+
+**Severity**: Low (bulk assignee has its own RPC)
+
+[bulkUpdateTaskItems](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#786-932) and `bulk_update_task_items` RPC support statuses/priorities/dates but cannot set assignees or tags. `bulk_set_task_assignees` RPC exists separately for assignees, but there's no equivalent bulk tag setter.
+
+**Files**: [item-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts), [super-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/super-actions.ts)
+
+---
+
+## Category D: Cross-Entity Sync Inconsistencies
+
+### D1. 🔴 [addTag](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1458-1507)/[removeTag](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1508-1552) don't sync to `task_tag_links`
+
+**Severity**: High — data divergence between `entity_properties` and `task_tag_links`
+
+[addTag()](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1458-1507) / [removeTag()](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1508-1552) in [entity-properties.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#L1441-L1531) only write to `entity_properties`. They do **NOT** update:
+- `task_tags` (workspace tag registry)
+- `task_tag_links` (task↔tag join table)
+- `task_items` (no legacy field sync)
+
+Meanwhile, [setTaskTags()](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/tag-actions.ts#10-76) in [tag-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/tag-actions.ts) updates **both** `task_tag_links` AND `entity_properties`.
+
+If [addTag](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1458-1507) is used for a task, `entity_properties` will have the tag but `task_tag_links` won't — queries against `task_tag_links` will miss it, and vice versa.
+
+---
+
+### D2. 🟡 [setEntityProperty](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/properties/entity-property-actions.ts#46-91) (low-level) has NO cross-entity sync
+
+**Severity**: Medium
+
+The AI tool [setEntityProperty](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/properties/entity-property-actions.ts#46-91) and server action [setEntityProperty()](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/properties/entity-property-actions.ts#46-91) in [entity-property-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/properties/entity-property-actions.ts) write a single row directly to `entity_properties`. Unlike [setEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#801-1436) (plural), they do **NOT**:
+- Sync to `task_items` columns
+- Sync to `task_assignees`
+- Sync to derived `table_rows`
+- Sync to `timeline_events` columns
+- Trigger subtask→parent aggregation
+
+If the AI uses [setEntityProperty](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/properties/entity-property-actions.ts#46-91) to change a task's status, `entity_properties` will update but `task_items.statuses` will be stale.
+
+---
+
+### D3. 🟡 RPC functions don't write `entity_properties`
+
+**Severity**: Medium — mitigated by post-RPC sync, but fragile
+
+All RPCs (`create_task_full`, `update_task_full`, `bulk_update_task_items`) operate inside Postgres and only write to `task_items`/`task_assignees`/`task_tag_links`. The `entity_properties` sync happens **after** the RPC returns, in the tool executor:
+
+```
+RPC call → success → syncTaskEntityPropertiesAfterCreate/Mutation()
+```
+
+If the post-RPC sync throws or the request is interrupted, `entity_properties` will be stale while `task_items` is correct. There's no retry mechanism or consistency check.
+
+---
+
+### D4. 🟡 [clearEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1553-1589) resets task to defaults but doesn't clear tags/assignees
+
+**Severity**: Medium
+
+[clearEntityProperties()](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1553-1589) deletes all `entity_properties` rows and resets `task_items` to `statuses: [{field_name: "Status", value: "todo"}], priorities: [], due_date: null`. But it does **NOT** clear:
+- `task_assignees` table
+- `task_tag_links` table
+- `task_items.assignee_id` / `task_items.assignees`
+
+**File**: [entity-properties.ts clearEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#L1536-L1568)
+
+---
+
+## Category E: Format / Data Integrity
+
+### E1. 🟡 Calendar `add-event-dialog` bypasses property hooks
+
+**Severity**: Low-Medium
+
+[add-event-dialog.tsx](file:///Users/amnaahmad/trakmainwt/trak/src/app/dashboard/calendar/add-event-dialog.tsx) directly imports and calls [createTaskItem()](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#358-491) instead of going through `useCreateTaskItem` hook. It passes single [status](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#46-53) only, no priority. The task **will** get `entity_properties` synced (via internal [setEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#801-1436) call in [createTaskItem](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#358-491)), but UI cache invalidation may not fire correctly since it bypasses the React Query mutation.
+
+---
+
+### E2. 🟡 Timeline single assignee vs task multi-assignee — no mapping strategy
+
+**Severity**: Medium — architectural gap
+
+Timeline events have a single `assignee_id` FK column. Tasks have multi-assignee via `task_assignees` table. When entities are linked, there's no defined mapping:
+- Task (3 assignees) → derived timeline event: which assignee wins? Currently: **none** are synced.
+- Timeline event (1 assignee) → derived task: should it become the sole assignee? Currently: **not synced**.
+
+This isn't just a missing sync — there's no **design decision** on how to resolve the format mismatch.
+
+---
+
+### E3. 🟢 [duplicateTasksToBlock](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#987-1229) entity_properties sync may be incomplete
+
+**Severity**: Low
+
+The direct (non-RPC) duplication path in [item-actions.ts](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts) creates a new task and optionally copies assignees/tags. It then calls [setEntityProperties](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#801-1436) per duplicated task. But the `includeAssignees`/`includeTags` flags default differently between the RPC path (`true`) and the direct path — this could lead to inconsistent duplication depending on which path executes.
+
+**File**: [item-actions.ts duplicateTasksToBlock](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/tasks/item-actions.ts#L903-L1144)
+
+---
+
+## Priority Order for Fixes
+
+| Priority | Issues | Rationale |
+|----------|--------|-----------|
+| **P0** | A1 (assignee sync), D1 ([addTag](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1458-1507)/[removeTag](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/entity-properties.ts#1508-1552) divergence) | Active data corruption — different query paths return different results |
+| **P1** | B1 (writeback asymmetry), A2 (tag sync to derived tasks), D2 ([setEntityProperty](file:///Users/amnaahmad/trakmainwt/trak/src/app/actions/properties/entity-property-actions.ts#46-91) no sync) | Users editing derived entities lose changes; AI tool can silently desync data |
+| **P2** | C1 (sub-event multi), C2 (subtask create props), A3 (subtask→sub-event sync), D3 (RPC fragility) | Feature gaps and edge-case data loss |
+| **P3** | C3 (subtask update single), C4 (bulk no tags), A4 (table row no push), D4 (clear incomplete), E1-E3 | Quality improvements and architectural debt |
