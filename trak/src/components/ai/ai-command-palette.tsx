@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, Trash2, FileText, RotateCcw, Square } from "lucide-react";
+import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, FileText, RotateCcw, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
@@ -85,6 +85,15 @@ const hasSuccessfulWriteToolCall = (toolCallsMade: unknown) => {
   });
 };
 
+function extractRoutingTags(raw: string): { mode: "default" | "chart" | "shopify"; cleaned: string; hadTag: boolean } {
+  const hasChart = /(^|\s)@chart\b/i.test(raw);
+  const hasShopify = /(^|\s)@shopify\b/i.test(raw);
+  const cleaned = raw.replace(/(^|\s)@(chart|shopify)\b/gi, " ").replace(/\s+/g, " ").trimStart();
+  if (hasChart) return { mode: "chart", cleaned, hadTag: true };
+  if (hasShopify) return { mode: "shopify", cleaned, hadTag: true };
+  return { mode: "default", cleaned: raw, hadTag: false };
+}
+
 
 export function AICommandPalette() {
   const {
@@ -129,6 +138,7 @@ export function AICommandPalette() {
   const [isClearing, setIsClearing] = useState(false);
   const [searchMode, setSearchMode] = useState<"answer" | "search">("answer");
   const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([]);
+  const [assistantRoutingMode, setAssistantRoutingMode] = useState<"default" | "chart" | "shopify">("default");
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -153,6 +163,13 @@ export function AICommandPalette() {
   }, [pathname]);
 
   const workspaceId = currentWorkspace?.id || null;
+  const routeScopeKey = useMemo(
+    () =>
+      `${workspaceId ?? "no-workspace"}:${pathMatch.projectId ?? "no-project"}:${pathMatch.tabId ?? "no-tab"}`,
+    [workspaceId, pathMatch.projectId, pathMatch.tabId]
+  );
+  const activeRouteScopeKeyRef = useRef(routeScopeKey);
+  const abortReasonRef = useRef<"user" | "scope-change" | null>(null);
 
   const loadSession = async () => {
     if (!workspaceId) return;
@@ -238,6 +255,39 @@ export function AICommandPalette() {
   }, [isOpen, mode, workspaceId, pathMatch.projectId, pathMatch.tabId]);
 
   useEffect(() => {
+    if (activeRouteScopeKeyRef.current === routeScopeKey) return;
+    activeRouteScopeKeyRef.current = routeScopeKey;
+
+    if (streamAbortRef.current) {
+      abortReasonRef.current = "scope-change";
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
+
+    setSessionId(null);
+    setMessages([]);
+    setInput("");
+    setAssistantMessages([]);
+    setSearchEntries([]);
+    setStreamingStatus(null);
+    setStreamingResponse(null);
+    setIsLoading(false);
+    setAssistantLoading(false);
+    setSearchLoading(false);
+    setIsSyncing(false);
+    setIsClearing(false);
+    setPendingWriteConfirmation(null);
+    setWriteClarificationInput("");
+    setContextFiles([]);
+    setShowMentions(false);
+    setMentionQuery("");
+    setMentionIndex(null);
+    setIsDragging(false);
+    setMode("assistant");
+    closeCommandPalette();
+  }, [routeScopeKey, closeCommandPalette]);
+
+  useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
@@ -251,6 +301,7 @@ export function AICommandPalette() {
       setIsDragging(false);
     }
     if (mode !== "assistant") {
+      setAssistantRoutingMode("default");
       setPendingWriteConfirmation(null);
       setWriteClarificationInput("");
     }
@@ -283,10 +334,12 @@ export function AICommandPalette() {
     command: string;
     appendUserMessage?: boolean;
     confirmation?: WriteConfirmationApproval | null;
+    routingMode?: "default" | "chart" | "shopify";
   }) => {
-    const { command, appendUserMessage = true, confirmation } = params;
+    const { command, appendUserMessage = true, confirmation, routingMode = "default" } = params;
     const trimmedCommand = command.trim();
     if (!trimmedCommand) return;
+    abortReasonRef.current = null;
 
     const outboundHistory = assistantMessages.map((message) => ({
       role: message.role,
@@ -311,6 +364,7 @@ export function AICommandPalette() {
         credentials: "include",
         body: JSON.stringify({
           command: trimmedCommand,
+          routingMode,
           projectId: pathMatch.projectId,
           tabId: pathMatch.tabId,
           contextBlockId: contextBlock?.blockId,
@@ -343,11 +397,11 @@ export function AICommandPalette() {
       let responseUndoBatches: UndoBatch[] = [];
       let didWrite = false;
       const markWrite = () => {
-        if (!didWrite) {
-          didWrite = true;
-          void queryClient.invalidateQueries();
-          router.refresh();
-        }
+        didWrite = true;
+        // Invalidate on every successful write so multi-step writes (e.g. createTableFull
+        // then bulkInsertRows) each trigger a refetch and the UI shows the latest data.
+        void queryClient.invalidateQueries();
+        router.refresh();
       };
 
       while (true) {
@@ -472,19 +526,22 @@ export function AICommandPalette() {
       ]);
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
-        setAssistantMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: "Stopped.",
-          },
-        ]);
+        if (abortReasonRef.current === "user") {
+          setAssistantMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "Stopped.",
+            },
+          ]);
+        }
       } else {
         setToast({ message: "Failed to send message", type: "error" });
       }
     } finally {
       streamAbortRef.current = null;
+      abortReasonRef.current = null;
       setAssistantLoading(false);
       setStreamingStatus(null);
       setStreamingResponse(null);
@@ -493,6 +550,7 @@ export function AICommandPalette() {
 
   const stopStreaming = () => {
     if (streamAbortRef.current) {
+      abortReasonRef.current = "user";
       streamAbortRef.current.abort();
     }
   };
@@ -603,14 +661,17 @@ export function AICommandPalette() {
 
     if (assistantLoading) return;
     const messageText = input.trim();
+    const routingMode = assistantRoutingMode;
 
     setInput("");
+    setAssistantRoutingMode("default");
     setPendingWriteConfirmation(null);
     setWriteClarificationInput("");
     await runAssistantCommand({
       command: messageText,
       appendUserMessage: true,
       confirmation: null,
+      routingMode,
     });
   };
 
@@ -805,6 +866,14 @@ export function AICommandPalette() {
   };
 
   const handleMentionInput = (value: string) => {
+    if (mode === "assistant") {
+      const parsed = extractRoutingTags(value);
+      if (parsed.hadTag) {
+        setAssistantRoutingMode(parsed.mode);
+      }
+      setInput(parsed.cleaned);
+      return;
+    }
     if (mode !== "file") {
       setInput(value);
       return;
@@ -992,12 +1061,24 @@ export function AICommandPalette() {
     }
   };
 
+  const modePillClass = (active: boolean, compact = false) =>
+    cn(
+      compact ? "rounded-md px-2 py-0.5 text-[11px] transition-colors" : "rounded-md px-2.5 py-1 text-xs transition-colors",
+      active
+        ? "border border-[var(--border)] bg-[var(--surface-hover)] text-[var(--foreground)] font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+        : "border border-transparent text-[var(--muted-foreground)] hover:border-[var(--border)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+    );
+  const isClearChatDisabled =
+    (mode === "file" && (isClearing || isSyncing)) ||
+    (mode === "assistant" && assistantLoading) ||
+    (mode === "search" && searchLoading);
+
   if (!isOpen) return null;
 
   return (
     <aside
       className={cn(
-        "relative z-40 h-full w-full max-w-[480px] min-w-[360px] bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl flex flex-col",
+        "relative z-40 h-full w-full max-w-[480px] min-w-[360px] border-l border-[var(--border)] bg-[var(--background)]/95 shadow-[0_6px_24px_rgba(0,0,0,0.08)] backdrop-blur-sm flex flex-col",
         isDragging && "ring-2 ring-[var(--primary)]/40"
       )}
       onDragOver={handleDragOver}
@@ -1005,7 +1086,7 @@ export function AICommandPalette() {
       onDrop={handleDrop}
     >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--surface)]/95">
           <div className="flex items-center gap-3">
             <Sparkles className="h-4 w-4 text-[var(--primary)]" />
             <div>
@@ -1022,68 +1103,41 @@ export function AICommandPalette() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-full border border-[var(--border)] p-0.5 text-xs">
+            <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => setMode("assistant")}
-                className={cn(
-                  "rounded-full px-2 py-0.5 transition-colors",
-                  mode === "assistant"
-                    ? "bg-[var(--secondary)] text-[var(--primary-foreground)]"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                )}
+                className={modePillClass(mode === "assistant")}
               >
                 AI Assistant
               </button>
               <button
                 type="button"
                 onClick={() => setMode("file")}
-                className={cn(
-                  "rounded-full px-2 py-0.5 transition-colors",
-                  mode === "file"
-                    ? "bg-[var(--secondary)] text-[var(--primary-foreground)]"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                )}
+                className={modePillClass(mode === "file")}
               >
                 File Analysis
               </button>
               <button
                 type="button"
                 onClick={() => setMode("search")}
-                className={cn(
-                  "rounded-full px-2 py-0.5 transition-colors",
-                  mode === "search"
-                    ? "bg-[var(--secondary)] text-[var(--primary-foreground)]"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                )}
+                className={modePillClass(mode === "search")}
               >
                 Search
               </button>
             </div>
             <button
-              onClick={handleClearChat}
-              className="p-2 rounded hover:bg-[var(--surface-hover)] transition-colors"
-              title={mode === "file" ? "Clear chat" : "Clear conversation"}
-              disabled={
-                (mode === "file" && (isClearing || isSyncing)) ||
-                (mode === "assistant" && assistantLoading) ||
-                (mode === "search" && searchLoading)
-              }
-            >
-              <Trash2 className="h-4 w-4 text-[var(--muted-foreground)]" />
-            </button>
-            <button
               onClick={closeCommandPalette}
-              className="p-2 rounded hover:bg-[var(--surface-hover)] transition-colors"
+              className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               title="Close"
             >
-              <X className="h-4 w-4 text-[var(--muted-foreground)]" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
         {/* Context bar */}
-        <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-muted)] text-xs text-[var(--muted-foreground)] flex items-center justify-between">
+        <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] text-xs text-[var(--muted-foreground)] flex items-center justify-between">
           {mode === "file" ? (
             <>
               <span>
@@ -1099,28 +1153,18 @@ export function AICommandPalette() {
               <span className="truncate">
                 {currentWorkspace?.name ? `${currentWorkspace.name} workspace` : "Workspace search"}
               </span>
-              <span className="flex items-center rounded-full border border-[var(--border)] p-0.5 text-[11px]">
+              <span className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
                 <button
                   type="button"
                   onClick={() => setSearchMode("answer")}
-                  className={cn(
-                    "rounded-full px-2 py-0.5 transition-colors",
-                    searchMode === "answer"
-                      ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
-                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  )}
+                  className={modePillClass(searchMode === "answer", true)}
                 >
                   Answer
                 </button>
                 <button
                   type="button"
                   onClick={() => setSearchMode("search")}
-                  className={cn(
-                    "rounded-full px-2 py-0.5 transition-colors",
-                    searchMode === "search"
-                      ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
-                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  )}
+                  className={modePillClass(searchMode === "search", true)}
                 >
                   Search
                 </button>
@@ -1134,7 +1178,7 @@ export function AICommandPalette() {
         </div>
 
         {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto bg-[var(--background)]/40 px-4 py-4 space-y-4">
           {mode === "file" ? (
             messages.map((message) => {
               const isUser = message.role === "user";
@@ -1143,10 +1187,10 @@ export function AICommandPalette() {
                 <div key={message.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                   <div
                     className={cn(
-                      "max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2",
+                      "max-w-[90%] rounded-lg border px-3 py-2 text-sm space-y-2 shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
                       isUser
-                        ? "bg-[var(--primary)]/20 text-black"
-                        : "bg-[var(--muted)] text-[var(--foreground)]"
+                        ? "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--foreground)]"
+                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
                     )}
                   >
                     {message.content?.text && (
@@ -1276,10 +1320,10 @@ export function AICommandPalette() {
                 <div key={message.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                   <div
                     className={cn(
-                      "max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2",
+                      "max-w-[90%] rounded-lg border px-3 py-2 text-sm space-y-2 shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
                       isUser
-                        ? "bg-[var(--primary)]/20 text-black"
-                        : "bg-[var(--muted)] text-[var(--foreground)]"
+                        ? "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--foreground)]"
+                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
                     )}
                   >
                     {isUser ? (
@@ -1330,12 +1374,12 @@ export function AICommandPalette() {
               return (
                 <React.Fragment key={entry.id}>
                   <div className="flex justify-end">
-                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-2 bg-[var(--primary)]/20 text-black">
+                    <div className="max-w-[90%] rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-sm text-[var(--foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
                       <p className="whitespace-pre-wrap">{entry.query}</p>
                     </div>
                   </div>
                   <div className="flex justify-start">
-                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm space-y-3 bg-[var(--muted)] text-[var(--foreground)]">
+                    <div className="max-w-[90%] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] space-y-3">
                       {entry.status === "loading" && (
                         <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1502,7 +1546,7 @@ export function AICommandPalette() {
         </div>
 
         {/* Input */}
-        <form onSubmit={handleSubmit} className="border-t border-[var(--border)] p-4 space-y-2">
+        <form onSubmit={handleSubmit} className="border-t border-[var(--border)] bg-[var(--surface)]/95 p-4 space-y-2">
           <div className="flex items-center gap-2">
             {mode === "file" && (
               <button
@@ -1515,9 +1559,22 @@ export function AICommandPalette() {
               </button>
             )}
             <div className="flex-1">
+              {mode === "assistant" && assistantRoutingMode !== "default" && (
+                <div className="mb-2 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--foreground)]">
+                  <span>{assistantRoutingMode === "chart" ? "@chart" : "@shopify"}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAssistantRoutingMode("default")}
+                    className="rounded-full p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    aria-label={`Remove @${assistantRoutingMode} tag`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
               <textarea
                 ref={inputRef}
-                rows={2}
+                rows={1}
                 value={input}
                 onChange={(e) => handleMentionInput(e.target.value)}
                 placeholder={
@@ -1528,7 +1585,7 @@ export function AICommandPalette() {
                       : "Ask anything or give a command..."
                 }
                 className={cn(
-                  "w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2 text-sm",
+                  "w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
                   "text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]",
                   "focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                 )}
@@ -1566,6 +1623,17 @@ export function AICommandPalette() {
               </button>
             )}
           </div>
+          <button
+            type="button"
+            onClick={handleClearChat}
+            disabled={isClearChatDisabled}
+            className={cn(
+              "text-[11px] underline underline-offset-2 text-[var(--muted-foreground)] transition-colors",
+              "hover:text-[var(--foreground)] disabled:opacity-50 disabled:no-underline"
+            )}
+          >
+            Clear Chat
+          </button>
 
           {mode === "file" && showMentions && mentionSuggestions.length > 0 && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs shadow-lg">

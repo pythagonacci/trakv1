@@ -28,12 +28,13 @@ export async function POST(request: NextRequest) {
     await requireUser();
 
     const body = await request.json();
-    const { command, tabId, messages, confirmation, resumeFromConfirmation } = body as {
+    const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode } = body as {
       command: string;
       tabId?: string;
       messages?: AIMessage[];
       confirmation?: WriteConfirmationApproval | null;
       resumeFromConfirmation?: boolean;
+      routingMode?: "default" | "chart" | "shopify";
     };
 
     if (!command || typeof command !== "string") {
@@ -89,6 +90,12 @@ export async function POST(request: NextRequest) {
             persistSession: false,
             confirmation: confirmation ?? null,
             resumeFromConfirmation: Boolean(resumeFromConfirmation),
+            routingMode:
+              routingMode === "chart"
+                ? "chart"
+                : routingMode === "shopify"
+                  ? "shopify"
+                  : "default",
           });
 
           for await (const event of generator) {

@@ -1273,6 +1273,7 @@ RESPONSE PATTERN:
 export async function* executeWorkflowAICommandStream(params: {
   tabId: string;
   command: string;
+  routingMode?: "default" | "chart" | "shopify";
   confirmation?: WriteConfirmationApproval | null;
   resumeFromConfirmation?: boolean;
   conversationHistory?: AIMessage[];
@@ -1515,6 +1516,12 @@ RESPONSE PATTERN:
     {
       readOnly: !(allowTaskMutations || allowEntityMutations),
       allowedWriteTools,
+      routingMode:
+        params.routingMode === "chart"
+          ? "chart"
+          : params.routingMode === "shopify"
+            ? "shopify"
+            : "default",
       enforceBatchUpdateCompletion: allowTaskMutations,
       forcedToolGroups: [
         "core",

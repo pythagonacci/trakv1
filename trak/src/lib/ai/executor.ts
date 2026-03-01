@@ -77,6 +77,10 @@ export interface ExecutionContext {
 
 export interface ExecuteAICommandOptions {
   /**
+   * Explicit routing mode from caller/UI.
+   */
+  routingMode?: "default" | "chart" | "shopify";
+  /**
    * Force a tool group set regardless of intent classification.
    * Useful for Workflow Pages where unified multi-tool access is required.
    */
@@ -1088,14 +1092,56 @@ function narrowToolsForSingleAction(
   );
 }
 
-function extractShopifyMention(command: string) {
-  const mentionRegex = /(^|\\s)@shopify(\\b|\\s)/gi;
+const CHART_MODE_WRITE_TOOLS = new Set(["createSpecChartBlock"]);
+const CHART_MODE_INSTRUCTION =
+  "CHART MODE (MANDATORY): The user explicitly requested a chart with @chart. You MUST create or update a chart using chart tools only. Do not create tasks, projects, docs, tables, or any non-chart entities. Search tools are allowed for gathering data before chart creation.";
+const SHOPIFY_MODE_INSTRUCTION =
+  "SHOPIFY MODE (PREFERRED): The user explicitly requested Shopify-focused handling with @shopify. " +
+  "Prioritize Shopify tools first: searchShopifyProducts, getShopifyProductDetails, getShopifyProductSales, refreshShopifyProduct, createProductsTable. " +
+  "Shopify data available includes imported products (title, vendor, type, tags, status), variants/SKUs, inventory levels, pricing, and date-range units sold. " +
+  "You may use non-Shopify tools when needed to finish the task (e.g. search/resolution tools, block/tab/table tools), but default to Shopify tools whenever they can satisfy the request.";
+
+function extractMentionTag(command: string, tag: string) {
+  const mentionRegex = new RegExp(`(^|\\s)@${tag}(\\b|\\s)`, "gi");
   const hasMention = mentionRegex.test(command);
   if (!hasMention) {
     return { hasMention: false, cleanedCommand: command };
   }
-  const cleaned = command.replace(mentionRegex, " ").replace(/\\s+/g, " ").trim();
+  const cleaned = command.replace(mentionRegex, " ").replace(/\s+/g, " ").trim();
   return { hasMention: true, cleanedCommand: cleaned.length > 0 ? cleaned : command };
+}
+
+function applyChartModeTools(
+  tools: ReturnType<typeof getToolsByGroups>,
+  chartModeEnabled: boolean
+): ReturnType<typeof getToolsByGroups> {
+  if (!chartModeEnabled) return tools;
+  return tools.filter(
+    (tool) =>
+      tool.category === "search" ||
+      tool.category === "control" ||
+      CHART_MODE_WRITE_TOOLS.has(tool.name)
+  );
+}
+
+function buildChartModeCommand(command: string) {
+  return `${CHART_MODE_INSTRUCTION}\n\nUser request: ${command}`;
+}
+
+function buildShopifyModeCommand(command: string) {
+  return `${SHOPIFY_MODE_INSTRUCTION}\n\nUser request: ${command}`;
+}
+
+function applyShopifyToolPrioritization(
+  tools: ReturnType<typeof getToolsByGroups>,
+  shopifyModeEnabled: boolean
+): ReturnType<typeof getToolsByGroups> {
+  if (!shopifyModeEnabled) return tools;
+  return [...tools].sort((a, b) => {
+    const aIsShopify = a.category === "shopify" ? 1 : 0;
+    const bIsShopify = b.category === "shopify" ? 1 : 0;
+    return bIsShopify - aIsShopify;
+  });
 }
 
 // ============================================================================
@@ -1129,8 +1175,19 @@ export async function executeAICommand(
     }
     : null;
   const undoTracker = createUndoTracker();
-  const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
-  const commandForModel = cleanedCommand;
+  const { hasMention: hasShopifyMention, cleanedCommand: commandWithoutShopifyMention } = extractMentionTag(userCommand, "shopify");
+  const { hasMention: hasChartMention, cleanedCommand: cleanedCommand } = extractMentionTag(
+    commandWithoutShopifyMention,
+    "chart"
+  );
+  const chartModeActive = options.routingMode === "chart" || hasChartMention;
+  const shopifyModeActive = !chartModeActive && (options.routingMode === "shopify" || hasShopifyMention);
+  const commandForRouting = cleanedCommand;
+  const commandForModel = chartModeActive
+    ? buildChartModeCommand(commandForRouting)
+    : shopifyModeActive
+      ? buildShopifyModeCommand(commandForRouting)
+      : commandForRouting;
   let timingLogged = false;
   // Initialize source-tracking state before any early-return paths call withTiming().
   const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
@@ -1221,10 +1278,13 @@ export async function executeAICommand(
 
   // Classify intent to determine which tools are needed
   const intentStart = timingEnabled ? Date.now() : 0;
-  const intent = applyContextualToolGroups(classifyIntent(commandForModel), context);
+  const intent = applyContextualToolGroups(classifyIntent(commandForRouting), context);
   const forcedToolGroups = new Set<ToolGroup>(options.forcedToolGroups ?? []);
-  if (hasShopifyMention) {
+  if (hasShopifyMention || options.routingMode === "shopify") {
     forcedToolGroups.add("shopify");
+  }
+  if (chartModeActive) {
+    forcedToolGroups.add("block");
   }
   if (forcedToolGroups.size > 0) {
     const toolGroups = new Set<ToolGroup>(forcedToolGroups);
@@ -1275,8 +1335,8 @@ export async function executeAICommand(
   }
 
   // Fast path: simple pattern-matched commands skip the LLM entirely
-  if (!options.disableDeterministic) {
-    const simpleResult = await tryDeterministicCommand(commandForModel, context, { undoTracker });
+  if (!options.disableDeterministic && !chartModeActive) {
+    const simpleResult = await tryDeterministicCommand(commandForRouting, context, { undoTracker });
     if (simpleResult) return withTiming(simpleResult);
   }
 
@@ -1288,14 +1348,14 @@ export async function executeAICommand(
   // indicating a second independent action rather than a list continuation.
   const ACTION_VERBS = /\b(?:and)\s+(?:assign|add|set|tag|move|delete|remove|update|rename|change|populate|fill|insert|attach|link|copy|duplicate|archive|complete|close|open|share|export|import)\b/i;
   const isMultiStepCommand =
-    /\b(?:then|also|after that|next)\b/i.test(commandForModel) ||
-    /\b(?:with|w\/|columns?|fields?|rows?)\b/i.test(commandForModel) ||
-    ACTION_VERBS.test(commandForModel) ||
+    /\b(?:then|also|after that|next)\b/i.test(commandForRouting) ||
+    /\b(?:with|w\/|columns?|fields?|rows?)\b/i.test(commandForRouting) ||
+    ACTION_VERBS.test(commandForRouting) ||
     intent.actions.length > 1;
 
   // Build the system prompt with context
   const promptBuildStart = timingEnabled ? Date.now() : 0;
-  const promptMode = shouldUseFastPrompt(commandForModel, intent, conversationHistory) ? "fast" : "full";
+  const promptMode = shouldUseFastPrompt(commandForRouting, intent, conversationHistory) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
     workspaceName: context.workspaceName,
@@ -1320,10 +1380,14 @@ export async function executeAICommand(
 
   let activeIntent = intent;
   let toolUpgradeAttempted = false;
-  let relevantTools = narrowToolsForSingleAction(
-    trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, commandForModel),
-    activeIntent
+  let relevantTools = applyChartModeTools(
+    narrowToolsForSingleAction(
+      trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, commandForRouting),
+      activeIntent
+    ),
+    chartModeActive
   );
+  relevantTools = applyShopifyToolPrioritization(relevantTools, shopifyModeActive);
 
   // Get tools in OpenAI format (compatible with Deepseek) with caching
   const getCachedTools = (toolsForIntent: typeof relevantTools) => {
@@ -1371,6 +1435,8 @@ export async function executeAICommand(
       confidence: intent.confidence,
       reasoning: intent.reasoning,
     },
+    chartMode: chartModeActive,
+    shopifyMode: shopifyModeActive,
     toolCount: tools.length,
     toolCountReduction: `${allTools.length} → ${relevantTools.length} (${Math.round((1 - relevantTools.length / allTools.length) * 100)}% reduction)`,
     provider,
@@ -1612,6 +1678,8 @@ export async function executeAICommand(
                 ? "Retry bulkInsertRows with a much smaller chunk (max 10 rows when any long_text fields are present; otherwise max 25 rows)."
                 : toolName === "createTableFull"
                   ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
+                  : toolName === "createSpecChartBlock"
+                    ? "Retry createSpecChartBlock with compact rows only (id + spec fields). For repeated categories, use __count/count compression (example: { id: 'amna', assignee: 'Amna', __count: 37 }). Optionally use rowBatches to split large arrays."
                   : "Retry with a smaller payload.";
               parseFailure =
                 `Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. ${retryHint}`;
@@ -1766,14 +1834,18 @@ export async function executeAICommand(
                 ...activeIntent,
                 toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(validGroups as any[])])),
               };
-              relevantTools = narrowToolsForSingleAction(
-                trimToolsForIntent(
-                  getToolsByGroups(activeIntent.toolGroups),
-                  activeIntent,
-                  commandForModel
+              relevantTools = applyChartModeTools(
+                narrowToolsForSingleAction(
+                  trimToolsForIntent(
+                    getToolsByGroups(activeIntent.toolGroups),
+                    activeIntent,
+                    commandForRouting
+                  ),
+                  activeIntent
                 ),
-                activeIntent
+                chartModeActive
               );
+              relevantTools = applyShopifyToolPrioritization(relevantTools, shopifyModeActive);
               tools = getCachedTools(relevantTools);
               toolUpgradeAttempted = true;
               aiDebug("executeAICommand:toolUpgrade", {
@@ -2289,10 +2361,14 @@ export async function executeAICommand(
           ...activeIntent,
           toolGroups: Array.from(new Set([...activeIntent.toolGroups, ...(upgradeGroups as any[])])),
         };
-        relevantTools = narrowToolsForSingleAction(
-          trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, commandForModel),
-          activeIntent
+        relevantTools = applyChartModeTools(
+          narrowToolsForSingleAction(
+            trimToolsForIntent(getToolsByGroups(activeIntent.toolGroups), activeIntent, commandForRouting),
+            activeIntent
+          ),
+          chartModeActive
         );
+        relevantTools = applyShopifyToolPrioritization(relevantTools, shopifyModeActive);
         tools = getCachedTools(relevantTools);
         aiDebug("executeAICommand:toolUpgrade", {
           from: intent.toolGroups,
@@ -2671,8 +2747,19 @@ export async function* executeAICommandStream(
   const readOnlyAllowedWriteTools = new Set(options.allowedWriteTools ?? []);
   let autoUnstructuredFallbackUsed = false;
   let hallucinatedWriteRetries = 0;
-  const { hasMention: hasShopifyMention, cleanedCommand } = extractShopifyMention(userCommand);
-  const commandForModel = cleanedCommand;
+  const { hasMention: hasShopifyMention, cleanedCommand: commandWithoutShopifyMention } = extractMentionTag(userCommand, "shopify");
+  const { hasMention: hasChartMention, cleanedCommand } = extractMentionTag(
+    commandWithoutShopifyMention,
+    "chart"
+  );
+  const chartModeActive = options.routingMode === "chart" || hasChartMention;
+  const shopifyModeActive = !chartModeActive && (options.routingMode === "shopify" || hasShopifyMention);
+  const commandForRouting = cleanedCommand;
+  const commandForModel = chartModeActive
+    ? buildChartModeCommand(commandForRouting)
+    : shopifyModeActive
+      ? buildShopifyModeCommand(commandForRouting)
+      : commandForRouting;
 
   // Track tool repeats to prevent infinite loops (streaming path)
   let lastToolSignature: string | null = null;
@@ -2711,10 +2798,13 @@ export async function* executeAICommandStream(
   // All chart creation is now handled by the LLM via tool calls
   // Removed all deterministic chart detection to prevent false positives
 
-  let intent = applyContextualToolGroups(classifyIntent(commandForModel), context);
+  let intent = applyContextualToolGroups(classifyIntent(commandForRouting), context);
   const forcedToolGroups = new Set<ToolGroup>(options.forcedToolGroups ?? []);
-  if (hasShopifyMention) {
+  if (hasShopifyMention || options.routingMode === "shopify") {
     forcedToolGroups.add("shopify");
+  }
+  if (chartModeActive) {
+    forcedToolGroups.add("block");
   }
   if (forcedToolGroups.size > 0) {
     const toolGroups = new Set<ToolGroup>(forcedToolGroups);
@@ -2797,8 +2887,8 @@ export async function* executeAICommandStream(
   }
 
   // Fix A: Fast path — simple pattern-matched commands skip the LLM entirely
-  if (!options.disableDeterministic && !options.requireWriteConfirmation) {
-    const simpleResult = await tryDeterministicCommand(commandForModel, context);
+  if (!options.disableDeterministic && !options.requireWriteConfirmation && !chartModeActive) {
+    const simpleResult = await tryDeterministicCommand(commandForRouting, context);
     if (simpleResult) {
       yield {
         type: "response",
@@ -2811,10 +2901,10 @@ export async function* executeAICommandStream(
 
   // Fix D: Detect multi-step commands to prevent premature early-exit on writes
   const isMultiStepCommand =
-    /\b(?:and|then|also|after that|next)\b/i.test(commandForModel) ||
+    /\b(?:and|then|also|after that|next)\b/i.test(commandForRouting) ||
     intent.actions.length > 1;
 
-  const promptMode = shouldUseFastPrompt(commandForModel, intent, []) ? "fast" : "full";
+  const promptMode = shouldUseFastPrompt(commandForRouting, intent, []) ? "fast" : "full";
   const systemPrompt = getSystemPrompt({
     workspaceId: context.workspaceId,
     workspaceName: context.workspaceName,
@@ -2833,11 +2923,15 @@ export async function* executeAICommandStream(
   ];
 
   // Fix C: Narrow tools for single-action intents to reduce payload size
-  const relevantTools = narrowToolsForSingleAction(
-    trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, commandForModel),
-    intent
+  const relevantTools = applyChartModeTools(
+    narrowToolsForSingleAction(
+      trimToolsForIntent(getToolsByGroups(intent.toolGroups), intent, commandForRouting),
+      intent
+    ),
+    chartModeActive
   );
-  const tools = toOpenAIFormat(relevantTools);
+  const routingTools = applyShopifyToolPrioritization(relevantTools, shopifyModeActive);
+  const tools = toOpenAIFormat(routingTools);
   const provider =
     providerPref === "deepseek"
       ? deepseekKey
@@ -3055,6 +3149,8 @@ export async function* executeAICommandStream(
                 ? "Retry bulkInsertRows with a much smaller chunk (max 10 rows when any long_text fields are present; otherwise max 25 rows)."
                 : toolName === "createTableFull"
                   ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
+                  : toolName === "createSpecChartBlock"
+                    ? "Retry createSpecChartBlock with compact rows only (id + spec fields). For repeated categories, use __count/count compression (example: { id: 'amna', assignee: 'Amna', __count: 37 }). Optionally use rowBatches to split large arrays."
                   : "Retry with a smaller payload.";
               parseFailure =
                 `Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. ${retryHint}`;

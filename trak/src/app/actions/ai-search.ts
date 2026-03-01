@@ -211,6 +211,9 @@ interface TaskSubtaskSummary {
   description: string | null;
   completed: boolean;
   display_order: number;
+  status: string | null;
+  priority: string | null;
+  due_date: string | null;
 }
 
 interface SubtaskResult {
@@ -1399,6 +1402,14 @@ export async function searchTasks(params: {
       if (subtaskError) {
         console.error("searchTasks subtasks error:", subtaskError);
       } else {
+        const subtaskIds = (subtaskRows ?? []).map((subtask: any) => String(subtask.id));
+        const subtaskPropertiesMap = await enrichEntitiesWithProperties(
+          supabase,
+          workspaceId,
+          "subtask",
+          subtaskIds
+        );
+
         for (const subtask of subtaskRows ?? []) {
           const taskId = String(subtask.task_id);
           const summaryList = subtaskListByTask.get(taskId) ?? [];
@@ -1408,6 +1419,11 @@ export async function searchTasks(params: {
           }
           subtaskListByTask.set(taskId, summaryList);
 
+          const subtaskProps = subtaskPropertiesMap.get(String(subtask.id)) ?? [];
+          const subtaskStatusProp = subtaskProps.find((p) => p.name === "Status");
+          const subtaskPriorityProp = subtaskProps.find((p) => p.name === "Priority");
+          const subtaskDueDateProp = subtaskProps.find((p) => p.name === "Due Date");
+
           const subtaskList = subtasksByTask.get(taskId) ?? [];
           subtaskList.push({
             id: subtask.id,
@@ -1415,6 +1431,9 @@ export async function searchTasks(params: {
             description: subtask.description ?? null,
             completed: Boolean(subtask.completed),
             display_order: subtask.display_order ?? 0,
+            status: normalizeStatusValue(normalizeSelectValue(subtaskStatusProp?.value)),
+            priority: normalizePriorityValue(normalizeSelectValue(subtaskPriorityProp?.value)),
+            due_date: normalizeDateValue(subtaskDueDateProp?.value),
           });
           subtasksByTask.set(taskId, subtaskList);
         }
