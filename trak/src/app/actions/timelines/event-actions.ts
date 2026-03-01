@@ -37,6 +37,256 @@ function normalizeTimelineEventRow(row: any): TimelineEvent {
   };
 }
 
+function normalizeFieldName(name: string): string {
+  return String(name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+}
+
+function toDateOnly(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  return value.slice(0, 10);
+}
+
+function formatDateRangeCellValue(
+  start: string | null,
+  end: string | null
+): { start: string; end: string } | string | null {
+  if (!start && !end) return null;
+  const resolvedStart = start ?? end;
+  const resolvedEnd = end ?? start;
+  if (!resolvedStart || !resolvedEnd) return resolvedStart ?? resolvedEnd ?? null;
+  if (resolvedStart === resolvedEnd) return resolvedEnd;
+  return { start: resolvedStart, end: resolvedEnd };
+}
+
+async function syncTimelineEventUpdateToSourceTableRow(params: {
+  supabase: any;
+  sourceRowId: string;
+  userId: string;
+  event: TimelineEvent;
+}): Promise<void> {
+  const { supabase, sourceRowId, userId, event } = params;
+  const { data: sourceRow } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data")
+    .eq("id", sourceRowId)
+    .maybeSingle();
+  if (!sourceRow?.table_id) return;
+
+  const { data: fields } = await supabase
+    .from("table_fields")
+    .select("id, name, type, is_primary")
+    .eq("table_id", sourceRow.table_id);
+  if (!fields || fields.length === 0) return;
+
+  const namedStatuses = normalizeTimelineStatuses((event as any).statuses);
+  const namedPriorities = normalizeTimelinePriorities((event as any).priorities);
+  const nextData: Record<string, unknown> = { ...((sourceRow.data ?? {}) as Record<string, unknown>) };
+
+  const primaryField = fields.find((f: any) => Boolean(f.is_primary))
+    ?? fields.find((f: any) => normalizeFieldName(f.name).includes("title") || normalizeFieldName(f.name) === "event");
+  if (primaryField) nextData[primaryField.id] = event.title ?? "";
+
+  const statusFields = fields.filter((f: any) => f.type === "status");
+  const priorityFields = fields.filter((f: any) => f.type === "priority");
+
+  for (const entry of namedStatuses) {
+    const match = statusFields.find((f: any) => normalizeFieldName(f.name) === normalizeFieldName(entry.field_name));
+    if (match) nextData[match.id] = entry.value;
+  }
+
+  for (const entry of namedPriorities) {
+    const match = priorityFields.find((f: any) => normalizeFieldName(f.name) === normalizeFieldName(entry.field_name));
+    if (match) nextData[match.id] = entry.value;
+  }
+
+  const startField = fields.find((f: any) => normalizeFieldName(f.name).includes("start") && f.type === "date")
+    ?? fields.find((f: any) => normalizeFieldName(f.name).includes("start"));
+  const endField = fields.find((f: any) => normalizeFieldName(f.name).includes("end") && f.type === "date")
+    ?? fields.find((f: any) => normalizeFieldName(f.name).includes("due") || normalizeFieldName(f.name).includes("end"));
+  const singleDateField = fields.find((f: any) => f.type === "date");
+  const startDate = toDateOnly((event as any).start_date);
+  const endDate = toDateOnly((event as any).end_date);
+  if (startField && startDate) nextData[startField.id] = startDate;
+  if (endField && endDate) nextData[endField.id] = endDate;
+  if (!startField && !endField && singleDateField) {
+    nextData[singleDateField.id] = formatDateRangeCellValue(startDate, endDate);
+  }
+
+  await supabase
+    .from("table_rows")
+    .update({ data: nextData, updated_by: userId })
+    .eq("id", sourceRowId);
+}
+
+async function syncTimelineEventUpdateToDerivedRows(params: {
+  supabase: any;
+  sourceEventId: string;
+  userId: string;
+  event: TimelineEvent;
+}): Promise<void> {
+  const { supabase, sourceEventId, userId, event } = params;
+  const { data: rows } = await supabase
+    .from("table_rows")
+    .select("id, table_id, data")
+    .eq("source_entity_type", "timeline_event")
+    .eq("source_entity_id", sourceEventId)
+    .eq("source_sync_mode", "live");
+  if (!rows || rows.length === 0) return;
+
+  const tableIds = Array.from(new Set(rows.map((r: any) => r.table_id)));
+  const { data: allFields } = await supabase
+    .from("table_fields")
+    .select("id, table_id, name, type, is_primary")
+    .in("table_id", tableIds);
+  const fieldsByTable = new Map<string, any[]>();
+  for (const field of allFields ?? []) {
+    const list = fieldsByTable.get((field as any).table_id) ?? [];
+    list.push(field);
+    fieldsByTable.set((field as any).table_id, list);
+  }
+
+  const namedStatuses = normalizeTimelineStatuses((event as any).statuses);
+  const namedPriorities = normalizeTimelinePriorities((event as any).priorities);
+  const startDate = toDateOnly((event as any).start_date);
+  const endDate = toDateOnly((event as any).end_date);
+
+  for (const row of rows as any[]) {
+    const fields = fieldsByTable.get(row.table_id) ?? [];
+    const nextData: Record<string, unknown> = { ...((row.data ?? {}) as Record<string, unknown>) };
+
+    const primaryField = fields.find((f: any) => Boolean(f.is_primary))
+      ?? fields.find((f: any) => normalizeFieldName(f.name).includes("title") || normalizeFieldName(f.name) === "event");
+    if (primaryField) nextData[primaryField.id] = event.title ?? "";
+
+    const statusFields = fields.filter((f: any) => f.type === "status");
+    const priorityFields = fields.filter((f: any) => f.type === "priority");
+
+    for (const entry of namedStatuses) {
+      const match = statusFields.find((f: any) => normalizeFieldName(f.name) === normalizeFieldName(entry.field_name));
+      if (match) nextData[match.id] = entry.value;
+    }
+
+    for (const entry of namedPriorities) {
+      const match = priorityFields.find((f: any) => normalizeFieldName(f.name) === normalizeFieldName(entry.field_name));
+      if (match) nextData[match.id] = entry.value;
+    }
+
+    const startField = fields.find((f: any) => normalizeFieldName(f.name).includes("start") && f.type === "date")
+      ?? fields.find((f: any) => normalizeFieldName(f.name).includes("start"));
+    const endField = fields.find((f: any) => normalizeFieldName(f.name).includes("end") && f.type === "date")
+      ?? fields.find((f: any) => normalizeFieldName(f.name).includes("due") || normalizeFieldName(f.name).includes("end"));
+    const singleDateField = fields.find((f: any) => f.type === "date");
+    if (startField && startDate) nextData[startField.id] = startDate;
+    if (endField && endDate) nextData[endField.id] = endDate;
+    if (!startField && !endField && singleDateField) {
+      nextData[singleDateField.id] = formatDateRangeCellValue(startDate, endDate);
+    }
+
+    await supabase
+      .from("table_rows")
+      .update({ data: nextData, updated_by: userId })
+      .eq("id", row.id);
+  }
+}
+
+async function syncTimelineEventUpdateToDerivedTasks(params: {
+  supabase: any;
+  sourceEventId: string;
+  userId: string;
+  event: TimelineEvent;
+}): Promise<void> {
+  const { supabase, sourceEventId, userId, event } = params;
+  const { data: tasks } = await supabase
+    .from("task_items")
+    .select("id, workspace_id")
+    .eq("source_entity_type", "timeline_event")
+    .eq("source_entity_id", sourceEventId)
+    .eq("source_sync_mode", "live");
+  if (!tasks || tasks.length === 0) return;
+
+  const statuses = normalizeTimelineStatuses((event as any).statuses).map((entry) => ({
+    field_name: entry.field_name,
+    value: entry.value,
+  }));
+  const priorities = normalizeTimelinePriorities((event as any).priorities).map((entry) => ({
+    field_name: entry.field_name,
+    value: entry.value,
+  }));
+
+  for (const task of tasks as any[]) {
+    await supabase
+      .from("task_items")
+      .update({
+        title: event.title ?? "",
+        statuses,
+        priorities,
+        start_date: (event as any).start_date?.slice?.(0, 10) ?? null,
+        due_date: (event as any).end_date?.slice?.(0, 10) ?? null,
+        description: event.notes ?? null,
+        updated_by: userId,
+      })
+      .eq("id", task.id);
+    // Bug 1.1 fix: sync entity_properties for derived task
+    if (task.workspace_id) {
+      await supabase.from("entity_properties").delete()
+        .eq("entity_type", "task").eq("entity_id", task.id).eq("field_type", "status");
+      await supabase.from("entity_properties").delete()
+        .eq("entity_type", "task").eq("entity_id", task.id).eq("field_type", "priority");
+      if (statuses.length > 0) {
+        await supabase.from("entity_properties").upsert(
+          statuses.map((e) => ({ entity_type: "task", entity_id: task.id, workspace_id: task.workspace_id, field_name: e.field_name, field_type: "status", value: e.value })),
+          { onConflict: "entity_type,entity_id,field_name" }
+        );
+      }
+      if (priorities.length > 0) {
+        await supabase.from("entity_properties").upsert(
+          priorities.map((e) => ({ entity_type: "task", entity_id: task.id, workspace_id: task.workspace_id, field_name: e.field_name, field_type: "priority", value: e.value })),
+          { onConflict: "entity_type,entity_id,field_name" }
+        );
+      }
+    }
+  }
+}
+
+async function syncTimelineEventUpdateToDerivedTimelineEvents(params: {
+  supabase: any;
+  sourceEventId: string;
+  userId: string;
+  event: TimelineEvent;
+}): Promise<void> {
+  const { supabase, sourceEventId, userId, event } = params;
+  const { data: events } = await supabase
+    .from("timeline_events")
+    .select("id, workspace_id")
+    .eq("source_entity_type", "timeline_event")
+    .eq("source_entity_id", sourceEventId)
+    .eq("source_sync_mode", "live");
+  if (!events || events.length === 0) return;
+
+  const childStatuses = normalizeTimelineStatuses((event as any).statuses);
+  const childPriorities = normalizeTimelinePriorities((event as any).priorities);
+
+  for (const child of events as any[]) {
+    if (child.id === sourceEventId) continue;
+    await supabase
+      .from("timeline_events")
+      .update({
+        title: event.title ?? "",
+        statuses: childStatuses,
+        priorities: childPriorities,
+        start_date: (event as any).start_date ?? null,
+        end_date: (event as any).end_date ?? null,
+        notes: event.notes ?? null,
+        updated_by: userId,
+      })
+      .eq("id", child.id);
+    // Bug 1.3 fix: sync entity_properties for derived timeline event
+    if (child.workspace_id) {
+      await syncTimelineEventToEntityProperties(supabase, child.id, child.workspace_id, childStatuses, childPriorities);
+    }
+  }
+}
+
 async function buildTimelinePrioritiesFromSourceEntity(
   supabase: any,
   sourceEntityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" | null,
@@ -341,7 +591,7 @@ export async function updateTimelineEvent(
     displayOrder: number;
     sourceSyncMode: "snapshot" | "live";
   }>,
-  opts?: { authContext?: AuthContext }
+  opts?: { authContext?: AuthContext; skipDerivedFanout?: boolean; skipSourceWriteback?: boolean }
 ): Promise<ActionResult<TimelineEvent>> {
   const access = await getEventContext(eventId, opts);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
@@ -463,6 +713,7 @@ export async function updateTimelineEvent(
 
   // If this event is live-synced to a task, propagate status/priority back to the source task
   if (
+    !opts?.skipSourceWriteback &&
     (updates.status !== undefined || updates.statuses !== undefined || updates.priority !== undefined || updates.priorities !== undefined) &&
     event.source_entity_type === "task" &&
     event.source_entity_id &&
@@ -495,6 +746,57 @@ export async function updateTimelineEvent(
         eventId,
         sourceTaskId: event.source_entity_id,
         error: syncError,
+      });
+    }
+  }
+
+  // If this event is live-synced to a table row, propagate key fields back to the source row.
+  if (
+    !opts?.skipSourceWriteback &&
+    event.source_entity_type === "table_row" &&
+    event.source_entity_id &&
+    event.source_sync_mode === "live"
+  ) {
+    try {
+      await syncTimelineEventUpdateToSourceTableRow({
+        supabase,
+        sourceRowId: event.source_entity_id,
+        userId,
+        event: normalized,
+      });
+    } catch (syncError) {
+      console.error("Failed to sync timeline event properties back to source table row", {
+        eventId,
+        sourceRowId: event.source_entity_id,
+        error: syncError,
+      });
+    }
+  }
+
+  if (!opts?.skipDerivedFanout) {
+    try {
+      await syncTimelineEventUpdateToDerivedTimelineEvents({
+        supabase,
+        sourceEventId: eventId,
+        userId,
+        event: normalized,
+      });
+      await syncTimelineEventUpdateToDerivedTasks({
+        supabase,
+        sourceEventId: eventId,
+        userId,
+        event: normalized,
+      });
+      await syncTimelineEventUpdateToDerivedRows({
+        supabase,
+        sourceEventId: eventId,
+        userId,
+        event: normalized,
+      });
+    } catch (fanoutError) {
+      console.error("Failed to sync source timeline event updates to derived entities", {
+        eventId,
+        error: fanoutError,
       });
     }
   }

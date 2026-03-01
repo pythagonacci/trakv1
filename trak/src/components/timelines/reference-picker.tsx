@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, FileText, Paperclip, Search, Square, Table } from "lucide-react";
+import { CheckSquare, FileText, Paperclip, Search, Square, Table, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -21,6 +21,7 @@ import {
 type TypeFilter = LinkableType | null;
 
 const TYPE_OPTIONS: Array<{ type: LinkableType; label: string; icon: React.ElementType }> = [
+  { type: "person", label: "People", icon: User },
   { type: "doc", label: "Docs", icon: FileText },
   { type: "table", label: "Tables", icon: Table },
   { type: "task", label: "Tasks", icon: CheckSquare },
@@ -34,6 +35,7 @@ const TYPE_LABELS: Record<LinkableType, string> = {
   task: "Task",
   file: "File",
   block: "Block",
+  person: "Person",
 };
 
 export default function ReferencePicker({
@@ -67,7 +69,6 @@ export default function ReferencePicker({
   const [activeIndex, setActiveIndex] = useState(0);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
-  const [popoverPlacement] = useState<"top" | "bottom">("top");
   const [popoverLeft, setPopoverLeft] = useState<number | null>(null);
   const [popoverTop, setPopoverTop] = useState<number | null>(null);
   const hasValidAnchor =
@@ -118,18 +119,27 @@ export default function ReferencePicker({
 
   useLayoutEffect(() => {
     if (!isOpen || variant !== "popover" || !hasValidAnchor || !anchorRect) return;
-    const margin = 6;
+    const margin = 8;
     const maxWidth = 320;
-    const maxHeight = 400;
-    const gap = 8; // Gap between caret and popover
-    
-    // Position horizontally aligned with the caret
-    const left = Math.min(Math.max(anchorRect.left - 12, margin), window.innerWidth - maxWidth - margin);
-    
-    // Position above the caret - place popover bottom edge just above the caret top
-    // We estimate the popover height and position it accordingly
-    const estimatedPopoverHeight = Math.min(maxHeight, 300); // Estimate based on content
-    const top = Math.max(margin, anchorRect.top - estimatedPopoverHeight - gap);
+    const maxHeight = 360;
+    const gap = 2;
+    const minLeft = margin;
+    const maxLeft = window.innerWidth - maxWidth - margin;
+    const minTop = margin;
+    const maxTop = window.innerHeight - maxHeight - margin;
+
+    // Prefer to the right of the trigger (like inline mention dropdowns)
+    let left = anchorRect.right + gap;
+    if (left + maxWidth > window.innerWidth - margin) {
+      // Not enough room on right: flip to the left of the trigger
+      left = anchorRect.left - maxWidth - gap;
+    }
+    // Clamp so popover never overflows viewport horizontally
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+
+    // Align top with trigger; clamp vertically so popover stays in viewport
+    let top = anchorRect.top;
+    top = Math.max(minTop, Math.min(top, maxTop));
 
     setPopoverLeft(left);
     setPopoverTop(top);
@@ -217,9 +227,12 @@ export default function ReferencePicker({
     const currentProject: LinkableItem[] = [];
     const otherProjects: LinkableItem[] = [];
     const workflow: LinkableItem[] = [];
+    const people: LinkableItem[] = [];
 
     displayItems.forEach((item) => {
-      if (item.isWorkflow) {
+      if (item.type === "person") {
+        people.push(item);
+      } else if (item.isWorkflow) {
         workflow.push(item);
       } else if (item.isCurrentProject) {
         currentProject.push(item);
@@ -228,7 +241,7 @@ export default function ReferencePicker({
       }
     });
 
-    return { currentProject, otherProjects, workflow };
+    return { currentProject, otherProjects, workflow, people };
   }, [displayItems]);
 
   const flatItems = useMemo(() => displayItems, [displayItems]);
@@ -407,6 +420,26 @@ export default function ReferencePicker({
             )}
             {!isLoading && displayItems.length > 0 && (
               <>
+                {groupedByProject.people.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                      People
+                    </div>
+                    {groupedByProject.people.map((item) => {
+                      const overallIndex = displayItems.findIndex(
+                        (current) => current.id === item.id && current.type === item.type
+                      );
+                      return (
+                        <ResultRow
+                          key={`${item.type}-${item.id}`}
+                          item={item}
+                          isActive={overallIndex === activeIndex}
+                          onSelect={() => handleSelect(item)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
                 {groupedByProject.currentProject.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -481,17 +514,17 @@ export default function ReferencePicker({
       <div
         ref={popoverRef}
         onKeyDown={handleKeyDown}
-        className="fixed z-[100000] w-[320px] max-w-[90vw] max-h-[400px] rounded-xl border border-neutral-200 bg-white p-2 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 overflow-hidden flex flex-col"
+        className="fixed z-[100000] w-[320px] max-w-[90vw] max-h-[360px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-popover overflow-hidden flex flex-col"
         style={{
           left: popoverLeft ?? anchorRect.left,
           top: popoverTop ?? anchorRect.top,
         }}
       >
-        <div className="text-xs font-semibold text-neutral-700 dark:text-neutral-200 mb-2">Add attachment</div>
+        <div className="text-xs font-semibold text-[var(--foreground)] mb-2">Add attachment</div>
         <div className="flex-1 overflow-y-auto min-h-0">
           {pickerBody}
         </div>
-        <div className="flex items-center justify-between pt-2 mt-2 border-t border-neutral-200 dark:border-neutral-800 text-[10px] text-neutral-400 flex-shrink-0">
+        <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--border)] text-[10px] text-[var(--muted-foreground)] flex-shrink-0">
           <div>Use ↑/↓ to navigate and Enter to select.</div>
           <Button variant="outline" size="sm" onClick={onClose} className="h-6 text-xs px-2">
             Close
@@ -536,6 +569,7 @@ function ResultRow({
     task: CheckSquare,
     file: Paperclip,
     block: Square,
+    person: User,
   };
   const Icon = iconMap[item.type];
 

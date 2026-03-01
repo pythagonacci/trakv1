@@ -3,8 +3,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { checkWorkspaceMembership, getAuthenticatedUser } from "@/lib/auth-utils";
 
-export type LinkableType = "doc" | "table" | "task" | "file" | "block";
-export type LinkableReferenceType = "doc" | "task" | "block";
+export type LinkableType = "doc" | "table" | "task" | "file" | "block" | "person";
+export type LinkableReferenceType = "doc" | "task" | "block" | "person";
 
 export interface LinkableItem {
   id: string;
@@ -18,6 +18,7 @@ export interface LinkableItem {
   projectName?: string | null;
   isCurrentProject?: boolean;
   isWorkflow?: boolean;
+  email?: string;
 }
 
 type ActionResult<T> = { data: T } | { error: string };
@@ -48,7 +49,31 @@ async function requireProjectAccess(projectId: string, workspaceId: string): Pro
 function filterByQuery(items: LinkableItem[], query: string) {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return items;
-  return items.filter((item) => item.name.toLowerCase().includes(trimmed));
+  return items.filter((item) =>
+    item.name.toLowerCase().includes(trimmed) ||
+    (item.email && item.email.toLowerCase().includes(trimmed))
+  );
+}
+
+async function getWorkspacePersonItems(supabase: any, workspaceId: string): Promise<LinkableItem[]> {
+  const { data: membersData } = await supabase
+    .from("workspace_members")
+    .select("user_id, profiles!inner(id, name, email)")
+    .eq("workspace_id", workspaceId);
+
+  return (membersData || []).flatMap((m: any) => {
+    const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+    if (!profile?.id) return [];
+    const displayName = profile.name || profile.email || "Unknown";
+    return [{
+      id: profile.id,
+      type: "person" as const,
+      name: displayName,
+      location: profile.email || "Member",
+      referenceType: "person" as const,
+      email: profile.email || undefined,
+    }];
+  });
 }
 
 function filterByType(items: LinkableItem[], type?: LinkableType | null) {
@@ -147,7 +172,9 @@ export async function getRecentLinkableItems(input: {
     .slice()
     .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
 
-  return { data: sorted.slice(0, input.limit ?? 8) };
+  const personItems = await getWorkspacePersonItems(supabase, input.workspaceId);
+
+  return { data: [...personItems.slice(0, 5), ...sorted.slice(0, input.limit ?? 8)] };
 }
 
 export async function searchLinkableItems(input: {
@@ -241,12 +268,15 @@ export async function searchLinkableItems(input: {
     });
   });
 
-  const allItems = blockItems.concat(taskItems);
+  const personItems = await getWorkspacePersonItems(supabase, input.workspaceId);
+  const allItems = personItems.concat(blockItems).concat(taskItems);
 
   const filtered = filterByType(filterByQuery(allItems, trimmed), input.type);
 
-  // Sort: current project items first, then other items
+  // Sort: people first, then current project items, then other items
   const sorted = filtered.sort((a, b) => {
+    if (a.type === "person" && b.type !== "person") return -1;
+    if (a.type !== "person" && b.type === "person") return 1;
     if (a.isCurrentProject && !b.isCurrentProject) return -1;
     if (!a.isCurrentProject && b.isCurrentProject) return 1;
     return 0;
