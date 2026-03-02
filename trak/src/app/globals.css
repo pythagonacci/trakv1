@@ -26,7 +26,7 @@
     
     /* Typography Colors - Dark enough for comfortable reading */
     --foreground: #1a1d21; /* Near-black for primary text */
-    --muted-foreground: #2d3748; /* Darker gray for body/paragraph text */
+    --muted-foreground: #232d3a; /* Darker gray for body/paragraph text */
     --tertiary-foreground: #6b7280; /* Medium gray for placeholders, metadata */
 
     /* Primary Action - True semantic primary (#3080a6) */
@@ -74,6 +74,10 @@
     
     /* Overlay - For dialogs and modals */
     --overlay: rgba(45, 50, 54, 0.4); /* Semantic overlay token */
+
+    /* Dashboard header bar - same blue as primary, very transparent */
+    --header-bar-bg: rgba(48, 128, 166, 0.06);
+    --header-bar-text: #1a1d21;
   }
 
   /* Dark Theme - Maintains Sarajevo aesthetic */
@@ -105,6 +109,8 @@
     --velvet-purple: #8D7B8D;
     --nav-icon: #6B7C94;
     --nav-icon-active: #5A8A88;
+    --header-bar-bg: rgba(56, 144, 182, 0.08);
+    --header-bar-text: #E8E6E1;
   }
 
   /* Brutalist Theme - Cursor Black Midnight dark mode */
@@ -151,7 +157,8 @@
     font-family: var(--font-sans);
     @apply bg-[var(--background)] text-[var(--foreground)] antialiased transition-colors duration-200 ease-out;
     font-feature-settings: "rlig" 1, "calt" 1;
-    font-size: 14px;
+    font-size: 15px;
+    font-weight: 500;
     line-height: 1.6;
   }
 
@@ -197,7 +204,7 @@
   }
 
   p {
-    @apply text-[14px] leading-relaxed text-[var(--muted-foreground)];
+    @apply text-[15px] leading-relaxed text-[var(--muted-foreground)] font-medium;
   }
 
   label {
@@ -435,6 +442,7 @@
   margin-bottom: 0.75em;
   line-height: var(--line-spacing, 1.5);
   font-size: 1em;
+  font-weight: 500;
   color: var(--foreground);
 }
 

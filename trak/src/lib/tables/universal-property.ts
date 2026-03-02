@@ -3,7 +3,8 @@ import type { Priority, Status } from "@/types/properties";
 export const TABLE_PRIORITY_LEVELS: Array<{ id: Priority; label: string; color: string; order: number }> = [
   { id: "urgent", label: "Urgent", color: "#ef4444", order: 4 },
   { id: "high", label: "High", color: "#f59e0b", order: 3 },
-  { id: "medium", label: "Medium", color: "#3b82f6", order: 2 },
+  // Medium priority should use the same yellow tone as task priorities (var(--warning) / Antique Gold)
+  { id: "medium", label: "Medium", color: "#C9A857", order: 2 },
   { id: "low", label: "Low", color: "#6b7280", order: 1 },
 ];
 

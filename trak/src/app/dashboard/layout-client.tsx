@@ -21,6 +21,8 @@ import {
   Database,
   User,
   Settings,
+  Plus,
+  LayoutDashboard,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -31,9 +33,11 @@ import {
   DashboardHeaderProvider,
   useDashboardHeader,
 } from "./header-visibility-context";
+import { DashboardConfigModalProvider, useDashboardConfigModal } from "./dashboard-config-modal-context";
 import GlobalSearch from "./global-search";
 import { useTheme } from "./theme-context";
 import { useUser } from "@/hooks/use-user";
+import { Button } from "@/components/ui/button";
 import { AICommandPalette, useAI } from "@/components/ai";
 
 interface User {
@@ -85,6 +89,7 @@ export default function DashboardLayoutClient({
 
   return (
     <DashboardHeaderProvider>
+      <DashboardConfigModalProvider>
       <div className="flex h-full bg-[var(--surface)] text-[var(--foreground)]">
         {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
         <Sidebar collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
@@ -104,6 +109,7 @@ export default function DashboardLayoutClient({
           </div>
         )}
       </div>
+      </DashboardConfigModalProvider>
     </DashboardHeaderProvider>
   );
 }
@@ -689,8 +695,81 @@ function NavLink({
   );
 }
 
+function getOrdinalSuffix(day: number): string {
+  if (day >= 11 && day <= 13) return "th";
+  switch (day % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
+}
+
+function formatHeaderDate(date: Date): string {
+  const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
+  const month = date.toLocaleDateString("en-US", { month: "long" });
+  const day = date.getDate();
+  return `${weekday}, ${month} ${day}${getOrdinalSuffix(day)}`;
+}
+
+function normalizeUserName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function Header() {
-  return null;
+  const pathname = usePathname();
+  const { data: currentUser, isLoading } = useUser();
+  const { headerHidden } = useDashboardHeader();
+  const configModal = useDashboardConfigModal();
+  const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
+  const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
+  const isDashboardHome = pathname === "/dashboard";
+  const isProjectOrClientDetail =
+    (pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects") ||
+    (pathname?.startsWith("/dashboard/clients/") && pathname !== "/dashboard/clients");
+  const hideBar = headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail;
+
+  if (hideBar) return null;
+
+  const rawName = isLoading ? "…" : (currentUser?.name || "User");
+  const displayName = rawName === "…" ? rawName : normalizeUserName(rawName);
+  const displayDate = formatHeaderDate(new Date());
+
+  return (
+    <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--header-bar-bg)] px-2 py-2 md:px-3 lg:px-4">
+      <p className="text-sm text-[var(--header-bar-text)]">
+        <span className="font-medium">{displayName}</span>
+        <span className="mx-2 opacity-70">|</span>
+        <span className="opacity-90">{displayDate}</span>
+      </p>
+      <div className="flex items-center gap-2">
+        {isDashboardHome && configModal && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-[var(--border)] text-[var(--header-bar-text)] hover:bg-[var(--surface-hover)]"
+            onClick={() => configModal.open()}
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Configure dashboard
+          </Button>
+        )}
+        <Link href="/dashboard/projects">
+          <Button
+            size="sm"
+            className="bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New project
+          </Button>
+        </Link>
+      </div>
+    </header>
+  );
 }
 
 function LayoutMain({ children }: { children: React.ReactNode }) {

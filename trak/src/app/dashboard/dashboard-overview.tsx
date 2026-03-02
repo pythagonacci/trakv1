@@ -19,7 +19,19 @@ import { Button } from "@/components/ui/button";
 import { useTheme } from "@/app/dashboard/theme-context";
 import { parseDateSafe } from "@/lib/due-date";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
+import { useDashboardConfig } from "./use-dashboard-config";
+import {
+  isBuiltInWidget,
+  isProjectCardWidget,
+  isProjectGroupWidget,
+  isTaskListWidget,
+  isChartWidget,
+} from "./dashboard-config-types";
 import AIOverviewBlock from "./ai-overview-block";
+import DashboardProjectCard from "./widgets/dashboard-project-card";
+import DashboardProjectGroup from "./widgets/dashboard-project-group";
+import DashboardTaskWidget from "./widgets/dashboard-task-widget";
+import DashboardChartWidget from "./widgets/dashboard-chart-widget";
 import type { DashboardInsight } from "@/app/actions/dashboard-insights";
 
 interface Project {
@@ -101,6 +113,7 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const { currentWorkspace } = useWorkspace();
+  const { config: dashboardConfig } = useDashboardConfig(workspaceId);
 
   const clientFeedbackItems = clientFeedback.slice(0, 4);
   const teamUpdatesItems = teamUpdates.slice(0, 6);
@@ -212,9 +225,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
     <div className="flex flex-col gap-6 pb-10 px-6 md:px-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.32em] text-[var(--muted-foreground)]">
-            Overview
-          </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl">
             {currentWorkspace?.name ?? "Workspace"}
           </h1>
@@ -224,15 +234,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1"
-            onClick={() => router.push("/dashboard")}
-          >
-            <CalendarDays className="h-4 w-4" />
-            Today view
-          </Button>
           <button 
             onClick={() => router.push("/dashboard/projects")}
             className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--secondary)] hover:bg-[var(--secondary)]/90 rounded-[2px] transition-colors"
@@ -242,114 +243,137 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
         </div>
       </div>
 
-      <NotificationsCard
-        clientFeedbackItems={clientFeedbackItems}
-        teamUpdatesItems={teamUpdatesItems}
-        formatRelativeTime={formatRelativeTime}
-        onNavigate={(projectId, tabId) => {
-          if (projectId && tabId) {
-            router.push(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+      {dashboardConfig.widgets.map((widget) => {
+        if (isBuiltInWidget(widget)) {
+          if (widget.type === "notifications") {
+            return (
+              <NotificationsCard
+                key={widget.id}
+                clientFeedbackItems={clientFeedbackItems}
+                teamUpdatesItems={teamUpdatesItems}
+                formatRelativeTime={formatRelativeTime}
+                onNavigate={(projectId, tabId) => {
+                  if (projectId && tabId) {
+                    router.push(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+                  }
+                }}
+              />
+            );
           }
-        }}
-      />
-
-      {/* AI Overview Block */}
-      <AIOverviewBlock
-        insights={aiInsights ?? null}
-        workspaceId={workspaceId}
-        userId={userId}
-        userName={userName}
-      />
-
-      <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-          <div>
-            <CardTitle className="text-sm font-medium">Today</CardTitle>
-            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              What matters now and coming up.
-            </p>
-          </div>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => router.push("/dashboard/projects")}>
-            View all
-          </Button>
-        </CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-3 px-4 pb-4">
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-              Due today
-            </p>
-            {dueTodayTasks.length > 0 ? (
-              <div className="space-y-2">
-                {dueTodayTasks.map((task) => (
-                  <TaskRowButton
-                    key={task.id}
-                    task={task}
-                    theme={theme}
-                    getPriorityColor={getPriorityColor}
-                    getPriorityLabel={getPriorityLabel}
-                    formatDueDate={formatDueDate}
-                    onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                Nothing due today.
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-              Upcoming
-            </p>
-            {upcomingTasks.length > 0 ? (
-              <div className="space-y-2">
-                {upcomingTasks.map((task) => (
-                  <TaskRowButton
-                    key={task.id}
-                    task={task}
-                    theme={theme}
-                    getPriorityColor={getPriorityColor}
-                    getPriorityLabel={getPriorityLabel}
-                    formatDueDate={formatDueDate}
-                    onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                Nothing upcoming.
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-              Past due
-            </p>
-            {pastDueTasks.length > 0 ? (
-              <div className="space-y-2">
-                {pastDueTasks.map((task) => (
-                  <TaskRowButton
-                    key={task.id}
-                    task={task}
-                    theme={theme}
-                    getPriorityColor={getPriorityColor}
-                    getPriorityLabel={getPriorityLabel}
-                    formatDueDate={formatDueDate}
-                    onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                No past due tasks.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          if (widget.type === "ai_overview") {
+            return (
+              <AIOverviewBlock
+                key={widget.id}
+                insights={aiInsights ?? null}
+                workspaceId={workspaceId}
+                userId={userId}
+                userName={userName}
+              />
+            );
+          }
+          if (widget.type === "today") {
+            return (
+              <Card key={widget.id} className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
+                  <div>
+                    <CardTitle className="text-sm font-medium">Today</CardTitle>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                      What matters now and coming up.
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => router.push("/dashboard/projects")}>
+                    View all
+                  </Button>
+                </CardHeader>
+                <CardContent className="grid gap-6 md:grid-cols-3 px-4 pb-4">
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Due today</p>
+                    {dueTodayTasks.length > 0 ? (
+                      <div className="space-y-2">
+                        {dueTodayTasks.map((task) => (
+                          <TaskRowButton
+                            key={task.id}
+                            task={task}
+                            theme={theme}
+                            getPriorityColor={getPriorityColor}
+                            getPriorityLabel={getPriorityLabel}
+                            formatDueDate={formatDueDate}
+                            onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-[var(--muted-foreground)]">Nothing due today.</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Upcoming</p>
+                    {upcomingTasks.length > 0 ? (
+                      <div className="space-y-2">
+                        {upcomingTasks.map((task) => (
+                          <TaskRowButton
+                            key={task.id}
+                            task={task}
+                            theme={theme}
+                            getPriorityColor={getPriorityColor}
+                            getPriorityLabel={getPriorityLabel}
+                            formatDueDate={formatDueDate}
+                            onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-[var(--muted-foreground)]">Nothing upcoming.</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Past due</p>
+                    {pastDueTasks.length > 0 ? (
+                      <div className="space-y-2">
+                        {pastDueTasks.map((task) => (
+                          <TaskRowButton
+                            key={task.id}
+                            task={task}
+                            theme={theme}
+                            getPriorityColor={getPriorityColor}
+                            getPriorityLabel={getPriorityLabel}
+                            formatDueDate={formatDueDate}
+                            onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-[var(--muted-foreground)]">No past due tasks.</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          }
+          return null;
+        }
+        if (isProjectCardWidget(widget)) {
+          return <DashboardProjectCard key={widget.id} config={widget} workspaceId={workspaceId} />;
+        }
+        if (isProjectGroupWidget(widget)) {
+          return <DashboardProjectGroup key={widget.id} config={widget} workspaceId={workspaceId} />;
+        }
+        if (isTaskListWidget(widget)) {
+          return (
+            <DashboardTaskWidget
+              key={widget.id}
+              config={widget}
+              tasks={tasks}
+              dueAwareItems={dueAwareItems}
+              userId={userId}
+            />
+          );
+        }
+        if (isChartWidget(widget)) {
+          return <DashboardChartWidget key={widget.id} config={widget} />;
+        }
+        return null;
+      })}
     </div>
   );
 }
@@ -420,13 +444,13 @@ function NotificationsCard({
   return (
     <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
       <CardHeader className="pb-2 px-4 pt-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <MessageSquare className="h-4 w-4 text-[var(--foreground)]" />
           <CardTitle className="text-sm font-medium">Notifications</CardTitle>
+          <span className="text-xs text-[var(--muted-foreground)]">
+            Client and teammate updates in one place.
+          </span>
         </div>
-        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Client and teammate updates in one place.
-        </p>
       </CardHeader>
       <CardContent className="grid gap-4 px-4 pb-4 pt-0 text-xs md:grid-cols-2">
         <div className="space-y-2">

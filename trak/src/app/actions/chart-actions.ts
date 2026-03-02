@@ -16,9 +16,10 @@ import { ensureFileArtifact, type FileRecord } from "@/lib/file-analysis/service
 import type { ChartBlockContent, ChartType, ChartDataSource, ChartDataQuery, SpecChartBlockContent } from "@/types/chart";
 import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { normalizeToChartRows } from "@/lib/charts/normalizeToChartRows";
-import type { ChartRow } from "@/lib/charts/chartSpec";
+import type { ChartRow, ChartSpec } from "@/lib/charts/chartSpec";
 import { searchTasks, searchTimelineEvents, searchTableRows } from "@/app/actions/ai-search";
 import type { TableField } from "@/types/table";
+import type { DashboardChartQuery } from "@/app/dashboard/dashboard-config-types";
 
 export type ChartActionResult<T> = { data: T } | { error: string };
 
@@ -1088,5 +1089,87 @@ export async function setChartDataScope(
     return { data: { blockId } };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to set chart scope" };
+  }
+}
+
+/** Fetch a chart block by ID for read-only dashboard embedding. Verifies workspace access. */
+export async function getChartBlockForDashboard(
+  blockId: string
+): Promise<
+  | { data: { id: string; tab_id: string; type: string; content: ChartBlockContent } }
+  | { error: string }
+> {
+  try {
+    const authResult = await getAuthContext();
+    if ("error" in authResult) return { error: authResult.error };
+    const got = await getSpecChartBlockWithAuth(blockId, authResult);
+    if ("error" in got) return { error: got.error };
+    const { block } = got;
+    const content = block.content as ChartBlockContent;
+    if (!content || !isSpecChart(content)) return { error: "Chart has no spec content" };
+    return {
+      data: {
+        id: block.id,
+        tab_id: block.tab_id,
+        type: block.type,
+        content,
+      },
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to load chart" };
+  }
+}
+
+// ─── Dashboard-generated chart (same data/spec flow as AI charts, no block) ───
+
+export type DashboardChartResult = {
+  spec: ChartSpec;
+  rows: ChartRow[];
+  chartType: DashboardChartQuery["chartType"];
+  title?: string | null;
+};
+
+/**
+ * Generate chart data for the dashboard the same way AI charts do:
+ * search tasks (optionally scoped to project) → normalizeToChartRows → build spec.
+ * No block is created; returns spec + rows for the widget to render.
+ */
+export async function generateDashboardChartData(
+  query: DashboardChartQuery
+): Promise<{ data: DashboardChartResult } | { error: string }> {
+  try {
+    const authContext = await getAuthContext();
+    if ("error" in authContext) return { error: authContext.error };
+
+    const res = await searchTasks({
+      projectId: query.scope === "project" && query.projectId ? query.projectId : undefined,
+      limit: 500,
+      authContext,
+    });
+    if (res.error) return { error: res.error ?? "Search failed" };
+    const rawTasks = res.data ?? [];
+    const rows = normalizeToChartRows("tasks", rawTasks);
+
+    const { applySpecFallbacks } = await import("@/lib/charts/chartSpec");
+    const spec = applySpecFallbacks({
+      version: 1,
+      chartType: query.chartType,
+      breakdown: { field: query.breakdownField },
+      measure: { type: "count" },
+      normalizeTo: "focus",
+      sort: "value_desc",
+      title: query.title ?? undefined,
+    } as ChartSpec);
+
+    return {
+      data: {
+        spec,
+        rows,
+        chartType: query.chartType,
+        title: query.title ?? spec.title ?? undefined,
+      },
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to generate chart" };
   }
 }

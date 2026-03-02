@@ -3,6 +3,7 @@
 import { useDashboardData } from "@/lib/hooks/use-dashboard-queries";
 import DashboardOverview from "./dashboard-overview";
 import DashboardLoading from "./loading";
+import DashboardConfigModal from "./dashboard-config-modal";
 
 export default function DashboardClient({
     workspaceId,
@@ -28,5 +29,10 @@ export default function DashboardClient({
         );
     }
 
-    return <DashboardOverview {...data} />;
+    return (
+        <>
+            <DashboardOverview {...data} />
+            <DashboardConfigModal workspaceId={workspaceId} />
+        </>
+    );
 }

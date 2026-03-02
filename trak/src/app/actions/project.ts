@@ -38,9 +38,14 @@ type ProjectFilters = {
   project_type?: ProjectType;
   status?: ProjectStatus;
   client_id?: string;
+  internal_group_id?: string | null;
   search?: string; // NEW: Search by project name or client name
   sort_by?: "created_at" | "updated_at" | "due_date_date" | "name";
   sort_order?: "asc" | "desc";
+  /** Inclusive start (ISO date) for due_date_date filter */
+  due_date_start?: string | null;
+  /** Inclusive end (ISO date) for due_date_date filter */
+  due_date_end?: string | null;
 };
 
 type ProjectRow = {
@@ -50,6 +55,7 @@ type ProjectRow = {
   due_date_date: string | null;
   due_date_text: string | null;
   client_id: string | null;
+  internal_group_id: string | null;
   created_at: string;
   updated_at: string;
   client: {
@@ -763,6 +769,19 @@ export async function getAllProjects(
     query = query.eq('client_id', filters.client_id)
   }
 
+  // Apply internal group (initiative) filter
+  if (filters?.internal_group_id !== undefined && filters?.internal_group_id !== null) {
+    query = query.eq('internal_group_id', filters.internal_group_id)
+  }
+
+  // Apply due date range (e.g. "due this week")
+  if (filters?.due_date_start) {
+    query = query.gte('due_date_date', filters.due_date_start)
+  }
+  if (filters?.due_date_end) {
+    query = query.lte('due_date_date', filters.due_date_end)
+  }
+
   // 🚀 Optimized search - use OR clause in database, not post-fetch filtering
   if (filters?.search) {
     query = query.or(`name.ilike.%${filters.search}%,client.name.ilike.%${filters.search}%,client.company.ilike.%${filters.search}%`)
@@ -792,6 +811,7 @@ export async function getAllProjects(
       due_date_date: project.due_date_date,
       due_date_text: project.due_date_text,
       client_id: project.client_id,
+      internal_group_id: project.internal_group_id ?? null,
       created_at: project.created_at,
       updated_at: project.updated_at,
       client: rawClient

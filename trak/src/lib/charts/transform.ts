@@ -72,6 +72,29 @@ function autoPickField(rows: ChartRow[]): string | null {
   return keys[0] ?? null;
 }
 
+function prettifyStatusPriorityValue(raw: unknown): unknown {
+  if (typeof raw !== "string" || !raw.trim()) return raw;
+  const normalized = raw.replace(/_/g, " ").toLowerCase();
+  return normalized
+    .split(" ")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : ""))
+    .join(" ")
+    .trim();
+}
+
+function prettifyStatusPriorityRows(rows: ChartRow[]): ChartRow[] {
+  return rows.map((row) => {
+    const next: ChartRow = { ...row };
+    if (next.status !== undefined) {
+      next.status = prettifyStatusPriorityValue(next.status);
+    }
+    if (next.priority !== undefined) {
+      next.priority = prettifyStatusPriorityValue(next.priority);
+    }
+    return next;
+  });
+}
+
 /** Aggregate a list of rows → Map<label, sumValue> for a single field */
 function aggregateField(
   rows: ChartRow[],
@@ -304,7 +327,8 @@ export interface BuildChartDataInput {
  * Call applySpecFallbacks(spec) before passing here to guarantee safe defaults.
  */
 export function buildChartData(input: BuildChartDataInput): ChartData {
-  const { focusRows, universeTotal, spec: rawSpec } = input;
+  const { universeTotal, spec: rawSpec } = input;
+  const focusRows = prettifyStatusPriorityRows(input.focusRows);
   const spec = applySpecFallbacks(rawSpec);
 
   // Auto-detect breakdown field if not present in rows
@@ -323,4 +347,48 @@ export function buildChartData(input: BuildChartDataInput): ChartData {
   }
 
   return buildCategorical(focusRows, fieldCandidate, spec, universeTotal);
+}
+
+/**
+ * Group focus rows by the same breakdown categories as the chart.
+ * Use with the labels from chartData.data (for categorical charts) so the
+ * breakdown panel matches the chart slices. "Other" gets rows from all
+ * raw labels not in the top categories.
+ */
+export function groupRowsByBreakdown(
+  focusRows: ChartRow[],
+  spec: ChartSpec,
+  categoryLabels: string[]
+): Map<string, ChartRow[]> {
+  const safeSpec = applySpecFallbacks(spec);
+  const rows = prettifyStatusPriorityRows(focusRows);
+  const field =
+    rows.length === 0 || rows.some((r) => r[safeSpec.breakdown.field] !== undefined)
+      ? safeSpec.breakdown.field
+      : (autoPickField(rows) ?? safeSpec.breakdown.field);
+  const otherLabel = safeSpec.otherLabel ?? "Other";
+  const topLabels = new Set(categoryLabels.filter((l) => l !== otherLabel));
+
+  const rawGroups = new Map<string, ChartRow[]>();
+  for (const row of rows) {
+    const labels = fieldToLabels(row[field]);
+    const label = labels[0] ?? UNSPECIFIED_LABEL;
+    const list = rawGroups.get(label) ?? [];
+    list.push(row);
+    rawGroups.set(label, list);
+  }
+
+  const out = new Map<string, ChartRow[]>();
+  for (const cat of categoryLabels) {
+    if (cat === otherLabel) {
+      const otherRows: ChartRow[] = [];
+      for (const [rawLabel, list] of rawGroups) {
+        if (!topLabels.has(rawLabel)) otherRows.push(...list);
+      }
+      out.set(cat, otherRows);
+    } else {
+      out.set(cat, rawGroups.get(cat) ?? []);
+    }
+  }
+  return out;
 }
