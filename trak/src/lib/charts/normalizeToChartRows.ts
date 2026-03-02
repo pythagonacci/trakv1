@@ -77,6 +77,10 @@ export interface TaskLikeRow {
   due_date?: string | null;
   project_name?: string | null;
   tab_name?: string | null;
+  // Optional navigation metadata (when available from TaskResult)
+  project_id?: string | null;
+  tab_id?: string | null;
+  task_block_id?: string | null;
   [key: string]: unknown;
 }
 
@@ -97,6 +101,16 @@ function taskLikeToChartRow(task: TaskLikeRow): ChartRow {
   };
   if (task.project_name != null) row.Project = String(task.project_name);
   if (task.tab_name != null) row.Tab = String(task.tab_name);
+  // Preserve navigation metadata when present so charts can deep-link to tasks
+  if (task.project_id != null) {
+    (row as any).projectId = String(task.project_id);
+  }
+  if (task.tab_id != null) {
+    (row as any).tabId = String(task.tab_id);
+  }
+  if (task.task_block_id != null) {
+    (row as any).taskBlockId = String(task.task_block_id);
+  }
   return row;
 }
 

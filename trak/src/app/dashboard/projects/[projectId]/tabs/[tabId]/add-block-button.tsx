@@ -1,7 +1,24 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Plus, FileText, CheckSquare, Link2, Minus, Table, Calendar, Upload, Video, Maximize2, Image, Images, Layout, Copy, AlertCircle } from "lucide-react";
+import {
+  Plus,
+  FileText,
+  CheckSquare,
+  Link2,
+  Minus,
+  Table,
+  Calendar,
+  Upload,
+  Video,
+  Maximize2,
+  Image,
+  Images,
+  Layout,
+  Copy,
+  AlertCircle,
+  ShoppingBag,
+} from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -108,6 +125,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "Document",
     icon: <FileText className="w-4 h-4" />,
     description: "Link to an existing document",
+  },
+  {
+    type: "shopify_product",
+    label: "Shopify product",
+    icon: <ShoppingBag className="w-4 h-4" />,
+    description: "Embed a Shopify product with analytics",
   },
 ];
 
@@ -243,6 +266,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "section": return { height: 400 };
       case "doc_reference": return { doc_id: "", doc_title: "" };
       case "chart": return { code: "", chartType: "bar", title: "Chart" };
+      case "shopify_product": return { product_id: null };
       default: return {};
     }
   };

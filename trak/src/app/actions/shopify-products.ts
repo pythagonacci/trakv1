@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { createShopifyClient } from "@/lib/shopify/client";
 import { decryptToken } from "@/lib/shopify/encryption";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -482,6 +483,86 @@ export async function getTrakProducts(
     };
   } catch (error) {
     console.error("Error in getTrakProducts:", error);
+    return { error: "Internal server error" };
+  }
+}
+
+/**
+ * Lightweight search over imported Shopify products in the current workspace.
+ * Used by UI pickers (e.g. Shopify product block) so users can quickly find a product to attach.
+ */
+export async function searchWorkspaceProducts(options: {
+  search?: string;
+  limit?: number;
+} = {}): Promise<ActionResult<{
+  products: Array<{
+    id: string;
+    title: string;
+    featured_image_url: string | null;
+    status: string;
+    vendor: string | null;
+    product_type: string | null;
+    variants_count: number;
+  }>;
+}>> {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return { error: "Unauthorized" };
+    }
+
+    const workspaceId = await getCurrentWorkspaceId();
+    if (!workspaceId) {
+      return { error: "No workspace selected" };
+    }
+
+    const { search, limit = 50 } = options;
+    const supabase = await createClient();
+
+    let query = supabase
+      .from("trak_products")
+      .select(
+        `
+        id,
+        title,
+        featured_image_url,
+        status,
+        vendor,
+        product_type,
+        trak_product_variants(count)
+      `
+      )
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (search && search.trim()) {
+      query = query.ilike("title", `%${search.trim()}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("Error searching workspace products:", error);
+      return { error: "Failed to search products" };
+    }
+
+    const products =
+      data?.map((row: any) => ({
+        id: row.id as string,
+        title: row.title as string,
+        featured_image_url: row.featured_image_url as string | null,
+        status: row.status as string,
+        vendor: (row.vendor ?? null) as string | null,
+        product_type: (row.product_type ?? null) as string | null,
+        variants_count:
+          Array.isArray(row.trak_product_variants) && row.trak_product_variants[0]?.count != null
+            ? Number(row.trak_product_variants[0].count)
+            : 0,
+      })) ?? [];
+
+    return { data: { products } };
+  } catch (error) {
+    console.error("Error in searchWorkspaceProducts:", error);
     return { error: "Internal server error" };
   }
 }

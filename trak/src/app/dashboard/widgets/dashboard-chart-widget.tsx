@@ -15,6 +15,7 @@ import { buildChartData, groupRowsByBreakdown } from "@/lib/charts/transform";
 import { TrakChart } from "@/components/blocks/chart/TrakChart";
 import { resolveColor } from "@/lib/charts/palette";
 import { cn } from "@/lib/utils";
+import { getLinkableItemHref } from "@/lib/references/navigation";
 import type { ChartRow } from "@/lib/charts/chartSpec";
 import type { ChartWidgetConfig } from "../dashboard-config-types";
 
@@ -58,6 +59,7 @@ interface ExpandableBreakdownRowProps {
   isOpen: boolean;
   onToggle: () => void;
   rows: ChartRow[];
+  getTaskHref?: (row: ChartRow) => string | null;
 }
 
 function ExpandableBreakdownRow({
@@ -123,7 +125,7 @@ function ExpandableBreakdownRow({
                     )}
                   </div>
                   <a
-                    href={`#task-${row.id}`}
+                    href={getTaskHref?.(row) ?? `#task-${row.id}`}
                     className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                   >
                     Open
@@ -284,6 +286,23 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
   const breakdownLabel =
     chartData.meta?.labelLabel ?? spec.breakdown?.fieldLabel ?? spec.breakdown?.field ?? "Distribution";
 
+  const getTaskHrefForRow = useCallback(
+    (row: ChartRow): string | null => {
+      const projectIdFromRow = (row as any).projectId as string | undefined;
+      const tabIdFromRow = (row as any).tabId as string | undefined;
+      if (!tabIdFromRow) return `#task-${row.id}`;
+      const href = getLinkableItemHref({
+        referenceType: "task",
+        id: String(row.id),
+        tabId: tabIdFromRow,
+        projectId: projectIdFromRow ?? (query?.projectId ?? null),
+        isWorkflow: false,
+      });
+      return href ?? `#task-${row.id}`;
+    },
+    [query?.projectId]
+  );
+
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">
       {/* Header */}
@@ -410,6 +429,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
                         setOpenCategory((cur) => (cur === label ? null : label))
                       }
                       rows={groupRows}
+                      getTaskHref={getTaskHrefForRow}
                     />
                   );
                 })}

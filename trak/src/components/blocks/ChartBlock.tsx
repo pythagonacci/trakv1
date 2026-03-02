@@ -22,6 +22,7 @@ import { ChartConfigPanel } from "@/components/blocks/chart/ChartConfigPanel";
 import { buildChartData, groupRowsByBreakdown } from "@/lib/charts/transform";
 import { applySpecFallbacks, type ChartSpec } from "@/lib/charts/chartSpec";
 import { resolveColor } from "@/lib/charts/palette";
+import { getLinkableItemHref } from "@/lib/references/navigation";
 import { queryKeys } from "@/lib/react-query/query-client";
 import type { ChartRow } from "@/lib/charts/chartSpec";
 
@@ -70,6 +71,7 @@ function ExpandableBreakdownRow({
   onToggle,
   rows,
   readOnly,
+  getTaskHref,
 }: {
   label: string;
   color: string;
@@ -79,6 +81,7 @@ function ExpandableBreakdownRow({
   onToggle: () => void;
   rows: ChartRow[];
   readOnly?: boolean;
+  getTaskHref?: (row: ChartRow) => string | null;
 }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
@@ -135,7 +138,7 @@ function ExpandableBreakdownRow({
                   </div>
                   {!readOnly && (
                     <a
-                      href={`#task-${row.id}`}
+                      href={getTaskHref?.(row) ?? `#task-${row.id}`}
                       className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                     >
                       Open
@@ -292,6 +295,22 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   }, [categoryLabels, openCategory]);
 
   const hasBreakdown = chartData && categoryLabels.length > 0;
+
+  const getTaskHrefForRow = useCallback(
+    (row: ChartRow): string | null => {
+      const projectId = (row as any).projectId as string | undefined;
+      const tabId = (row as any).tabId as string | undefined;
+      const href = getLinkableItemHref({
+        referenceType: "task",
+        id: String(row.id),
+        tabId: tabId ?? block.tab_id,
+        projectId: projectId ?? null,
+        isWorkflow: false,
+      });
+      return href ?? `#task-${row.id}`;
+    },
+    [block.tab_id]
+  );
 
   return (
     <div
@@ -521,6 +540,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                           onToggle={() => setOpenCategory((cur) => (cur === label ? null : label))}
                           rows={groupRows}
                           readOnly={readOnly}
+                          getTaskHref={getTaskHrefForRow}
                         />
                       );
                     })}
