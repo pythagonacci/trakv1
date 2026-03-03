@@ -430,40 +430,40 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
 
           {expanded && (
             <>
-              {/* Featured Image */}
-              {product.featured_image_url && (
-                <div className="rounded-lg overflow-hidden bg-[var(--muted)]/30">
-                  <img
-                    src={product.featured_image_url}
-                    alt={product.title}
-                    className="w-full max-h-96 object-contain"
-                  />
-                </div>
-              )}
-
-              {/* Product Info */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                {product.vendor && (
-                  <div>
-                    <span className="font-medium text-[var(--muted-foreground)]">Vendor:</span>
-                    <p className="text-[var(--foreground)]">{product.vendor}</p>
+              {/* Image + key info side by side to reduce height */}
+              <div className="flex flex-col md:flex-row gap-4 items-start">
+                {product.featured_image_url && (
+                  <div className="md:w-56 flex-shrink-0 rounded-lg overflow-hidden bg-[var(--muted)]/30">
+                    <img
+                      src={product.featured_image_url}
+                      alt={product.title}
+                      className="w-full h-40 md:h-48 object-contain"
+                    />
                   </div>
                 )}
-                {product.product_type && (
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  {product.vendor && (
+                    <div>
+                      <span className="font-medium text-[var(--muted-foreground)]">Vendor:</span>
+                      <p className="text-[var(--foreground)]">{product.vendor}</p>
+                    </div>
+                  )}
+                  {product.product_type && (
+                    <div>
+                      <span className="font-medium text-[var(--muted-foreground)]">Type:</span>
+                      <p className="text-[var(--foreground)]">{product.product_type}</p>
+                    </div>
+                  )}
                   <div>
-                    <span className="font-medium text-[var(--muted-foreground)]">Type:</span>
-                    <p className="text-[var(--foreground)]">{product.product_type}</p>
+                    <span className="font-medium text-[var(--muted-foreground)]">Status:</span>
+                    <p className="text-[var(--foreground)]">{product.status}</p>
                   </div>
-                )}
-                <div>
-                  <span className="font-medium text-[var(--muted-foreground)]">Status:</span>
-                  <p className="text-[var(--foreground)]">{product.status}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-[var(--muted-foreground)]">Shopify ID:</span>
-                  <p className="text-[var(--foreground)] font-mono text-xs">
-                    {product.shopify_product_id}
-                  </p>
+                  <div>
+                    <span className="font-medium text-[var(--muted-foreground)]">Shopify ID:</span>
+                    <p className="text-[var(--foreground)] font-mono text-xs">
+                      {product.shopify_product_id}
+                    </p>
+                  </div>
                 </div>
               </div>
 

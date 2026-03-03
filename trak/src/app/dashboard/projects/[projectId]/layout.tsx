@@ -54,7 +54,7 @@ export default async function ProjectLayout({
     const hierarchicalTabs = tabsResult.data || [];
 
     return (
-        <div className="flex-1 min-h-0 bg-neutral-50 dark:bg-neutral-950 flex flex-col">
+        <div className="flex-1 min-h-0 bg-transparent flex flex-col">
             <div className="w-full px-2 md:px-3 lg:px-4 shrink-0">
                 <div className="pt-2 pb-1">
                     <ProjectHeaderWrapper project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
@@ -72,7 +72,7 @@ export default async function ProjectLayout({
                 )}
             </div>
 
-            <div className="flex-1 min-h-0 w-full relative">
+            <div className="flex-1 min-h-0 w-full relative px-2 md:px-3 lg:px-4 bg-[var(--surface)]">
                 {children}
             </div>
         </div>

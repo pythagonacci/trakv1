@@ -80,37 +80,50 @@
     --header-bar-text: #1a1d21;
   }
 
-  /* Dark Theme - Maintains Sarajevo aesthetic */
+  /* Dark Theme - Sarajevo Night (layered charcoals, low-glare) */
   .dark {
-    --background: #222120; /* Lighter dark plaster */
-    --surface: #242321; /* Dark card */
-    --surface-hover: #2D2C2A;
-    --surface-muted: #323130;
-    --border: #3D3B39;
-    --border-strong: #3890b6; /* Primary color for dark mode */
-    --foreground: #E8E6E1;
-    --muted-foreground: #D1D5DB; /* Darker for better readability */
-    --tertiary-foreground: #9CA3AF;
-    --ring-offset: #1A1918;
-    --primary: #3890b6; /* Primary blue for dark mode */
-    --primary-foreground: #FFFFFF;
-    --primary-hover: #3a95bd; /* Lightened by ~4% for hover states */
-    --focus-ring: rgba(56, 144, 182, 0.45); /* Primary color with transparency */
-    --overlay: rgba(45, 50, 54, 0.4); /* Semantic overlay token */
-    
-    /* Brand Neutral - Demoted coffee tone */
-    --brand-neutral: #B89A74; /* Lighter coffee for dark mode */
-    
-    /* Arts palette - slightly lighter for dark mode */
-    --tile-orange: #D98E74;
-    --dome-teal: #5A8A88;
-    --river-indigo: #6B7C94;
-    --tram-yellow: #E4B363;
-    --velvet-purple: #8D7B8D;
-    --nav-icon: #6B7C94;
-    --nav-icon-active: #5A8A88;
-    --header-bar-bg: rgba(56, 144, 182, 0.08);
-    --header-bar-text: #E8E6E1;
+    /* Backgrounds: layered charcoals, never pure black */
+    --background: #181b20;
+    --surface: #1f2329;
+    --surface-hover: #252a33;
+    --surface-muted: #272d37;
+
+    /* Borders: slightly brighter neutral greys (more visible, not blue) */
+    --border: #3f4654;
+    --border-strong: #4d5565;
+
+    /* Typography: soft light, no pure white */
+    --foreground: #e3e5ec;
+    --muted-foreground: #a6abbc;
+    --tertiary-foreground: #80869a;
+
+    /* Primary action: desaturated blue, gentle contrast */
+    --primary: #3f7ea4;
+    --primary-foreground: #f5f6fb;
+    --primary-hover: #457fa2;
+    --focus-ring: rgba(63, 126, 164, 0.45);
+    --ring-offset: #13161a;
+
+    /* Brand neutral */
+    --brand-neutral: #a78964;
+
+    /* Sarajevo Arts Palette – softened for dark */
+    --tile-orange: #d28a70;
+    --dome-teal: #5a8a88;
+    --river-indigo: #6b7c94;
+    --tram-yellow: #ddb060;
+    --velvet-purple: #8d7b8d;
+
+    /* Navigation */
+    --nav-icon: #6b7c94;
+    --nav-icon-active: #5a8a88;
+
+    /* Header bar */
+    --header-bar-bg: rgba(63, 126, 164, 0.10);
+    --header-bar-text: #e3e5ec;
+
+    /* Overlay for dialogs/modals */
+    --overlay: rgba(12, 14, 18, 0.60);
   }
 
   /* Brutalist Theme - Cursor Black Midnight dark mode */
@@ -144,6 +157,13 @@
 
   * {
     border-color: var(--border);
+  }
+
+  /* In dark mode, make structural lines feel slightly bolder */
+  @layer utilities {
+    .dark * {
+      border-width: 1.5px;
+    }
   }
 
   html, body {

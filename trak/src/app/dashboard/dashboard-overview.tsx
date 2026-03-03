@@ -16,7 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useTheme } from "@/app/dashboard/theme-context";
 import { parseDateSafe } from "@/lib/due-date";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import { useDashboardConfig } from "./use-dashboard-config";
@@ -111,7 +110,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
     userName,
   } = props;
   const router = useRouter();
-  const { theme } = useTheme();
   const { currentWorkspace } = useWorkspace();
   const { config: dashboardConfig } = useDashboardConfig(workspaceId);
 
@@ -201,12 +199,11 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
   };
 
   const getPriorityColor = (priority?: Task["priority"]) => {
-    const isBrutalist = theme === "brutalist";
     switch (priority) {
-      case "urgent": return isBrutalist ? "text-white bg-[var(--tile-orange)]/80" : "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
-      case "high": return isBrutalist ? "text-white bg-[var(--tram-yellow)]/70" : "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
-      case "medium": return isBrutalist ? "text-white bg-[var(--river-indigo)]/70" : "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
-      case "low": return isBrutalist ? "text-white bg-[var(--dome-teal)]/60" : "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
+      case "urgent": return "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
+      case "high": return "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
+      case "medium": return "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
+      case "low": return "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
       default: return "";
     }
   };
@@ -294,7 +291,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                           <TaskRowButton
                             key={task.id}
                             task={task}
-                            theme={theme}
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
@@ -314,7 +310,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                           <TaskRowButton
                             key={task.id}
                             task={task}
-                            theme={theme}
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
@@ -334,7 +329,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                           <TaskRowButton
                             key={task.id}
                             task={task}
-                            theme={theme}
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
@@ -380,14 +374,12 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
 
 function TaskRowButton({
   task,
-  theme,
   getPriorityColor,
   getPriorityLabel,
   formatDueDate,
   onNavigate,
 }: {
   task: Task;
-  theme: string;
   getPriorityColor: (priority?: Task["priority"]) => string;
   getPriorityLabel: (priority?: Task["priority"]) => string;
   formatDueDate: (dueDate?: string, dueTime?: string) => string | null;
@@ -409,18 +401,23 @@ function TaskRowButton({
           {task.projectName}
         </p>
         {task.priority && task.priority !== "none" && (
-          <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${theme === "brutalist" ? "" : "border"} ${getPriorityColor(task.priority)}`}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              getPriorityColor(task.priority)
+            )}
+          >
             <Flag className="h-2.5 w-2.5" />
             {getPriorityLabel(task.priority)}
           </span>
         )}
         {task.dueDate && (
-          <span className={cn(
-            "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-            theme === "brutalist"
-              ? "text-white bg-[var(--tram-yellow)]/70"
-              : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
-          )}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              "border border-[var(--tile-orange)]/30 bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]"
+            )}
+          >
             <Calendar className="h-2.5 w-2.5" />
             {formatDueDate(task.dueDate, task.dueTime)}
           </span>
@@ -523,7 +520,6 @@ function UpdateRow({
   getPriorityLabel,
   formatDueDate,
 }: UpdateRowProps) {
-  const { theme } = useTheme();
   return (
     <button
       onClick={onClick}
@@ -551,9 +547,7 @@ function UpdateRow({
           {dueDate && formatDueDate && (
             <span className={cn(
               "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-              theme === "brutalist"
-                ? "text-white bg-[var(--tram-yellow)]/70"
-                : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
+              "border border-[var(--tile-orange)]/30 bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]"
             )}>
               <Calendar className="h-2.5 w-2.5" />
               {formatDueDate(dueDate, dueTime)}

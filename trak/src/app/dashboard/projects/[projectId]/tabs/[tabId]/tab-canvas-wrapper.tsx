@@ -133,6 +133,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
   };
 
   return (
+    <div className="flex flex-1 min-h-0 flex flex-col min-w-0 w-full">
     <TabCanvas 
       tabId={tabId}
       projectId={projectId}
@@ -144,5 +145,6 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
       currentTheme={tabTheme}
       initialFileUrls={fileUrls || {}}
     />
+    </div>
   );
 }

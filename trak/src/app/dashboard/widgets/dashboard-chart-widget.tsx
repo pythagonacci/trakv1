@@ -70,6 +70,7 @@ function ExpandableBreakdownRow({
   isOpen,
   onToggle,
   rows,
+  getTaskHref,
 }: ExpandableBreakdownRowProps) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
@@ -286,22 +287,19 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
   const breakdownLabel =
     chartData.meta?.labelLabel ?? spec.breakdown?.fieldLabel ?? spec.breakdown?.field ?? "Distribution";
 
-  const getTaskHrefForRow = useCallback(
-    (row: ChartRow): string | null => {
-      const projectIdFromRow = (row as any).projectId as string | undefined;
-      const tabIdFromRow = (row as any).tabId as string | undefined;
-      if (!tabIdFromRow) return `#task-${row.id}`;
-      const href = getLinkableItemHref({
-        referenceType: "task",
-        id: String(row.id),
-        tabId: tabIdFromRow,
-        projectId: projectIdFromRow ?? (query?.projectId ?? null),
-        isWorkflow: false,
-      });
-      return href ?? `#task-${row.id}`;
-    },
-    [query?.projectId]
-  );
+  const getTaskHrefForRow = (row: ChartRow): string | null => {
+    const projectIdFromRow = (row as any).projectId as string | undefined;
+    const tabIdFromRow = (row as any).tabId as string | undefined;
+    if (!tabIdFromRow) return `#task-${row.id}`;
+    const href = getLinkableItemHref({
+      referenceType: "task",
+      id: String(row.id),
+      tabId: tabIdFromRow,
+      projectId: projectIdFromRow ?? (query?.projectId ?? null),
+      isWorkflow: false,
+    });
+    return href ?? `#task-${row.id}`;
+  };
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">

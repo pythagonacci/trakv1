@@ -411,7 +411,14 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
             <h2 className="text-xl font-semibold tracking-normal text-[var(--foreground)]">Projects</h2>
             <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
           </div>
-          <Button onClick={handleOpenCreate} size="sm">New project</Button>
+          <Button
+            onClick={handleOpenCreate}
+            size="sm"
+            variant="outline"
+            className="rounded-[2px] border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+          >
+            New project
+          </Button>
         </div>
         <EmptyState onCreateClick={handleOpenCreate} />
         {renderDialogs()}
@@ -468,14 +475,21 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
         <div className="flex items-center gap-2">
           <Button 
             onClick={handleCreateFolder} 
-            variant="secondary"
+            variant="outline"
             size="sm"
-            className="bg-white text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+            className="rounded-[2px] border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
           >
             <Folder className="h-3.5 w-3.5" />
             New Folder
           </Button>
-          <Button onClick={handleOpenCreate} size="sm">New project</Button>
+          <Button
+            onClick={handleOpenCreate}
+            size="sm"
+            variant="outline"
+            className="rounded-[2px] border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+          >
+            New project
+          </Button>
         </div>
       </div>
 

@@ -16,7 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useTheme } from "@/app/dashboard/theme-context";
 import { cn } from "@/lib/utils";
 
 export interface ProjectOverviewTask {
@@ -60,7 +59,6 @@ export default function ProjectOverview({
   openTasksCount,
 }: ProjectOverviewProps) {
   const router = useRouter();
-  const { theme } = useTheme();
 
   const formatRelativeTime = (value?: string) => {
     if (!value) return "";
@@ -108,24 +106,15 @@ export default function ProjectOverview({
   };
 
   const getPriorityColor = (priority?: ProjectOverviewTask["priority"]) => {
-    const isBrutalist = theme === "brutalist";
     switch (priority) {
       case "urgent":
-        return isBrutalist
-          ? "text-white bg-[var(--tile-orange)]/80"
-          : "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
+        return "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
       case "high":
-        return isBrutalist
-          ? "text-white bg-[var(--tram-yellow)]/70"
-          : "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
+        return "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
       case "medium":
-        return isBrutalist
-          ? "text-white bg-[var(--river-indigo)]/70"
-          : "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
+        return "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
       case "low":
-        return isBrutalist
-          ? "text-white bg-[var(--dome-teal)]/60"
-          : "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
+        return "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
       default:
         return "";
     }
@@ -364,7 +353,6 @@ function TaskRow({
   getPriorityLabel: (p?: ProjectOverviewTask["priority"]) => string;
   isOverdue?: boolean;
 }) {
-  const { theme } = useTheme();
   return (
     <button
       onClick={onClick}
@@ -386,7 +374,6 @@ function TaskRow({
           <span
             className={cn(
               "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-              theme === "brutalist" ? "" : "border",
               getPriorityColor(task.priority)
             )}
           >
@@ -400,9 +387,7 @@ function TaskRow({
               "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
               isOverdue
                 ? "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30"
-                : theme === "brutalist"
-                  ? "text-white bg-[var(--tram-yellow)]/70"
-                  : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
+                : "border border-[var(--tile-orange)]/30 bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]"
             )}
           >
             <Calendar className="h-2.5 w-2.5" />

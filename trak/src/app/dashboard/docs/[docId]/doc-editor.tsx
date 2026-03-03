@@ -7,7 +7,6 @@ import RichTextEditor from "@/components/editor/rich-text-editor";
 import { updateDoc } from "@/app/actions/doc";
 import { cn } from "@/lib/utils";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
-import { useTheme } from "@/app/dashboard/theme-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,67 +27,15 @@ interface DocEditorProps {
 
 const LIGHT_DOC_THEMES = [
   {
-    id: "sand",
-    label: "Sand",
-    pageBg: "linear-gradient(135deg, #fdfbf5 0%, #f7fbff 50%, #eef6ff 100%)",
-    paperBg: "linear-gradient(180deg, #ffffff 0%, #fbfcff 35%, #f7fbff 100%)",
-  },
-  {
-    id: "foam",
-    label: "Foam",
-    pageBg: "linear-gradient(135deg, #f8fffd 0%, #f5fbff 50%, #eef5ff 100%)",
-    paperBg: "linear-gradient(180deg, #ffffff 0%, #f8feff 40%, #f1f7ff 100%)",
-  },
-  {
-    id: "cloud",
-    label: "Cloud",
-    pageBg: "linear-gradient(135deg, #f9fbff 0%, #f5f7fb 50%, #eef1f6 100%)",
-    paperBg: "linear-gradient(180deg, #ffffff 0%, #f8f9fc 45%, #f2f4f8 100%)",
-  },
-];
-
-const DARK_DOC_THEMES = [
-  {
-    id: "midnight",
-    label: "Midnight",
-    pageBg: "#1c1c1c",
-    paperBg: "#252526",
-  },
-  {
-    id: "navy",
-    label: "Navy",
-    pageBg: "#1a1d26",
-    paperBg: "#242732",
-  },
-  {
-    id: "forest",
-    label: "Forest",
-    pageBg: "#1a1f1c",
-    paperBg: "#242a26",
-  },
-  {
-    id: "amber",
-    label: "Amber",
-    pageBg: "#1f1c18",
-    paperBg: "#282520",
-  },
-  {
-    id: "slate",
-    label: "Slate",
-    pageBg: "#1e2024",
-    paperBg: "#272a2e",
-  },
-  {
-    id: "violet",
-    label: "Violet",
-    pageBg: "#1d1a23",
-    paperBg: "#26232d",
+    id: "sarajevo",
+    label: "Sarajevo",
+    pageBg: "var(--background)",
+    paperBg: "var(--surface)",
   },
 ];
 
 export default function DocEditor({ doc }: DocEditorProps) {
   const router = useRouter();
-  const { theme: globalTheme } = useTheme();
   const [title, setTitle] = useState(doc.title);
   const [content, setContent] = useState(doc.content);
   const [isSaving, setIsSaving] = useState(false);
@@ -180,13 +127,13 @@ export default function DocEditor({ doc }: DocEditorProps) {
   }, []);
 
   const availableThemes = useMemo(() => {
-    return globalTheme === "brutalist" ? DARK_DOC_THEMES : LIGHT_DOC_THEMES;
-  }, [globalTheme]);
+    return LIGHT_DOC_THEMES;
+  }, []);
 
   // Theme persistence (local only) - separate for light and dark modes
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const themeKey = `trak-doc-theme-${globalTheme}`;
+    const themeKey = "trak-doc-theme";
     const saved = localStorage.getItem(themeKey);
     if (saved && availableThemes.some((t) => t.id === saved)) {
       setDocTheme(saved);
@@ -198,9 +145,9 @@ export default function DocEditor({ doc }: DocEditorProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const themeKey = `trak-doc-theme-${globalTheme}`;
+    const themeKey = "trak-doc-theme";
     localStorage.setItem(themeKey, docTheme);
-  }, [docTheme, globalTheme]);
+  }, [docTheme]);
 
   // Line spacing persistence
   useEffect(() => {

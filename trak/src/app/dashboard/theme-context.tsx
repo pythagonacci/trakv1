@@ -3,10 +3,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 
 // Theme types:
-// - "default" / "sarajevo": Light mode inspired by Sarajevo - warm plaster, arts palette
-// - "dark": Dark mode variant of Sarajevo theme
-// - "brutalist": High contrast dark mode with no rounded corners
-type Theme = "default" | "dark" | "brutalist";
+// - "default": Sarajevo light theme
+// - "dark": Sarajevo dark theme (layered charcoals, low-glare)
+type Theme = "default" | "dark";
 
 interface ThemeContextType {
   theme: Theme;
@@ -16,8 +15,8 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const VALID_THEMES: Theme[] = ["default", "dark", "brutalist"];
-const DARK_THEMES: Theme[] = ["dark", "brutalist"];
+const VALID_THEMES: Theme[] = ["default", "dark"];
+const ALL_THEME_CLASSES = ["default", "dark", "brutalist"] as const;
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("default");
@@ -34,7 +33,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     
     // Apply theme immediately
     const html = document.documentElement;
-    VALID_THEMES.forEach(t => html.classList.remove(t));
+    ALL_THEME_CLASSES.forEach((t) => html.classList.remove(t));
     html.classList.add(initialTheme);
     
     setThemeState(initialTheme);
@@ -46,10 +45,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     
     const html = document.documentElement;
     
-    // Remove all theme classes
-    VALID_THEMES.forEach(t => html.classList.remove(t));
+    // Remove all known theme classes (including legacy dark/brutalist)
+    ALL_THEME_CLASSES.forEach((t) => html.classList.remove(t));
     
-    // Add current theme class
+    // Add current theme class (Sarajevo)
     html.classList.add(theme);
     
     // Save to localStorage
@@ -60,7 +59,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(newTheme);
   }, []);
 
-  const isDark = DARK_THEMES.includes(theme);
+  const isDark = theme === "dark";
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>

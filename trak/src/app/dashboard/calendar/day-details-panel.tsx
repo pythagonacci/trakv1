@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CalendarEvent } from "./calendar-view";
-import { useTheme } from "@/app/dashboard/theme-context";
 
 interface DayDetailsPanelProps {
   date: Date;
@@ -25,27 +24,15 @@ export default function DayDetailsPanel({
   workspaceId,
 }: DayDetailsPanelProps) {
   const router = useRouter();
-  const { theme } = useTheme();
   
   // SARAJEVO ARTS PALETTE for priority badges
   const getPriorityBadgeClassName = (priority: string) => {
-    const isBrutalist = theme === "brutalist";
-    if (isBrutalist) {
-      switch (priority) {
-        case "urgent": return "text-white bg-[var(--tile-orange)]/80";
-        case "high": return "text-white bg-[var(--tram-yellow)]/70";
-        case "medium": return "text-white bg-[var(--river-indigo)]/70";
-        case "low": return "text-white bg-[var(--dome-teal)]/60";
-        default: return "";
-      }
-    } else {
-      switch (priority) {
-        case "urgent": return "bg-[var(--tile-orange)]/10 text-[var(--tile-orange)] border border-[var(--tile-orange)]/25";
-        case "high": return "bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25";
-        case "medium": return "bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25";
-        case "low": return "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/25";
-        default: return "";
-      }
+    switch (priority) {
+      case "urgent": return "bg-[var(--tile-orange)]/10 text-[var(--tile-orange)] border border-[var(--tile-orange)]/25";
+      case "high": return "bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25";
+      case "medium": return "bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25";
+      case "low": return "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/25";
+      default: return "";
     }
   };
 

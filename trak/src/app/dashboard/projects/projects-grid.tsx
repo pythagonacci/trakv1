@@ -633,7 +633,14 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
               <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
               <p className="text-sm text-[var(--muted-foreground)]">Track deliverables, due dates, and client work from one place.</p>
             </div>
-            <Button onClick={handleOpenCreate} size="sm">New project</Button>
+            <Button
+              onClick={handleOpenCreate}
+              size="sm"
+              variant="outline"
+              className="rounded-[2px] border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+            >
+              New project
+            </Button>
           </div>
           <EmptyState onCreateClick={handleOpenCreate} />
           {renderDialogs()}
@@ -645,7 +652,14 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
               <h2 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">Projects</h2>
               <p className="text-sm text-[var(--muted-foreground)]">Monitor progress, status, and deadlines at a glance.</p>
             </div>
-            <Button onClick={handleOpenCreate} size="sm">New project</Button>
+            <Button
+              onClick={handleOpenCreate}
+              size="sm"
+              variant="outline"
+              className="rounded-[2px] border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+            >
+              New project
+            </Button>
           </div>
 
           {projects.length === 0 ? (

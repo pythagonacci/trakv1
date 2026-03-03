@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { parseDateSafe } from "@/lib/due-date";
 import { cn } from "@/lib/utils";
 import type { TaskListWidgetConfig } from "../dashboard-config-types";
-import { useTheme } from "@/app/dashboard/theme-context";
 
 interface TaskItem {
   id: string;
@@ -62,7 +61,6 @@ export default function DashboardTaskWidget({
   userId,
 }: DashboardTaskWidgetProps) {
   const router = useRouter();
-  const { theme } = useTheme();
   const limit = config.limit ?? 10;
 
   const items: TaskItem[] = dueAwareItems.length > 0
@@ -90,24 +88,15 @@ export default function DashboardTaskWidget({
         : items.slice(0, limit);
 
   const getPriorityColor = (priority?: TaskItem["priority"]) => {
-    const isBrutalist = theme === "brutalist";
     switch (priority) {
       case "urgent":
-        return isBrutalist
-          ? "text-white bg-[var(--tile-orange)]/80"
-          : "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
+        return "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
       case "high":
-        return isBrutalist
-          ? "text-white bg-[var(--tram-yellow)]/70"
-          : "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
+        return "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
       case "medium":
-        return isBrutalist
-          ? "text-white bg-[var(--river-indigo)]/70"
-          : "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
+        return "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
       case "low":
-        return isBrutalist
-          ? "text-white bg-[var(--dome-teal)]/60"
-          : "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
+        return "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
       default:
         return "";
     }
@@ -165,7 +154,6 @@ export default function DashboardTaskWidget({
                       <span
                         className={cn(
                           "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                          theme === "brutalist" ? "" : "border",
                           getPriorityColor(task.priority)
                         )}
                       >
@@ -177,9 +165,7 @@ export default function DashboardTaskWidget({
                       <span
                         className={cn(
                           "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                          theme === "brutalist"
-                            ? "text-white bg-[var(--tram-yellow)]/70"
-                            : "border border-[var(--tram-yellow)]/30 bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)]"
+                          "border border-[var(--tile-orange)]/30 bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]"
                         )}
                       >
                         <Calendar className="h-2.5 w-2.5" />

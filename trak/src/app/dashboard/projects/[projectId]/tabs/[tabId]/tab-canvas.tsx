@@ -1217,12 +1217,12 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
 
   return (
     <FileUrlContext.Provider value={initialFileUrls}>
-      <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1 space-y-2">
+      <div className="flex flex-1 min-h-0 w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 flex flex-col min-h-0 space-y-2">
           {!hasBlocks ? (
             <div
               onClick={handleEmptyCanvasClick}
-              className="cursor-text rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--secondary)]"
+              className="cursor-text min-h-full rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--secondary)]"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
@@ -1253,8 +1253,8 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           ) : (
             <div
               className={cn(
-                "pl-4 pr-6 pt-2 pb-6 transition-all duration-300 relative min-h-[calc(100vh-200px)] rounded-xl overflow-hidden",
-                !currentTheme.containerBg && "bg-[var(--surface)]/50"
+                "px-5 pt-2 pb-6 transition-all duration-300 relative flex-1 min-h-full rounded-xl overflow-hidden",
+                !currentTheme.containerBg && "bg-[var(--surface)]"
               )}
               style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
             >

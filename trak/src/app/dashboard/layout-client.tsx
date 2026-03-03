@@ -35,10 +35,10 @@ import {
 } from "./header-visibility-context";
 import { DashboardConfigModalProvider, useDashboardConfigModal } from "./dashboard-config-modal-context";
 import GlobalSearch from "./global-search";
-import { useTheme } from "./theme-context";
 import { useUser } from "@/hooks/use-user";
 import { Button } from "@/components/ui/button";
 import { AICommandPalette, useAI } from "@/components/ai";
+import { useTheme } from "./theme-context";
 
 interface User {
   id: string;
@@ -537,23 +537,25 @@ function Sidebar({
         </nav>
       </div>
 
-      {/* Theme Toggle - Arts Palette accent */}
-        <div className="border-t border-[var(--border)] px-3 py-2">
+      {/* Theme toggle – Sarajevo light / dark */}
+      <div className="border-t border-[var(--border)] px-3 py-2">
         {collapsed ? (
           <button
-            onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
-            title={`Theme: ${theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}`}
+            onClick={() => setTheme(theme === "default" ? "dark" : "default")}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           >
             <Palette className="h-4 w-4" />
           </button>
         ) : (
           <button
-            onClick={() => setTheme(theme === "default" ? "dark" : theme === "dark" ? "brutalist" : "default")}
-              className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            onClick={() => setTheme(theme === "default" ? "dark" : "default")}
+            className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <Palette className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium text-[var(--foreground)]">Theme: {theme === "brutalist" ? "Brutalist" : theme === "dark" ? "Dark" : "Sarajevo"}</span>
+            <span className="text-xs font-medium text-[var(--foreground)]">
+              Theme: {theme === "dark" ? "Dark" : "Light"}
+            </span>
           </button>
         )}
       </div>
@@ -778,20 +780,21 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
   const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
   const isWorkflowCanvas = pathname?.match(/^\/dashboard\/workflow\/[^/]+$/);
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
-  const isFullBleedPage =
-    pathname?.startsWith("/dashboard/settings") ||
-    pathname?.startsWith("/dashboard/workspace/everything") ||
-    pathname?.startsWith("/dashboard/shopify/products");
   const isProjectOrClientDetail =
     (pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects") ||
     (pathname?.startsWith("/dashboard/clients/") && pathname !== "/dashboard/clients");
+  const isFullBleedPage =
+    pathname?.startsWith("/dashboard/settings") ||
+    pathname?.startsWith("/dashboard/workspace/everything") ||
+    pathname?.startsWith("/dashboard/shopify/products") ||
+    isProjectOrClientDetail;
 
   return (
     <main
       id="dashboard-content"
       className={cn(
         "flex-1 min-h-0",
-        isProjectOrClientDetail && "flex flex-col bg-white dark:bg-neutral-900/95",
+        isProjectOrClientDetail ? "flex flex-col bg-[var(--surface)]" : "bg-[var(--background)]",
         isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
         headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-4 lg:py-5"

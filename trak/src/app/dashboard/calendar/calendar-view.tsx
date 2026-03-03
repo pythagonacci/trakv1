@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
-  Palette,
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,40 +24,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useTheme } from "@/app/dashboard/theme-context";
-
-const CALENDAR_THEMES = [
-  {
-    id: "default",
-    label: "Default",
-    pageBg: "linear-gradient(to bottom, var(--surface)/40, var(--surface-muted)/20)",
-  },
-  {
-    id: "sand",
-    label: "Sand",
-    pageBg: "linear-gradient(135deg, #fdfbf5 0%, #f7fbff 50%, #eef6ff 100%)",
-  },
-  {
-    id: "foam",
-    label: "Foam",
-    pageBg: "linear-gradient(135deg, #f8fffd 0%, #f5fbff 50%, #eef5ff 100%)",
-  },
-  {
-    id: "cloud",
-    label: "Cloud",
-    pageBg: "linear-gradient(135deg, #f9fbff 0%, #f5f7fb 50%, #eef1f6 100%)",
-  },
-  {
-    id: "lavender",
-    label: "Lavender",
-    pageBg: "linear-gradient(135deg, #f5f3ff 0%, #f3f0ff 50%, #ede9fe 100%)",
-  },
-  {
-    id: "rose",
-    label: "Rose",
-    pageBg: "linear-gradient(135deg, #fef7f0 0%, #fef2f2 50%, #fef1f1 100%)",
-  },
-];
 
 export interface CalendarEvent {
   id: string;
@@ -580,7 +545,6 @@ export default function CalendarView({
   itemsView = "all",
 }: CalendarViewProps) {
   const router = useRouter();
-  const { theme } = useTheme();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewType, setViewType] = useState<ViewType>("month");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -599,81 +563,44 @@ export default function CalendarView({
   const [addEventDate, setAddEventDate] = useState<Date | undefined>(undefined);
   const [addEventTime, setAddEventTime] = useState<string | undefined>(undefined);
   const [addEventTimeEnd, setAddEventTimeEnd] = useState<string | undefined>(undefined);
-  const [calendarTheme, setCalendarTheme] = useState<string>("default");
 
-  // SARAJEVO ARTS PALETTE for calendar events
+  // SARAJEVO ARTS PALETTE for calendar events (single light theme)
   const getEventClassName = (event: CalendarEvent, textSize: string = "text-[10px]") => {
-    const isBrutalist = theme === "brutalist";
     const baseClasses = `rounded-[2px] px-2 py-1 ${textSize} font-medium cursor-pointer transition-all hover:scale-[1.01] hover:shadow-sm`;
     
     if (event.type === "google") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[#4285F4]/80`
-        : `${baseClasses} bg-[#4285F4]/10 text-[#1a73e8] border border-[#4285F4]/25`;
+      return `${baseClasses} bg-[#4285F4]/10 text-[#1a73e8] border border-[#4285F4]/25`;
     }
 
     if (event.type === "project") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[var(--velvet-purple)]/70`
-        : `${baseClasses} bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] border border-[var(--velvet-purple)]/25`;
+      return `${baseClasses} bg-[var(--velvet-purple)]/10 text-[var(--velvet-purple)] border border-[var(--velvet-purple)]/25`;
     }
 
     if (event.type === "timeline") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[var(--tram-yellow)]/70`
-        : `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
+      return `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
     }
     
     if (event.priority === "urgent") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[var(--tile-orange)]/80`
-        : `${baseClasses} bg-[var(--tile-orange)]/10 text-[var(--tile-orange)] border border-[var(--tile-orange)]/25`;
+      return `${baseClasses} bg-[var(--tile-orange)]/10 text-[var(--tile-orange)] border border-[var(--tile-orange)]/25`;
     }
     
     if (event.priority === "high") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[var(--tram-yellow)]/70`
-        : `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
+      return `${baseClasses} bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/25`;
     }
     
     if (event.priority === "medium") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[var(--river-indigo)]/70`
-        : `${baseClasses} bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25`;
+      return `${baseClasses} bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25`;
     }
     
     if (event.priority === "low") {
-      return isBrutalist
-        ? `${baseClasses} text-white bg-[var(--dome-teal)]/60`
-        : `${baseClasses} bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/25`;
+      return `${baseClasses} bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/25`;
     }
     
     // Default/no priority - use River Indigo
-    return isBrutalist
-      ? `${baseClasses} text-white bg-[var(--river-indigo)]/70`
-      : `${baseClasses} bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25`;
+    return `${baseClasses} bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/25`;
   };
   const dayViewRef = useRef<HTMLDivElement>(null);
   const hasScrolledToStart = useRef(false);
-
-  // Theme persistence (localStorage)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = localStorage.getItem("trak-calendar-theme");
-    if (saved && CALENDAR_THEMES.some((t) => t.id === saved)) {
-      setCalendarTheme(saved);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("trak-calendar-theme", calendarTheme);
-  }, [calendarTheme]);
-
-  const currentTheme = useMemo(
-    () => CALENDAR_THEMES.find((t) => t.id === calendarTheme) || CALENDAR_THEMES[0],
-    [calendarTheme]
-  );
 
   const toLocalDateString = (date: Date) => {
     const year = date.getFullYear();
@@ -1001,34 +928,7 @@ export default function CalendarView({
               <Plus className="h-3.5 w-3.5" />
               Add Event
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 text-xs">
-                  <Palette className="h-3.5 w-3.5" />
-                  Theme
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                <DropdownMenuLabel>Background Theme</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {CALENDAR_THEMES.map((theme) => (
-                  <DropdownMenuItem
-                    key={theme.id}
-                    onClick={() => setCalendarTheme(theme.id)}
-                    className="flex items-center gap-2"
-                  >
-                    <div
-                      className={cn(
-                        "h-4 w-4 rounded border border-[var(--border)] flex-shrink-0",
-                        calendarTheme === theme.id && "ring-2 ring-[var(--foreground)]"
-                      )}
-                      style={{ background: theme.pageBg }}
-                    />
-                    <span>{theme.label}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Theme picker removed; calendar uses Sarajevo theme globally */}
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 rounded-md border border-[var(--border)] p-0.5">
                 <Button
@@ -1161,7 +1061,7 @@ export default function CalendarView({
             ? "overflow-hidden flex flex-col pl-0 pt-0 pr-4 pb-4 md:pr-6 md:pb-6"
             : "overflow-auto p-4 md:p-6"
         )}
-        style={{ background: currentTheme.pageBg }}
+        style={{ background: "var(--background)" }}
       >
         {viewType === "month" && (
           <div className="grid h-full grid-cols-7 gap-2">
