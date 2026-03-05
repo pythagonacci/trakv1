@@ -887,7 +887,7 @@ export function GalleryView({
       statusField?.id,
       priorityField?.id,
       personField?.id,
-    ].filter(Boolean));
+    ].filter((id): id is string => Boolean(id)));
     return fields.filter((f) => !excludeIds.has(f.id));
   }, [fields, primaryField?.id, coverField?.id, statusField?.id, priorityField?.id, personField?.id]);
 

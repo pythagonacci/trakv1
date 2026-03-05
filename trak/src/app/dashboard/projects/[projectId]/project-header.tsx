@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, LayoutDashboard, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose, Settings } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose, Settings, FolderOpen } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
@@ -112,7 +112,9 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
 
   const pathname = usePathname();
   const isOverview = pathname?.endsWith("/overview");
+  const isDrivePage = pathname?.endsWith("/drive");
   const projectOverviewPath = `/dashboard/projects/${project.id}/overview`;
+  const projectDrivePath = `/dashboard/projects/${project.id}/drive`;
 
   // Find current tab name
   const findTabName = (tabs: Tab[], tabId: string | undefined): string | null => {
@@ -214,6 +216,15 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             Overview
           </button>
         )}
+        {!isDrivePage && (
+          <button
+            onClick={() => router.push(projectDrivePath)}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--foreground)]/60 transition-colors hover:text-[var(--foreground)]"
+          >
+            <FolderOpen className="h-3 w-3" />
+            Drive
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -296,6 +307,9 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
                   Manage Access
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onClick={() => router.push(`/dashboard/projects/${project.id}/integrations/google-drive`)}>
+                Google Drive
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

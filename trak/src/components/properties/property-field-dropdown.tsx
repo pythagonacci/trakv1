@@ -128,15 +128,23 @@ export function PropertyFieldDropdown({
   const persist = React.useCallback(
     (nextName: string, nextValue: Priority | Status | null) => {
       const name = nextName.trim() || (group === "priority" ? "Priority" : "Status");
-      const nextDrafts = drafts.map((d) =>
-        (fieldId ? d.id === fieldId : drafts.indexOf(d) === 0)
-          ? { ...d, field_name: name, value: nextValue }
-          : d
-      );
-      const normalized = dedupeByName(nextDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
       if (group === "priority") {
+        const priorityDrafts = drafts as PriorityDraft[];
+        const nextDrafts = priorityDrafts.map((d, index) =>
+          (fieldId ? d.id === fieldId : index === 0)
+            ? { ...d, field_name: name, value: (nextValue as Priority | null) }
+            : d
+        );
+        const normalized = dedupeByName(nextDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
         setProperties.mutate({ priorities: normalized.length > 0 ? (normalized as { field_name: string; value: Priority | null }[]) : null });
       } else {
+        const statusDrafts = drafts as StatusDraft[];
+        const nextDrafts = statusDrafts.map((d, index) =>
+          (fieldId ? d.id === fieldId : index === 0)
+            ? { ...d, field_name: name, value: (nextValue as Status | null) }
+            : d
+        );
+        const normalized = dedupeByName(nextDrafts).map((f) => ({ field_name: f.field_name, value: f.value }));
         setProperties.mutate({ statuses: normalized.length > 0 ? (normalized as { field_name: string; value: Status | null }[]) : null });
       }
     },

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings, Users, MessageCircle, UsersRound } from "lucide-react";
+import { Settings, Users, MessageCircle, UsersRound, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import MembersTable from "./members/members-table";
@@ -53,6 +53,7 @@ export function SettingsClient({
   const [activeTab, setActiveTab] = useState<"members" | "general" | "teams">("members");
   const { setHeaderHidden } = useDashboardHeader();
   const isSlackPage = pathname?.includes("/settings/integrations/slack");
+  const isGoogleDrivePage = pathname?.includes("/settings/integrations/google-drive");
 
   const canManage = currentUserRole === "owner" || currentUserRole === "admin";
 
@@ -136,6 +137,21 @@ export function SettingsClient({
             <MessageCircle className="h-4 w-4" />
             Slack
             {isSlackPage && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--river-indigo)]" />
+            )}
+          </Link>
+          <Link
+            href="/dashboard/settings/integrations/google-drive"
+            className={cn(
+              "flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors relative",
+              isGoogleDrivePage
+                ? "text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            )}
+          >
+            <FolderOpen className="h-4 w-4" />
+            Google Drive
+            {isGoogleDrivePage && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--river-indigo)]" />
             )}
           </Link>

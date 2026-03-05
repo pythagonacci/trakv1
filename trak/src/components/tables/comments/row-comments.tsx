@@ -28,14 +28,16 @@ export function RowComments({ rowId, onClose }: Props) {
   }, {});
 
   return (
-    <div className="w-96 h-full bg-[var(--surface)] text-[var(--foreground)] border-l border-[var(--border)] flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-        <div className="text-sm font-semibold text-[var(--foreground)]">Comments</div>
-        <button className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors duration-150" onClick={onClose}>
+    <div className="w-full min-h-0 flex flex-col text-[var(--foreground)]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] shrink-0">
+        <div className="text-xs font-medium text-[var(--foreground)]">
+          {comments.length} {comments.length === 1 ? "comment" : "comments"}
+        </div>
+        <button className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors duration-150 text-xs" onClick={onClose}>
           Close
         </button>
       </div>
-      <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
+      <div className="flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-2">
         {isLoading && <div className="text-sm text-[var(--muted-foreground)]">Loading...</div>}
         {!isLoading && roots.length === 0 && (
           <div className="text-sm text-[var(--muted-foreground)]">No comments yet.</div>
@@ -53,7 +55,7 @@ export function RowComments({ rowId, onClose }: Props) {
           />
         ))}
       </div>
-      <div className="border-t border-[var(--border)] p-4">
+      <div className="border-t border-[var(--border)] p-3 shrink-0">
         <CommentInput
           submitting={createComment.isPending}
           onSubmit={(content) =>

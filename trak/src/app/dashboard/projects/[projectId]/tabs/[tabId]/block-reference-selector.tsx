@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, FileText, X, Copy, Table, CheckSquare, Link2, Calendar, Upload, Image, Images, Video, Maximize2, Layout } from "lucide-react";
+import { Search, FileText, X, Copy, Table, CheckSquare, Link2, Calendar, Upload, Image, Images, Video, Maximize2, Layout, Heading } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import { createBlock } from "@/app/actions/block";
@@ -41,6 +41,7 @@ const blockIcons: Record<string, React.ReactNode> = {
   video: <Video className="h-4 w-4" />,
   embed: <Maximize2 className="h-4 w-4" />,
   section: <Layout className="h-4 w-4" />,
+  section_header: <Heading className="h-4 w-4" />,
 };
 
 const blockTypeLabels: Record<string, string> = {
@@ -56,6 +57,7 @@ const blockTypeLabels: Record<string, string> = {
   video: "Video",
   embed: "Embed",
   section: "Section",
+  section_header: "Section Header",
 };
 
 export default function BlockReferenceSelector({ isOpen, onClose, tabId, onBlockCreated, onBlockError }: BlockReferenceSelectorProps) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Send, RotateCcw, PanelRightClose, Trash2, Square, Plus } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
@@ -51,34 +51,34 @@ function getText(content: Record<string, unknown> | null | undefined) {
   return "";
 }
 
-const assistantMarkdownComponents = {
-  h1: ({ children }: { children: React.ReactNode }) => (
+const assistantMarkdownComponents: Components = {
+  h1: ({ children }) => (
     <h1 className="mt-4 mb-2 text-base font-semibold leading-[1.25]">{children}</h1>
   ),
-  h2: ({ children }: { children: React.ReactNode }) => (
+  h2: ({ children }) => (
     <h2 className="mt-4 mb-2 text-sm font-semibold leading-[1.25]">{children}</h2>
   ),
-  h3: ({ children }: { children: React.ReactNode }) => (
+  h3: ({ children }) => (
     <h3 className="mt-3 mb-1.5 text-sm font-medium leading-[1.25]">{children}</h3>
   ),
-  p: ({ children }: { children: React.ReactNode }) => (
+  p: ({ children }) => (
     <p className="my-3 whitespace-pre-wrap leading-[1.25]">{children}</p>
   ),
-  ul: ({ children }: { children: React.ReactNode }) => (
+  ul: ({ children }) => (
     <ul className="my-3 list-disc space-y-2 pl-6">{children}</ul>
   ),
-  ol: ({ children }: { children: React.ReactNode }) => (
+  ol: ({ children }) => (
     <ol className="my-3 list-decimal space-y-2 pl-6">{children}</ol>
   ),
-  li: ({ children }: { children: React.ReactNode }) => (
+  li: ({ children }) => (
     <li className="pl-1 leading-[1.25]">{children}</li>
   ),
-  blockquote: ({ children }: { children: React.ReactNode }) => (
+  blockquote: ({ children }) => (
     <blockquote className="my-3 border-l-2 border-[var(--border)] pl-3 italic text-[var(--muted-foreground)]">
       {children}
     </blockquote>
   ),
-} as const;
+};
 
 export default function WorkflowAIChatPanel(props: {
   tabId: string;
@@ -707,7 +707,7 @@ export default function WorkflowAIChatPanel(props: {
                 onClick={() => {
                   void handleApprovePendingWrite();
                 }}
-                className="rounded-md border border-[var(--secondary)] bg-[var(--secondary)] px-3 py-1 text-xs text-white hover:bg-[var(--secondary)]/90"
+                className="rounded-md border border-[var(--primary)] bg-[var(--primary)] px-3 py-1 text-xs text-white hover:bg-[var(--primary-hover)]"
               >
                 Yes, continue
               </button>

@@ -5,8 +5,9 @@ import Image from "next/image";
 import { type Block, updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
+import { createFileComment } from "@/app/actions/file-comments";
 import { useFileUrls } from "./tab-canvas";
-import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus } from "lucide-react";
+import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
@@ -57,6 +58,7 @@ const COLLAGE_MAX_WIDTH = 600;
 interface CollageViewProps {
   items: GalleryItem[];
   fileUrls: Record<string, string>;
+  fileCommentCounts?: Record<string, number>;
   uploadingSlots: Set<number>;
   hoveredImageIndex: number | null;
   setHoveredImageIndex: (v: number | null) => void;
@@ -72,12 +74,14 @@ interface CollageViewProps {
   onCaptionChange: (index: number, value: string) => void;
   openFilePicker: (index: number) => void;
   handleDrop: (e: React.DragEvent, index: number) => void;
+  onImageContextMenu?: (e: React.MouseEvent, index: number) => void;
   setSideModalIndex: (v: number | null) => void;
 }
 
 function CollageView({
   items,
   fileUrls,
+  fileCommentCounts,
   uploadingSlots,
   hoveredImageIndex,
   setHoveredImageIndex,
@@ -93,6 +97,7 @@ function CollageView({
   onCaptionChange,
   openFilePicker,
   handleDrop,
+  onImageContextMenu,
   setSideModalIndex,
 }: CollageViewProps) {
   // Collage: only show images (no empty add slots). Click/drop anywhere on the block to add.
@@ -163,6 +168,8 @@ function CollageView({
               onClick={() => item.fileId && setSideModalIndex(index)}
               onAddClick={() => openFilePicker(index)}
               onDrop={(e) => handleDrop(e, index)}
+              onContextMenu={(e) => onImageContextMenu?.(e, index)}
+              commentCount={item.fileId ? (fileCommentCounts?.[item.fileId] || 0) : 0}
             />
           ))}
         </div>
@@ -189,6 +196,8 @@ function SortableCollageImage({
   onAddClick,
   onDrop,
   onResizeEnd,
+  onContextMenu,
+  commentCount,
 }: {
   id: string;
   captionsMode: CaptionsMode;
@@ -207,6 +216,8 @@ function SortableCollageImage({
   onClick: () => void;
   onAddClick: () => void;
   onDrop: (e: React.DragEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  commentCount?: number;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
@@ -234,6 +245,8 @@ function SortableCollageImage({
         onAddClick={onAddClick}
         onDrop={onDrop}
         onResizeEnd={onResizeEnd}
+        onContextMenu={onContextMenu}
+        commentCount={commentCount}
         dragHandleProps={{ attributes: attributes as unknown as Record<string, unknown>, listeners: listeners as unknown as Record<string, unknown> }}
       />
     </div>
@@ -257,6 +270,8 @@ function CollageImage({
   onAddClick,
   onDrop,
   onResizeEnd,
+  onContextMenu,
+  commentCount = 0,
   dragHandleProps,
 }: {
   item: GalleryItem;
@@ -274,6 +289,8 @@ function CollageImage({
   onClick: () => void;
   onAddClick: () => void;
   onDrop: (e: React.DragEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  commentCount?: number;
   captionsMode?: CaptionsMode;
   dragHandleProps?: { attributes: Record<string, unknown>; listeners: Record<string, unknown> };
 }) {
@@ -345,6 +362,7 @@ function CollageImage({
           e.stopPropagation();
           onDrop(e);
         }}
+        onContextMenu={onContextMenu}
         onDragOver={(e) => e.preventDefault()}
         className={cn(
           "group relative shrink-0 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60 transition-all",
@@ -355,6 +373,12 @@ function CollageImage({
         {isUploading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
             <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
+          </div>
+        )}
+        {commentCount > 0 && (
+          <div className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white">
+            <MessageSquare className="h-3 w-3" />
+            {commentCount}
           </div>
         )}
         {fileUrl && (
@@ -544,6 +568,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [sideModalIndex, setSideModalIndex] = useState<number | null>(null);
   const [hoveredImageIndex, setHoveredImageIndex] = useState<number | null>(null);
   const [isSettingsHovered, setIsSettingsHovered] = useState(false);
+  const [fileCommentCounts, setFileCommentCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const rawLayout = (block.content?.layout as string | undefined) || null;
@@ -566,6 +591,31 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
       captionTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
     };
   }, []);
+
+  useEffect(() => {
+    const fileIds = Array.from(
+      new Set(items.map((item) => item.fileId).filter((id): id is string => Boolean(id)))
+    );
+    if (fileIds.length === 0) {
+      setFileCommentCounts({});
+      return;
+    }
+    const params = new URLSearchParams({ fileIds: fileIds.join(",") });
+    fetch(`/api/file-analysis/comments?${params.toString()}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((json) => {
+        const next: Record<string, number> = {};
+        (json?.data || []).forEach((comment: { file_id?: string }) => {
+          const fileId = comment.file_id;
+          if (!fileId) return;
+          next[fileId] = (next[fileId] || 0) + 1;
+        });
+        setFileCommentCounts(next);
+      })
+      .catch(() => {
+        setFileCommentCounts({});
+      });
+  }, [items]);
 
   const persistItems = async (
     nextItems: GalleryItem[],
@@ -695,6 +745,26 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
     await uploadImage(file, index);
+  };
+
+  const handleImageContextMenu = async (e: React.MouseEvent, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const fileId = items[index]?.fileId;
+    if (!fileId) return;
+    const input = window.prompt("Add comment to this image");
+    const text = input?.trim();
+    if (!text) return;
+    const result = await createFileComment({ fileId, text });
+    if ("error" in result) {
+      alert(result.error || "Failed to add comment");
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("file-analysis-comment-saved", {
+        detail: { fileId },
+      })
+    );
   };
 
   const uploadImage = async (file: File, index: number, baseItems?: GalleryItem[]) => {
@@ -1132,9 +1202,18 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                           )}
                           style={{ width: `${CELL_WIDTH}px`, height: `${CELL_HEIGHT}px` }}
                           onClick={() => setSideModalIndex(index)}
+                          onContextMenu={(e) => {
+                            void handleImageContextMenu(e, index);
+                          }}
                           onDrop={(e) => handleDrop(e, index)}
                           onDragOver={(e) => e.preventDefault()}
                         >
+                          {!!fileId && (fileCommentCounts[fileId] || 0) > 0 && (
+                            <div className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white">
+                              <MessageSquare className="h-3 w-3" />
+                              {fileCommentCounts[fileId]}
+                            </div>
+                          )}
                           {isUploading && (
                             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
                               <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />
@@ -1217,6 +1296,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
             <CollageView
               items={items}
               fileUrls={fileUrls}
+              fileCommentCounts={fileCommentCounts}
               uploadingSlots={uploadingSlots}
               hoveredImageIndex={hoveredImageIndex}
               setHoveredImageIndex={setHoveredImageIndex}
@@ -1232,6 +1312,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
               onCaptionChange={handleCaptionChange}
               openFilePicker={openFilePicker}
               handleDrop={handleDrop}
+              onImageContextMenu={handleImageContextMenu}
               setSideModalIndex={setSideModalIndex}
             />
           ) : (
@@ -1265,6 +1346,9 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                     )}
                     onMouseEnter={() => setHoveredImageIndex(index)}
                     onMouseLeave={() => setHoveredImageIndex(null)}
+                    onContextMenu={(e) => {
+                      void handleImageContextMenu(e, index);
+                    }}
                     onClick={() => {
                       if (hasFile) {
                         if (imageUrl) {
@@ -1279,6 +1363,12 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                     onDrop={(e) => handleDrop(e, index)}
                     onDragOver={(e) => e.preventDefault()}
                   >
+                    {!!fileId && (fileCommentCounts[fileId] || 0) > 0 && (
+                      <div className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white">
+                        <MessageSquare className="h-3 w-3" />
+                        {fileCommentCounts[fileId]}
+                      </div>
+                    )}
                     {isUploading && (
                       <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70">
                         <Loader2 className="h-6 w-6 animate-spin text-neutral-500" />

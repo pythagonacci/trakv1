@@ -25,6 +25,7 @@ import { setEntityProperties } from "@/app/actions/entity-properties";
 import { parseDateSafe } from "@/lib/due-date";
 import type { Status, Priority } from "@/types/properties";
 import type { TimelineNamedPriority } from "@/types/timeline";
+import type { TaskStatus } from "@/types/task";
 import {
   isUniversalPropertyFieldType,
   normalizeUniversalPropertyValue,
@@ -1254,8 +1255,8 @@ async function syncSourceRowToDerived(params: {
     }
   }
   const namedTaskStatuses = derivedSeed.statuses
-    .map((entry) => ({ field_name: entry.field_name, value: entry.value }))
-    .filter((entry): entry is { field_name: string; value: "todo" | "in_progress" | "blocked" | "done" } => Boolean(entry.field_name && entry.value));
+    .map((entry) => ({ field_name: entry.field_name, value: mapCanonicalToTaskStatus(entry.value) }))
+    .filter((entry): entry is { field_name: string; value: TaskStatus } => Boolean(entry.field_name && entry.value));
   const namedTimelineStatuses = statusFields
     .map((field) => {
       const status = normalizeTimelineStatus(valueToString(rowData[field.id]));
@@ -1594,7 +1595,7 @@ function mapTaskUpdateFromField(
   | Partial<{
       title: string;
       status: "todo" | "in-progress" | "done";
-      statuses: Array<{ field_name: string; value: "todo" | "in_progress" | "blocked" | "done" }>;
+      statuses: Array<{ field_name: string; value: "todo" | "in_progress" | "done" }>;
       priority: "urgent" | "high" | "medium" | "low" | "none";
       priorities: Array<{ field_name: string; value: "low" | "medium" | "high" | "urgent" }>;
       description: string | null;
@@ -1614,11 +1615,9 @@ function mapTaskUpdateFromField(
   if (field.type === "status" || normalizedFieldName === "status") {
     const status = normalizeTaskStatus(resolveSelectLikeValue(field, value));
     if (!status) return null;
-    const normalized = status === "in-progress" ? "in_progress" : status;
-    if (normalized !== "todo" && normalized !== "in_progress" && normalized !== "blocked" && normalized !== "done") {
-      return null;
-    }
-    return { statuses: [{ field_name: field.name, value: normalized }] };
+    const canonicalStatus: "todo" | "in_progress" | "done" =
+      status === "in-progress" ? "in_progress" : status;
+    return { statuses: [{ field_name: field.name, value: canonicalStatus }] };
   }
 
   if (field.type === "priority" || normalizedFieldName === "priority") {
@@ -1783,6 +1782,13 @@ function normalizeDateForTask(value: unknown): string | null {
   const range = normalizeDateRangeForTask(value);
   if (!range) return null;
   return range.end ?? range.start ?? null;
+}
+
+function mapCanonicalToTaskStatus(value: unknown): TaskStatus | null {
+  if (value === "todo") return "todo";
+  if (value === "in_progress" || value === "blocked") return "in-progress";
+  if (value === "done") return "done";
+  return null;
 }
 
 function normalizeTimelineStatus(value: unknown): "todo" | "in_progress" | "blocked" | "done" | null {

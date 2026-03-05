@@ -13,7 +13,7 @@ import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "chart" | "doc_reference" | "shopify_product";
+export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "section_header" | "chart" | "doc_reference" | "shopify_product";
 
 export interface Block {
   id: string;

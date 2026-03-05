@@ -85,7 +85,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
   });
 
   const blockIds = useMemo(
-    () => (blocks || []).map((block) => block.id),
+    () => (blocks || []).map((block: Block) => block.id),
     [blocks]
   );
   const {

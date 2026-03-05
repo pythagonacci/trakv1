@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils";
 import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
-import type { TaskItem, TaskItemPriority } from "@/types/task";
+import type { TaskItemPriority } from "@/types/task";
 import type { EntityProperties } from "@/types/properties";
 
 type TaskEntityPropertiesMap = Record<string, EntityProperties>;
@@ -35,6 +35,26 @@ type TaskItemView = {
     interval: number | null;
   };
   hideIcons?: boolean;
+};
+
+type TaskBlockTaskRow = {
+  id: string;
+  title: string;
+  statuses: unknown;
+  priorities: unknown;
+  source_task_id: string | null;
+  source_entity_type: "task" | "timeline_event" | "table_row" | null;
+  source_entity_id: string | null;
+  source_sync_mode: "snapshot" | "live" | null;
+  due_date: string | null;
+  due_time: string | null;
+  due_time_end: string | null;
+  start_date: string | null;
+  description: string | null;
+  recurring_enabled: boolean;
+  recurring_frequency: "daily" | "weekly" | "monthly" | null;
+  recurring_interval: number | null;
+  hide_icons: boolean;
 };
 
 export async function GET(
@@ -245,7 +265,7 @@ export async function GET(
       assigneesByTask.set(assignee.task_id, list);
     }
 
-    const taskViews = (items as TaskItem[]).map((item) => {
+    const taskViews = (items as TaskBlockTaskRow[]).map((item) => {
       const priorities = Array.isArray((item as any).priorities)
         ? ((item as any).priorities as TaskItemPriority[])
         : [];

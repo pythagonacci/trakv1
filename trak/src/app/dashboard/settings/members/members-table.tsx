@@ -15,7 +15,8 @@ import InviteMemberDialog from "./invite-member-dialog";
 import EditMemberDialog from "./edit-member-dialog";
 
 interface Member {
-  id: string;
+  membershipId?: string; // workspace_members.id for role/remove
+  id: string;            // user id (profiles.id)
   email: string;
   name: string | null;
   role: "owner" | "admin" | "teammate";

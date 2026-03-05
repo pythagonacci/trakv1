@@ -29,7 +29,7 @@ import { useTabContents } from "./tab-contents-context";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { Undo2, FileText, CheckSquare, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
+import { Undo2, FileText, CheckSquare, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, Heading, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { EntityProperties } from "@/types/properties";
 import {
@@ -645,6 +645,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       is_template: false,
       template_name: null,
       original_block_id: null,
+      locked: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -1176,6 +1177,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       is_template: false,
       template_name: null,
       original_block_id: null,
+      locked: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -1437,6 +1439,7 @@ function BlockDragCard({ block }: { block: Block }) {
     task: <CheckSquare className="h-4 w-4" />,
     link: <Link2 className="h-4 w-4" />,
     divider: <Minus className="h-4 w-4" />,
+    section_header: <Heading className="h-4 w-4" />,
     table: <Table className="h-4 w-4" />,
     timeline: <Calendar className="h-4 w-4" />,
     file: <Paperclip className="h-4 w-4" />,
@@ -1452,6 +1455,7 @@ function BlockDragCard({ block }: { block: Block }) {
   };
   const labelMap: Partial<Record<Block["type"], string>> = {
     text: "Text", task: "Task list", link: "Link", divider: "Divider",
+    section_header: "Section Header",
     table: "Table", timeline: "Timeline", file: "File", video: "Video",
     image: "Image", gallery: "Gallery", embed: "Embed", section: "Section",
     chart: "Chart", doc_reference: "Doc reference", shopify_product: "Product",
@@ -1509,6 +1513,7 @@ function getDragBlockTitle(block: Block): string {
     case "embed": return (content.title as string) ?? "Embed";
     case "link": return (content.title as string) ?? (content.url as string) ?? "Link";
     case "section": return (content.title as string) ?? "Section";
+    case "section_header": return (content.title as string) ?? "Section Header";
     case "chart": return (content.title as string) ?? "Chart";
     case "pdf": return (content.filename as string) ?? "PDF";
     default: return `${block.type} block`;

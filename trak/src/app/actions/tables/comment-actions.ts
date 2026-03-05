@@ -112,6 +112,31 @@ export async function getRowComments(rowId: string, opts?: { authContext?: AuthC
   return { data };
 }
 
+export async function getRowCommentCounts(rowIds: string[], opts?: { authContext?: AuthContext }): Promise<ActionResult<Record<string, number>>> {
+  const uniqueIds = Array.from(new Set((rowIds || []).map((id) => String(id)).filter(Boolean)));
+  if (uniqueIds.length === 0) return { data: {} };
+
+  const firstRowAccess = await getRowAccess(uniqueIds[0], opts);
+  if ("error" in firstRowAccess) return { error: firstRowAccess.error ?? "Unknown error" };
+  const { supabase } = firstRowAccess;
+
+  const { data, error } = await supabase
+    .from("table_comments")
+    .select("row_id")
+    .in("row_id", uniqueIds);
+
+  if (error) return { error: "Failed to load comment counts" };
+
+  const counts: Record<string, number> = {};
+  for (const rowId of uniqueIds) counts[rowId] = 0;
+  for (const row of data || []) {
+    const rowId = String((row as { row_id?: string }).row_id || "");
+    if (!rowId) continue;
+    counts[rowId] = (counts[rowId] || 0) + 1;
+  }
+  return { data: counts };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

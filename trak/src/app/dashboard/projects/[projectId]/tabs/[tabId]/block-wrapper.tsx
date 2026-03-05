@@ -17,6 +17,7 @@ import {
   Images,
   Maximize2,
   Layout,
+  Heading,
   Copy,
   Plus,
   Tags,
@@ -114,7 +115,7 @@ export default function BlockWrapper({
     const blockGap = 12;
     const anchor = triggerRect ?? blockRect;
     const hasRoomOnRight = blockRect.right + blockGap + panelWidth + edgeMargin <= window.innerWidth;
-    const side = hasRoomOnRight ? "right" : "left";
+    const side: "right" | "left" = hasRoomOnRight ? "right" : "left";
 
     const rawTop = anchor.top - blockRect.top - 12;
     const maxTop = Math.max(8, blockRect.height - 140);
@@ -192,7 +193,7 @@ export default function BlockWrapper({
   });
 
   const isDragging = externalIsDragging || isDraggingInternal;
-  const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless);
+  const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless) || block.type === "section_header";
   const isTempBlock = block.id.startsWith("temp-");
   const initialEmbedHeight =
     block.type === "embed" &&
@@ -226,6 +227,7 @@ export default function BlockWrapper({
     if (block.type === "gallery") return "Gallery block";
     if (block.type === "embed") return "Embed block";
     if (block.type === "section") return "Section block";
+    if (block.type === "section_header") return "Section Header block";
     if (block.type === "link") return "Link block";
     if (block.type === "pdf") return "PDF block";
     if (block.type === "chart") return "Chart block";
@@ -349,6 +351,7 @@ export default function BlockWrapper({
     { type: "text", label: "Text", icon: <FileText className="h-4 w-4" /> },
     { type: "task", label: "Task list", icon: <CheckSquare className="h-4 w-4" /> },
     { type: "link", label: "Link", icon: <Link2 className="h-4 w-4" /> },
+    { type: "section_header", label: "Section Header", icon: <Heading className="h-4 w-4" /> },
     { type: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
     { type: "timeline", label: "Timeline", icon: <Calendar className="h-4 w-4" /> },
     { type: "file", label: "File", icon: <Paperclip className="h-4 w-4" /> },
@@ -428,7 +431,7 @@ export default function BlockWrapper({
         }}
       >
         {!borderless && (
-          <div className="absolute -top-3 right-3 flex items-center gap-1.5 z-[70]">
+          <div className="absolute top-2 -right-4 flex flex-col items-center gap-1.5 z-[70]">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -674,7 +677,7 @@ export default function BlockWrapper({
         )}
 
         {borderless && !readOnly && (
-          <div className="absolute right-2 top-2 z-[70] flex items-center gap-1.5">
+          <div className="absolute top-2 -right-4 z-[70] flex flex-col items-center gap-1.5">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1248,6 +1251,9 @@ function getBlockTitle(block: Block): string {
 
     case "section":
       return (content.title as string) ?? "Section";
+
+    case "section_header":
+      return (content.title as string) ?? "Section Header";
 
     case "doc_reference":
       return (content.title as string) ?? "Document reference";

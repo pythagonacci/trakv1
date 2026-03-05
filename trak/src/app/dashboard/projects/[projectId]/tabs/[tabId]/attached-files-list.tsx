@@ -8,6 +8,8 @@ import { FileText, Image, Video, Music, Archive, File, Download, Trash2, Chevron
 import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
 import { useAI } from "@/components/ai";
+import { ExternalAssetCard } from "@/components/integrations/google-drive/external-asset-card";
+import { DrivePreviewModal } from "@/components/integrations/google-drive/preview-modal";
 
 interface BlockFile {
   id: string;
@@ -32,6 +34,22 @@ interface FileComment {
 interface AttachedFilesListProps {
   blockId: string;
   onUpdate?: () => void;
+}
+
+interface ExternalAssetLink {
+  id: string;
+  asset: {
+    id: string;
+    item_kind: "file" | "folder";
+    name: string;
+    mime_type?: string | null;
+    web_view_link?: string | null;
+    thumbnail_link?: string | null;
+    icon_link?: string | null;
+    modified_time?: string | null;
+    owner_display?: string | null;
+    stale_state?: "active" | "not_found" | "trashed";
+  };
 }
 
 const getFileIcon = (fileType: string) => {
@@ -64,6 +82,9 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [deletingCommentIds, setDeletingCommentIds] = useState<Set<string>>(new Set());
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [externalAssets, setExternalAssets] = useState<ExternalAssetLink[]>([]);
+  const [previewAsset, setPreviewAsset] = useState<{ id: string; name: string; web_view_link?: string | null } | null>(null);
 
   const loadComments = useCallback(async (fileIds: string[]) => {
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
@@ -207,6 +228,31 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     } else if (result?.error) {
       console.error("❌ Error loading files:", result.error);
     }
+
+    try {
+      const workspaceResponse = await fetch("/api/workspaces/current", { cache: "no-store" });
+      const workspacePayload = await workspaceResponse.json();
+      const currentWorkspaceId = workspacePayload?.data?.id || null;
+      setWorkspaceId(currentWorkspaceId);
+
+      if (currentWorkspaceId) {
+        const query = new URLSearchParams({
+          workspace_id: currentWorkspaceId,
+          entity_type: "block",
+          entity_id: blockId,
+        });
+        const assetsResponse = await fetch(`/api/integrations/google-drive/assets/entity?${query.toString()}`, {
+          cache: "no-store",
+        });
+        const assetsPayload = await assetsResponse.json();
+        if (assetsResponse.ok && Array.isArray(assetsPayload?.data)) {
+          setExternalAssets(assetsPayload.data);
+        }
+      }
+    } catch (externalError) {
+      console.error("Failed to load external assets:", externalError);
+    }
+
     setLoading(false);
   }, [blockId]);
 
@@ -286,7 +332,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
     return null;
   }
 
-  if (files.length === 0) {
+  if (files.length === 0 && externalAssets.length === 0) {
     return null;
   }
 
@@ -323,7 +369,7 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white mb-3"
       >
-        <span>Attached Files ({files.length})</span>
+        <span>Attached Files ({files.length + externalAssets.length})</span>
         <ChevronDown
           className={cn(
             "w-4 h-4 transition-transform",
@@ -469,6 +515,49 @@ export default function AttachedFilesList({ blockId, onUpdate }: AttachedFilesLi
           }).filter(Boolean)}
         </div>
       )}
+
+      {expanded && externalAssets.length > 0 && (
+        <div className="mt-4 space-y-2">
+          <p className="text-xs font-medium text-[var(--muted-foreground)]">Google Drive Assets</p>
+          {externalAssets.map((link) => (
+            <ExternalAssetCard
+              key={link.id}
+              asset={link.asset}
+              onPreview={(asset) =>
+                setPreviewAsset({
+                  id: asset.id,
+                  name: asset.name,
+                  web_view_link: asset.web_view_link,
+                })
+              }
+              onRemove={async (asset) => {
+                if (!workspaceId) return;
+                const response = await fetch("/api/integrations/google-drive/assets/entity", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    workspaceId,
+                    entityType: "block",
+                    entityId: blockId,
+                    assetId: asset.id,
+                  }),
+                });
+                if (response.ok) {
+                  setExternalAssets((prev) => prev.filter((entry) => entry.asset.id !== asset.id));
+                  onUpdate?.();
+                }
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      <DrivePreviewModal
+        isOpen={!!previewAsset}
+        onClose={() => setPreviewAsset(null)}
+        workspaceId={workspaceId || ""}
+        asset={previewAsset}
+      />
     </div>
   );
 }

@@ -340,10 +340,10 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
 
   const totalCount = rows.length;
   const scopeLabel =
-    query?.scope === "fixed"
-      ? "Tracking only selected items"
-      : query?.scope === "query"
-        ? "Tracking future items"
+    query?.scope === "workspace"
+      ? "Workspace scope"
+      : query?.scope === "project"
+        ? "Project scope"
         : "Snapshot";
   const breakdownLabel =
     chartData.meta?.labelLabel ?? spec.breakdown?.fieldLabel ?? spec.breakdown?.field ?? "Distribution";

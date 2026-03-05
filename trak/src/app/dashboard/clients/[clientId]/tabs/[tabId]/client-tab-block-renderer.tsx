@@ -1,7 +1,7 @@
 "use client";
 
 import { type ClientTabBlock, type ClientTabBlockType } from "@/app/actions/client-tab-block";
-import { type BlockType } from "@/app/actions/block";
+import { type Block, type BlockType } from "@/app/actions/block";
 import dynamic from "next/dynamic";
 import BlockWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/block-wrapper";
 import LazyBlockWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/lazy-block-wrapper";
@@ -105,12 +105,13 @@ export default function ClientTabBlockRenderer({
   scrollToTaskId 
 }: ClientTabBlockRendererProps) {
   // Convert ClientTabBlock to Block format for compatibility with existing block components
-  const blockForComponents = {
+  const blockForComponents: Block = {
     ...block,
     parent_block_id: null, // Client tabs don't support nested blocks yet
     is_template: false,
     template_name: null,
     original_block_id: null,
+    locked: false,
   };
 
   const renderBlockContent = () => {

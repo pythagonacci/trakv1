@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { type TableField, type SelectFieldOption, type SelectFieldConfig } from "@/types/table";
+
+const DROPDOWN_MAX_HEIGHT = 280;
+const DROPDOWN_MIN_HEIGHT = 120;
+const DROPDOWN_VIEWPORT_GAP = 8;
+const DROPDOWN_Z_INDEX = 9999;
 
 interface Props {
   field: TableField;
@@ -42,11 +48,22 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
   const [selectedValues, setSelectedValues] = useState<string[]>(normalizeValues(value));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [newOptionName, setNewOptionName] = useState("");
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
 
   useEffect(() => {
-    setSelectedValues(normalizeValues(value));
+    if (editingRef.current) return;
+    setSelectedValues((prev) => {
+      const next = normalizeValues(value);
+      if (prev.length === next.length && prev.every((entry, idx) => entry === next[idx])) {
+        return prev;
+      }
+      return next;
+    });
   }, [value, options]);
 
   useEffect(() => {
@@ -57,7 +74,13 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
     if (!dropdownOpen) return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(target)
+      ) {
         setDropdownOpen(false);
         onCommit(selectedValues);
       }
@@ -66,6 +89,53 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen, selectedValues, onCommit]);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const updatePosition = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const width = Math.max(240, rect.width);
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - DROPDOWN_VIEWPORT_GAP);
+      const spaceAbove = Math.max(0, rect.top - DROPDOWN_VIEWPORT_GAP);
+      const openUpward = spaceBelow < DROPDOWN_MIN_HEIGHT && spaceAbove > spaceBelow;
+      const availableHeight = openUpward ? spaceAbove : spaceBelow;
+      const height = Math.max(
+        DROPDOWN_MIN_HEIGHT,
+        Math.min(DROPDOWN_MAX_HEIGHT, availableHeight || DROPDOWN_MIN_HEIGHT)
+      );
+      const unclampedTop = openUpward ? rect.top - height : rect.bottom;
+      const top = Math.min(
+        Math.max(DROPDOWN_VIEWPORT_GAP, unclampedTop),
+        Math.max(DROPDOWN_VIEWPORT_GAP, window.innerHeight - height - DROPDOWN_VIEWPORT_GAP)
+      );
+      const left = Math.min(
+        Math.max(rect.left, DROPDOWN_VIEWPORT_GAP),
+        window.innerWidth - width - DROPDOWN_VIEWPORT_GAP
+      );
+      setDropdownStyle({
+        position: "fixed",
+        top,
+        left,
+        width,
+        maxHeight: height,
+        zIndex: DROPDOWN_Z_INDEX,
+      });
+    };
+
+    updatePosition();
+    const rafId = requestAnimationFrame(updatePosition);
+    const handleScroll = () => requestAnimationFrame(updatePosition);
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [dropdownOpen, options.length]);
 
   const toggleOption = (optionLabel: string) => {
     setSelectedValues((prev) => {
@@ -127,8 +197,8 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
 
   if (editing && dropdownOpen) {
     return (
-      <div className="relative w-full" ref={dropdownRef}>
-        <div className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-[4px] px-2 py-1.5 min-h-[32px]">
+      <>
+        <div ref={anchorRef} className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-[4px] px-2 py-1.5 min-h-[32px]">
           <div className="flex flex-wrap gap-1">
             {selectedOptions.map((opt) => (
               <span
@@ -138,6 +208,7 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
               >
                 {opt.label}
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleOption(opt.label);
@@ -153,81 +224,102 @@ export function MultiSelectCell({ field, value, editing, onStartEdit, onCommit, 
             </span>
           </div>
         </div>
-        <div className="absolute top-full left-0 min-w-[240px] mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-[4px] shadow-lg z-10 max-h-60 overflow-y-auto">
-          {options.map((opt) => {
-            const isSelected = selectedValues.includes(opt.label);
-            return (
-              <div
-                key={opt.id}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs group"
-                onClick={() => toggleOption(opt.label)}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => {}}
-                  className="h-4 w-4 rounded-[4px] border-[var(--border)] bg-[var(--surface)]"
-                />
-                <span
-                  className="flex-1 text-[var(--foreground)]"
-                  style={{ color: opt.color || undefined }}
-                >
-                  {opt.label}
-                </span>
-                {onUpdateConfig && (
-                  <button
-                    onClick={(e) => handleDeleteOption(opt.id, e)}
-                    className="opacity-0 group-hover:opacity-100 hover:text-[var(--error)] transition-opacity"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          {onUpdateConfig && (
-            <>
-              <div className="border-t border-[var(--border)] my-1" />
-              <div className="px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    placeholder="New option..."
-                    value={newOptionName}
-                    onChange={(e) => setNewOptionName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddOption();
-                      }
-                    }}
-                    className="flex-1 bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--foreground)] outline-none rounded-[4px] px-2 py-1"
-                  />
-                  <button
-                    onClick={handleAddOption}
-                    disabled={!newOptionName.trim()}
-                    className="h-7 w-7 inline-flex items-center justify-center rounded-[4px] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
+        {dropdownStyle &&
+          createPortal(
+            <div
+              ref={dropdownRef}
+              style={dropdownStyle}
+              className="bg-[var(--surface)] border border-[var(--border-strong)] rounded-[4px] shadow-lg overflow-y-auto"
+            >
+              {options.length === 0 && (
+                <div className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                  No options yet. Add options in column settings (⚙️) or below.
                 </div>
-              </div>
-            </>
+              )}
+              {options.map((opt) => {
+                const isSelected = selectedValues.includes(opt.label);
+                return (
+                  <div
+                    key={opt.id}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-hover)] cursor-pointer text-xs group"
+                    onClick={() => toggleOption(opt.label)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}}
+                      className="h-4 w-4 rounded-[4px] border-[var(--border)] bg-[var(--surface)]"
+                    />
+                    <span
+                      className="flex-1 text-[var(--foreground)]"
+                      style={{ color: opt.color || undefined }}
+                    >
+                      {opt.label}
+                    </span>
+                    {onUpdateConfig && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteOption(opt.id, e)}
+                        className="opacity-0 group-hover:opacity-100 hover:text-[var(--error)] transition-opacity"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {onUpdateConfig && (
+                <>
+                  <div className="border-t border-[var(--border)] my-1" />
+                  <div className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        placeholder="New option..."
+                        value={newOptionName}
+                        onChange={(e) => setNewOptionName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddOption();
+                          }
+                        }}
+                        className="flex-1 bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--foreground)] outline-none rounded-[4px] px-2 py-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddOption}
+                        disabled={!newOptionName.trim()}
+                        className="h-7 w-7 inline-flex items-center justify-center rounded-[4px] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>,
+            document.body
           )}
-        </div>
-      </div>
+      </>
     );
   }
 
   if (selectedOptions.length === 0) {
     return (
       <button
-        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 flex items-center gap-1"
-        onClick={onStartEdit}
+        type="button"
+        className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 flex items-center gap-1.5 px-1"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onStartEdit();
+        }}
         disabled={saving}
       >
-        {onUpdateConfig && <Plus className="h-3 w-3" />}
+        {onUpdateConfig && <Plus className="h-3 w-3 shrink-0" />}
+        <span>Select options</span>
       </button>
     );
   }

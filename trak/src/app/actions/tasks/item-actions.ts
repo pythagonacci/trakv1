@@ -7,7 +7,13 @@ import { mapTagNamesToOptionIds, type TagFieldOption } from "@/lib/tables/tag-fi
 import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
 import { syncTimelinePriorityFieldsToEntityProperties } from "@/lib/timeline-priority-sync";
 import { deriveTaskSeedFromTableRowSource } from "@/lib/tasks/table-row-task-derivation";
-import type { TimelineNamedAssignee } from "@/types/timeline";
+import type {
+  TimelineEventPriority,
+  TimelineEventStatus,
+  TimelineNamedAssignee,
+  TimelineNamedPriority,
+  TimelineNamedStatus,
+} from "@/types/timeline";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -122,6 +128,34 @@ function buildTimelineAssigneesFromTask(task: TaskItem): TimelineNamedAssignee[]
     field_name: "Assignee",
     value: ids.map((id) => ({ type: "user" as const, id })),
   }];
+}
+
+function buildTimelineStatusesFromTask(statuses: unknown): TimelineNamedStatus[] {
+  return normalizeTaskStatuses(statuses)
+    .map((entry) => {
+      const raw = String((entry as any).value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+      let value: TimelineEventStatus | null = null;
+      if (raw === "todo") value = "todo";
+      else if (raw === "in_progress" || raw === "blocked") value = raw as TimelineEventStatus;
+      else if (raw === "done") value = "done";
+      if (!value) return null;
+      return { field_name: entry.field_name, value };
+    })
+    .filter((entry): entry is TimelineNamedStatus => Boolean(entry));
+}
+
+function buildTimelinePrioritiesFromTask(priorities: unknown): TimelineNamedPriority[] {
+  return normalizeTaskPriorities(priorities)
+    .map((entry) => {
+      const raw = String((entry as any).value ?? "").trim().toLowerCase();
+      let value: TimelineEventPriority | null = null;
+      if (raw === "low" || raw === "medium" || raw === "high" || raw === "urgent") {
+        value = raw as TimelineEventPriority;
+      }
+      if (!value) return null;
+      return { field_name: entry.field_name, value };
+    })
+    .filter((entry): entry is TimelineNamedPriority => Boolean(entry));
 }
 
 async function syncNamedTaskTagFields(params: {
@@ -784,14 +818,8 @@ export async function updateTaskItem(
           sourceId,
           {
             title: normalizedTask.title,
-            statuses: normalizeTaskStatuses((normalizedTask as any).statuses).map((entry) => ({
-              field_name: entry.field_name,
-              value: entry.value,
-            })),
-            priorities: normalizeTaskPriorities((normalizedTask as any).priorities).map((entry) => ({
-              field_name: entry.field_name,
-              value: entry.value,
-            })),
+            statuses: buildTimelineStatusesFromTask((normalizedTask as any).statuses),
+            priorities: buildTimelinePrioritiesFromTask((normalizedTask as any).priorities),
             assignees: buildTimelineAssigneesFromTask(normalizedTask),
             startDate: (normalizedTask as any).start_date ?? undefined,
             endDate: (normalizedTask as any).due_date ?? undefined,

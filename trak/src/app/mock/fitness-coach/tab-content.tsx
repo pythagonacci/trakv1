@@ -33,6 +33,7 @@ const createBaseBlock = (
   is_template: false,
   template_name: null,
   original_block_id: null,
+  locked: false,
   created_at: MOCK_DATE,
   updated_at: MOCK_DATE,
 });

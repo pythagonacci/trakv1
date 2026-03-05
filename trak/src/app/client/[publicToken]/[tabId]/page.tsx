@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProjectByPublicToken } from "@/app/actions/client-page";
 import { getTabBlocksPublic } from "@/app/actions/block";
+import type { Block } from "@/app/actions/block";
 import { getBatchFileUrlsPublic } from "@/app/actions/file";
 import ClientPageHeader from "../client-page-header";
 import ClientPageTabBar from "../client-page-tab-bar";

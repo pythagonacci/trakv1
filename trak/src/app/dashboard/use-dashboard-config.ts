@@ -53,8 +53,7 @@ export function useDashboardConfig(workspaceId: string | undefined) {
   const config = useSyncExternalStore(
     subscribe,
     () => getCachedOrRead(wsId),
-    () => getDefaultDashboardConfig(),
-    () => getCachedOrRead(wsId)
+    () => getDefaultDashboardConfig()
   );
 
   const setConfig = useCallback(

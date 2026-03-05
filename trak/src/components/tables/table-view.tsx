@@ -4,7 +4,8 @@
 // - Uses new Supabase-backed schema (tables/table_fields/table_rows/table_views) and React Query hooks in src/lib/hooks/use-table-queries.ts.
 // - Table, board, and timeline views live here; list/gallery/calendar are stubbed.
 
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Plus, EyeOff } from "lucide-react";
 import {
   useTable,
@@ -48,6 +49,7 @@ import { FormulaConfigModal } from "./formula-config-modal";
 import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, Table, TableField, TableView, TableRow as TableRowType } from "@/types/table";
 import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
 import { getTableSourceOrigins, type TableSourceOrigin } from "@/app/actions/tables/query-actions";
+import { getRowCommentCounts } from "@/app/actions/tables/comment-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { queryKeys } from "@/lib/react-query/query-client";
@@ -186,6 +188,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
   const { data: tableDataFallback } = useTable(tableId);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [commentsRowId, setCommentsRowId] = useState<string | null>(null);
+  const [commentsAnchorRect, setCommentsAnchorRect] = useState<DOMRect | null>(null);
   const [detailColumnId, setDetailColumnId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: "cell" | "column"; rowId?: string; fieldId?: string } | null>(null);
@@ -247,6 +250,17 @@ export function TableView({ tableId, maxHeightPx }: Props) {
     view: (queryPages[0]?.view || bootstrap?.view || null) as TableView | null,
   };
   const view = rowData?.view;
+  const rowIdsForComments = useMemo(() => rowData.rows.map((row) => row.id), [rowData.rows]);
+  const { data: rowCommentCounts = {} } = useQuery({
+    queryKey: ["tableRowCommentCounts", tableId, rowIdsForComments.join(",")],
+    queryFn: async () => {
+      const result = await getRowCommentCounts(rowIdsForComments);
+      if ("error" in result) return {};
+      return result.data;
+    },
+    enabled: rowIdsForComments.length > 0,
+    staleTime: 30 * 1000,
+  });
   const effectiveViewId = activeViewId || view?.id || undefined;
   const viewType = view?.type || "table";
   const metaLoading = bootstrapLoading && !bootstrap;
@@ -599,18 +613,27 @@ export function TableView({ tableId, maxHeightPx }: Props) {
           await updateView.mutateAsync({
             config: {
               ...view.config,
-              galleryConfig: { ...view.config?.galleryConfig, coverFieldId: existingFiles.id },
+              galleryConfig: {
+                ...view.config?.galleryConfig,
+                cardSize: view.config?.galleryConfig?.cardSize ?? "medium",
+                coverFieldId: existingFiles.id,
+              },
             },
           });
         } else {
           const created = await createField.mutateAsync({ name: "Cover", type: "files" });
-          const newId = created?.data?.id;
+          if ("error" in created) throw new Error(created.error || "Failed to create Cover field");
+          const newId = created.data?.id;
           if (!newId) throw new Error("Failed to create Cover field");
           coverFieldId = newId;
           await updateView.mutateAsync({
             config: {
               ...view.config,
-              galleryConfig: { ...view.config?.galleryConfig, coverFieldId: newId },
+              galleryConfig: {
+                ...view.config?.galleryConfig,
+                cardSize: view.config?.galleryConfig?.cardSize ?? "medium",
+                coverFieldId: newId,
+              },
             },
           });
         }
@@ -1735,6 +1758,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                     ...(view.config || {}),
                     galleryConfig: {
                       ...(view.config?.galleryConfig || {}),
+                      cardSize: view.config?.galleryConfig?.cardSize ?? "medium",
                       coverFieldId: fieldId ?? undefined,
                     },
                   };
@@ -1993,7 +2017,11 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                               data={row.data || {}}
                               onChange={handleCellChange}
                               savingRowIds={savingRows}
-                              onOpenComments={(rid) => setCommentsRowId(rid)}
+                              onOpenComments={(rid, el) => {
+                                setCommentsAnchorRect(el?.getBoundingClientRect() ?? null);
+                                setCommentsRowId(rid);
+                              }}
+                              isCommentsOpen={commentsRowId === row.id}
                               pinnedFields={pinnedFields}
                               onContextMenu={handleCellContextMenu}
                               widths={widthMap}
@@ -2020,6 +2048,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                               onUpdateFieldConfig={handleUpdateFieldConfig}
                               subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
                               onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
+                              commentCount={rowCommentCounts[row.id] || 0}
                             />
                           ))}
                       </React.Fragment>
@@ -2051,7 +2080,11 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                               data={row.data || {}}
                               onChange={handleCellChange}
                               savingRowIds={savingRows}
-                              onOpenComments={(rid) => setCommentsRowId(rid)}
+                              onOpenComments={(rid, el) => {
+                                setCommentsAnchorRect(el?.getBoundingClientRect() ?? null);
+                                setCommentsRowId(rid);
+                              }}
+                              isCommentsOpen={commentsRowId === row.id}
                               pinnedFields={pinnedFields}
                               onContextMenu={handleCellContextMenu}
                               widths={widthMap}
@@ -2078,6 +2111,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                               onUpdateFieldConfig={handleUpdateFieldConfig}
                               subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
                               onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
+                              commentCount={rowCommentCounts[row.id] || 0}
                             />
                           </div>
                         );
@@ -2094,7 +2128,11 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                         data={row.data || {}}
                         onChange={handleCellChange}
                         savingRowIds={savingRows}
-                        onOpenComments={(rid) => setCommentsRowId(rid)}
+                        onOpenComments={(rid, el) => {
+                          setCommentsAnchorRect(el?.getBoundingClientRect() ?? null);
+                          setCommentsRowId(rid);
+                        }}
+                        isCommentsOpen={commentsRowId === row.id}
                         pinnedFields={pinnedFields}
                         onContextMenu={handleCellContextMenu}
                         widths={widthMap}
@@ -2121,6 +2159,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                         onUpdateFieldConfig={handleUpdateFieldConfig}
                         subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
                         onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
+                        commentCount={rowCommentCounts[row.id] || 0}
                       />
                     ))
                   )}
@@ -2252,13 +2291,35 @@ export function TableView({ tableId, maxHeightPx }: Props) {
           </div>
         )
       }
-      {
-        commentsRowId && (
-          <div className="fixed inset-y-0 right-0 z-40">
-            <RowComments rowId={commentsRowId} onClose={() => setCommentsRowId(null)} />
-          </div>
-        )
-      }
+      {commentsRowId &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[139] bg-black/20"
+              aria-hidden
+              onClick={() => {
+                setCommentsRowId(null);
+                setCommentsAnchorRect(null);
+              }}
+            />
+            <div
+              className="fixed z-[140] w-[320px] max-w-[calc(100vw-1rem)] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col min-h-[200px] max-h-[min(72vh,560px)]"
+              style={getRowCommentsPanelPosition(commentsAnchorRect)}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <RowComments
+                rowId={commentsRowId}
+                onClose={() => {
+                  setCommentsRowId(null);
+                  setCommentsAnchorRect(null);
+                }}
+              />
+            </div>
+          </>,
+          document.body
+        )}
       {
         detailColumnId && (
           <ColumnDetailPanel
@@ -2300,6 +2361,16 @@ export function TableView({ tableId, maxHeightPx }: Props) {
             onAddRowBelow={contextMenu.type === "cell" ? handleAddRowBelow : undefined}
             onAddColumnLeft={contextMenu.type === "column" ? handleAddColumnLeft : undefined}
             onAddColumnRight={contextMenu.type === "column" ? handleAddColumnRight : undefined}
+            onAddComment={
+              contextMenu.type === "cell" && contextMenu.rowId
+                ? () => {
+                  const rowId = contextMenu.rowId;
+                  if (!rowId) return;
+                  setCommentsAnchorRect(new DOMRect(contextMenu.x, contextMenu.y, 0, 0));
+                  setCommentsRowId(rowId);
+                }
+                : undefined
+            }
             onOpenProperties={
               contextMenu.type === "cell" && contextMenu.rowId && tableData?.table.workspace_id
                 ? () => {
@@ -2354,4 +2425,28 @@ export function TableView({ tableId, maxHeightPx }: Props) {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div >
   );
+}
+
+function getRowCommentsPanelPosition(anchorRect: DOMRect | null): CSSProperties {
+  const edgeMargin = 8;
+  const gap = 12;
+  const panelWidth = 320;
+  const panelHeight = 420;
+  const minTop = 72;
+  if (typeof window === "undefined") return { top: minTop, left: edgeMargin };
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  let left = edgeMargin;
+  if (anchorRect) {
+    const hasRoomOnRight = anchorRect.right + gap + panelWidth + edgeMargin <= viewportWidth;
+    left = hasRoomOnRight ? anchorRect.right + gap : anchorRect.left - panelWidth - gap;
+  } else {
+    left = viewportWidth - panelWidth - edgeMargin;
+  }
+  const maxLeft = Math.max(edgeMargin, viewportWidth - panelWidth - edgeMargin);
+  left = Math.min(Math.max(edgeMargin, left), maxLeft);
+  const rawTop = anchorRect ? anchorRect.top - 12 : minTop;
+  const maxTop = Math.max(minTop, viewportHeight - panelHeight - edgeMargin);
+  const top = Math.min(Math.max(minTop, rawTop), maxTop);
+  return { top: `${top}px`, left: `${left}px` };
 }

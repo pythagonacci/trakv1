@@ -128,7 +128,7 @@ export function PropertyBadges({
             <AssigneeBadge
               key={f.id ?? `assignee-${i}`}
               label={f.field_name}
-              memberNames={f.value.length > 0 ? undefined : undefined /* resolved externally if needed */}
+              memberNames={memberNames && memberNames.length ? memberNames : undefined}
               inherited={inherited}
               onClick={
                 onFieldClick

@@ -11,6 +11,7 @@ import { BlockReferencePickerProvider } from "@/components/blocks/block-referenc
 import TextBlock from "./text-block";
 import LinkBlock from "./link-block";
 import DividerBlock from "./divider-block";
+import SectionHeaderBlock from "./section-header-block";
 
 // Loading placeholder for dynamically imported blocks
 function BlockLoadingState() {
@@ -192,6 +193,14 @@ export default function BlockRenderer({
         return <LinkBlock block={block} onUpdate={onUpdate} />;
       case "divider":
         return <DividerBlock block={block} />;
+      case "section_header":
+        return (
+          <SectionHeaderBlock
+            block={block}
+            onUpdate={onUpdate}
+            readOnly={readOnly}
+          />
+        );
       case "table":
         return <TableBlock block={block} onUpdate={onUpdate} />;
       case "timeline":

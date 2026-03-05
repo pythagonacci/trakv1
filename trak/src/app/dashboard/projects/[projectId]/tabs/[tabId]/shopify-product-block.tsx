@@ -45,7 +45,10 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
       variants_count: number;
     }>
   >([]);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    const initial = (block.content || {}) as Block["content"];
+    return initial.shopifyExpanded === true;
+  });
   const isLocked = Boolean(block.locked);
   const initialHeightPx =
     typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
@@ -87,7 +90,7 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
     startTransition(async () => {
       const result = await refreshProduct(productId);
       if ("error" in result) {
-        setError(result.error);
+        setError(result.error ?? "Failed to refresh product");
       } else {
         await loadProduct();
         onUpdate?.();
@@ -141,7 +144,7 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
         content: nextContent,
       });
       if ("error" in result) {
-        setError(result.error);
+        setError(result.error ?? "Failed to attach product");
         return;
       }
       onUpdate?.(result.data);
@@ -201,6 +204,42 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  useEffect(() => {
+    const nextContent = (block.content || {}) as Block["content"];
+    if (typeof nextContent.shopifyExpanded === "boolean") {
+      setExpanded(nextContent.shopifyExpanded);
+    }
+  }, [block.content]);
+
+  const handleToggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+
+      if (!block.id.startsWith("temp-")) {
+        void (async () => {
+          const result = await updateBlock({
+            blockId: block.id,
+            content: {
+              ...content,
+              shopifyExpanded: next,
+            },
+          });
+
+          if ("data" in result && result.data) {
+            onUpdate?.(result.data);
+          } else if ("error" in result && result.error) {
+            console.error("Failed to update Shopify product block expanded state:", result.error);
+            onUpdate?.();
+          } else {
+            onUpdate?.();
+          }
+        })();
+      }
+
+      return next;
+    });
   };
 
   if (!productId) {
@@ -498,7 +537,7 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
                       variant="outline"
                       size="sm"
                       className="mt-1"
-                      onClick={() => setExpanded((v) => !v)}
+                      onClick={handleToggleExpanded}
                     >
                       {expanded ? "Collapse details" : "Expand details"}
                     </Button>

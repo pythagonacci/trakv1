@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useEffect } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { Settings, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Trash2, Pin, Eye, EyeOff } from "lucide-react";
 import type { SortCondition, TableField, CalculationType, TableRow as TableRowType } from "@/types/table";
 import {
@@ -266,6 +265,7 @@ export function TableHeaderRow({
                 onViewColumnDetails={onViewColumnDetails}
                 onConfigureField={onConfigureField}
                 onHideField={onHideField}
+                onUpdateFieldConfig={onUpdateFieldConfig}
             onResize={onResize}
             currentWidth={widths?.[field.id]}
             calculations={calculations}
@@ -365,6 +365,8 @@ function FieldHeader({
 }: FieldHeaderProps) {
   const [draftName, setDraftName] = useState(field.name);
   const [draftOptions, setDraftOptions] = useState<any[]>([]);
+  const draftOptionsRef = useRef<any[]>(draftOptions);
+  draftOptionsRef.current = draftOptions;
 
   useEffect(() => {
     setDraftName(field.name);
@@ -593,7 +595,13 @@ function FieldHeader({
                         const next = [...draftOptions];
                         next[idx] = { ...opt, label: e.target.value };
                         setDraftOptions(next);
-                        commitOptions(field, next, onUpdateFieldConfig);
+                      }}
+                      onBlur={() => {
+                        commitOptions(field, draftOptionsRef.current, onUpdateFieldConfig);
+                      }}
+                      onKeyDown={(e) => {
+                        // Keep Radix dropdown typeahead from stealing focus/scroll while editing labels.
+                        e.stopPropagation();
                       }}
                       placeholder="Label"
                     />

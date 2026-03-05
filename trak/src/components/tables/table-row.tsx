@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, memo } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 import { type TableField } from "@/types/table";
+import { cn } from "@/lib/utils";
 import { TableCell } from "./table-cell";
 
 interface Props {
@@ -13,7 +14,8 @@ interface Props {
   data: Record<string, unknown>;
   onChange: (rowId: string, fieldId: string, value: unknown) => void;
   savingRowIds?: Set<string>;
-  onOpenComments?: (rowId: string) => void;
+  onOpenComments?: (rowId: string, anchorEl?: HTMLElement | null) => void;
+  isCommentsOpen?: boolean;
   pinnedFields?: string[];
   onContextMenu?: (e: React.MouseEvent, rowId: string) => void;
   widths?: Record<string, number>;
@@ -43,6 +45,7 @@ interface Props {
     isCollapsed?: boolean;
   };
   onToggleSubtasks?: (rowId: string) => void;
+  commentCount?: number;
 }
 
 export const TableRow = memo(function TableRow({
@@ -54,6 +57,7 @@ export const TableRow = memo(function TableRow({
   onChange,
   savingRowIds,
   onOpenComments,
+  isCommentsOpen,
   pinnedFields,
   onContextMenu,
   widths,
@@ -74,6 +78,7 @@ export const TableRow = memo(function TableRow({
   onEditRequestHandled,
   subtaskMeta,
   onToggleSubtasks,
+  commentCount,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const isSubtask = Boolean(subtaskMeta?.isSubtask);
@@ -188,7 +193,30 @@ export const TableRow = memo(function TableRow({
           </div>
         );
       })}
-      <div className="px-2 py-2 border-l border-[var(--border)] sticky right-0 z-10 bg-[var(--surface)]" />
+      <div className="px-2 py-2 border-l border-[var(--border)] sticky right-0 z-10 bg-[var(--surface)] flex items-center justify-center">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenComments?.(rowId, e.currentTarget);
+          }}
+          className={cn(
+            "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+            (commentCount || 0) > 0 || isCommentsOpen
+              ? "border-blue-200 bg-blue-50 text-blue-700"
+              : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          )}
+          title={(commentCount || 0) > 0 ? `${commentCount} comment${(commentCount || 0) === 1 ? "" : "s"}` : "Add comment"}
+          aria-label={(commentCount || 0) > 0 ? `${commentCount} comment${(commentCount || 0) === 1 ? "" : "s"}` : "Add comment"}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          {(commentCount || 0) > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-[10px] font-medium flex items-center justify-center px-1">
+              {commentCount}
+            </span>
+          )}
+        </button>
+      </div>
     </div>
   );
 });

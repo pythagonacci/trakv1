@@ -36,6 +36,7 @@ import type {
   TimelineEventStatus,
   TimelineEventPriority,
   TimelineNamedPriority,
+  TimelineNamedStatus,
   TimelineItem,
   ReferenceType,
 } from "@/types/timeline";
@@ -151,6 +152,13 @@ const PRIORITY_BUTTON_COLORS: Record<TimelineEventPriority, string> = {
   urgent: "border border-red-200 bg-red-500/12 text-red-700 hover:bg-red-500/18",
 };
 
+const STATUS_PILL_COLORS: Record<TimelineEventStatus, string> = {
+  todo: "bg-white/12 text-white/90 border-white/20",
+  in_progress: "bg-sky-300/16 text-sky-50 border-sky-200/30",
+  blocked: "bg-red-300/16 text-red-50 border-red-200/30",
+  done: "bg-emerald-300/16 text-emerald-50 border-emerald-200/30",
+};
+
 function normalizeTimelinePrioritiesClient(input: unknown): TimelineNamedPriority[] {
   if (!Array.isArray(input)) return [];
 
@@ -174,6 +182,26 @@ function normalizeTimelinePrioritiesClient(input: unknown): TimelineNamedPriorit
 
 function getTimelinePriorityDisplayLabel(priorityField: TimelineNamedPriority): string {
   return `${PRIORITY_LABELS[priorityField.value]} · ${priorityField.field_name}`;
+}
+
+function getPrimaryTimelineStatus(statuses: Array<{ field_name: string; value: string }> | undefined): TimelineNamedStatus | null {
+  if (!Array.isArray(statuses) || statuses.length === 0) return null;
+  for (const statusField of statuses) {
+    const rawValue = String(statusField?.value ?? "").trim().toLowerCase();
+    if (!["todo", "in_progress", "blocked", "done"].includes(rawValue)) continue;
+    const fieldName = String(statusField?.field_name ?? "").trim() || "Status";
+    return { field_name: fieldName, value: rawValue as TimelineEventStatus };
+  }
+  return null;
+}
+
+function getTimelineStatusDisplayLabel(statusField: TimelineNamedStatus): string {
+  const statusOption = STATUS_OPTIONS.find((option) => option.value === statusField.value);
+  const valueLabel = statusOption?.label ?? statusField.value;
+  const fieldLabel = statusField.field_name.trim();
+  return fieldLabel && fieldLabel.toLowerCase() !== "status"
+    ? `${valueLabel} · ${fieldLabel}`
+    : valueLabel;
 }
 
 function findWorkspaceMember(members: WorkspaceMember[], memberId?: string | null) {
@@ -405,6 +433,7 @@ function DraggableEvent({
 }) {
   if (readOnly) {
     const progress = event.progress ?? 0;
+    const statusField = getPrimaryTimelineStatus(event.statuses);
     const hasBaseline = event.baselineStart && event.baselineEnd;
     const barWidth =
       typeof barStyle.width === "string"
@@ -475,11 +504,20 @@ function DraggableEvent({
                   <Link2 className="h-3 w-3 opacity-90" aria-hidden />
                 </span>
               )}
-              {(event.statuses?.[0]?.value) && (
-                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />
+              {statusField && (
+                <span
+                  className={cn(
+                    "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                    STATUS_PILL_COLORS[statusField.value]
+                  )}
+                  title={getTimelineStatusDisplayLabel(statusField)}
+                  aria-label={`status-${statusField.value}`}
+                >
+                  <span className="truncate">{getTimelineStatusDisplayLabel(statusField)}</span>
+                </span>
               )}
               {progress > 0 && (
-                <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
+                <span className={cn("relative z-10 text-[10px]", statusField ? "ml-1" : "ml-auto")}>{progress}%</span>
               )}
             </div>
           </>
@@ -515,6 +553,7 @@ function DraggableEvent({
     };
 
   const progress = event.progress ?? 0;
+  const statusField = getPrimaryTimelineStatus(event.statuses);
   const hasBaseline = event.baselineStart && event.baselineEnd;
   const barWidth =
     typeof barStyle.width === "string"
@@ -596,9 +635,20 @@ function DraggableEvent({
                 <Link2 className="h-3 w-3 opacity-90" aria-hidden />
               </span>
             )}
-            {(event.statuses?.[0]?.value) && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-white/70 relative z-10" aria-label={`status-${event.statuses?.[0]?.value ?? "todo"}`} />}
+            {statusField && (
+              <span
+                className={cn(
+                  "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                  STATUS_PILL_COLORS[statusField.value]
+                )}
+                title={getTimelineStatusDisplayLabel(statusField)}
+                aria-label={`status-${statusField.value}`}
+              >
+                <span className="truncate">{getTimelineStatusDisplayLabel(statusField)}</span>
+              </span>
+            )}
             {progress > 0 && (
-              <span className="ml-auto text-[10px] relative z-10">{progress}%</span>
+              <span className={cn("relative z-10 text-[10px]", statusField ? "ml-1" : "ml-auto")}>{progress}%</span>
             )}
             {!readOnly && onAddSubEvent && (
               <button

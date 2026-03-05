@@ -13,6 +13,7 @@ const BLOCK_TYPE_LABELS: Partial<Record<Block["type"], string>> = {
   task: "Task list",
   link: "Link",
   divider: "Divider",
+  section_header: "Section Header",
   table: "Table",
   timeline: "Timeline",
   file: "File",
@@ -54,6 +55,8 @@ function getBlockTitle(block: Block): string {
       return (content.title as string) ?? (content.url as string) ?? "Link";
     case "section":
       return (content.title as string) ?? "Section";
+    case "section_header":
+      return (content.title as string) ?? "Section Header";
     case "chart":
       return (content.title as string) ?? "Chart";
     case "gallery":

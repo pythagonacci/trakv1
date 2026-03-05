@@ -141,7 +141,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
       // Set default theme if no saved preference
       setDocTheme(availableThemes[0].id);
     }
-  }, [globalTheme, availableThemes]);
+  }, [availableThemes]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

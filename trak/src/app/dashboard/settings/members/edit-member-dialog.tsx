@@ -1,11 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { X, Loader2, AlertCircle, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Loader2, AlertCircle, Trash2, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { updateMemberRole, removeMember } from "@/app/actions/workspace";
+import { updateMemberRole, removeMember, updateMemberDisplayName } from "@/app/actions/workspace";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface Member {
+  membershipId?: string;
   id: string;
   email: string;
   name: string | null;
@@ -26,18 +38,29 @@ export default function EditMemberDialog({
   onClose,
 }: EditMemberDialogProps) {
   const router = useRouter();
+  const [name, setName] = useState(member.name ?? "");
   const [role, setRole] = useState(member.role);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
 
-  const hasRoleChanged = role !== member.role;
+  useEffect(() => {
+    if (isOpen) {
+      setName(member.name ?? "");
+      setRole(member.role);
+    }
+  }, [isOpen, member.id, member.name, member.role]);
 
-  const handleUpdateRole = async (e: React.FormEvent) => {
+  const membershipId = member.membershipId ?? member.id;
+  const hasNameChanged = name.trim() !== (member.name ?? "").trim();
+  const hasRoleChanged = role !== member.role;
+  const hasChanges = hasNameChanged || hasRoleChanged;
+
+  const handleUpdateMember = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!hasRoleChanged) {
+    if (!hasChanges) {
       onClose();
       return;
     }
@@ -45,19 +68,26 @@ export default function EditMemberDialog({
     setIsSubmitting(true);
 
     try {
-      const result = await updateMemberRole(workspaceId, member.id, role);
-
-      if ("error" in result) {
-        setError(result.error || "Failed to update member role");
-        setIsSubmitting(false);
-        return;
+      if (hasNameChanged) {
+        const nameResult = await updateMemberDisplayName(workspaceId, member.id, name.trim());
+        if ("error" in nameResult) {
+          setError(nameResult.error || "Failed to update display name");
+          setIsSubmitting(false);
+          return;
+        }
       }
-
-      // Success - refresh page and close dialog
+      if (hasRoleChanged) {
+        const roleResult = await updateMemberRole(workspaceId, membershipId, role);
+        if ("error" in roleResult) {
+          setError(roleResult.error || "Failed to update member role");
+          setIsSubmitting(false);
+          return;
+        }
+      }
       router.refresh();
       onClose();
     } catch (err) {
-      setError("Failed to update member role. Please try again.");
+      setError("Failed to update member. Please try again.");
       setIsSubmitting(false);
     }
   };
@@ -67,7 +97,7 @@ export default function EditMemberDialog({
     setIsSubmitting(true);
 
     try {
-      const result = await removeMember(workspaceId, member.id);
+      const result = await removeMember(workspaceId, membershipId);
 
       if ("error" in result) {
         setError(result.error || "Failed to remove member");
@@ -86,140 +116,140 @@ export default function EditMemberDialog({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="w-full max-w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover p-0 gap-0"
+        onPointerDownOutside={(e) => !showRemoveConfirm && onClose()}
+      >
+        {/* Compact header – property menu style */}
+        <DialogHeader className="flex flex-row items-center justify-between border-b border-[var(--border)] px-2 py-1.5 shrink-0 space-y-0">
+          <div className="space-y-0.5 pr-8">
+            <DialogTitle className="text-[11px] font-semibold text-[var(--foreground)] tracking-tight">
+              {showRemoveConfirm ? "Remove Member" : "Edit Member"}
+            </DialogTitle>
+            {!showRemoveConfirm && (
+              <DialogDescription className="text-[10px] text-[var(--muted-foreground)] line-clamp-1">
+                {member.email}
+              </DialogDescription>
+            )}
+          </div>
+        </DialogHeader>
 
-      {/* Dialog */}
-      <div className="relative z-10 w-full max-w-md rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.1)]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-          <h2 className="text-lg font-semibold">
-            {showRemoveConfirm ? "Remove Member" : "Edit Member"}
-          </h2>
-          <button
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="rounded-md p-1 hover:bg-[var(--surface-hover)] transition-colors disabled:opacity-50"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6">
-          {/* Error Alert */}
+        <div className="overflow-y-auto flex-1 min-h-0 px-2 py-1.5">
           {error && (
-            <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 mb-4">
-              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <p>{error}</p>
+            <div className="flex items-start gap-2 rounded px-1.5 py-1.5 border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 mb-2">
+              <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />
+              <p className="text-[11px] text-red-800 dark:text-red-200">{error}</p>
             </div>
           )}
 
           {showRemoveConfirm ? (
-            /* Remove Confirmation */
-            <div className="space-y-4">
-              <div className="rounded-md bg-red-50 border border-red-200 p-4">
-                <p className="text-sm text-red-800">
-                  Are you sure you want to remove{" "}
-                  <strong>{member.name || member.email}</strong> from this
-                  workspace? They will lose access to all projects and data.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
+            <div className="space-y-3 pt-1">
+              <p className="text-[11px] text-[var(--foreground)]">
+                Remove <strong>{member.name || member.email}</strong> from this workspace? They will lose access to all projects and data.
+              </p>
+              <div className="flex justify-end gap-1.5">
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setShowRemoveConfirm(false)}
                   disabled={isSubmitting}
-                  className="px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] rounded-md transition-colors disabled:opacity-50"
+                  className="h-6 gap-1 px-1.5 text-[11px]"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
                   onClick={handleRemoveMember}
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors disabled:opacity-50"
+                  className="h-6 gap-1 px-1.5 text-[11px]"
                 >
-                  {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {isSubmitting ? "Removing..." : "Remove Member"}
-                </button>
+                  {isSubmitting && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                  {isSubmitting ? "Removing…" : "Remove"}
+                </Button>
               </div>
             </div>
           ) : (
-            /* Edit Form */
-            <form onSubmit={handleUpdateRole} className="space-y-4">
-              {/* Member Info */}
-              <div className="rounded-md bg-[var(--background)] p-4">
-                <p className="text-sm font-medium">
-                  {member.name || member.email.split("@")[0]}
-                </p>
-                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                  {member.email}
-                </p>
+            <form id="edit-member-form" onSubmit={handleUpdateMember} className="space-y-0">
+              {/* Display name – property menu input style */}
+              <div className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
+                <Label htmlFor="edit-member-display-name" className="text-[11px] font-medium text-[var(--muted-foreground)]">
+                  Display name
+                </Label>
+                <Input
+                  id="edit-member-display-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={member.email.split("@")[0]}
+                  disabled={isSubmitting}
+                  className="mt-0.5 h-6 border-0 shadow-none bg-transparent text-[11px] font-medium text-[var(--foreground)] rounded px-0.5 py-0 focus-visible:ring-1 focus-visible:ring-[var(--border)]"
+                />
               </div>
 
-              {/* Role Select */}
-              <div className="space-y-2">
-                <label htmlFor="role" className="block text-sm font-medium">
+              {/* Role – compact select */}
+              <div className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
+                <Label htmlFor="edit-member-role" className="text-[11px] font-medium text-[var(--muted-foreground)]">
                   Role
-                </label>
+                </Label>
                 <select
-                  id="role"
+                  id="edit-member-role"
                   value={role}
-                  onChange={(e) =>
-                    setRole(e.target.value as "owner" | "admin" | "teammate")
-                  }
-                  className="w-full px-3 py-2.5 rounded-md border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)]"
+                  onChange={(e) => setRole(e.target.value as "owner" | "admin" | "teammate")}
                   disabled={isSubmitting}
+                  className="mt-0.5 w-full h-6 border-0 bg-transparent text-[11px] font-semibold text-[var(--foreground)] rounded px-0.5 py-0 focus:ring-1 focus:ring-[var(--border)] outline-none cursor-pointer"
                 >
-                  <option value="owner">Owner - Full workspace control</option>
-                  <option value="admin">Admin - Can manage members and settings</option>
-                  <option value="teammate">Teammate - Can view and edit projects</option>
+                  <option value="owner">Owner</option>
+                  <option value="admin">Admin</option>
+                  <option value="teammate">Teammate</option>
                 </select>
               </div>
 
-              {/* Footer Buttons */}
-              <div className="flex items-center justify-between pt-2">
+              {/* Remove link */}
+              <div className="pt-2">
                 <button
                   type="button"
                   onClick={() => setShowRemoveConfirm(true)}
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 text-sm text-red-600 hover:text-red-700 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded p-0.5 text-[11px] text-red-600 dark:text-red-400 hover:bg-[var(--surface-hover)] transition-colors disabled:opacity-50"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-2.5 w-2.5" />
                   Remove from workspace
                 </button>
-
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    disabled={isSubmitting}
-                    className="px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] rounded-md transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !hasRoleChanged}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-md transition-colors disabled:opacity-50"
-                  >
-                    {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isSubmitting ? "Updating..." : "Update Role"}
-                  </button>
-                </div>
               </div>
             </form>
           )}
         </div>
-      </div>
-    </div>
+
+        {!showRemoveConfirm && (
+          <DialogFooter className="shrink-0 px-2 pb-2 pt-1.5 border-t border-[var(--border)] mt-0 flex-row justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="h-6 gap-1 px-1.5 text-[11px]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="edit-member-form"
+              size="sm"
+              disabled={isSubmitting || !hasChanges}
+              className="h-6 gap-1 px-1.5 text-[11px]"
+            >
+              <Save className="h-2.5 w-2.5" />
+              {isSubmitting ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

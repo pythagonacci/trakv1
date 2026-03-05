@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
+import { randomBytes } from 'node:crypto'
 import { getServerUser, setTestUserContext as setServerUserTestContext, clearTestUserContext as clearServerUserTestContext } from '@/lib/auth/get-server-user'
 import { logger } from '@/lib/logger'
 import { setTestUserContext, clearTestUserContext } from '@/lib/auth-utils'
@@ -258,7 +259,7 @@ export async function inviteMember(workspaceId: string, email: string, role: 'ad
       .single()
     if (!workspace) return { error: 'Workspace not found.' }
 
-    const token = crypto.randomBytes(32).toString('hex')
+    const token = randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
     const { data: existingInvite } = await supabase
@@ -396,6 +397,59 @@ export async function updateMemberRole(workspaceId: string, memberId: string, ne
     
     return { data: updatedMember }
 }
+
+/**
+ * Update a workspace member's display name (profiles.name).
+ * Only workspace owners and admins can update names; target must be a member of the workspace.
+ */
+export async function updateMemberDisplayName(
+  workspaceId: string,
+  userId: string,
+  displayName: string
+) {
+  const authResult = await getServerUser()
+  if (!authResult) return { error: 'Unauthorized' }
+  const { supabase, user } = authResult
+
+  const { data: requesterMembership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!requesterMembership || (requesterMembership.role !== 'owner' && requesterMembership.role !== 'admin')) {
+    return { error: 'Insufficient permissions. Only owners and admins can edit member names.' }
+  }
+
+  const { data: targetMembership } = await supabase
+    .from('workspace_members')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .single()
+
+  if (!targetMembership) {
+    return { error: 'User is not a member of this workspace.' }
+  }
+
+  const trimmed = displayName.trim()
+  if (!trimmed) {
+    return { error: 'Display name cannot be empty.' }
+  }
+
+  const { createServiceClient } = await import('@/lib/supabase/service')
+  const serviceSupabase = await createServiceClient()
+  const { error: updateError } = await serviceSupabase
+    .from('profiles')
+    .update({ name: trimmed })
+    .eq('id', userId)
+
+  if (updateError) return { error: updateError.message }
+  safeRevalidatePath('/dashboard')
+  return { data: { name: trimmed } }
+}
+
 //remove member server action. the requester must be owner or admin, and the last owner cannot be removed.
 
 export async function removeMember(workspaceId: string, memberId: string) {
@@ -481,10 +535,10 @@ export async function getWorkspaceMembers(workspaceId: string) {
     return { error: 'Not a member of this workspace' }
   }
   
-  // 3. Get all workspace members
+  // 3. Get all workspace members (id = workspace_members row id for role/remove)
   const { data: members, error } = await supabase
     .from('workspace_members')
-    .select('user_id, role, created_at')
+    .select('id, user_id, role, created_at')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: true })
   
@@ -507,6 +561,7 @@ export async function getWorkspaceMembers(workspaceId: string) {
     logger.error('Error fetching profiles:', profilesError)
     // Fallback: return members without profile info
     const transformedMembers = members.map(member => ({
+      membershipId: member.id,
       id: member.user_id,
       email: '',
       name: 'Unknown',
@@ -520,6 +575,7 @@ export async function getWorkspaceMembers(workspaceId: string) {
   const transformedMembers = members.map(member => {
     const profile = profileMap.get(member.user_id)
     return {
+      membershipId: member.id,
       id: member.user_id,
       email: profile?.email || '',
       name: profile?.name || profile?.email || 'Unknown',

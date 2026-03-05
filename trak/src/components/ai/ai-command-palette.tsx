@@ -1481,7 +1481,7 @@ export function AICommandPalette() {
                   <button
                     type="button"
                     onClick={handleApprovePendingWrite}
-                    className="rounded-md border border-[var(--secondary)] bg-[var(--secondary)] px-3 py-1 text-xs text-white hover:bg-[var(--secondary)]/90"
+                    className="rounded-md border border-[var(--primary)] bg-[var(--primary)] px-3 py-1 text-xs text-white hover:bg-[var(--primary-hover)]"
                   >
                     Yes, continue
                   </button>

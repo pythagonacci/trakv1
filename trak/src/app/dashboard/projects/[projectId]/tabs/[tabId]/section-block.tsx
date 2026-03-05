@@ -340,6 +340,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
       is_template: false,
       template_name: null,
       original_block_id: null,
+      locked: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

@@ -1580,6 +1580,8 @@ export async function executeTool(
               sourceEntityId: hasSourceMetadata ? sourceEntityId! : undefined,
               sourceSyncMode: hasSourceMetadata ? normalizeSourceSyncMode(args.source_sync_mode) : undefined,
             };
+            const rpcSourceEntityType =
+              payload.sourceEntityType === "subtask" ? undefined : payload.sourceEntityType;
 
             // ------------------------------------------------------------------
             // EXECUTION: Create -> Assign -> Tag
@@ -1592,6 +1594,7 @@ export async function executeTool(
             try {
               rpcResult = await createTaskFullRpc({
                 ...payload,
+                sourceEntityType: rpcSourceEntityType,
                 assignees: isTableRowSourceCreate ? [] : resolvedAssignees,
                 tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
                 authContext: authContext ?? undefined,
@@ -1628,7 +1631,13 @@ export async function executeTool(
               });
             }
 
-            const directResult = await createTaskItem(payload, { timing, authContext: authContext ?? undefined });
+            const directResult = await createTaskItem(
+              {
+                ...payload,
+                sourceEntityType: rpcSourceEntityType,
+              },
+              { timing, authContext: authContext ?? undefined }
+            );
             if (!("error" in directResult)) {
               const newTaskId = directResult.data.id;
 
@@ -1696,6 +1705,7 @@ export async function executeTool(
                   const retryResult = await createTaskItem({
                     ...payload,
                     taskBlockId: blockResult.data.id,
+                    sourceEntityType: rpcSourceEntityType,
                   });
 
                   if (!("error" in retryResult)) {
@@ -1710,6 +1720,7 @@ export async function executeTool(
                 const retryResult = await createTaskItem({
                   ...payload,
                   taskBlockId: existingBlockId,
+                  sourceEntityType: rpcSourceEntityType,
                 }, { authContext: authContext ?? undefined });
 
                 if (!("error" in retryResult)) {
@@ -1755,6 +1766,7 @@ export async function executeTool(
                   const retryResult = await createTaskItem({
                     ...payload,
                     taskBlockId: taskBlockIdToUse,
+                    sourceEntityType: rpcSourceEntityType,
                   }, { authContext: authContext ?? undefined });
                   if (!("error" in retryResult)) {
                     const out: ToolCallResult = { success: true, data: retryResult.data };
@@ -2180,7 +2192,7 @@ export async function executeTool(
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
-                    sourceEntityType: taskSourceEntityType ?? undefined,
+                    sourceEntityType: taskSourceEntityType === "subtask" ? undefined : taskSourceEntityType ?? undefined,
                     sourceEntityId: taskSourceEntityId ?? undefined,
                     sourceSyncMode:
                       taskSourceEntityType &&
@@ -2226,8 +2238,11 @@ export async function executeTool(
                     dueDate: task.dueDate as string | undefined,
                     dueTime: task.dueTime as string | undefined,
                     startDate: task.startDate as string | undefined,
-                    sourceEntityType:
-                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined,
+                    sourceEntityType: (
+                      normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) === "subtask"
+                        ? undefined
+                        : normalizeSourceEntityType((task as Record<string, unknown>)?.source_entity_type) ?? undefined
+                    ) as "task" | "timeline_event" | "table_row" | "block" | undefined,
                     sourceEntityId:
                       normalizeSourceEntityId((task as Record<string, unknown>)?.source_entity_id) ?? undefined,
                     sourceSyncMode:
@@ -6366,7 +6381,7 @@ function resolveSelectValues(
     const values = Array.isArray(rawValue) ? rawValue : [rawValue];
     const normalized = values
       .map((value) => normalizeUniversalPropertyValue(field.type, value))
-      .filter((value): value is string => Boolean(value));
+      .filter((value) => Boolean(value)) as string[];
     if (normalized.length === 0) return { values: [], missing: true };
     return { values: normalized, missing: false };
   }

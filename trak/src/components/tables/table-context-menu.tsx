@@ -11,6 +11,7 @@ interface ContextMenuProps {
   onAddRowBelow?: () => void;
   onAddColumnLeft?: () => void;
   onAddColumnRight?: () => void;
+  onAddComment?: () => void;
   onOpenProperties?: () => void;
   type: "cell" | "column";
 }
@@ -23,6 +24,7 @@ export function TableContextMenu({
   onAddRowBelow,
   onAddColumnLeft,
   onAddColumnRight,
+  onAddComment,
   onOpenProperties,
   type,
 }: ContextMenuProps) {
@@ -107,6 +109,17 @@ export function TableContextMenu({
               Properties
             </button>
           )}
+          {onAddComment && (
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] flex items-center gap-2 transition-colors duration-150"
+              onClick={() => {
+                onAddComment();
+                onClose();
+              }}
+            >
+              Add comment
+            </button>
+          )}
           {onAddRowBelow && (
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] flex items-center gap-2 transition-colors duration-150"
@@ -152,4 +165,3 @@ export function TableContextMenu({
     </div>
   );
 }
-

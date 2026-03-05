@@ -18,6 +18,7 @@ import {
   Copy,
   AlertCircle,
   ShoppingBag,
+  Heading,
 } from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { useRouter } from "next/navigation";
@@ -77,6 +78,12 @@ const blockTypes: Array<{ type: BlockType; label: string; icon: React.ReactNode;
     label: "Divider",
     icon: <Minus className="w-4 h-4" />,
     description: "Horizontal divider line",
+  },
+  {
+    type: "section_header",
+    label: "Section Header",
+    icon: <Heading className="w-4 h-4" />,
+    description: "Structural label to separate groups of blocks",
   },
   {
     type: "table",
@@ -237,6 +244,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       };
       case "link": return { title: null, url: null, caption: "" };
       case "divider": return {};
+      case "section_header": return { title: "New Section", subtitle: "" };
       case "table": 
         // Note: The actual tableId will be set by the server when createBlock is called
         // For optimistic rendering, we use an empty object - the server will create the table

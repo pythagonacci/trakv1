@@ -56,24 +56,36 @@ function filterByQuery(items: LinkableItem[], query: string) {
 }
 
 async function getWorkspacePersonItems(supabase: any, workspaceId: string): Promise<LinkableItem[]> {
+  // Fetch workspace members first, then hydrate with profile data.
+  // We can't rely on a direct FK from workspace_members -> profiles, so we do a two-step lookup.
   const { data: membersData } = await supabase
     .from("workspace_members")
-    .select("user_id, profiles!inner(id, name, email)")
+    .select("user_id")
     .eq("workspace_id", workspaceId);
 
-  return (membersData || []).flatMap((m: any) => {
-    const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
-    if (!profile?.id) return [];
+  const userIds: string[] = (membersData || [])
+    .map((m: any) => m.user_id)
+    .filter(Boolean);
+
+  if (userIds.length === 0) return [];
+
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("id, name, email")
+    .in("id", userIds);
+
+  return (profileData || []).map((profile: any) => {
+    if (!profile?.id) return null;
     const displayName = profile.name || profile.email || "Unknown";
-    return [{
+    return {
       id: profile.id,
       type: "person" as const,
       name: displayName,
       location: profile.email || "Member",
       referenceType: "person" as const,
       email: profile.email || undefined,
-    }];
-  });
+    } as LinkableItem;
+  }).filter(Boolean) as LinkableItem[];
 }
 
 function filterByType(items: LinkableItem[], type?: LinkableType | null) {
@@ -127,7 +139,10 @@ export async function getRecentLinkableItems(input: {
     tabIds.push(tab.id);
   });
 
-  if (tabIds.length === 0) return { data: [] };
+  if (tabIds.length === 0) {
+    const personItems = await getWorkspacePersonItems(supabase, input.workspaceId);
+    return { data: personItems.slice(0, input.limit ?? 8) };
+  }
 
   const { data: blocks } = await supabase
     .from("blocks")

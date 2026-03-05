@@ -666,7 +666,21 @@ export function PropertyMenu({
             onAdd={assigneesDisabled ? undefined : () => setAssigneeDrafts((prev) => [...prev, { id: `assignee-new-${Date.now()}`, field_name: getNextAssigneeFieldName(prev), value: [] } as AssigneeFieldDraft])}
           >
             {assigneesDisabled ? (
-              <div className="rounded px-1.5 py-1 text-[11px] text-[var(--muted-foreground)]">Derived</div>
+              <div className="rounded px-1.5 py-1 text-[11px] text-[var(--muted-foreground)]">
+                {(() => {
+                  const ids = displayAssigneeIds ?? [];
+                  const names = ids
+                    .map((id) => memberLookup.get(id)?.name || memberLookup.get(id)?.email)
+                    .filter(Boolean) as string[];
+                  if (!names.length) return "Derived";
+                  return (
+                    <>
+                      {names.join(", ")}{" "}
+                      <span className="text-[9px] uppercase text-[var(--tertiary-foreground)]">(Derived)</span>
+                    </>
+                  );
+                })()}
+              </div>
             ) : assigneeDrafts.length === 0 ? (
               <div className="rounded px-1.5 py-1 text-[11px] text-[var(--muted-foreground)]">No assignee fields yet</div>
             ) : (
@@ -1125,9 +1139,27 @@ export function PropertyMenu({
                           </div>
                           {assigneesDisabled ? (
                             <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
-                              <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
-                                Derived
-                              </span>
+                              {(() => {
+                                const ids = displayAssigneeIds ?? [];
+                                const names = ids
+                                  .map((id) => memberLookup.get(id)?.name || memberLookup.get(id)?.email)
+                                  .filter(Boolean) as string[];
+                                if (!names.length) {
+                                  return (
+                                    <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                                      Derived
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <>
+                                    <span>{names.join(", ")}</span>{" "}
+                                    <span className="text-[10px] uppercase tracking-wide text-[var(--tertiary-foreground)]">
+                                      (Derived)
+                                    </span>
+                                  </>
+                                );
+                              })()}
                             </div>
                           ) : assigneeDrafts.length === 0 ? (
                             <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">

@@ -20,6 +20,9 @@ export default function BlockReferencesPanel({
   const deleteReference = useDeleteBlockReference(blockId);
   const picker = useBlockReferencePicker();
 
+  // Hide person references (used for @person mentions/assignees) from the attachments panel
+  const visibleReferences = references.filter((ref) => ref.reference_type !== "person");
+
   const [isOpen, setIsOpen] = useState(false);
   const addAttachmentButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -27,7 +30,8 @@ export default function BlockReferencesPanel({
     return null;
   }
 
-  if (references.length === 0) {
+  // If there are no non-person references, don't show the attachments panel
+  if (visibleReferences.length === 0) {
     return null;
   }
 
@@ -40,7 +44,7 @@ export default function BlockReferencesPanel({
           className="flex items-center gap-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
         >
           <span className={cn("font-medium underline underline-offset-2", isOpen && "text-[var(--foreground)]")}>
-            Attachments ({references.length})
+            Attachments ({visibleReferences.length})
           </span>
           <ChevronDown
             className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")}
@@ -67,13 +71,13 @@ export default function BlockReferencesPanel({
 
       {isOpen && (
         <div className="mt-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 shadow-popover">
-          {references.length === 0 ? (
+          {visibleReferences.length === 0 ? (
             <div className="rounded-[4px] border border-dashed border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--muted-foreground)]">
               No attachments yet.
             </div>
           ) : (
             <div className="space-y-1.5">
-              {references.map((ref) => {
+              {visibleReferences.map((ref) => {
                 const href = getReferenceHref({
                   reference_type: ref.reference_type,
                   reference_id: ref.reference_id,

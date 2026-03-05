@@ -19,7 +19,7 @@ export interface TaskItemPriority {
 
 export interface TaskItemStatus {
   field_name: string;
-  value: TaskStatus | null;
+  value: "todo" | "in_progress" | "blocked" | "done" | null;
 }
 
 export interface TaskItemAssigneeField {

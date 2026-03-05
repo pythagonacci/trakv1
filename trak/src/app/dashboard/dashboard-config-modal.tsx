@@ -127,15 +127,15 @@ export default function DashboardConfigModal({
     if (!open || addingType === null) return;
     if (addingType === "project_card" || addingType === "project_group" || addingType === "chart") {
       getAllProjects(workspaceId, {}, {}).then((r) => {
-        if (r.data) setProjects(r.data.map((p) => ({ id: p.id, name: p.name })));
+        if ("data" in r && r.data) setProjects(r.data.map((p) => ({ id: p.id, name: p.name })));
       });
     }
     if (addingType === "project_group") {
       getAllInternalGroups(workspaceId).then((r) => {
-        if (r.data) setGroups(r.data.map((g) => ({ id: g.id, name: g.name })));
+        if ("data" in r && r.data) setGroups(r.data.map((g) => ({ id: g.id, name: g.name })));
       });
       getAllTeams(workspaceId).then((r) => {
-        if (r.data) setTeams(r.data.map((t) => ({ id: t.id, name: t.name })));
+        if ("data" in r && r.data) setTeams(r.data.map((t) => ({ id: t.id, name: t.name })));
       });
     }
   }, [open, addingType, workspaceId]);
@@ -419,14 +419,13 @@ function AddProjectGroupForm({
   const [kind, setKind] = useState<ProjectGroupFilterKind>("status");
   const [value, setValue] = useState("");
   const [view, setView] = useState<ProjectGroupView>("compact_list");
-  const valueOptions =
-    kind === "status"
-      ? ["not_started", "in_progress", "complete"]
-      : kind === "initiative"
-        ? groups
-        : kind === "team"
-          ? teams
-          : [];
+  const statusOptions: string[] = ["not_started", "in_progress", "complete"];
+  const entityOptions: Array<{ id: string; name: string }> =
+    kind === "initiative"
+      ? groups
+      : kind === "team"
+        ? teams
+        : [];
 
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
@@ -462,13 +461,13 @@ function AddProjectGroupForm({
               {kind === "status" ? "Any" : `Select ${kind}`}
             </option>
             {kind === "status" &&
-              valueOptions.map((v) => (
+              statusOptions.map((v) => (
                 <option key={v} value={v}>
                   {STATUS_LABELS[v] ?? v}
                 </option>
               ))}
             {(kind === "initiative" || kind === "team") &&
-              valueOptions.map((p) => (
+              entityOptions.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>

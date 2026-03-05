@@ -513,11 +513,11 @@ export async function POST(request: NextRequest) {
     const historyRows = (history || []) as Array<{ role: string; content: unknown }>;
     const historyMessages: AIMessage[] = historyRows
       .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
+      .map((m): AIMessage => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: sanitizePromptText(safeTextFromContent(m.content)),
       }))
-      .filter((m) => m.content);
+      .filter((m): m is AIMessage => Boolean(m.content));
 
     const trimmedHistory = historyMessages.slice(0, -1);
     const recentHistoryText = trimmedHistory.slice(-6).map((m) => m.content ?? "").join(" ");

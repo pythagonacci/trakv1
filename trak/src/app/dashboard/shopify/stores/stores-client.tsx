@@ -116,6 +116,7 @@ export function ShopifyStoresClient({
                   key={connection.id}
                   connection={connection}
                   onUpdate={handleConnectionUpdate}
+                  canManage={true}
                 />
               ))}
             </div>
