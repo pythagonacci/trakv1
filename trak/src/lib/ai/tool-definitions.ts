@@ -297,7 +297,7 @@ const searchTools: ToolDefinition[] = [
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search by block content" },
-      type: { type: "string", description: "Filter by block type", enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "chart", "doc_reference"] },
+      type: { type: "string", description: "Filter by block type", enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "section_header", "link", "pdf", "chart", "doc_reference"] },
       projectId: { type: "string", description: "Filter by project ID" },
       projectName: { type: "string", description: "Filter by project name (partial match)" },
       tabId: { type: "string", description: "Filter by tab ID" },
@@ -594,13 +594,16 @@ const taskActionTools: ToolDefinition[] = [
   },
   {
     name: "bulkUpdateTaskItems",
-    description: "UPDATE multiple tasks with the same changes in ONE call. ⚠️ REQUIRED for 3+ tasks. Use when updating many tasks with the same status, priority, or other properties. Much more efficient than calling updateTaskItem multiple times. Required: taskIds array and updates object. Returns: updatedCount and skipped array.",
+    description: "UPDATE multiple tasks in ONE call. Two modes:\n" +
+      "1. UNIFORM: taskIds + updates → apply the SAME changes to all tasks.\n" +
+      "2. PER-TASK: perTaskUpdates → apply DIFFERENT changes to each task (e.g., unique due dates).\n" +
+      "Use mode 1 when all tasks get identical values. Use mode 2 when each task needs unique values.",
     category: "task",
     parameters: {
-      taskIds: { type: "array", description: "Array of task IDs to update", items: { type: "string" } },
+      taskIds: { type: "array", description: "Array of task IDs to update (uniform mode)", items: { type: "string" } },
       updates: {
         type: "object",
-        description: "Updates to apply to all tasks. Same format as updateTaskItem.",
+        description: "Updates to apply to all tasks (uniform mode). Same format as updateTaskItem.",
         properties: {
           title: { type: "string", description: "New title" },
           status: { type: "string", description: "New status", enum: ["todo", "in_progress", "blocked", "done"] },
@@ -633,10 +636,40 @@ const taskActionTools: ToolDefinition[] = [
           dueDate: { type: "string", description: "New due date (YYYY-MM-DD, or null to clear)" },
           dueTime: { type: "string", description: "New due time (HH:MM)" },
           startDate: { type: "string", description: "New start date" },
+          assignees: { type: "array", description: "List of assignee NAMES. REPLACES all current assignees. Empty array clears all.", items: { type: "string" } },
+          tags: { type: "array", description: "List of tag names. REPLACES all current tags. Empty array clears all.", items: { type: "string" } },
+        },
+      },
+      perTaskUpdates: {
+        type: "array",
+        description: "Array of per-task updates when each task needs DIFFERENT values. Each entry: { taskId, updates }. Use this instead of taskIds+updates when tasks need unique values (e.g., different due dates, different assignees).",
+        items: {
+          type: "object",
+          properties: {
+            taskId: { type: "string", description: "Task ID" },
+            updates: {
+              type: "object",
+              description: "Updates for this specific task. Same shape as the uniform updates object above.",
+              properties: {
+                title: { type: "string", description: "New title" },
+                status: { type: "string", description: "New status", enum: ["todo", "in_progress", "blocked", "done"] },
+                statuses: { type: "array", description: "Named statuses", items: { type: "object", properties: { field_name: { type: "string", description: "Field name" }, value: { type: "string", description: "Value" } }, required: ["field_name", "value"] } },
+                priority: { type: "string", description: "New priority", enum: ["low", "medium", "high", "urgent"] },
+                priorities: { type: "array", description: "Named priorities", items: { type: "object", properties: { field_name: { type: "string", description: "Field name" }, value: { type: "string", description: "Value" } }, required: ["field_name", "value"] } },
+                description: { type: "string", description: "New description" },
+                dueDate: { type: "string", description: "Due date (YYYY-MM-DD)" },
+                dueTime: { type: "string", description: "Due time (HH:MM)" },
+                startDate: { type: "string", description: "Start date" },
+                assignees: { type: "array", description: "Assignee names", items: { type: "string" } },
+                tags: { type: "array", description: "Tag names", items: { type: "string" } },
+              },
+            },
+          },
+          required: ["taskId", "updates"],
         },
       },
     },
-    requiredParams: ["taskIds", "updates"],
+    requiredParams: [],
   },
   {
     name: "bulkMoveTaskItems",
@@ -1056,7 +1089,7 @@ const blockActionTools: ToolDefinition[] = [
       type: {
         type: "string",
         description: "Block type",
-        enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "link", "pdf", "chart", "doc_reference"],
+        enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "section_header", "link", "pdf", "chart", "doc_reference"],
       },
       content: { type: "object", description: "Block content (varies by type)" },
       position: { type: "number", description: "Row position (0-based)" },

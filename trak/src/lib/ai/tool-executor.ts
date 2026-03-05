@@ -891,7 +891,14 @@ async function captureUndoStepsBefore(params: {
   }
 
   if (toolName === "bulkUpdateTaskItems" || toolName === "bulkMoveTaskItems") {
-    const ids = toStringArray(toolArgs.taskIds);
+    let ids = toStringArray(toolArgs.taskIds);
+    // Also collect IDs from perTaskUpdates (per-task mode)
+    if (Array.isArray(toolArgs.perTaskUpdates)) {
+      const perIds = (toolArgs.perTaskUpdates as Array<{ taskId?: string }>)
+        .map(e => e.taskId)
+        .filter((id): id is string => typeof id === "string");
+      ids = [...new Set([...ids, ...perIds])];
+    }
     const rows = await fetchRowsByIds(supabase, "task_items", ids);
     return rows.length > 0
       ? [{ action: "upsert", table: "task_items", rows, onConflict: "id" }]
@@ -1917,11 +1924,138 @@ export async function executeTool(
             return updateResult;
           }
 
-        case "bulkUpdateTaskItems":
+        case "bulkUpdateTaskItems": {
+          // ── Per-task mode: each task gets different updates ──
+          const perTaskUpdates = args.perTaskUpdates as Array<{ taskId: string; updates: Record<string, unknown> }> | undefined;
+          if (Array.isArray(perTaskUpdates) && perTaskUpdates.length > 0) {
+            const perTaskResults: Array<{ taskId: string; success: boolean; error?: string }> = [];
+            let updatedCount = 0;
+
+            for (const entry of perTaskUpdates) {
+              const taskId = entry.taskId;
+              const u = entry.updates ?? {};
+
+              const baseUpdates: Record<string, unknown> = {};
+              if (u.title !== undefined) baseUpdates.title = u.title;
+              if (u.status !== undefined) baseUpdates.status = u.status;
+              if (u.statuses !== undefined) baseUpdates.statuses = u.statuses;
+              if (u.priority !== undefined) baseUpdates.priority = u.priority;
+              if (u.priorities !== undefined) baseUpdates.priorities = u.priorities;
+              if (u.description !== undefined) baseUpdates.description = u.description;
+              if (u.dueDate !== undefined) baseUpdates.dueDate = u.dueDate;
+              if (u.dueTime !== undefined) baseUpdates.dueTime = u.dueTime;
+              if (u.startDate !== undefined) baseUpdates.startDate = u.startDate;
+
+              const assigneesProvided = u.assignees !== undefined;
+              const tagsProvided = u.tags !== undefined;
+              let resolvedAssignees: Array<{ id?: string | null; name?: string | null }> = [];
+
+              if (assigneesProvided) {
+                const assigneeArgs = Array.isArray(u.assignees) && (u.assignees as unknown[]).length > 0
+                  ? (u.assignees as unknown[]).map(a =>
+                    isUuid(String(a)) ? { id: a as string, name: "Unknown" } : { name: String(a), id: undefined }
+                  )
+                  : [];
+                const ctxResult = await getSearchContext(authContext ? { authContext } : undefined);
+                if (ctxResult.error === null) {
+                  const searchCtx = { workspaceId: ctxResult.workspaceId, supabase: ctxResult.supabase, userId: ctxResult.userId };
+                  const assigneeResult = await resolveTaskAssignees(assigneeArgs, searchCtx);
+                  if (assigneeResult.ambiguities.length > 0) {
+                    perTaskResults.push({ taskId, success: false, error: `Ambiguous assignee names` });
+                    continue;
+                  }
+                  resolvedAssignees = assigneeResult.resolved;
+                }
+              }
+
+              // Try RPC first
+              const hasRpcOps = Object.keys(baseUpdates).length > 0 || assigneesProvided || tagsProvided;
+              let taskSuccess = false;
+
+              if (hasRpcOps) {
+                const rpcResult = await updateTaskFullRpc({
+                  taskId,
+                  updates: baseUpdates,
+                  assignees: resolvedAssignees,
+                  assigneesSet: assigneesProvided,
+                  tags: Array.isArray(u.tags) ? (u.tags as string[]) : [],
+                  tagsSet: tagsProvided,
+                  authContext: authContext ?? undefined,
+                });
+                if (!("error" in rpcResult)) {
+                  await syncTaskEntityPropertiesAfterMutation({
+                    taskId,
+                    updates: baseUpdates,
+                    assignees: resolvedAssignees,
+                    assigneesSet: assigneesProvided,
+                    tags: Array.isArray(u.tags) ? (u.tags as string[]) : [],
+                    tagsSet: tagsProvided,
+                  });
+                  taskSuccess = true;
+                }
+              }
+
+              // Fallback to individual actions
+              if (!taskSuccess) {
+                const updateResult = await wrapResult(
+                  updateTaskItem(taskId, {
+                    title: baseUpdates.title as string | undefined,
+                    status: baseUpdates.status as any,
+                    statuses: baseUpdates.statuses as any,
+                    priority: baseUpdates.priority as any,
+                    priorities: baseUpdates.priorities as any,
+                    description: baseUpdates.description as string | null | undefined,
+                    dueDate: baseUpdates.dueDate as string | null | undefined,
+                    dueTime: baseUpdates.dueTime as string | null | undefined,
+                    startDate: baseUpdates.startDate as string | null | undefined,
+                  }, { authContext: authContext ?? undefined })
+                );
+
+                if (!updateResult.success) {
+                  perTaskResults.push({ taskId, success: false, error: String((updateResult as any).error ?? "Update failed") });
+                  continue;
+                }
+
+                if (assigneesProvided) {
+                  if (resolvedAssignees.length > 0 || Array.isArray(u.assignees)) {
+                    await setTaskAssignees(taskId, resolvedAssignees.length > 0 ? resolvedAssignees : [], { replaceExisting: true, authContext: authContext ?? undefined });
+                  }
+                }
+                if (tagsProvided && Array.isArray(u.tags)) {
+                  await setTaskTags(taskId, u.tags as string[], { authContext: authContext ?? undefined });
+                }
+
+                await syncTaskEntityPropertiesAfterMutation({
+                  taskId,
+                  updates: baseUpdates,
+                  assignees: resolvedAssignees,
+                  assigneesSet: assigneesProvided,
+                  tags: Array.isArray(u.tags) ? (u.tags as string[]) : [],
+                  tagsSet: tagsProvided,
+                });
+                taskSuccess = true;
+              }
+
+              perTaskResults.push({ taskId, success: taskSuccess });
+              if (taskSuccess) updatedCount++;
+            }
+
+            return {
+              success: updatedCount > 0,
+              data: {
+                updatedCount,
+                totalRequested: perTaskUpdates.length,
+                skipped: perTaskResults.filter(r => !r.success).map(r => r.taskId),
+                perTaskResults,
+              },
+            };
+          }
+
+          // ── Uniform mode: same updates to all tasks ──
           if (!Array.isArray(args.taskIds) || args.taskIds.length === 0) {
             return {
               success: false,
-              error: "bulkUpdateTaskItems requires a non-empty taskIds array.",
+              error: "bulkUpdateTaskItems requires either a non-empty taskIds array with updates, or a non-empty perTaskUpdates array.",
             };
           }
           const updatesArg = args.updates as Record<string, unknown> | undefined;
@@ -1973,6 +2107,7 @@ export async function executeTool(
             );
           }
           return fallbackResult;
+        }
 
         case "deleteTaskItem":
           return await wrapResult(deleteTaskItem(args.taskId as string, { authContext: authContext ?? undefined }));
