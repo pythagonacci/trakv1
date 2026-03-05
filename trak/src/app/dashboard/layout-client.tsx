@@ -793,8 +793,8 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
     <main
       id="dashboard-content"
       className={cn(
-        "flex-1 min-h-0",
-        isProjectOrClientDetail ? "flex flex-col bg-[var(--surface)]" : "bg-[var(--background)]",
+        "flex-1 min-h-0 bg-[var(--surface)]",
+        isProjectOrClientDetail && "flex flex-col",
         isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
         headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-4 lg:py-5"

@@ -13,24 +13,20 @@ import {
 import {
   ensureFileArtifact,
   ensureFileChunks,
-  retrieveRelevantChunks,
   shouldUseRag,
   type FileRecord,
 } from "@/lib/file-analysis/service";
 import {
-  DEFAULT_DEEPSEEK_MODEL,
   MAX_HISTORY_MESSAGES,
-  RETRIEVAL_TOP_K,
-  DEEPSEEK_API_URL,
   MAX_INLINE_FILE_BYTES,
   MAX_INLINE_PAGES,
   MAX_INLINE_ROWS,
-  FILE_ANALYSIS_MAX_TOKENS,
 } from "@/lib/file-analysis/constants";
 import type { FileAnalysisMessageContent, FileCitation } from "@/lib/file-analysis/types";
 import { buildScopeHints, selectFilesForQuery } from "@/lib/file-analysis/selection";
 import { logger } from "@/lib/logger";
 import { IndexingQueue } from "@/lib/search/job-queue";
+import { executeAICommand, type AIMessage, type ExecutionResult } from "@/lib/ai/executor";
 
 interface FileAnalysisRequest {
   sessionId?: string;
@@ -76,134 +72,163 @@ function formatUploadSummary(fileName: string, details: {
   return `I received ${fileName}. It contains ${details.tokenEstimate || 0} tokens of text.${sizeNote}`;
 }
 
-async function callDeepSeek(messages: Array<{ role: string; content: string }>) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing DEEPSEEK_API_KEY");
+function safeTextFromContent(content: unknown): string {
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  if (typeof content === "object") {
+    const obj = content as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text;
   }
-
-  const response = await fetch(DEEPSEEK_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_DEEPSEEK_MODEL,
-      messages,
-      temperature: 0.2,
-      max_tokens: FILE_ANALYSIS_MAX_TOKENS,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DeepSeek error: ${response.status} ${errorText}`);
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
   }
-
-  const result = await response.json();
-  const content = result?.choices?.[0]?.message?.content?.trim();
-  return content || "";
 }
 
-function parseModelOutput(raw: string): FileAnalysisMessageContent {
-  if (!raw) {
-    return { text: "I couldn't generate a response." };
-  }
+function mentionsTasks(text: string) {
+  return /\b(task|tasks|overdue|todo|to-do|backlog)\b/i.test(text);
+}
 
-  const stripCodeFences = (input: string) => {
-    const match = input.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    return match ? match[1].trim() : input;
+function hasMutationVerb(text: string) {
+  return /\b(update|edit|change|set|mark|complete|close|reopen|assign|unassign|delete|remove|move|rename|archive|unarchive|duplicate|reschedule|postpone|defer|snooze|prioritiz|deprioritiz|reorder|reassign|convert|merge|split|done)\b/i.test(
+    text
+  );
+}
+
+function isTaskMutationCommand(command: string, historyText: string) {
+  const cmd = command.toLowerCase();
+  if (/\b(create|add|new)\s+task\b/.test(cmd)) return true;
+  if (hasMutationVerb(cmd) && mentionsTasks(cmd)) return true;
+  if (hasMutationVerb(cmd) && /\b(them|those|these|all)\b/i.test(cmd) && mentionsTasks(historyText)) {
+    return true;
+  }
+  return false;
+}
+
+function isExplicitEntityMutationCommand(command: string) {
+  const cmd = command.toLowerCase();
+  const verb = /\b(create|update|delete|archive|unarchive|rename|move|copy|duplicate)\b/;
+  const entity = /\b(table|project|client|tab|document|doc|file|folder|workspace)\b/;
+  return verb.test(cmd) && entity.test(cmd);
+}
+
+function buildFileModeSystemPrompt(params: {
+  tabId: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  projectTabs: Array<{ id: string; name: string | null }>;
+  selectedFiles: Array<{
+    id: string;
+    file_name: string;
+    file_size: number;
+    file_type: string | null;
+    is_attached?: boolean;
+  }>;
+  fileSummaries: Array<{
+    fileId: string;
+    tokenEstimate: number | null;
+    rowCount: number | null;
+    pageCount: number | null;
+    columnCount: number | null;
+    useRag: boolean;
+    artifactReady: boolean;
+    artifactError?: string;
+  }>;
+}) {
+  const scope = params.tabId ? "tab" : params.projectId ? "project" : "workspace";
+  const summaryByFileId = new Map(params.fileSummaries.map((summary) => [summary.fileId, summary]));
+  const fileLines = params.selectedFiles.map((file) => {
+    const summary = summaryByFileId.get(file.id);
+    const artifactNote = summary
+      ? summary.artifactReady
+        ? `tokens=${summary.tokenEstimate ?? "?"}, rows=${summary.rowCount ?? "?"}, pages=${summary.pageCount ?? "?"}, cols=${summary.columnCount ?? "?"}, retrieval=${summary.useRag ? "rag" : "inline"}`
+        : `artifact=unavailable (${summary.artifactError || "unknown"})`
+      : "artifact=not-loaded";
+    const attached = file.is_attached ? "attached" : "not-attached";
+    return `- ${sanitizePromptText(file.file_name)} [id=${file.id}] (${sanitizePromptText(file.file_type || "unknown")}, ${Math.round(file.file_size / 1024)} KB, ${attached}, ${artifactNote})`;
+  });
+  const projectTabsList = params.projectTabs
+    .map((tab) => sanitizePromptText(tab.name || "Untitled tab"))
+    .filter(Boolean);
+
+  return [
+    "You are in FILE ANALYSIS MODE with full AI assistant/workflow capabilities and full tool access.",
+    "Use all normal assistant tools when needed (tasks, tables, blocks, docs, projects, timeline, search).",
+    "When the user asks about file contents, ALWAYS call fileAnalysisQuery first using the selected file IDs listed below before giving factual file-specific answers.",
+    "If the user asks to compare, aggregate, or combine files, call fileAnalysisQuery with all relevant selected file IDs.",
+    "If needed files are missing, use searchFiles first, then call fileAnalysisQuery with resolved IDs.",
+    "Do not invent file facts. If fileAnalysisQuery returns insufficient data, state that clearly and ask a focused follow-up.",
+    "Never include internal UUIDs in user-facing prose.",
+    `Current scope: ${scope}`,
+    params.projectId ? `Current project: ${sanitizePromptText(params.projectName || "Unknown project")}` : "",
+    params.tabId ? `Current tab id: ${params.tabId}` : "",
+    projectTabsList.length > 0 ? `Project tabs: ${projectTabsList.join(", ")}` : "",
+    "Selected files for this turn:",
+    ...fileLines,
+  ].filter(Boolean).join("\n");
+}
+
+function buildCitationsFromToolCalls(params: {
+  toolCallsMade: ExecutionResult["toolCallsMade"];
+  selectedFiles: Array<{ id: string; file_name: string; is_attached?: boolean }>;
+}) {
+  const selectedById = new Map(params.selectedFiles.map((file) => [file.id, file]));
+  const citations = new Map<string, FileCitation>();
+  const inserts = new Map<string, { file_id: string; chunk_id?: string }>();
+
+  const addCitation = (fileId: string, fileName: string, chunkId?: string, excerpt?: string) => {
+    const key = `${fileId}:${chunkId || "none"}`;
+    if (citations.has(key)) return;
+    const selected = selectedById.get(fileId);
+    citations.set(key, {
+      id: "",
+      file_id: fileId,
+      file_name: fileName,
+      chunk_id: chunkId || undefined,
+      excerpt: excerpt || undefined,
+      is_attached: selected?.is_attached || false,
+    });
+    inserts.set(key, chunkId ? { file_id: fileId, chunk_id: chunkId } : { file_id: fileId });
   };
 
-  const repairJson = (input: string) => {
-    let result = "";
-    let inString = false;
-    let escaped = false;
+  for (const call of params.toolCallsMade || []) {
+    if (call.tool !== "fileAnalysisQuery") continue;
+    if (!call.result?.success) continue;
 
-    for (let i = 0; i < input.length; i += 1) {
-      const char = input[i];
-      if (escaped) {
-        result += char;
-        escaped = false;
+    const payload = call.result.data as { results?: Array<Record<string, unknown>> } | undefined;
+    const results = Array.isArray(payload?.results) ? payload.results : [];
+
+    for (const result of results) {
+      const fileObj = (result.file || null) as { id?: string; file_name?: string } | null;
+      const fileId = typeof fileObj?.id === "string" ? fileObj.id : "";
+      if (!fileId) continue;
+      const fallbackName = selectedById.get(fileId)?.file_name || "Unknown file";
+      const fileName = typeof fileObj?.file_name === "string" ? fileObj.file_name : fallbackName;
+      const chunks = Array.isArray(result.chunks) ? (result.chunks as Array<Record<string, unknown>>) : [];
+      if (chunks.length === 0) {
+        addCitation(fileId, fileName);
         continue;
       }
-      if (char === "\\") {
-        result += char;
-        escaped = true;
-        continue;
+
+      for (const chunk of chunks) {
+        const chunkId = typeof chunk.id === "string" ? chunk.id : undefined;
+        const excerpt = typeof chunk.content === "string" ? chunk.content.slice(0, 180) : undefined;
+        addCitation(fileId, fileName, chunkId, excerpt);
       }
-      if (char === "\"") {
-        inString = !inString;
-        result += char;
-        continue;
-      }
-      if (inString && (char === "\n" || char === "\r")) {
-        result += "\\n";
-        if (char === "\r" && input[i + 1] === "\n") {
-          i += 1;
-        }
-        continue;
-      }
-      result += char;
     }
+  }
 
-    return result;
+  if (citations.size === 0) {
+    for (const file of params.selectedFiles) {
+      addCitation(file.id, file.file_name);
+    }
+  }
+
+  return {
+    citations: Array.from(citations.values()),
+    inserts: Array.from(inserts.values()),
   };
-
-  const normalizedRaw = repairJson(stripCodeFences(raw));
-
-  try {
-    const jsonStart = normalizedRaw.indexOf("{");
-    const jsonEnd = normalizedRaw.lastIndexOf("}");
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      const sliced = normalizedRaw.slice(jsonStart, jsonEnd + 1);
-      const parsed = JSON.parse(sliced);
-      if (parsed && typeof parsed === "object") {
-        const normalizedTables = Array.isArray(parsed.tables)
-          ? parsed.tables.map((table: any) => {
-            const columns =
-              Array.isArray(table?.columns) && table.columns.length > 0
-                ? table.columns
-                : Array.isArray(table?.headers)
-                  ? table.headers
-                  : [];
-            return {
-              ...table,
-              columns,
-            };
-          })
-          : undefined;
-
-        return {
-          text: String(parsed.text || parsed.answer || "").trim(),
-          tables: normalizedTables,
-          charts: parsed.charts || undefined,
-          notes: parsed.notes || undefined,
-        };
-      }
-    }
-  } catch {
-    // fall through
-  }
-
-  const textMatch = normalizedRaw.match(/"text"\s*:\s*"(.*?)"\s*(?:,\s*"(tables|charts|notes|clarification)"|}$)/);
-  // Note: If you needed dotAll matching for the content inside quotes, standard JS regex without 's' flag
-  // works if the content doesn't have unescaped newlines. 
-  // But if we want to match across newlines, we can use [\s\S]* instead of .*
-  // Let's use a safer pattern compatible with older targets if needed.
-  // Actually, standard JSON strings shouldn't have raw newlines.
-  // But to be safe and match the previous logic:
-  const textMatchSafe = normalizedRaw.match(/"text"\s*:\s*"([\s\S]*?)"\s*(?:,\s*"(tables|charts|notes|clarification)"|}$)/);
-  if (textMatchSafe?.[1]) {
-    try {
-      return { text: JSON.parse(`"${textMatchSafe[1]}"`) };
-    } catch {
-      return { text: textMatchSafe[1] };
-    }
-  }
-
-  return { text: normalizedRaw };
 }
 
 export async function POST(request: NextRequest) {
@@ -343,7 +368,6 @@ export async function POST(request: NextRequest) {
     }
 
     const scopeHints = buildScopeHints(message);
-    const safeMessage = sanitizePromptText(message);
 
     let projectName: string | null = null;
     let projectTabs: Array<{ id: string; name: string | null }> = [];
@@ -381,22 +405,6 @@ export async function POST(request: NextRequest) {
     const projectFiles = projectId ? await getProjectFiles(supabase, projectId) : [];
     const workspaceFiles = scopeHints.isWorkspace ? await getWorkspaceFiles(supabase, workspaceId) : [];
 
-    const allCandidates = [
-      ...sessionFiles,
-      ...tabFiles,
-      ...projectFiles,
-      ...workspaceFiles,
-    ];
-
-    const uniqueCandidates = new Map<string, typeof allCandidates[0]>();
-    allCandidates.forEach((file) => {
-      if (!uniqueCandidates.has(file.id)) {
-        uniqueCandidates.set(file.id, file);
-      }
-    });
-
-    const candidates = Array.from(uniqueCandidates.values());
-
     const selection = selectFilesForQuery({
       message,
       sessionFiles,
@@ -423,7 +431,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    let selectedFiles = selection.selectedFiles;
+    const selectedFiles = selection.selectedFiles;
 
     if (selectedFiles.length === 0) {
       const content: FileAnalysisMessageContent = {
@@ -437,7 +445,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: assistantMessage, citations: [], actions: [] });
     }
 
-    // Ensure artifacts and chunks
+    // Ensure artifacts/chunks so fileAnalysisQuery is warm and file metadata is available in prompt context.
     const fileRecords: FileRecord[] = selectedFiles.map((file) => ({
       id: file.id,
       file_name: file.file_name,
@@ -448,97 +456,49 @@ export async function POST(request: NextRequest) {
       project_id: file.project_id,
     }));
 
-    const artifacts = new Map<string, any>();
+    const fileSummaries: Array<{
+      fileId: string;
+      tokenEstimate: number | null;
+      rowCount: number | null;
+      pageCount: number | null;
+      columnCount: number | null;
+      useRag: boolean;
+      artifactReady: boolean;
+      artifactError?: string;
+    }> = [];
+
     for (const file of fileRecords) {
-      const artifact = await ensureFileArtifact(supabase, file);
-      artifacts.set(file.id, artifact);
-      const useRag = shouldUseRag({
-        fileSize: file.file_size,
-        tokenEstimate: artifact.token_estimate || 0,
-        rowCount: artifact.row_count,
-        pageCount: artifact.page_count,
-      });
-      if (useRag) {
-        await ensureFileChunks(supabase, file, artifact);
-      }
-    }
-
-    const ragFileIds = fileRecords.filter((file) => {
-      const artifact = artifacts.get(file.id);
-      return shouldUseRag({
-        fileSize: file.file_size,
-        tokenEstimate: artifact?.token_estimate || 0,
-        rowCount: artifact?.row_count,
-        pageCount: artifact?.page_count,
-      });
-    }).map((file) => file.id);
-
-    const retrievedChunks = ragFileIds.length > 0
-      ? await retrieveRelevantChunks(supabase, ragFileIds, message)
-      : [];
-
-    const contextLines: string[] = [];
-    contextLines.push("You are a file analysis assistant for TWOD.");
-    contextLines.push("Use the provided file data to answer. If insufficient, say so.");
-    contextLines.push("Return JSON with keys: text, tables (optional), charts (optional), notes (optional).");
-    contextLines.push(`Current location scope: ${tabId ? "tab" : projectId ? "project" : "workspace"}`);
-    if (projectId) {
-      const safeProjectName = projectName ? sanitizePromptText(projectName) : "Unknown project";
-      contextLines.push(`Current project: ${safeProjectName} (${projectId})`);
-    }
-    if (tabId) {
-      const currentTabName = projectTabs.find((tab) => tab.id === tabId)?.name || "Unknown tab";
-      contextLines.push(`Current tab: ${sanitizePromptText(currentTabName)} (${tabId})`);
-    }
-    if (projectTabs.length > 0) {
-      const tabNames = projectTabs
-        .map((tab) => sanitizePromptText(tab.name || "Untitled tab"))
-        .filter(Boolean);
-      contextLines.push(`Project tabs: ${tabNames.join(", ")}`);
-    }
-
-    contextLines.push("Available files:");
-    fileRecords.forEach((file) => {
-      const safeFileName = sanitizePromptText(file.file_name || "unknown");
-      const safeFileType = sanitizePromptText(file.file_type || "unknown");
-      contextLines.push(`- ${safeFileName} (${safeFileType}, ${Math.round(file.file_size / 1024)} KB)`);
-    });
-
-    contextLines.push("\nFile data:");
-    for (const file of fileRecords) {
-      const artifact = artifacts.get(file.id);
-      if (!artifact) continue;
-      const useRag = shouldUseRag({
-        fileSize: file.file_size,
-        tokenEstimate: artifact.token_estimate || 0,
-        rowCount: artifact.row_count,
-        pageCount: artifact.page_count,
-      });
-      if (useRag) {
-        const fileChunks = retrievedChunks.filter((chunk) => chunk.file_id === file.id).slice(0, RETRIEVAL_TOP_K);
-        const safeFileName = sanitizePromptText(file.file_name || "unknown");
-        contextLines.push(`\n[FILE ${file.id}] ${safeFileName} (retrieved chunks):`);
-        fileChunks.forEach((chunk) => {
-          contextLines.push(`- ${sanitizePromptText(chunk.content)}`);
+      try {
+        const artifact = await ensureFileArtifact(supabase, file);
+        const useRag = shouldUseRag({
+          fileSize: file.file_size,
+          tokenEstimate: artifact.token_estimate || 0,
+          rowCount: artifact.row_count,
+          pageCount: artifact.page_count,
         });
-      } else {
-        const safeFileName = sanitizePromptText(file.file_name || "unknown");
-        contextLines.push(`\n[FILE ${file.id}] ${safeFileName} (full extract):`);
-        contextLines.push(sanitizePromptText(artifact.extracted_text || "(no text extracted)"));
-        if (artifact.extracted_tables?.length) {
-          contextLines.push("Tables:");
-          artifact.extracted_tables.forEach((table: any) => {
-            const safeTableName = sanitizePromptText(String(table.name || "Table"));
-            const safeHeaders = (table.headers || []).map((header: any) =>
-              sanitizePromptText(String(header ?? ""))
-            );
-            const safeRows = (table.rows || []).map((row: any[]) =>
-              (row || []).map((cell: any) => sanitizePromptText(String(cell ?? "")))
-            );
-            contextLines.push(`Table: ${safeTableName}`);
-            contextLines.push([safeHeaders.join("\t"), ...safeRows.map((row: string[]) => row.join("\t"))].join("\n"));
-          });
+        if (useRag) {
+          await ensureFileChunks(supabase, file, artifact);
         }
+        fileSummaries.push({
+          fileId: file.id,
+          tokenEstimate: artifact.token_estimate || null,
+          rowCount: artifact.row_count || null,
+          pageCount: artifact.page_count || null,
+          columnCount: artifact.column_count || null,
+          useRag,
+          artifactReady: true,
+        });
+      } catch (err) {
+        fileSummaries.push({
+          fileId: file.id,
+          tokenEstimate: null,
+          rowCount: null,
+          pageCount: null,
+          columnCount: null,
+          useRag: true,
+          artifactReady: false,
+          artifactError: err instanceof Error ? err.message : "Failed to prepare file artifact",
+        });
       }
     }
 
@@ -550,61 +510,105 @@ export async function POST(request: NextRequest) {
       .order("created_at", { ascending: true })
       .limit(MAX_HISTORY_MESSAGES);
 
-    const historyMessages = (history || [])
-      .filter((m: any) => m.role === "user" || m.role === "assistant")
-      .map((m: any) => ({
-        role: m.role,
-        content: sanitizePromptText((m.content?.text as string) || ""),
+    const historyRows = (history || []) as Array<{ role: string; content: unknown }>;
+    const historyMessages: AIMessage[] = historyRows
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: sanitizePromptText(safeTextFromContent(m.content)),
       }))
       .filter((m) => m.content);
 
     const trimmedHistory = historyMessages.slice(0, -1);
+    const recentHistoryText = trimmedHistory.slice(-6).map((m) => m.content ?? "").join(" ");
 
-    const messages = [
-      { role: "system", content: contextLines.join("\n") },
-      ...trimmedHistory,
-      { role: "user", content: safeMessage },
+    const [workspaceResult, profileResult] = await Promise.all([
+      supabase.from("workspaces").select("id, name").eq("id", workspaceId).maybeSingle(),
+      supabase.from("profiles").select("name, email").eq("id", user.id).maybeSingle(),
+    ]);
+
+    const systemPrefix: AIMessage[] = [
+      {
+        role: "system",
+        content: buildFileModeSystemPrompt({
+          tabId,
+          projectId,
+          projectName,
+          projectTabs,
+          selectedFiles: selectedFiles.map((file) => ({
+            id: file.id,
+            file_name: file.file_name,
+            file_size: file.file_size,
+            file_type: file.file_type,
+            is_attached: file.is_attached,
+          })),
+          fileSummaries,
+        }),
+      },
     ];
 
-    const rawResponse = await callDeepSeek(messages);
-    const parsed = parseModelOutput(rawResponse);
+    const allowTaskMutations = isTaskMutationCommand(message, recentHistoryText);
+    const allowEntityMutations = isExplicitEntityMutationCommand(message);
+    const allowedWriteTools = [
+      "createBlock",
+      "updateBlock",
+      "updateTableFull",
+      "updateTableRowsByFieldNames",
+      "bulkInsertRows",
+      "bulkUpdateRows",
+      "bulkUpdateRowsByFieldNames",
+      "createSpecChartBlock",
+      "createTableFull",
+      "deleteTable",
+    ];
 
-    const citations: FileCitation[] = [];
-    const citationInserts: Array<Record<string, any>> = [];
-    if (retrievedChunks.length > 0) {
-      retrievedChunks.forEach((chunk) => {
-        const file = fileRecords.find((f) => f.id === chunk.file_id);
-        const selected = selectedFiles.find((f) => f.id === chunk.file_id);
-        if (!file) return;
-        citations.push({
-          id: "",
-          file_id: file.id,
-          file_name: file.file_name,
-          chunk_id: chunk.id,
-          excerpt: chunk.content.slice(0, 180),
-          is_attached: selected?.is_attached || false,
-        });
-        citationInserts.push({
-          file_id: file.id,
-          chunk_id: chunk.id,
-        });
-      });
-    } else {
-      fileRecords.forEach((file) => {
-        const selected = selectedFiles.find((f) => f.id === file.id);
-        citations.push({
-          id: "",
-          file_id: file.id,
-          file_name: file.file_name,
-          is_attached: selected?.is_attached || false,
-        });
-        citationInserts.push({ file_id: file.id });
-      });
-    }
+    const aiResult = await executeAICommand(
+      message,
+      {
+        workspaceId,
+        workspaceName: workspaceResult.data?.name || undefined,
+        userId: user.id,
+        userName: profileResult.data?.name || profileResult.data?.email || undefined,
+        currentProjectId: projectId || undefined,
+        currentTabId: tabId || undefined,
+      },
+      [...systemPrefix, ...trimmedHistory],
+      {
+        readOnly: !(allowTaskMutations || allowEntityMutations),
+        allowedWriteTools,
+        enforceBatchUpdateCompletion: allowTaskMutations,
+        forcedToolGroups: [
+          "core",
+          "task",
+          "project",
+          "table",
+          "timeline",
+          "block",
+          "tab",
+          "doc",
+          "file",
+          "client",
+          "property",
+          "comment",
+          "workspace",
+        ],
+        disableDeterministic: true,
+        disableOptimisticEarlyExit: true,
+      }
+    );
 
-    if (citations.length === 0) {
-      parsed.text = parsed.text ? `${parsed.text}\n\nNo files used.` : "No files used.";
-    }
+    const { citations, inserts: citationInserts } = buildCitationsFromToolCalls({
+      toolCallsMade: aiResult.toolCallsMade,
+      selectedFiles: selectedFiles.map((file) => ({
+        id: file.id,
+        file_name: file.file_name,
+        is_attached: file.is_attached,
+      })),
+    });
+
+    const parsed: FileAnalysisMessageContent = {
+      text: aiResult.response || aiResult.error || "I couldn't generate a response.",
+    };
 
     const { data: assistantMessage, error: assistantError } = await supabase
       .from("file_analysis_messages")
@@ -654,6 +658,8 @@ export async function POST(request: NextRequest) {
       sessionId: session.id,
       usedFiles: selectedFiles.map((f) => f.file_name),
       citations: citations.length,
+      aiSuccess: aiResult.success,
+      toolCalls: aiResult.toolCallsMade.length,
     });
 
     return NextResponse.json({

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
 import { parseLocalDate, parseDateSafe } from "@/lib/due-date";
-import { Plus, User, ChevronDown, ChevronRight, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon, CheckSquare, Square } from "lucide-react";
+import { Plus, User, ChevronDown, ChevronRight, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon, CheckSquare, Square, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block, getBlockLocation, updateBlock } from "@/app/actions/block";
 import { getAllTeams } from "@/app/actions/workspace-teams";
@@ -688,6 +688,17 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const addEventButtonRef = useRef<HTMLButtonElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
+  const timelineTitle =
+    typeof content.title === "string" && content.title.trim()
+      ? (content.title as string)
+      : "Timeline";
+  const [titleValue, setTitleValue] = useState(timelineTitle);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+
+  useEffect(() => {
+    setTitleValue(timelineTitle);
+  }, [timelineTitle]);
+
   // New state for Phase 1 & 2 features
   const [filters, setFilters] = useState(viewConfig.filters || {});
   const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee">(viewConfig.groupBy || "none");
@@ -697,6 +708,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const [newSubEventTitle, setNewSubEventTitle] = useState("");
   const [newSubEventStart, setNewSubEventStart] = useState("");
   const [newSubEventEnd, setNewSubEventEnd] = useState("");
+  const [isEventListCollapsed, setIsEventListCollapsed] = useState(false);
 
   const { data: timelineItems = [] } = useTimelineItems(block.id);
   const timelineEventIds = useMemo(() => timelineItems.map((item) => item.id), [timelineItems]);
@@ -720,6 +732,59 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       },
     })
   );
+
+  const eventsDateRange = useMemo(() => {
+    if (!timelineItems || timelineItems.length === 0) return null;
+
+    let minStart: Date | null = null;
+    let maxEnd: Date | null = null;
+
+    for (const item of timelineItems) {
+      const startSource = (item as any).start_date ?? (item as any).end_date;
+      const endSource = (item as any).end_date ?? (item as any).start_date;
+
+      if (!startSource && !endSource) continue;
+
+      const start = clampDate(new Date(startSource));
+      const end = clampDate(new Date(endSource));
+
+      if (!minStart || start < minStart) {
+        minStart = start;
+      }
+      if (!maxEnd || end > maxEnd) {
+        maxEnd = end;
+      }
+    }
+
+    if (!minStart || !maxEnd) return null;
+
+    return { start: minStart, end: maxEnd };
+  }, [timelineItems]);
+
+  const renderRange = useMemo(() => {
+    if (!eventsDateRange) {
+      return displayRange;
+    }
+
+    let start = displayRange.start;
+    let end = displayRange.end;
+
+    if (eventsDateRange.start < start) {
+      start = eventsDateRange.start;
+    }
+    if (eventsDateRange.end > end) {
+      end = eventsDateRange.end;
+    }
+
+    if (zoomLevel === "month" || zoomLevel === "quarter" || zoomLevel === "year") {
+      return {
+        start: startOfYear(start),
+        end: endOfYear(end),
+      };
+    }
+
+    return { start, end };
+  }, [displayRange, eventsDateRange, zoomLevel]);
 
   // Load workspace members
   useEffect(() => {
@@ -851,8 +916,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   }
 
   const grid = useMemo(
-    () => buildGrid(displayRange.start, displayRange.end, zoomLevel),
-    [displayRange.start, displayRange.end, zoomLevel]
+    () => buildGrid(renderRange.start, renderRange.end, zoomLevel),
+    [renderRange.start, renderRange.end, zoomLevel]
   );
   const totalColumns = useMemo(() => grid.length, [grid]);
   const baseColumnWidth = useMemo(() => getColumnWidth(zoomLevel), [zoomLevel]);
@@ -1078,7 +1143,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   }, [filteredEvents]);
 
   function toCol(date: Date) {
-    return Math.max(0, Math.min(totalColumns - 1, dateToColumn(date, displayRange.start, zoomLevel)));
+    return Math.max(0, Math.min(totalColumns - 1, dateToColumn(date, renderRange.start, zoomLevel)));
   }
 
   function barStyle(startISO: string, endISO: string, rowTop: number): React.CSSProperties {
@@ -1087,16 +1152,16 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     let left = 0;
     let width = 0;
     if (zoomLevel === "week") {
-      const startOffset = weekColumnOffset(s, displayRange.start);
-      const endOffset = weekColumnOffset(addDays(e, 1), displayRange.start);
+      const startOffset = weekColumnOffset(s, renderRange.start);
+      const endOffset = weekColumnOffset(addDays(e, 1), renderRange.start);
       const clampedStart = Math.max(0, Math.min(totalColumns, startOffset));
       const clampedEnd = Math.max(0, Math.min(totalColumns, endOffset));
       const span = Math.max(1 / 7, clampedEnd - clampedStart);
       left = clampedStart * columnWidth;
       width = span * columnWidth;
     } else if (zoomLevel === "month") {
-      const startOffset = monthColumnOffset(s, displayRange.start);
-      const endOffset = monthColumnOffset(addDays(e, 1), displayRange.start);
+      const startOffset = monthColumnOffset(s, renderRange.start);
+      const endOffset = monthColumnOffset(addDays(e, 1), renderRange.start);
       const clampedStart = Math.max(0, Math.min(totalColumns, startOffset));
       const clampedEnd = Math.max(0, Math.min(totalColumns, endOffset));
       const daysInMonth = differenceInCalendarDays(addDays(endOfMonth(s), 1), startOfMonth(s));
@@ -1104,8 +1169,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       left = clampedStart * columnWidth;
       width = span * columnWidth;
     } else if (zoomLevel === "quarter") {
-      const startOffset = quarterColumnOffset(s, displayRange.start);
-      const endOffset = quarterColumnOffset(addDays(e, 1), displayRange.start);
+      const startOffset = quarterColumnOffset(s, renderRange.start);
+      const endOffset = quarterColumnOffset(addDays(e, 1), renderRange.start);
       const clampedStart = Math.max(0, Math.min(totalColumns, startOffset));
       const clampedEnd = Math.max(0, Math.min(totalColumns, endOffset));
       const daysInQuarter = differenceInCalendarDays(addDays(endOfQuarter(s), 1), startOfQuarter(s));
@@ -1324,6 +1389,35 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
   };
 
+  const saveTimelineTitle = async () => {
+    if (readOnly) {
+      setIsEditingTitle(false);
+      return;
+    }
+
+    const trimmed = titleValue.trim();
+    const current = typeof content.title === "string" ? (content.title as string) : "";
+
+    setIsEditingTitle(false);
+
+    if (trimmed === current) return;
+
+    const result = await updateBlock({
+      blockId: block.id,
+      content: {
+        ...content,
+        title: trimmed || null,
+      },
+    });
+
+    if (result.data) {
+      onUpdate?.(result.data);
+    } else if (result.error) {
+      console.error("Failed to rename timeline:", result.error);
+      setTitleValue(current || "Timeline");
+    }
+  };
+
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {
     const eventId = event.active.id as string;
@@ -1377,7 +1471,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       return;
     }
 
-    const newDate = columnToDate(columnIndex, displayRange.start, zoomLevel);
+    const newDate = columnToDate(columnIndex, renderRange.start, zoomLevel);
     const currentStart = clampDate(new Date(activeEvent.start));
     const currentEnd = clampDate(new Date(activeEvent.end));
     const duration = Math.max(0, differenceInCalendarDays(currentEnd, currentStart));
@@ -1500,13 +1594,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           onAddSubEvent={(parentEventId) => {
             setAddSubEventParentId(parentEventId);
             const parent = events.find((item) => item.id === parentEventId);
-            const fallbackStart = parent?.start ?? displayRange.start.toISOString();
+            const fallbackStart = parent?.start ?? renderRange.start.toISOString();
             const fallbackEnd = parent?.end ?? fallbackStart;
             setNewSubEventTitle("");
             setNewSubEventStart(format(parseDateSafe(fallbackStart) || new Date(fallbackStart), "yyyy-MM-dd"));
             setNewSubEventEnd(format(parseDateSafe(fallbackEnd) || new Date(fallbackEnd), "yyyy-MM-dd"));
           }}
           variant="modal"
+          isEventListCollapsed={isEventListCollapsed}
+          onToggleEventListCollapse={() => setIsEventListCollapsed((prev) => !prev)}
         />
       </div>
     </>
@@ -1532,8 +1628,11 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
               clearHideTimer();
             }}
             onMouseLeave={(e) => {
-              const rt = e.relatedTarget as HTMLElement | null;
-              if (rt && rt.closest("[data-event-id]")) return; // going back to a bar
+              const rt = e.relatedTarget as EventTarget | null;
+              if (rt && rt instanceof Element && rt.closest("[data-event-id]")) {
+                // pointer moved from tooltip back to a bar; keep tooltip visible
+                return;
+              }
               scheduleHide();
             }}
           >
@@ -1633,9 +1732,40 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     <div className="space-y-3 w-full">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-[var(--foreground)]">Timeline</h2>
+          {readOnly ? (
+            <h2 className="text-sm font-semibold text-[var(--foreground)] truncate">
+              {titleValue || "Timeline"}
+            </h2>
+          ) : isEditingTitle ? (
+            <input
+              type="text"
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              onBlur={saveTimelineTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void saveTimelineTitle();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setTitleValue(timelineTitle);
+                  setIsEditingTitle(false);
+                }
+              }}
+              autoFocus
+              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm font-semibold text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+              placeholder="Timeline name"
+            />
+          ) : (
+            <div
+              className="cursor-text text-sm font-semibold text-[var(--foreground)] hover:text-[var(--foreground)]/90 truncate"
+              onClick={() => setIsEditingTitle(true)}
+            >
+              {titleValue || "Timeline"}
+            </div>
+          )}
           <div className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-            {format(displayRange.start, "MMM d")} – {format(displayRange.end, "MMM d, yyyy")}
+            {format(renderRange.start, "MMM d")} – {format(renderRange.end, "MMM d, yyyy")}
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -1719,74 +1849,81 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         </div>
       </div>
 
-      <div className="grid grid-cols-[320px_1fr] border border-[var(--border)] bg-[var(--surface)] w-full">
+      <div
+        className={cn(
+          "grid border border-[var(--border)] bg-[var(--surface)] w-full",
+          isEventListCollapsed ? "grid-cols-[1fr]" : "grid-cols-[320px_1fr]"
+        )}
+      >
         {/* Left rail: event list aligned 1:1 with timeline rows */}
-        <div className="border-r border-[var(--border)] bg-[var(--surface)] flex flex-col min-w-[320px] w-[320px] shrink-0">
-          <div className="sticky top-0 z-10 min-h-[44px] border-b border-[var(--border)] bg-[var(--surface)] shrink-0" />
-          <div className="flex flex-col min-h-0">
-            {flatRows.length === 0 ? (
-              <div className="min-h-[44px] border-b border-[var(--border)] flex items-center px-3 text-sm text-[var(--muted-foreground)]">
-                No events
-              </div>
-            ) : (
-              flatRows.map(({ event, rowIndex }) => {
-                const rowSubEvents = subEventsByParentId[event.id] ?? [];
-                return (
-                  <div
-                    key={event.id}
-                    className={cn(
-                      "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2",
-                      rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
-                    )}
-                    style={{ minHeight: rowHeights[rowIndex] ?? 44 }}
-                  >
-                    <div className="flex items-center gap-2 min-h-[20px]">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 truncate text-sm text-[var(--foreground)] font-medium">
-                          <span className="truncate">{event.title || "Untitled"}</span>
-                          {event.source_entity_id && (
-                            <span className="shrink-0 text-[var(--muted-foreground)]" title="Linked from another item">
-                              <Link2 className="h-3 w-3" aria-hidden />
-                            </span>
+        {!isEventListCollapsed && (
+          <div className="border-r border-[var(--border)] bg-[var(--surface)] flex flex-col min-w-[320px] w-[320px] shrink-0">
+            <div className="sticky top-0 z-10 min-h-[44px] border-b border-[var(--border)] bg-[var(--surface)] shrink-0" />
+            <div className="flex flex-col min-h-0">
+              {flatRows.length === 0 ? (
+                <div className="min-h-[44px] border-b border-[var(--border)] flex items-center px-3 text-sm text-[var(--muted-foreground)]">
+                  No events
+                </div>
+              ) : (
+                flatRows.map(({ event, rowIndex }) => {
+                  const rowSubEvents = subEventsByParentId[event.id] ?? [];
+                  return (
+                    <div
+                      key={event.id}
+                      className={cn(
+                        "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2",
+                        rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
+                      )}
+                      style={{ minHeight: rowHeights[rowIndex] ?? 44 }}
+                    >
+                      <div className="flex items-center gap-2 min-h-[20px]">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 truncate text-sm text-[var(--foreground)] font-medium">
+                            <span className="truncate">{event.title || "Untitled"}</span>
+                            {event.source_entity_id && (
+                              <span className="shrink-0 text-[var(--muted-foreground)]" title="Linked from another item">
+                                <Link2 className="h-3 w-3" aria-hidden />
+                              </span>
+                            )}
+                          </div>
+                          {event.assignee && (
+                            <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                              {event.assignee}
+                            </div>
                           )}
                         </div>
-                        {event.assignee && (
-                          <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                            {event.assignee}
-                          </div>
-                        )}
+                        <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
+                          {format(new Date(event.start), "MMM d")}
+                          {event.start !== event.end && ` – ${format(new Date(event.end), "MMM d")}`}
+                        </div>
                       </div>
-                      <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
-                        {format(new Date(event.start), "MMM d")}
-                        {event.start !== event.end && ` – ${format(new Date(event.end), "MMM d")}`}
-                      </div>
+                      {rowSubEvents.length > 0 && (
+                        <ul className="mt-0.5 pl-4 space-y-0.5 border-l border-[var(--border)] ml-1">
+                          {rowSubEvents.map((child) => (
+                            <li
+                              key={child.id}
+                              className={cn(
+                                "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate cursor-pointer hover:text-[var(--foreground)]"
+                              )}
+                              onClick={() => openPanel(child.id)}
+                            >
+                              <Minus className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
+                              <span className="truncate flex-1 min-w-0">{child.title || "Untitled"}</span>
+                              <span className="text-[9px] text-[var(--tertiary-foreground)] shrink-0">
+                                {format(parseDateSafe(child.start) || new Date(), "MMM d")}
+                                {child.start !== child.end && `-${format(parseDateSafe(child.end) || new Date(), "MMM d")}`}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                    {rowSubEvents.length > 0 && (
-                      <ul className="mt-0.5 pl-4 space-y-0.5 border-l border-[var(--border)] ml-1">
-                        {rowSubEvents.map((child) => (
-                          <li
-                            key={child.id}
-                            className={cn(
-                              "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate cursor-pointer hover:text-[var(--foreground)]"
-                            )}
-                            onClick={() => openPanel(child.id)}
-                          >
-                            <Minus className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
-                            <span className="truncate flex-1 min-w-0">{child.title || "Untitled"}</span>
-                            <span className="text-[9px] text-[var(--tertiary-foreground)] shrink-0">
-                              {format(parseDateSafe(child.start) || new Date(), "MMM d")}
-                              {child.start !== child.end && `-${format(parseDateSafe(child.end) || new Date(), "MMM d")}`}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right: timeline canvas (horizontal scroll) */}
         <div ref={scrollRef} className="overflow-x-auto min-w-0">
@@ -1918,8 +2055,13 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                         });
                       }}
                       onMouseLeave={(e) => {
-                        const rt = e.relatedTarget as HTMLElement | null;
-                        if (rt && (rt.closest("[data-event-id]") || rt.closest("#timeline-tooltip"))) {
+                        const rt = e.relatedTarget as EventTarget | null;
+                        if (
+                          rt &&
+                          rt instanceof Element &&
+                          (rt.closest("[data-event-id]") || rt.closest("#timeline-tooltip"))
+                        ) {
+                          // moving between an event bar and the tooltip; don't hide yet
                           return;
                         }
                         scheduleHide();
@@ -1937,7 +2079,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                       onAddSubEvent={(parentId) => {
                         setAddSubEventParentId(parentId);
                         const parent = events.find((event) => event.id === parentId);
-                        const fallbackStart = parent?.start ?? displayRange.start.toISOString();
+                        const fallbackStart = parent?.start ?? renderRange.start.toISOString();
                         const fallbackEnd = parent?.end ?? fallbackStart;
                         setNewSubEventTitle("");
                         setNewSubEventStart(format(parseDateSafe(fallbackStart) || new Date(fallbackStart), "yyyy-MM-dd"));
@@ -2017,8 +2159,8 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           isOpen={isAddDialogOpen}
           onClose={() => setIsAddDialogOpen(false)}
           onSave={saveNewEvent}
-          defaultStart={displayRange.start}
-          defaultEnd={addDays(displayRange.start, 3)}
+          defaultStart={renderRange.start}
+          defaultEnd={addDays(renderRange.start, 3)}
           members={members}
           workspaceId={workspaceId}
           anchorRef={addEventButtonRef}
@@ -2489,6 +2631,8 @@ function EventDetailsPanel({
   onSelectEvent,
   onAddSubEvent,
   variant = "sidebar",
+  isEventListCollapsed,
+  onToggleEventListCollapse,
 }: {
   event: TimelineEvent;
   isOpen: boolean;
@@ -2502,6 +2646,8 @@ function EventDetailsPanel({
   onSelectEvent: (eventId: string) => void;
   onAddSubEvent: (parentEventId: string) => void;
   variant?: "sidebar" | "modal";
+  isEventListCollapsed?: boolean;
+  onToggleEventListCollapse?: () => void;
 }) {
   const { data: direct } = useEntityProperties("timeline_event", event.id);
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
@@ -2809,14 +2955,26 @@ function EventDetailsPanel({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-50 active:scale-[.98] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900 shrink-0"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {onToggleEventListCollapse && (
+              <button
+                type="button"
+                onClick={onToggleEventListCollapse}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm transition hover:bg-zinc-50 active:scale-[.98] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                aria-label={isEventListCollapsed ? "Show event list" : "Hide event list"}
+              >
+                <ChevronLeft className={cn("h-4 w-4 transition-transform", isEventListCollapsed && "rotate-180")} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-50 active:scale-[.98] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <Divider />
         <div ref={contentScrollRef} className="flex-1 overflow-y-auto min-h-0 px-4" data-event-details-modal="true">

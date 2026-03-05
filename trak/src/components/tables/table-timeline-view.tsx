@@ -54,29 +54,66 @@ const withAlpha = (color: string, alpha: string) => {
   return color;
 };
 
+const toDateToken = (value: unknown): string => {
+  if (value === null || value === undefined || value === "") return "";
+  const str = String(value).trim();
+  if (!str) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const date = new Date(str);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const toDateRange = (value: unknown): { start: string; end: string } | null => {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const rangeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s*\.\.\s*(\d{4}-\d{2}-\d{2})$/);
+    if (rangeMatch) return { start: rangeMatch[1], end: rangeMatch[2] };
+    const token = toDateToken(trimmed);
+    return token ? { start: token, end: token } : null;
+  }
+
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const start = toDateToken(obj.start ?? obj.startDate ?? obj.from ?? obj.date ?? null);
+    const end = toDateToken(obj.end ?? obj.endDate ?? obj.to ?? obj.dueDate ?? start);
+    if (!start && !end) return null;
+    return { start: start || end, end: end || start };
+  }
+
+  const token = toDateToken(value);
+  return token ? { start: token, end: token } : null;
+};
+
+const tokenToDate = (token: string): Date | null => {
+  const [year, month, day] = token.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+};
+
+const formatToken = (token: string): string => {
+  const date = tokenToDate(token);
+  return date ? date.toLocaleDateString() : "";
+};
 
 const toDateDisplay = (value: unknown) => {
-  if (!value) return "";
-  const str = String(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    const [year, month, day] = str.split("-").map(Number);
-    if (!year || !month || !day) return "";
-    return new Date(year, month - 1, day).toLocaleDateString();
+  const range = toDateRange(value);
+  if (!range) return "";
+  if (range.start && range.end && range.start !== range.end) {
+    return `${formatToken(range.start)} - ${formatToken(range.end)}`;
   }
-  const date = new Date(str);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+  return formatToken(range.end || range.start);
 };
 
 const parseDateValue = (value: unknown) => {
-  if (!value) return null;
-  const str = String(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    const [year, month, day] = str.split("-").map(Number);
-    if (!year || !month || !day) return null;
-    return new Date(year, month - 1, day);
-  }
-  const date = new Date(str);
-  return Number.isNaN(date.getTime()) ? null : date;
+  const range = toDateRange(value);
+  if (!range) return null;
+  return tokenToDate(range.start || range.end);
 };
 
 const getScale = (rangeDays: number): TimelineScale => {

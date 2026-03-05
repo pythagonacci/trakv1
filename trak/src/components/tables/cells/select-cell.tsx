@@ -21,6 +21,11 @@ const randomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)];
 };
 
+const DROPDOWN_MAX_HEIGHT = 240;
+const DROPDOWN_MIN_HEIGHT = 120;
+const DROPDOWN_VIEWPORT_GAP = 8;
+const DROPDOWN_Z_INDEX = 9999;
+
 export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving, onUpdateConfig }: Props) {
   const config = (field.config || {}) as SelectFieldConfig;
   const options = config.options || [];
@@ -72,29 +77,41 @@ export function SelectCell({ field, value, editing, onStartEdit, onCommit, onCan
       const anchor = anchorRef.current;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
-      const maxHeight = 240;
       const width = Math.max(240, rect.width);
-      const spaceBelow = window.innerHeight - rect.bottom - 8;
-      const spaceAbove = rect.top - 8;
-      const openUpward = spaceBelow < maxHeight && spaceAbove > spaceBelow;
-      const height = Math.min(maxHeight, openUpward ? spaceAbove : spaceBelow);
-      const top = openUpward ? rect.top - height : rect.bottom;
-      const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - DROPDOWN_VIEWPORT_GAP);
+      const spaceAbove = Math.max(0, rect.top - DROPDOWN_VIEWPORT_GAP);
+      const openUpward = spaceBelow < DROPDOWN_MIN_HEIGHT && spaceAbove > spaceBelow;
+      const availableHeight = openUpward ? spaceAbove : spaceBelow;
+      const height = Math.max(
+        DROPDOWN_MIN_HEIGHT,
+        Math.min(DROPDOWN_MAX_HEIGHT, availableHeight || DROPDOWN_MIN_HEIGHT)
+      );
+      const unclampedTop = openUpward ? rect.top - height : rect.bottom;
+      const top = Math.min(
+        Math.max(DROPDOWN_VIEWPORT_GAP, unclampedTop),
+        Math.max(DROPDOWN_VIEWPORT_GAP, window.innerHeight - height - DROPDOWN_VIEWPORT_GAP)
+      );
+      const left = Math.min(
+        Math.max(rect.left, DROPDOWN_VIEWPORT_GAP),
+        window.innerWidth - width - DROPDOWN_VIEWPORT_GAP
+      );
       setDropdownStyle({
         position: "fixed",
         top,
         left,
         width,
-        maxHeight: Math.max(120, height),
-        zIndex: 60,
+        maxHeight: height,
+        zIndex: DROPDOWN_Z_INDEX,
       });
     };
 
     updatePosition();
+    const rafId = requestAnimationFrame(updatePosition);
     const handleScroll = () => requestAnimationFrame(updatePosition);
     window.addEventListener("scroll", handleScroll, true);
     window.addEventListener("resize", handleScroll);
     return () => {
+      cancelAnimationFrame(rafId);
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
     };

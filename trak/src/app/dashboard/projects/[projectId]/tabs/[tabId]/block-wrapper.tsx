@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   GripVertical,
   Trash2,
@@ -84,10 +84,17 @@ export default function BlockWrapper({
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsAnchorRect, setCommentsAnchorRect] = useState<DOMRect | null>(null);
+  const [commentsPanelPosition, setCommentsPanelPosition] = useState<{ side: "left" | "right"; top: number }>({
+    side: "right",
+    top: 8,
+  });
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesAnchorRect, setPropertiesAnchorRect] = useState<DOMRect | null>(null);
+  const blockCardRef = useRef<HTMLDivElement>(null);
   const blockMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const attachmentTriggerRef = useRef<HTMLButtonElement>(null);
+  const commentsAnchorElRef = useRef<HTMLElement | null>(null);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
 
   const openPropertiesMenu = () => {
@@ -96,6 +103,59 @@ export default function BlockWrapper({
     setPropertiesOpen(true);
     setMenuOpen(false);
   };
+  const computeCommentsPanelPosition = useCallback((triggerRect?: DOMRect | null) => {
+    const blockRect = blockCardRef.current?.getBoundingClientRect();
+    if (!blockRect || typeof window === "undefined") {
+      return { side: "right" as const, top: 8 };
+    }
+
+    const panelWidth = 320;
+    const edgeMargin = 10;
+    const blockGap = 12;
+    const anchor = triggerRect ?? blockRect;
+    const hasRoomOnRight = blockRect.right + blockGap + panelWidth + edgeMargin <= window.innerWidth;
+    const side = hasRoomOnRight ? "right" : "left";
+
+    const rawTop = anchor.top - blockRect.top - 12;
+    const maxTop = Math.max(8, blockRect.height - 140);
+    const top = Math.min(Math.max(8, rawTop), maxTop);
+
+    return { side, top };
+  }, []);
+  const openComments = useCallback((trigger?: HTMLElement | null) => {
+    const anchorElement = trigger ?? blockMenuTriggerRef.current ?? blockCardRef.current;
+    commentsAnchorElRef.current = anchorElement;
+    const rect = anchorElement?.getBoundingClientRect() ?? null;
+    setCommentsAnchorRect(rect);
+    setCommentsPanelPosition(computeCommentsPanelPosition(rect));
+    setCommentsOpen(true);
+  }, [computeCommentsPanelPosition]);
+  const toggleComments = useCallback((trigger?: HTMLElement | null) => {
+    if (commentsOpen) {
+      setCommentsOpen(false);
+      return;
+    }
+    openComments(trigger);
+  }, [commentsOpen, openComments]);
+  const closeComments = useCallback(() => {
+    setCommentsOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!commentsOpen) return;
+
+    const updatePanelPosition = () => {
+      const latestAnchorRect = commentsAnchorElRef.current?.getBoundingClientRect() ?? commentsAnchorRect;
+      setCommentsPanelPosition(computeCommentsPanelPosition(latestAnchorRect));
+    };
+
+    updatePanelPosition();
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
+    };
+  }, [commentsOpen, commentsAnchorRect, computeCommentsPanelPosition]);
   const { contextBlock, setContextBlock, openCommandPalette } = useAI();
   const referencePicker = useBlockReferencePicker();
 
@@ -337,6 +397,7 @@ export default function BlockWrapper({
       )}
 
       <div
+        ref={blockCardRef}
         className={cn(
           "relative flex min-w-0 flex-col w-full rounded-[var(--radius-sm)] transition-all duration-150 ease-out",
           borderless
@@ -367,7 +428,7 @@ export default function BlockWrapper({
         }}
       >
         {!borderless && (
-          <div className="absolute -top-3 right-3 flex items-center gap-2 z-[70]">
+          <div className="absolute -top-3 right-3 flex items-center gap-1.5 z-[70]">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -376,23 +437,17 @@ export default function BlockWrapper({
               onMouseDown={(e) => e.stopPropagation()}
               disabled={isTogglingLock}
               className={cn(
-                "inline-flex items-center justify-center rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] transition-colors",
+                "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
                 isLocked
                   ? "border-amber-300 bg-amber-50 text-amber-800"
-                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                  : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
               )}
               title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
             >
               {isLocked ? (
-                <>
-                  <Lock className="mr-1 h-3 w-3" />
-                  Locked
-                </>
+                <Lock className="h-3 w-3" />
               ) : (
-                <>
-                  <Unlock className="mr-1 h-3 w-3" />
-                  Lock
-                </>
+                <Unlock className="h-3 w-3" />
               )}
             </button>
             {!readOnly && (
@@ -409,10 +464,10 @@ export default function BlockWrapper({
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "inline-flex items-center justify-center rounded-md border p-1.5 transition-colors",
+                    "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
                     isContextBlock
                       ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
-                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                      : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
                   )}
                   title={isContextBlock ? "AI context selected" : "Use as AI context"}
                   aria-pressed={isContextBlock}
@@ -422,11 +477,11 @@ export default function BlockWrapper({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCommentsOpen((prev) => !prev);
+                    toggleComments(e.currentTarget);
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "inline-flex items-center justify-center rounded-md border p-1.5 transition-colors",
+                    "inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
                     hasComments || commentsOpen
                       ? "border-blue-200 bg-blue-50 text-blue-700"
                       : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -448,7 +503,7 @@ export default function BlockWrapper({
                       });
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
-                    className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                     title="Attach reference"
                     aria-label="Attach reference"
                   >
@@ -579,7 +634,7 @@ export default function BlockWrapper({
 
                       <DropdownMenuItem
                         onClick={() => {
-                          setCommentsOpen(true);
+                          openComments(blockMenuTriggerRef.current);
                           setMenuOpen(false);
                         }}
                         className="text-[11px]"
@@ -619,7 +674,7 @@ export default function BlockWrapper({
         )}
 
         {borderless && !readOnly && (
-          <div className="absolute right-2 top-2 z-[70] flex items-center gap-2">
+          <div className="absolute right-2 top-2 z-[70] flex items-center gap-1.5">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -628,10 +683,10 @@ export default function BlockWrapper({
               onMouseDown={(e) => e.stopPropagation()}
               disabled={isTogglingLock}
               className={cn(
-                "inline-flex items-center justify-center rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] transition-colors",
+                "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
                 isLocked
                   ? "border-amber-300 bg-amber-50 text-amber-800"
-                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                  : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
               )}
               title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
             >
@@ -644,11 +699,11 @@ export default function BlockWrapper({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setCommentsOpen((prev) => !prev);
+                toggleComments(e.currentTarget);
               }}
               onMouseDown={(e) => e.stopPropagation()}
               className={cn(
-                "inline-flex items-center justify-center rounded-md border p-1.5 transition-colors",
+                "inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
                 hasComments || commentsOpen
                   ? "border-blue-200 bg-blue-50 text-blue-700"
                   : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
@@ -670,7 +725,7 @@ export default function BlockWrapper({
                   });
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
-                className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                 title="Attach reference"
                 aria-label="Attach reference"
               >
@@ -840,7 +895,7 @@ export default function BlockWrapper({
                   
                   <DropdownMenuItem
                     onClick={() => {
-                      setCommentsOpen(true);
+                      openComments(blockMenuTriggerRef.current);
                       setMenuOpen(false);
                     }}
                   >
@@ -1012,7 +1067,7 @@ export default function BlockWrapper({
 
                 <DropdownMenuItem
                   onClick={() => {
-                    setCommentsOpen(true);
+                    openComments(blockMenuTriggerRef.current);
                     setMenuOpen(false);
                   }}
                   className="text-[11px]"
@@ -1068,13 +1123,15 @@ export default function BlockWrapper({
             )}
           </div>
 
-          {/* Block Comments - positioned on the side (only show when open) */}
-          {!borderless && commentsOpen && !readOnly && (
+          {/* Block Comments popup */}
+          {commentsOpen && !readOnly && (
             <BlockComments
               block={block}
               onUpdate={onUpdate}
               isOpen={commentsOpen ? true : undefined}
-              onToggle={() => setCommentsOpen(!commentsOpen)}
+              onToggle={closeComments}
+              side={commentsPanelPosition.side}
+              anchorRect={commentsAnchorRect}
             />
           )}
         </div>
@@ -1169,7 +1226,7 @@ function getBlockTitle(block: Block): string {
       return (content.title as string) ?? "Table";
 
     case "timeline":
-      return "Timeline";
+      return (content.title as string) ?? "Timeline";
 
     case "image":
       return (content.alt as string) ?? (content.filename as string) ?? "Image";

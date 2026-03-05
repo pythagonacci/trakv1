@@ -286,7 +286,7 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                   <div className="space-y-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Due today</p>
                     {dueTodayTasks.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {dueTodayTasks.map((task) => (
                           <TaskRowButton
                             key={task.id}
@@ -305,7 +305,7 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                   <div className="space-y-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Upcoming</p>
                     {upcomingTasks.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {upcomingTasks.map((task) => (
                           <TaskRowButton
                             key={task.id}
@@ -324,7 +324,7 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                   <div className="space-y-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Past due</p>
                     {pastDueTasks.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {pastDueTasks.map((task) => (
                           <TaskRowButton
                             key={task.id}

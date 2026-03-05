@@ -8,6 +8,29 @@ import { type Block } from "@/app/actions/block";
 import { useTabContents } from "./tab-contents-context";
 import { useTable } from "@/lib/hooks/use-table-queries";
 
+const BLOCK_TYPE_LABELS: Partial<Record<Block["type"], string>> = {
+  text: "Text",
+  task: "Task list",
+  link: "Link",
+  divider: "Divider",
+  table: "Table",
+  timeline: "Timeline",
+  file: "File",
+  video: "Video",
+  image: "Image",
+  gallery: "Gallery",
+  embed: "Embed",
+  section: "Section",
+  chart: "Chart",
+  doc_reference: "Doc reference",
+  shopify_product: "Product",
+  pdf: "PDF",
+};
+
+function getBlockTypeLabel(type: Block["type"]): string {
+  return BLOCK_TYPE_LABELS[type] ?? type;
+}
+
 function getBlockTitle(block: Block): string {
   const content = (block.content ?? {}) as Record<string, unknown>;
   switch (block.type) {
@@ -211,10 +234,17 @@ export default function TableOfContents({
                       <button
                         key={block.id}
                         onClick={() => handleBlockClick(block.id)}
-                        className="block w-full text-left text-sm text-[var(--foreground)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-md px-2 py-1.5 truncate transition-colors"
+                        className="block w-full text-left text-sm text-[var(--foreground)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-md px-2 py-1.5 transition-colors"
                         title={title}
                       >
-                        <BlockTitle block={block} />
+                        <div className="flex flex-col gap-0.5">
+                          <span className="truncate">
+                            <BlockTitle block={block} />
+                          </span>
+                          <span className="text-[10px] leading-tight text-[var(--muted-foreground)] truncate">
+                            {getBlockTypeLabel(block.type)}
+                          </span>
+                        </div>
                       </button>
                     );
                   })}

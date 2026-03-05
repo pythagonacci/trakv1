@@ -120,6 +120,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
   const { supabase, userId } = access;
   const sourceEntityId = isUuidString(input.sourceEntityId) ? input.sourceEntityId : null;
   const sourceEntityType = sourceEntityId ? input.sourceEntityType ?? null : null;
+  const sourceSyncMode = sourceEntityId ? (input.sourceSyncMode ?? "live") : null;
   const { data: fields } = await supabase
     .from("table_fields")
     .select("id, name, type, config")
@@ -144,7 +145,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
       order: input.order ?? null,
       source_entity_type: sourceEntityType,
       source_entity_id: sourceEntityId,
-      source_sync_mode: input.sourceSyncMode ?? "live",
+      source_sync_mode: sourceSyncMode,
       created_by: userId,
       updated_by: userId,
     })
@@ -657,7 +658,7 @@ export async function duplicateRow(rowId: string, opts?: { authContext?: AuthCon
       order: Number(row.order) + 0.001,
       source_entity_type: sourceEntityId ? row.source_entity_type ?? null : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: row.source_sync_mode ?? "live",
+      source_sync_mode: sourceEntityId ? (row.source_sync_mode ?? "live") : null,
       created_by: userId,
       updated_by: userId,
     })

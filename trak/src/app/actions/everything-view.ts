@@ -444,7 +444,12 @@ async function getWorkspaceEverythingFallback(
     .select('entity_id')
     .eq('workspace_id', workspaceId)
     .eq('entity_type', 'subtask');
-  const subtaskIds = [...new Set((subtaskPropRows ?? []).map((r: any) => r.entity_id))];
+  const subtaskIdsRaw = (subtaskPropRows ?? []).map((r: { entity_id: unknown }) => r.entity_id);
+  const subtaskIds: string[] = Array.from(
+    new Set(
+      subtaskIdsRaw.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+    )
+  );
   if (subtaskIds.length > 0) {
     const { data: subtasks } = await supabase
       .from('task_subtasks')

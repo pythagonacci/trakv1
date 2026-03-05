@@ -570,6 +570,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
     estimateSize: () => 38, // approximate height of TableRow
     overscan: 10,
   });
+  const shouldVirtualizeRows = visibleRows.length > 40;
 
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
@@ -2023,7 +2024,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                           ))}
                       </React.Fragment>
                     ))
-                  ) : (
+                  ) : shouldVirtualizeRows ? (
                     <div
                       style={{
                         height: `${rowVirtualizer.getTotalSize()}px`,
@@ -2082,6 +2083,46 @@ export function TableView({ tableId, maxHeightPx }: Props) {
                         );
                       })}
                     </div>
+                  ) : (
+                    visibleRows.map((row) => (
+                      <TableRow
+                        key={row.id}
+                        fields={fields}
+                        columnTemplate={columnTemplate}
+                        tableId={tableId}
+                        rowId={row.id}
+                        data={row.data || {}}
+                        onChange={handleCellChange}
+                        savingRowIds={savingRows}
+                        onOpenComments={(rid) => setCommentsRowId(rid)}
+                        pinnedFields={pinnedFields}
+                        onContextMenu={handleCellContextMenu}
+                        widths={widthMap}
+                        selectionWidth={selectionWidth}
+                        showSelection
+                        isSelected={selectedRows.has(row.id)}
+                        onSelectRow={handleSelectRow}
+                        rowMetadata={{
+                          created_at: row.created_at,
+                          updated_at: row.updated_at,
+                          created_by: row.created_by || undefined,
+                          updated_by: row.updated_by || undefined,
+                        }}
+                        workspaceMembers={workspaceMembers}
+                        onCellKeyDown={handleCellKeyDown}
+                        cellRefs={cellRefs}
+                        editRequest={editRequest || undefined}
+                        onEditRequestHandled={() => setEditRequest(null)}
+                        draggable
+                        onDragStart={(id, e) => {
+                          e.dataTransfer.setData("rowId", id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onUpdateFieldConfig={handleUpdateFieldConfig}
+                        subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
+                        onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
+                      />
+                    ))
                   )}
 
                   {rowDataFromQuery.hasNextPage && (

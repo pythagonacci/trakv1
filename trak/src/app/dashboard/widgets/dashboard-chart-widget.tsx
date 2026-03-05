@@ -25,15 +25,42 @@ interface DashboardChartWidgetProps {
 
 /** Pick a readable label for a dashboard chart row */
 function rowLabel(row: ChartRow): string {
+  const id = (row as { id?: unknown }).id;
+  const idStr = typeof id === "string" ? id.trim() : null;
+
   const titleCandidates = ["Task Title", "Title", "title", "Name", "name"] as const;
   for (const key of titleCandidates) {
     const v = row[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string") {
+      const trimmed = v.trim();
+      if (trimmed && trimmed !== idStr) return trimmed;
+    }
   }
+
+  const excludedKeys = new Set(["id", "status", "priority", "assignee", "tags"]);
+
+  // Prefer any other field whose key looks like a title/name
   for (const [key, value] of Object.entries(row)) {
-    if (key === "id" || key === "status" || key === "priority" || key === "assignee" || key === "tags") continue;
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (excludedKeys.has(key)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed || trimmed === idStr) continue;
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.includes("title") || lowerKey.includes("name")) {
+        return trimmed;
+      }
+    }
   }
+
+  // Fallback: first non-empty string field
+  for (const [key, value] of Object.entries(row)) {
+    if (excludedKeys.has(key)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== idStr) return trimmed;
+    }
+  }
+
   return "Item";
 }
 
@@ -49,6 +76,37 @@ function rowMeta(row: ChartRow): string {
 
 function pct(n: number) {
   return `${Math.round(n)}%`;
+}
+
+const FRIENDLY_LABELS: Record<string, string> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  "in-progress": "In Progress",
+  not_started: "Not Started",
+  "not-started": "Not Started",
+  done: "Done",
+  blocked: "Blocked",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  urgent: "Urgent",
+  none: "None",
+};
+
+function formatCategoryLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return label;
+  const lower = trimmed.toLowerCase();
+  const known = FRIENDLY_LABELS[lower];
+  if (known) return known;
+  if (/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
+    return trimmed
+      .replace(/[_-]+/g, " ")
+      .split(" ")
+      .map((word) => (word ? word[0]!.toUpperCase() + word.slice(1) : ""))
+      .join(" ");
+  }
+  return label;
 }
 
 interface ExpandableBreakdownRowProps {
@@ -86,7 +144,7 @@ function ExpandableBreakdownRow({
             style={{ backgroundColor: color }}
           />
           <span className="truncate text-[12px] font-medium text-[var(--foreground)]">
-            {label}
+            {formatCategoryLabel(label)}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -109,7 +167,7 @@ function ExpandableBreakdownRow({
           {rows.length === 0 ? (
             <div className="py-2 text-[12px] text-[var(--muted-foreground)]">No items.</div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
               {rows.map((row) => (
                 <div
                   key={row.id}
@@ -148,6 +206,8 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(true);
+  const [hasTouchedOpenCategory, setHasTouchedOpenCategory] = useState(false);
+  const [spinNonce, setSpinNonce] = useState(0);
 
   const query = "query" in config ? config.query : undefined;
   const isLegacy = !query;
@@ -174,6 +234,13 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
     query?.title ?? "",
     refreshNonce,
   ]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setSpinNonce((n) => n + 1);
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const chartData = useMemo(() => {
     if (!result || "error" in result || !result.data) return null;
@@ -208,12 +275,6 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
     }
     return groupRowsByBreakdown(rows, spec, categoryLabels);
   }, [chartData, categoryLabels, rows, spec]);
-
-  useEffect(() => {
-    if (openCategory === null && categoryLabels.length > 0) {
-      setOpenCategory(categoryLabels[0]);
-    }
-  }, [categoryLabels, openCategory]);
 
   const title = query?.title ?? (result && "data" in result ? result.data?.title : null) ?? "Chart";
 
@@ -394,7 +455,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
             </div>
             <div className="mt-3 flex-1 min-h-[220px] flex items-center justify-center">
               <div className="w-full h-full max-h-[280px]">
-                <TrakChart spec={spec} data={chartData} height={260} />
+                <TrakChart key={spinNonce} spec={spec} data={chartData} height={260} />
               </div>
             </div>
           </div>
@@ -423,9 +484,10 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
                       count={typeof value === "number" ? value : groupRows.length}
                       percent={percent}
                       isOpen={openCategory === label}
-                      onToggle={() =>
-                        setOpenCategory((cur) => (cur === label ? null : label))
-                      }
+                      onToggle={() => {
+                        setHasTouchedOpenCategory(true);
+                        setOpenCategory((cur) => (cur === label ? null : label));
+                      }}
                       rows={groupRows}
                       getTaskHref={getTaskHrefForRow}
                     />
@@ -451,7 +513,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
                         className="text-[10px] font-medium text-[var(--muted-foreground)] truncate"
                         title={label}
                       >
-                        {label}
+                        {formatCategoryLabel(label)}
                       </div>
                       <div className="mt-0.5 text-[13px] font-semibold text-[var(--foreground)] tabular-nums">
                         {groupRows.length}
@@ -488,7 +550,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
                           className="h-2 w-2 rounded-[5px] shrink-0"
                           style={{ backgroundColor: resolveColor(label, idx) }}
                         />
-                        {label}
+                        {formatCategoryLabel(label)}
                       </span>
                     ))}
                   </span>

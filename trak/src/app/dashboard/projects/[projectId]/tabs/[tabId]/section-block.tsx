@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { type Block, type BlockType, createBlock, updateBlock } from "@/app/actions/block";
 import BlockRenderer from "./block-renderer";
@@ -35,6 +35,9 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
   const height = sectionContent.height;
   const [titleValue, setTitleValue] = useState(title);
   const [descriptionValue, setDescriptionValue] = useState(description);
+  const [sectionHeight, setSectionHeight] = useState<number | undefined>(height);
+  const sectionHeightRef = useRef<number | undefined>(height);
+  const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   // Fetch child blocks
   useEffect(() => {
@@ -63,6 +66,11 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
   useEffect(() => {
     setDescriptionValue(description);
   }, [description]);
+
+  useEffect(() => {
+    setSectionHeight(height);
+    sectionHeightRef.current = height;
+  }, [height]);
 
   const handleUpdate = () => {
     // Refresh child blocks
@@ -365,6 +373,59 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
   const handleAddChildBlockBelow = (targetBlockId: string, type?: BlockType, content?: Record<string, unknown>) =>
     handleAddChildBlockAtRow(targetBlockId, "below", type ?? "text", content);
 
+  const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const MIN_HEIGHT = 240;
+    const MAX_HEIGHT = 1600;
+    const startHeight =
+      (sectionHeightRef.current && sectionHeightRef.current > 0
+        ? sectionHeightRef.current
+        : typeof height === "number" && height > 0
+          ? height
+          : 400) ?? 400;
+
+    resizeStateRef.current = {
+      startY: e.clientY,
+      startHeight,
+    };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!resizeStateRef.current) return;
+      const delta = ev.clientY - resizeStateRef.current.startY;
+      const next = Math.min(
+        MAX_HEIGHT,
+        Math.max(MIN_HEIGHT, resizeStateRef.current.startHeight + delta),
+      );
+      setSectionHeight(next);
+      sectionHeightRef.current = next;
+    };
+
+    const handleMouseUp = async () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      if (!resizeStateRef.current) return;
+
+      const finalHeight = sectionHeightRef.current ?? resizeStateRef.current.startHeight;
+      const clamped = Math.round(
+        Math.min(
+          MAX_HEIGHT,
+          Math.max(MIN_HEIGHT, finalHeight),
+        ),
+      );
+
+      setSectionHeight(clamped);
+      sectionHeightRef.current = clamped;
+      resizeStateRef.current = null;
+
+      await persistContent({ height: clamped });
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
 
   return (
     <div className="w-full">
@@ -429,9 +490,9 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
         <div
           className={cn(
             "space-y-2.5 px-3 py-3",
-            height ? "overflow-y-auto" : ""
+            sectionHeight ? "overflow-y-auto" : ""
           )}
-          style={height ? { maxHeight: `${height}px`, height: `${height}px` } : undefined}
+          style={sectionHeight ? { maxHeight: `${sectionHeight}px`, height: `${sectionHeight}px` } : undefined}
         >
           {isLoading ? (
             <div className="flex items-center justify-center py-12 text-sm text-[var(--tertiary-foreground)]">
@@ -485,6 +546,15 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
             </>
           )}
         </div>
+
+        {sectionHeight && (
+          <div
+            className="flex justify-end px-3 pb-3 cursor-row-resize select-none"
+            onMouseDown={handleResizeMouseDown}
+          >
+            <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+          </div>
+        )}
       </div>
     </div>
   );

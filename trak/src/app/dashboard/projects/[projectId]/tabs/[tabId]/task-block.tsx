@@ -703,6 +703,10 @@ export default function TaskBlock({
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
   const taskListScrollRef = useRef<HTMLDivElement | null>(null);
+  const initialHeightPx =
+    typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
+  const [listHeightPx, setListHeightPx] = useState<number | null>(initialHeightPx);
+  const listHeightRef = useRef<number | null>(initialHeightPx);
 
   const openPropertiesFromElement = (
     element: HTMLElement | null,
@@ -749,6 +753,13 @@ export default function TaskBlock({
       activationConstraint: { distance: 6 },
     })
   );
+
+  useEffect(() => {
+    if (typeof content.heightPx === "number" && content.heightPx > 0) {
+      setListHeightPx(content.heightPx);
+      listHeightRef.current = content.heightPx;
+    }
+  }, [content.heightPx]);
 
   const orderedTasks = useMemo(() => {
     if (taskOrder.length === 0) return tasks;
@@ -831,6 +842,62 @@ export default function TaskBlock({
     if (!propertiesTarget || propertiesTarget.type !== "task") return undefined;
     return tasks.find((task) => String(task.id) === propertiesTarget.id);
   }, [propertiesTarget, tasks]);
+
+  const handleListResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (locked) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const MIN_HEIGHT = 240;
+    const MAX_HEIGHT = 1600;
+    const startHeight =
+      (listHeightRef.current && listHeightRef.current > 0 ? listHeightRef.current : 480) ?? 480;
+
+    const state = { startY: e.clientY, startHeight };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - state.startY;
+      const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, state.startHeight + delta));
+      setListHeightPx(next);
+      listHeightRef.current = next;
+    };
+
+    const handleMouseUp = async () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+
+      const finalHeight = listHeightRef.current ?? state.startHeight;
+      const clamped = Math.round(
+        Math.min(
+          MAX_HEIGHT,
+          Math.max(MIN_HEIGHT, finalHeight),
+        ),
+      );
+
+      setListHeightPx(clamped);
+      listHeightRef.current = clamped;
+
+      if (!block.id.startsWith("temp-")) {
+        const result = await updateBlock({
+          blockId: block.id,
+          content: {
+            ...content,
+            heightPx: clamped,
+          },
+        });
+        if ("data" in result && result.data) {
+          onUpdate?.(result.data);
+        } else if ("error" in result && result.error) {
+          console.error("Failed to update task block height:", result.error);
+        } else {
+          onUpdate?.();
+        }
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
 
   const statusFromLegacy = (status?: string): Status => {
     if (status === "in-progress") return "in_progress";
@@ -2613,7 +2680,16 @@ export default function TaskBlock({
         </p>
       )}
       {viewMode === "list" ? (
-        <div ref={taskListScrollRef} className="space-y-0 max-h-[70vh] overflow-y-auto" style={{ contain: 'layout style' }}>
+        <>
+        <div
+          ref={taskListScrollRef}
+          className="space-y-0 overflow-y-auto"
+          style={{
+            contain: "layout style",
+            maxHeight: listHeightPx ? `${listHeightPx}px` : "70vh",
+            height: listHeightPx ? `${listHeightPx}px` : undefined,
+          }}
+        >
           <div style={{ height: `${taskVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
             {taskVirtualizer.getVirtualItems().map((virtualRow) => {
               const task = orderedTasks[virtualRow.index] as Task;
@@ -3373,6 +3449,15 @@ export default function TaskBlock({
             <Plus className="h-3 w-3" /> Add task
           </button>
         </div>
+        {!locked && (
+          <div
+            className="mt-1 flex justify-end cursor-row-resize select-none"
+            onMouseDown={handleListResizeMouseDown}
+          >
+            <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+          </div>
+        )}
+        </>
       ) : viewMode === "board" ? (
         <DndContext
           sensors={sensors}

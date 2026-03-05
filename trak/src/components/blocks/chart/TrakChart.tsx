@@ -25,6 +25,37 @@ import type {
 } from "@/lib/charts/chartSpec";
 import { ChartEmptyState } from "./ChartEmptyState";
 
+const FRIENDLY_LABELS: Record<string, string> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  "in-progress": "In Progress",
+  not_started: "Not Started",
+  "not-started": "Not Started",
+  done: "Done",
+  blocked: "Blocked",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  urgent: "Urgent",
+  none: "None",
+};
+
+function formatChartLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return label;
+  const lower = trimmed.toLowerCase();
+  const known = FRIENDLY_LABELS[lower];
+  if (known) return known;
+  if (/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
+    return trimmed
+      .replace(/[_-]+/g, " ")
+      .split(" ")
+      .map((word) => (word ? word[0]!.toUpperCase() + word.slice(1) : ""))
+      .join(" ");
+  }
+  return label;
+}
+
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
 
 interface TooltipPayloadEntry {
@@ -60,7 +91,7 @@ function CustomTooltip({
       role="tooltip"
     >
       {label && (
-        <p className="mb-1 text-xs font-medium text-[var(--foreground)]">{label}</p>
+        <p className="mb-1 text-xs font-medium text-[var(--foreground)]">{formatChartLabel(label)}</p>
       )}
       {payload.map((entry, i) => {
         const pct =
@@ -75,7 +106,7 @@ function CustomTooltip({
               aria-hidden="true"
             />
             <span className="font-medium text-[var(--foreground)]">
-              {entry.name}:
+              {formatChartLabel(entry.name)}:
             </span>
             <span>
               {entry.value} {valueLabel.toLowerCase()}
@@ -128,7 +159,7 @@ function PieChartRenderer({ data, spec, height }: PieChartRendererProps) {
         fontSize={11}
         fill="var(--foreground)"
       >
-        {name} ({(percent * 100).toFixed(0)}%)
+        {formatChartLabel(String(name))} ({(percent * 100).toFixed(0)}%)
       </text>
     );
   };
@@ -167,7 +198,7 @@ function PieChartRenderer({ data, spec, height }: PieChartRendererProps) {
         <Legend
           formatter={(value) => (
             <span className="text-xs text-[var(--foreground)]" aria-label={`Legend: ${value}`}>
-              {value}
+              {formatChartLabel(String(value))}
             </span>
           )}
           wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
@@ -226,6 +257,7 @@ function SingleBarRenderer({ data, spec, height, orientation }: SingleBarRendere
           type="category"
           dataKey="name"
           width={100}
+          tickFormatter={(value) => formatChartLabel(String(value))}
           tick={{ fontSize: 11, fill: "var(--foreground)" }}
           axisLine={false}
           tickLine={false}
@@ -279,6 +311,7 @@ function MultiSeriesBarRenderer({
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis
             dataKey="label"
+            tickFormatter={(value) => formatChartLabel(String(value))}
             tick={{ fontSize: 11, fill: "var(--foreground)" }}
             axisLine={false}
             tickLine={false}
@@ -303,7 +336,7 @@ function MultiSeriesBarRenderer({
           <Legend
             formatter={(value) => (
               <span className="text-xs text-[var(--foreground)]" aria-label={`Legend: ${value}`}>
-                {value}
+                {formatChartLabel(String(value))}
               </span>
             )}
           />
@@ -345,6 +378,7 @@ function MultiSeriesBarRenderer({
           type="category"
           dataKey="label"
           width={100}
+          tickFormatter={(value) => formatChartLabel(String(value))}
           tick={{ fontSize: 11, fill: "var(--foreground)" }}
           axisLine={false}
           tickLine={false}
@@ -356,7 +390,7 @@ function MultiSeriesBarRenderer({
         <Legend
           formatter={(value) => (
             <span className="text-xs text-[var(--foreground)]" aria-label={`Legend: ${value}`}>
-              {value}
+              {formatChartLabel(String(value))}
             </span>
           )}
           wrapperStyle={{ paddingTop: 8 }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
   getProductDetails,
@@ -24,6 +24,7 @@ interface ShopifyProductBlockProps {
 }
 
 export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductBlockProps) {
+  const content = (block.content || {}) as Block["content"];
   const productId = block.content?.product_id as string | undefined;
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +46,11 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
     }>
   >([]);
   const [expanded, setExpanded] = useState(false);
+  const isLocked = Boolean(block.locked);
+  const initialHeightPx =
+    typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
+  const [contentHeightPx, setContentHeightPx] = useState<number | null>(initialHeightPx);
+  const contentHeightRef = useRef<number | null>(initialHeightPx);
 
   useEffect(() => {
     if (productId) {
@@ -55,6 +61,13 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
       setLoading(false);
     }
   }, [productId]);
+
+  useEffect(() => {
+    const nextHeight =
+      typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
+    setContentHeightPx(nextHeight);
+    contentHeightRef.current = nextHeight;
+  }, [content.heightPx]);
 
   const loadProduct = async () => {
     if (!productId) return;
@@ -133,6 +146,61 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
       }
       onUpdate?.(result.data);
     });
+  };
+
+  const handleResizeMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (isLocked) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const MIN_HEIGHT = 240;
+    const MAX_HEIGHT = 1600;
+    const startHeight =
+      (contentHeightRef.current && contentHeightRef.current > 0 ? contentHeightRef.current : 520) ?? 520;
+    const state = { startY: e.clientY, startHeight };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - state.startY;
+      const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, state.startHeight + delta));
+      setContentHeightPx(next);
+      contentHeightRef.current = next;
+    };
+
+    const handleMouseUp = async () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+
+      const finalHeight = contentHeightRef.current ?? state.startHeight;
+      const clamped = Math.round(
+        Math.min(
+          MAX_HEIGHT,
+          Math.max(MIN_HEIGHT, finalHeight),
+        ),
+      );
+
+      setContentHeightPx(clamped);
+      contentHeightRef.current = clamped;
+
+      if (!block.id.startsWith("temp-")) {
+        const result = await updateBlock({
+          blockId: block.id,
+          content: {
+            ...content,
+            heightPx: clamped,
+          },
+        });
+        if ("data" in result && result.data) {
+          onUpdate?.(result.data);
+        } else if ("error" in result && result.error) {
+          console.error("Failed to update Shopify product block height:", result.error);
+        } else {
+          onUpdate?.();
+        }
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
   };
 
   if (!productId) {
@@ -353,235 +421,256 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
           </Button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Compact header widget (mirrors Shopify products grid) */}
-          <div className="flex flex-col md:flex-row gap-4 md:items-stretch">
-            {product.featured_image_url ? (
-              <div className="md:w-40 flex-shrink-0">
-                <img
-                  src={product.featured_image_url}
-                  alt={product.title}
-                  className="w-full h-32 md:h-full object-cover rounded-lg bg-[var(--muted)]/40"
-                />
-              </div>
-            ) : (
-              <div className="md:w-40 h-32 md:h-full flex-shrink-0 rounded-lg bg-[var(--muted)]/40 flex items-center justify-center text-[var(--border)] text-xs">
-                No image
-              </div>
-            )}
-            <div className="flex-1 min-w-0 flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-base md:text-lg font-semibold truncate">
-                    {product.title}
-                  </h3>
-                  <p className="text-xs md:text-sm text-[var(--muted-foreground)] mt-0.5">
-                    Last synced: {new Date(product.last_synced_at).toLocaleString()}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--muted-foreground)]">
-                    {product.vendor && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--muted)]/40">
-                        <span className="font-medium">Vendor</span>
-                        <span>• {product.vendor}</span>
-                      </span>
-                    )}
-                    {product.product_type && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--muted)]/40">
-                        <span className="font-medium">Type</span>
-                        <span>• {product.product_type}</span>
-                      </span>
-                    )}
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--muted)]/40">
-                      <span className="font-medium">Status</span>
-                      <span>• {product.status}</span>
-                    </span>
-                  </div>
+        <div className="space-y-1">
+          <div
+            className="space-y-6"
+            style={
+              contentHeightPx && expanded
+                ? {
+                    height: `${contentHeightPx}px`,
+                    overflowY: "auto",
+                  }
+                : undefined
+            }
+          >
+            {/* Compact header widget (mirrors Shopify products grid) */}
+            <div className="flex flex-col md:flex-row gap-4 md:items-stretch">
+              {product.featured_image_url ? (
+                <div className="md:w-40 flex-shrink-0">
+                  <img
+                    src={product.featured_image_url}
+                    alt={product.title}
+                    className="w-full h-32 md:h-full object-cover rounded-lg bg-[var(--muted)]/40"
+                  />
                 </div>
-                <div className="flex flex-col gap-2 shrink-0">
-                  <Button
-                    onClick={handleRefresh}
-                    disabled={isPending}
-                    variant="outline"
-                    size="sm"
-                    className="whitespace-nowrap"
-                  >
-                    {isPending ? "Refreshing..." : "Refresh"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-[var(--muted-foreground)] underline-offset-2 hover:underline"
-                    onClick={() => setPickerOpen(true)}
-                  >
-                    Change product
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-1"
-                    onClick={() => setExpanded((v) => !v)}
-                  >
-                    {expanded ? "Collapse details" : "Expand details"}
-                  </Button>
+              ) : (
+                <div className="md:w-40 h-32 md:h-full flex-shrink-0 rounded-lg bg-[var(--muted)]/40 flex items-center justify-center text-[var(--border)] text-xs">
+                  No image
+                </div>
+              )}
+              <div className="flex-1 min-w-0 flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-base md:text-lg font-semibold truncate">
+                      {product.title}
+                    </h3>
+                    <p className="text-xs md:text-sm text-[var(--muted-foreground)] mt-0.5">
+                      Last synced: {new Date(product.last_synced_at).toLocaleString()}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--muted-foreground)]">
+                      {product.vendor && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--muted)]/40">
+                          <span className="font-medium">Vendor</span>
+                          <span>• {product.vendor}</span>
+                        </span>
+                      )}
+                      {product.product_type && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--muted)]/40">
+                          <span className="font-medium">Type</span>
+                          <span>• {product.product_type}</span>
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--muted)]/40">
+                        <span className="font-medium">Status</span>
+                        <span>• {product.status}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <Button
+                      onClick={handleRefresh}
+                      disabled={isPending}
+                      variant="outline"
+                      size="sm"
+                      className="whitespace-nowrap"
+                    >
+                      {isPending ? "Refreshing..." : "Refresh"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-[var(--muted-foreground)] underline-offset-2 hover:underline"
+                      onClick={() => setPickerOpen(true)}
+                    >
+                      Change product
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1"
+                      onClick={() => setExpanded((v) => !v)}
+                    >
+                      {expanded ? "Collapse details" : "Expand details"}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {expanded && (
-            <>
-              {/* Image + key info side by side to reduce height */}
-              <div className="flex flex-col md:flex-row gap-4 items-start">
-                {product.featured_image_url && (
-                  <div className="md:w-56 flex-shrink-0 rounded-lg overflow-hidden bg-[var(--muted)]/30">
-                    <img
-                      src={product.featured_image_url}
-                      alt={product.title}
-                      className="w-full h-40 md:h-48 object-contain"
-                    />
-                  </div>
-                )}
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                  {product.vendor && (
-                    <div>
-                      <span className="font-medium text-[var(--muted-foreground)]">Vendor:</span>
-                      <p className="text-[var(--foreground)]">{product.vendor}</p>
+            {expanded && (
+              <>
+                {/* Image + key info side by side to reduce height */}
+                <div className="flex flex-col md:flex-row gap-4 items-start">
+                  {product.featured_image_url && (
+                    <div className="md:w-56 flex-shrink-0 rounded-lg overflow-hidden bg-[var(--muted)]/30">
+                      <img
+                        src={product.featured_image_url}
+                        alt={product.title}
+                        className="w-full h-40 md:h-48 object-contain"
+                      />
                     </div>
                   )}
-                  {product.product_type && (
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    {product.vendor && (
+                      <div>
+                        <span className="font-medium text-[var(--muted-foreground)]">Vendor:</span>
+                        <p className="text-[var(--foreground)]">{product.vendor}</p>
+                      </div>
+                    )}
+                    {product.product_type && (
+                      <div>
+                        <span className="font-medium text-[var(--muted-foreground)]">Type:</span>
+                        <p className="text-[var(--foreground)]">{product.product_type}</p>
+                      </div>
+                    )}
                     <div>
-                      <span className="font-medium text-[var(--muted-foreground)]">Type:</span>
-                      <p className="text-[var(--foreground)]">{product.product_type}</p>
+                      <span className="font-medium text-[var(--muted-foreground)]">Status:</span>
+                      <p className="text-[var(--foreground)]">{product.status}</p>
                     </div>
-                  )}
-                  <div>
-                    <span className="font-medium text-[var(--muted-foreground)]">Status:</span>
-                    <p className="text-[var(--foreground)]">{product.status}</p>
+                    <div>
+                      <span className="font-medium text-[var(--muted-foreground)]">Shopify ID:</span>
+                      <p className="text-[var(--foreground)] font-mono text-xs">
+                        {product.shopify_product_id}
+                      </p>
+                    </div>
                   </div>
+                </div>
+
+                {/* Description */}
+                {product.description && (
                   <div>
-                    <span className="font-medium text-[var(--muted-foreground)]">Shopify ID:</span>
-                    <p className="text-[var(--foreground)] font-mono text-xs">
-                      {product.shopify_product_id}
+                    <h4 className="font-semibold mb-2">Description</h4>
+                    <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">
+                      {product.description}
                     </p>
                   </div>
-                </div>
-              </div>
+                )}
 
-              {/* Description */}
-              {product.description && (
-                <div>
-                  <h4 className="font-semibold mb-2">Description</h4>
-                  <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">
-                    {product.description}
-                  </p>
-                </div>
-              )}
+                {/* Tags */}
+                {product.tags && product.tags.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold mb-2">Tags</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {product.tags.map((tag: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-1 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-              {/* Tags */}
-              {product.tags && product.tags.length > 0 && (
-                <div>
-                  <h4 className="font-semibold mb-2">Tags</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {product.tags.map((tag: string, idx: number) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-1 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded text-xs"
+                {/* Units Sold Widget */}
+                <div className="border-t border-[var(--border)] pt-6">
+                  <h4 className="font-semibold mb-4">Sales Analytics</h4>
+                  <UnitsSoldWidget productId={productId} />
+                </div>
+
+                {/* Variants */}
+                <div className="border-t border-[var(--border)] pt-6">
+                  <h4 className="font-semibold mb-4">
+                    Variants ({product.variants?.length || 0})
+                  </h4>
+                  <div className="space-y-3">
+                    {product.variants?.map((variant: any) => (
+                      <div
+                        key={variant.id}
+                        className="border border-[var(--border)] rounded-lg p-4 hover:bg-[var(--muted)]/30 transition-colors"
                       >
-                        {tag}
-                      </span>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              {variant.image_url && (
+                                <img
+                                  src={variant.image_url}
+                                  alt={variant.title}
+                                  className="w-12 h-12 object-cover rounded shrink-0"
+                                />
+                              )}
+                              <div className="min-w-0">
+                                <h5 className="font-medium truncate">{variant.title}</h5>
+                                {variant.sku && (
+                                  <p className="text-sm text-[var(--muted-foreground)]">
+                                    SKU: {variant.sku}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                              {variant.price != null && (
+                                <div>
+                                  <span className="text-[var(--muted-foreground)]">Price:</span>
+                                  <p className="font-medium">${variant.price}</p>
+                                </div>
+                              )}
+                              {variant.compare_at_price != null && (
+                                <div>
+                                  <span className="text-[var(--muted-foreground)]">Compare at:</span>
+                                  <p className="font-medium">${variant.compare_at_price}</p>
+                                </div>
+                              )}
+                              {variant.inventory_tracked && (
+                                <div>
+                                  <span className="text-[var(--muted-foreground)]">Inventory:</span>
+                                  <p className="font-medium">
+                                    {variant.available_total} available
+                                  </p>
+                                </div>
+                              )}
+                              {variant.barcode && (
+                                <div>
+                                  <span className="text-[var(--muted-foreground)]">Barcode:</span>
+                                  <p className="font-mono text-xs">{variant.barcode}</p>
+                                </div>
+                              )}
+                            </div>
+                            {variant.inventory && variant.inventory.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                                <p className="text-xs font-medium text-[var(--muted-foreground)] mb-2">
+                                  Inventory by Location:
+                                </p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {variant.inventory.map((inv: any) => (
+                                    <div key={inv.id} className="text-xs">
+                                      <span className="text-[var(--muted-foreground)]">
+                                        {inv.location_name}:
+                                      </span>
+                                      <span className="ml-2 font-medium">{inv.available}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
-              )}
+              </>
+            )}
+          </div>
 
-              {/* Units Sold Widget */}
-              <div className="border-t border-[var(--border)] pt-6">
-                <h4 className="font-semibold mb-4">Sales Analytics</h4>
-                <UnitsSoldWidget productId={productId} />
-              </div>
-
-              {/* Variants */}
-              <div className="border-t border-[var(--border)] pt-6">
-                <h4 className="font-semibold mb-4">
-                  Variants ({product.variants?.length || 0})
-                </h4>
-                <div className="space-y-3">
-                  {product.variants?.map((variant: any) => (
-                    <div
-                      key={variant.id}
-                      className="border border-[var(--border)] rounded-lg p-4 hover:bg-[var(--muted)]/30 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2">
-                            {variant.image_url && (
-                              <img
-                                src={variant.image_url}
-                                alt={variant.title}
-                                className="w-12 h-12 object-cover rounded shrink-0"
-                              />
-                            )}
-                            <div className="min-w-0">
-                              <h5 className="font-medium truncate">{variant.title}</h5>
-                              {variant.sku && (
-                                <p className="text-sm text-[var(--muted-foreground)]">
-                                  SKU: {variant.sku}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                            {variant.price != null && (
-                              <div>
-                                <span className="text-[var(--muted-foreground)]">Price:</span>
-                                <p className="font-medium">${variant.price}</p>
-                              </div>
-                            )}
-                            {variant.compare_at_price != null && (
-                              <div>
-                                <span className="text-[var(--muted-foreground)]">Compare at:</span>
-                                <p className="font-medium">${variant.compare_at_price}</p>
-                              </div>
-                            )}
-                            {variant.inventory_tracked && (
-                              <div>
-                                <span className="text-[var(--muted-foreground)]">Inventory:</span>
-                                <p className="font-medium">
-                                  {variant.available_total} available
-                                </p>
-                              </div>
-                            )}
-                            {variant.barcode && (
-                              <div>
-                                <span className="text-[var(--muted-foreground)]">Barcode:</span>
-                                <p className="font-mono text-xs">{variant.barcode}</p>
-                              </div>
-                            )}
-                          </div>
-                          {variant.inventory && variant.inventory.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-[var(--border)]">
-                              <p className="text-xs font-medium text-[var(--muted-foreground)] mb-2">
-                                Inventory by Location:
-                              </p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {variant.inventory.map((inv: any) => (
-                                  <div key={inv.id} className="text-xs">
-                                    <span className="text-[var(--muted-foreground)]">
-                                      {inv.location_name}:
-                                    </span>
-                                    <span className="ml-2 font-medium">{inv.available}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
+          {!isLocked && (
+            <div
+              className="mt-1 flex justify-end cursor-row-resize select-none"
+              onMouseDown={handleResizeMouseDown}
+            >
+              <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+            </div>
           )}
         </div>
       )}

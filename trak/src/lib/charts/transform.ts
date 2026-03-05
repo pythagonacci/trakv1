@@ -72,29 +72,6 @@ function autoPickField(rows: ChartRow[]): string | null {
   return keys[0] ?? null;
 }
 
-function prettifyStatusPriorityValue(raw: unknown): unknown {
-  if (typeof raw !== "string" || !raw.trim()) return raw;
-  const normalized = raw.replace(/_/g, " ").toLowerCase();
-  return normalized
-    .split(" ")
-    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : ""))
-    .join(" ")
-    .trim();
-}
-
-function prettifyStatusPriorityRows(rows: ChartRow[]): ChartRow[] {
-  return rows.map((row) => {
-    const next: ChartRow = { ...row };
-    if (next.status !== undefined) {
-      next.status = prettifyStatusPriorityValue(next.status);
-    }
-    if (next.priority !== undefined) {
-      next.priority = prettifyStatusPriorityValue(next.priority);
-    }
-    return next;
-  });
-}
-
 /** Aggregate a list of rows → Map<label, sumValue> for a single field */
 function aggregateField(
   rows: ChartRow[],
@@ -328,7 +305,7 @@ export interface BuildChartDataInput {
  */
 export function buildChartData(input: BuildChartDataInput): ChartData {
   const { universeTotal, spec: rawSpec } = input;
-  const focusRows = prettifyStatusPriorityRows(input.focusRows);
+  const focusRows = input.focusRows;
   const spec = applySpecFallbacks(rawSpec);
 
   // Auto-detect breakdown field if not present in rows
@@ -361,7 +338,7 @@ export function groupRowsByBreakdown(
   categoryLabels: string[]
 ): Map<string, ChartRow[]> {
   const safeSpec = applySpecFallbacks(spec);
-  const rows = prettifyStatusPriorityRows(focusRows);
+  const rows = focusRows;
   const field =
     rows.length === 0 || rows.some((r) => r[safeSpec.breakdown.field] !== undefined)
       ? safeSpec.breakdown.field

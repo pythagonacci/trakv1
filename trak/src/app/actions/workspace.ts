@@ -131,19 +131,8 @@ export async function createWorkspace(name: string) {
     return { error: 'Unauthorized' }
   }
   const { supabase, user } = authResult
-  
-  // 2. Check if user already has a workspace (validation)
-  const { data: existingMember } = await supabase
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .maybeSingle()
-  
-  if (existingMember) {
-    return { error: 'User already has a workspace' }
-  }
-  
-  // 3. Create workspace
+
+  // 2. Create workspace (users can have multiple workspaces)
   const { data: workspace, error: workspaceError } = await supabase
     .from('workspaces')
     .insert({ 
@@ -157,7 +146,7 @@ export async function createWorkspace(name: string) {
     return { error: workspaceError.message }
   }
   
-  // 4. Add creator as owner in workspace_members
+  // 3. Add creator as owner in workspace_members
   const { error: memberError } = await supabase
     .from('workspace_members')
     .insert({
@@ -172,7 +161,7 @@ export async function createWorkspace(name: string) {
     return { error: 'Failed to create workspace member' }
   }
   
-  // 5. Revalidate any cached paths
+  // 4. Revalidate any cached paths
   revalidatePath('/dashboard')
   
   return { data: workspace }

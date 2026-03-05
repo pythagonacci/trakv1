@@ -1,20 +1,32 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronUp, X, Plus, Reply } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { ChevronUp, X, Plus, Reply } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { BlockComment } from "@/types/block-comment";
+import { cn } from "@/lib/utils";
+import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 
 interface BlockCommentsProps {
   block: Block;
   onUpdate?: (updatedBlock?: Block) => void;
   isOpen?: boolean;
   onToggle?: () => void;
+  side?: "left" | "right";
+  anchorRect?: DOMRect | null;
 }
 
-export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen, onToggle }: BlockCommentsProps) {
+export default function BlockComments({
+  block,
+  onUpdate,
+  isOpen: externalIsOpen,
+  onToggle,
+  side = "right",
+  anchorRect = null,
+}: BlockCommentsProps) {
   const [internalIsOpen, setInternalIsOpen] = useState(true); // Start expanded by default
   const isExpanded = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
   const setIsExpanded = (value: boolean) => {
@@ -27,10 +39,60 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
   const [comments, setComments] = useState<BlockComment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [showCommentInput, setShowCommentInput] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<{ id: string; authorDisplay: string } | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string; email?: string; name?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const commentsContainerRef = useRef<HTMLDivElement | null>(null);
-  const newCommentRef = useRef<HTMLDivElement | null>(null);
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const mentionStartIndexRef = useRef<number | null>(null);
+  const mentionQueryRef = useRef("");
+  const referencePicker = useBlockReferencePicker();
+
+  const clearInlineMention = () => {
+    mentionStartIndexRef.current = null;
+    mentionQueryRef.current = "";
+  };
+
+  const insertInlineMention = (item: LinkableItem, searchQuery?: string) => {
+    const mentionStart = mentionStartIndexRef.current;
+    if (mentionStart === null) return;
+    const activeQuery = mentionQueryRef.current || searchQuery || "";
+    const replacement = `@${item.name}`;
+
+    setNewComment((currentValue) => {
+      const safeStart = Math.min(Math.max(mentionStart, 0), currentValue.length);
+      const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
+      return currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
+    });
+
+    clearInlineMention();
+    requestAnimationFrame(() => {
+      if (!commentInputRef.current) return;
+      const cursorPosition = mentionStart + replacement.length;
+      commentInputRef.current.focus();
+      commentInputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
+
+  const closeInlineMentionPicker = () => {
+    clearInlineMention();
+    referencePicker?.closePicker();
+  };
+
+  const startReply = (commentId: string, authorDisplay: string) => {
+    closeInlineMentionPicker();
+    const initialDraft = `@${authorDisplay} `;
+    setReplyTarget({ id: commentId, authorDisplay });
+    setShowCommentInput(true);
+    setNewComment(initialDraft);
+
+    requestAnimationFrame(() => {
+      if (!commentInputRef.current) return;
+      const cursorPosition = initialDraft.length;
+      commentInputRef.current.focus();
+      commentInputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
 
   // Load current user and comments on mount
   useEffect(() => {
@@ -63,6 +125,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
   const addComment = async () => {
     const commentText = newComment.trim();
     if (!commentText) return;
+    closeInlineMentionPicker();
 
     // Load currentUser if not already loaded
     let user = currentUser;
@@ -91,13 +154,14 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
 
     if (!user) return;
 
+    const createdAt = new Date().toISOString();
     const newCommentObj: BlockComment = {
-      id: `comment-${Date.now()}-${Math.random()}`,
+      id: `comment-${user.id}-${createdAt}-${comments.length + 1}`,
       author_id: user.id,
       author_name: user.name || user.email?.split("@")[0] || "User",
       author_email: user.email,
       text: commentText,
-      timestamp: new Date().toISOString(),
+      timestamp: createdAt,
     };
 
     const updatedComments = [...comments, newCommentObj];
@@ -105,8 +169,8 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
 
     // Optimistic update
     setComments(updatedComments);
-    const commentTextToClear = newComment;
     setNewComment("");
+    setReplyTarget(null);
     setShowCommentInput(false);
     setIsExpanded(true);
 
@@ -203,9 +267,18 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
     return null;
   }
 
-  return (
-    <div 
-      className="w-64 flex-shrink-0 border-l border-[var(--border)] pl-3 ml-3 relative z-10 flex flex-col"
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const floatingStyle = getFixedSidePanelPosition(anchorRect, side);
+
+  return createPortal(
+    <div
+      className={cn(
+        "fixed z-[140] w-[320px] max-w-[calc(100vw-1rem)] rounded-lg border border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur-sm p-3 shadow-popover flex flex-col max-h-[min(72vh,560px)]"
+      )}
+      style={floatingStyle}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
@@ -221,6 +294,7 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
         <button
           onClick={(e) => {
             e.stopPropagation();
+            closeInlineMentionPicker();
             setIsExpanded(false);
           }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -230,9 +304,9 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
         </button>
       </div>
 
-      <div 
+      <div
         ref={commentsContainerRef}
-        className="space-y-2 max-h-[400px] overflow-y-auto"
+        className="flex-1 min-h-0 space-y-2 overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -280,20 +354,33 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                           {comment.text}
                         </p>
                       </div>
-                      {canDelete && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteComment(comment.id);
+                            startReply(comment.id, authorDisplay);
                           }}
                           onMouseDown={(e) => e.stopPropagation()}
-                          disabled={isLoading}
-                          className="opacity-0 group-hover/comment:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity flex-shrink-0"
-                          title="Delete comment"
+                          className="opacity-0 group-hover/comment:opacity-100 text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-opacity"
+                          title={`Reply to ${authorDisplay}`}
                         >
-                          <X className="h-3 w-3" />
+                          <Reply className="h-3 w-3" />
                         </button>
-                      )}
+                        {canDelete && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteComment(comment.id);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            disabled={isLoading}
+                            className="opacity-0 group-hover/comment:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity"
+                            title="Delete comment"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -325,7 +412,17 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    // TODO: Implement reply functionality
+                    if (comments.length === 0) {
+                      setReplyTarget(null);
+                      setShowCommentInput(true);
+                      requestAnimationFrame(() => {
+                        commentInputRef.current?.focus();
+                      });
+                      return;
+                    }
+                    const latest = comments[comments.length - 1];
+                    const latestAuthor = latest.author_name || latest.author_email?.split("@")[0] || "Unknown";
+                    startReply(latest.id, latestAuthor);
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
                   className="flex items-center justify-center h-4 w-4 rounded-md text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
@@ -335,61 +432,220 @@ export default function BlockComments({ block, onUpdate, isOpen: externalIsOpen,
                 </button>
               </div>
             ) : (
-              <textarea
-                value={newComment}
-                onChange={(e) => {
-                  setNewComment(e.target.value);
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
+              <div className="space-y-1.5">
+                {replyTarget && (
+                  <div className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1">
+                    <span className="text-[10px] text-[var(--muted-foreground)]">
+                      Replying to <span className="font-medium text-[var(--foreground)]">{replyTarget.authorDisplay}</span>
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReplyTarget(null);
+                        setNewComment("");
+                        closeInlineMentionPicker();
+                        requestAnimationFrame(() => {
+                          commentInputRef.current?.focus();
+                        });
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                      title="Cancel reply"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                <textarea
+                  ref={commentInputRef}
+                  value={newComment}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setNewComment(nextValue);
+
+                    const mentionStart = mentionStartIndexRef.current;
+                    if (mentionStart === null || !referencePicker) return;
+
+                    const cursorPosition = e.currentTarget.selectionStart ?? nextValue.length;
+                    const shouldStopMentioning =
+                      mentionStart >= nextValue.length ||
+                      nextValue[mentionStart] !== "@" ||
+                      cursorPosition <= mentionStart;
+
+                    if (shouldStopMentioning) {
+                      closeInlineMentionPicker();
+                      return;
+                    }
+
+                    const nextQuery = nextValue.slice(mentionStart + 1, cursorPosition);
+                    mentionQueryRef.current = nextQuery;
+                    referencePicker.updateQuery?.(nextQuery);
+                  }}
+                  onClick={(e) => {
                     e.stopPropagation();
-                    addComment();
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
+                  }}
+                  onMouseDown={(e) => {
                     e.stopPropagation();
-                    setNewComment("");
-                    setShowCommentInput(false);
-                    return;
-                  }
-                  // Stop propagation to prevent drag listeners from interfering
-                  e.stopPropagation();
-                }}
-                onKeyUp={(e) => {
-                  e.stopPropagation();
-                }}
-                onInput={(e) => {
-                  e.stopPropagation();
-                }}
-                onCompositionStart={(e) => {
-                  e.stopPropagation();
-                }}
-                onCompositionEnd={(e) => {
-                  e.stopPropagation();
-                }}
-                placeholder="Add comment... (Enter to submit, Shift+Enter for new line)"
-                className="w-full min-h-[50px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
-                rows={2}
-                disabled={!currentUser || isLoading}
-                style={{ pointerEvents: 'auto', cursor: 'text' }}
-                autoFocus
-              />
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      addComment();
+                      return;
+                    }
+                    if (e.key === "@" && referencePicker) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const currentValue = e.currentTarget.value;
+                      const selectionStart = e.currentTarget.selectionStart ?? currentValue.length;
+                      const selectionEnd = e.currentTarget.selectionEnd ?? selectionStart;
+                      const nextValue =
+                        currentValue.slice(0, selectionStart) + "@" + currentValue.slice(selectionEnd);
+
+                      setNewComment(nextValue);
+                      mentionStartIndexRef.current = selectionStart;
+                      mentionQueryRef.current = "";
+
+                      requestAnimationFrame(() => {
+                        if (!commentInputRef.current) return;
+                        const nextCursor = selectionStart + 1;
+                        commentInputRef.current.focus();
+                        commentInputRef.current.setSelectionRange(nextCursor, nextCursor);
+                        const getAnchorRect = () =>
+                          commentInputRef.current
+                            ? getTextareaCaretRect(commentInputRef.current) ?? commentInputRef.current.getBoundingClientRect()
+                            : null;
+                        referencePicker.openPicker({
+                          initialQuery: "",
+                          anchorRect: getAnchorRect(),
+                          getAnchorRect,
+                          onSelect: insertInlineMention,
+                          onClose: clearInlineMention,
+                        });
+                      });
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      closeInlineMentionPicker();
+                      setReplyTarget(null);
+                      setNewComment("");
+                      setShowCommentInput(false);
+                      return;
+                    }
+                    // Stop propagation to prevent drag listeners from interfering
+                    e.stopPropagation();
+                  }}
+                  onKeyUp={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onInput={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onCompositionStart={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onCompositionEnd={(e) => {
+                    e.stopPropagation();
+                  }}
+                  placeholder="Add comment... (Enter to submit, Shift+Enter for new line)"
+                  className="w-full min-h-[50px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+                  rows={2}
+                  disabled={!currentUser || isLoading}
+                  style={{ pointerEvents: 'auto', cursor: 'text' }}
+                  autoFocus
+                />
+              </div>
             )}
           </div>
         </div>
-    </div>
+    </div>,
+    document.body
   );
+}
+
+function getFixedSidePanelPosition(anchorRect: DOMRect | null, side: "left" | "right"): CSSProperties {
+  const edgeMargin = 8;
+  const gap = 12;
+  const panelWidth = 320;
+  const panelHeight = 420;
+  const minTop = 72;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let left = edgeMargin;
+  if (anchorRect) {
+    left = side === "right"
+      ? anchorRect.right + gap
+      : anchorRect.left - panelWidth - gap;
+  } else if (side === "right") {
+    left = viewportWidth - panelWidth - edgeMargin;
+  }
+
+  const maxLeft = Math.max(edgeMargin, viewportWidth - panelWidth - edgeMargin);
+  left = Math.min(Math.max(edgeMargin, left), maxLeft);
+
+  const rawTop = anchorRect ? anchorRect.top - 12 : minTop;
+  const maxTop = Math.max(minTop, viewportHeight - panelHeight - edgeMargin);
+  const top = Math.min(Math.max(minTop, rawTop), maxTop);
+
+  return { top: `${top}px`, left: `${left}px` };
+}
+
+function getTextareaCaretRect(textarea: HTMLTextAreaElement): DOMRect | null {
+  const selectionStart = textarea.selectionStart ?? 0;
+  const rect = textarea.getBoundingClientRect();
+  const style = window.getComputedStyle(textarea);
+
+  const mirror = document.createElement("div");
+  mirror.style.position = "fixed";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.wordBreak = "break-word";
+  mirror.style.top = `${rect.top}px`;
+  mirror.style.left = `${rect.left}px`;
+  mirror.style.width = `${rect.width}px`;
+  mirror.style.height = `${rect.height}px`;
+  mirror.style.font = style.font;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.overflow = "hidden";
+
+  mirror.textContent = textarea.value.slice(0, selectionStart);
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+
+  const markerRect = marker.getBoundingClientRect();
+  document.body.removeChild(mirror);
+
+  const lineHeight = Number.parseFloat(style.lineHeight) || 16;
+  const caretRect = new DOMRect(
+    markerRect.left - textarea.scrollLeft,
+    markerRect.top - textarea.scrollTop,
+    1,
+    lineHeight
+  );
+
+  if (
+    !Number.isFinite(caretRect.top) ||
+    !Number.isFinite(caretRect.left) ||
+    (caretRect.top === 0 && caretRect.left === 0 && caretRect.width === 0 && caretRect.height === 0)
+  ) {
+    return null;
+  }
+
+  return caretRect;
 }
 
 function getTimeAgo(date: Date): string {

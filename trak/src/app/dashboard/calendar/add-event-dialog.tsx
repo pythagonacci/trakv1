@@ -1,13 +1,27 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { createBlock } from "@/app/actions/block";
 import { createTaskItem } from "@/app/actions/tasks/item-actions";
+
+export interface AddedCalendarEvent {
+  id: string;
+  title: string;
+  date: string;
+  time?: string;
+  timeEnd?: string;
+  type: "task";
+  projectId: string;
+  tabId: string;
+  taskId: string;
+  blockId: string;
+  priority?: "urgent" | "high" | "medium" | "low" | "none";
+  projectName?: string;
+  tabName?: string;
+}
 
 interface AddEventDialogProps {
   open: boolean;
@@ -16,7 +30,7 @@ interface AddEventDialogProps {
   initialTime?: string;
   initialTimeEnd?: string;
   workspaceId: string;
-  onEventAdded?: () => void;
+  onEventAdded?: (event?: AddedCalendarEvent) => void;
 }
 
   interface Project {
@@ -38,7 +52,6 @@ export default function AddEventDialog({
   workspaceId,
   onEventAdded,
 }: AddEventDialogProps) {
-  const router = useRouter();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(initialDate ? initialDate.toISOString().split("T")[0] : "");
   const [time, setTime] = useState(initialTime || "");
@@ -142,6 +155,7 @@ export default function AddEventDialog({
         return;
       }
 
+      let createdEvent: AddedCalendarEvent | undefined;
       if (result.data?.id) {
         const taskResult = await createTaskItem({
           taskBlockId: result.data.id,
@@ -157,6 +171,23 @@ export default function AddEventDialog({
           setLoading(false);
           return;
         }
+        const selectedTabName = availableTabs.find((tab) => tab.id === tabId)?.name;
+        const createdTaskId = String(taskResult.data.id);
+        createdEvent = {
+          id: `task-${result.data.id}-${createdTaskId}`,
+          title: title.trim(),
+          date,
+          time: time || undefined,
+          timeEnd: timeEnd || undefined,
+          type: "task",
+          projectId,
+          tabId,
+          taskId: createdTaskId,
+          blockId: result.data.id,
+          priority,
+          projectName: selectedProject?.name || undefined,
+          tabName: selectedTabName,
+        };
       }
 
       // Success - close dialog and refresh
@@ -169,14 +200,8 @@ export default function AddEventDialog({
       setPriority("none");
       setError(null);
       
-      onEventAdded?.();
+      onEventAdded?.(createdEvent);
       onClose();
-      
-      // Optionally navigate to the task
-      if (result.data?.id) {
-        // Refresh the calendar
-        router.refresh();
-      }
     } catch (err) {
       setError("Failed to create event. Please try again.");
       console.error("Error creating event:", err);

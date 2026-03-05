@@ -4,7 +4,10 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { type TableField, type PriorityFieldConfig, type PriorityLevelConfig } from "@/types/table";
-import { getCanonicalPriorityOption } from "@/lib/tables/universal-property";
+import {
+  getCanonicalPriorityOption,
+  TABLE_PRIORITY_LEVELS,
+} from "@/lib/tables/universal-property";
 
 interface Props {
   field: TableField;
@@ -23,9 +26,14 @@ const getPriorityIcon = (order: number) => {
   return <ArrowDown className="h-3.5 w-3.5" />;
 };
 
+const DROPDOWN_MAX_HEIGHT = 240;
+const DROPDOWN_MIN_HEIGHT = 120;
+const DROPDOWN_VIEWPORT_GAP = 8;
+const DROPDOWN_Z_INDEX = 9999;
+
 export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onCancel, saving }: Props) {
   const config = (field.config || {}) as PriorityFieldConfig;
-  const levels = config.levels || [];
+  const levels = (config.levels && config.levels.length > 0 ? config.levels : TABLE_PRIORITY_LEVELS) as PriorityLevelConfig[];
 
   const [draft, setDraft] = useState<string | undefined>(typeof value === "string" ? value : undefined);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -73,29 +81,41 @@ export function PriorityCell({ field, value, editing, onStartEdit, onCommit, onC
       const anchor = anchorRef.current;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
-      const maxHeight = 240;
       const width = Math.max(240, rect.width);
-      const spaceBelow = window.innerHeight - rect.bottom - 8;
-      const spaceAbove = rect.top - 8;
-      const openUpward = spaceBelow < maxHeight && spaceAbove > spaceBelow;
-      const height = Math.min(maxHeight, openUpward ? spaceAbove : spaceBelow);
-      const top = openUpward ? rect.top - height : rect.bottom;
-      const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - DROPDOWN_VIEWPORT_GAP);
+      const spaceAbove = Math.max(0, rect.top - DROPDOWN_VIEWPORT_GAP);
+      const openUpward = spaceBelow < DROPDOWN_MIN_HEIGHT && spaceAbove > spaceBelow;
+      const availableHeight = openUpward ? spaceAbove : spaceBelow;
+      const height = Math.max(
+        DROPDOWN_MIN_HEIGHT,
+        Math.min(DROPDOWN_MAX_HEIGHT, availableHeight || DROPDOWN_MIN_HEIGHT)
+      );
+      const unclampedTop = openUpward ? rect.top - height : rect.bottom;
+      const top = Math.min(
+        Math.max(DROPDOWN_VIEWPORT_GAP, unclampedTop),
+        Math.max(DROPDOWN_VIEWPORT_GAP, window.innerHeight - height - DROPDOWN_VIEWPORT_GAP)
+      );
+      const left = Math.min(
+        Math.max(rect.left, DROPDOWN_VIEWPORT_GAP),
+        window.innerWidth - width - DROPDOWN_VIEWPORT_GAP
+      );
       setDropdownStyle({
         position: "fixed",
         top,
         left,
         width,
-        maxHeight: Math.max(120, height),
-        zIndex: 60,
+        maxHeight: height,
+        zIndex: DROPDOWN_Z_INDEX,
       });
     };
 
     updatePosition();
+    const rafId = requestAnimationFrame(updatePosition);
     const handleScroll = () => requestAnimationFrame(updatePosition);
     window.addEventListener("scroll", handleScroll, true);
     window.addEventListener("resize", handleScroll);
     return () => {
+      cancelAnimationFrame(rafId);
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
     };

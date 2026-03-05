@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import DayDetailsPanel from "./day-details-panel";
 import EventPopupCard from "./event-popup-card";
-import AddEventDialog from "./add-event-dialog";
+import AddEventDialog, { type AddedCalendarEvent } from "./add-event-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -740,10 +740,15 @@ export default function CalendarView({
   };
 
   // Refresh events after adding
-  const handleEventAdded = () => {
-    // Refresh the page to get updated events
+  const handleEventAdded = (event?: AddedCalendarEvent) => {
+    if (event && itemsView === "all") {
+      setEvents((previous) => {
+        if (previous.some((existing) => existing.id === event.id)) return previous;
+        return [...previous, event];
+      });
+    }
+    // Re-sync from the server so filtered views and related entities stay correct.
     router.refresh();
-    window.location.reload();
   };
 
   // Handle event click

@@ -464,7 +464,7 @@ export async function bulkDuplicateRows(input: {
       order: Number(row.order) + 0.001 * (idx + 1),
       source_entity_type: sourceEntityId ? normalizeSourceEntityType(row.source_entity_type ?? null) : null,
       source_entity_id: sourceEntityId,
-      source_sync_mode: row.source_sync_mode ?? "live",
+      source_sync_mode: sourceEntityId ? normalizeSourceSyncMode(row.source_sync_mode) : null,
       created_by: userId,
       updated_by: userId,
     };

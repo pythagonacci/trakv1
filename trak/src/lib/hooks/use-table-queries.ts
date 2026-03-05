@@ -248,12 +248,21 @@ export function useConfigureRelationField(tableId: string) {
 export function useCreateRow(tableId: string, _viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data?: Record<string, unknown> | { data?: Record<string, unknown>; order?: number | string | null }) => {
-      if (data && typeof data === "object" && ("data" in data || "order" in data)) {
-        const payload = data as { data?: Record<string, unknown>; order?: number | string | null };
-        return createRow({ tableId, data: payload.data, order: payload.order });
+    mutationFn: async (data?: Record<string, unknown> | { data?: Record<string, unknown>; order?: number | string | null }) => {
+      const result =
+        data && typeof data === "object" && ("data" in data || "order" in data)
+          ? await createRow({
+              tableId,
+              data: (data as { data?: Record<string, unknown> }).data,
+              order: (data as { order?: number | string | null }).order,
+            })
+          : await createRow({ tableId, data: data as Record<string, unknown> | undefined });
+
+      if ("error" in result) {
+        throw new Error(result.error || "Failed to create row");
       }
-      return createRow({ tableId, data: data as Record<string, unknown> | undefined });
+
+      return result;
     },
     onSuccess: (res) => {
       // Append the new row to all cached datasets for this table

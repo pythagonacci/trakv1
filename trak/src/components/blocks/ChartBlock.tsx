@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Lock,
@@ -17,6 +17,7 @@ import type { ChartBlockContent, SpecChartBlockContent } from "@/types/chart";
 import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { cn } from "@/lib/utils";
 import { updateChartBlock, refreshChartBlock, saveChartAsSnapshot, setChartDataScope } from "@/app/actions/chart-actions";
+import { searchTasks } from "@/app/actions/ai-search";
 import { TrakChart } from "@/components/blocks/chart/TrakChart";
 import { ChartConfigPanel } from "@/components/blocks/chart/ChartConfigPanel";
 import { buildChartData, groupRowsByBreakdown } from "@/lib/charts/transform";
@@ -35,16 +36,69 @@ interface ChartBlockProps {
 
 /** Pick display label for a chart row (tracked-items list) */
 function rowLabel(row: ChartRow): string {
+  const id = (row as { id?: unknown }).id;
+  const idStr = typeof id === "string" ? id.trim() : null;
+
   const titleCandidates = ["Task Title", "Title", "title", "Name", "name"] as const;
   for (const key of titleCandidates) {
     const v = row[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string") {
+      const trimmed = v.trim();
+      if (trimmed && trimmed !== idStr) return trimmed;
+    }
   }
+
+  const excludedKeys = new Set(["id", "status", "priority", "assignee", "tags"]);
+
+  // Prefer any other field whose key looks like a title/name
   for (const [key, value] of Object.entries(row)) {
-    if (key === "id" || key === "status" || key === "priority" || key === "assignee" || key === "tags") continue;
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (excludedKeys.has(key)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed || trimmed === idStr) continue;
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.includes("title") || lowerKey.includes("name")) {
+        return trimmed;
+      }
+    }
   }
+
+  // Fallback: first non-empty string field
+  for (const [key, value] of Object.entries(row)) {
+    if (excludedKeys.has(key)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== idStr) return trimmed;
+    }
+  }
+
   return "Item";
+}
+
+/** Heuristic: does this row already have a human-readable title-like string (not just an id)? */
+function hasReadableTitle(row: ChartRow): boolean {
+  const id = (row as { id?: unknown }).id;
+  const idStr = typeof id === "string" ? id.trim() : null;
+
+  const titleCandidates = ["Task Title", "Title", "title", "Name", "name"] as const;
+  for (const key of titleCandidates) {
+    const v = row[key];
+    if (typeof v === "string") {
+      const trimmed = v.trim();
+      if (trimmed && trimmed !== idStr) return true;
+    }
+  }
+
+  const excludedKeys = new Set(["id", "status", "priority", "assignee", "tags"]);
+  for (const [key, value] of Object.entries(row)) {
+    if (excludedKeys.has(key)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== idStr) return true;
+    }
+  }
+
+  return false;
 }
 
 /** Short meta line for a row (e.g. project name) */
@@ -59,6 +113,37 @@ function rowMeta(row: ChartRow): string {
 
 function pct(n: number) {
   return `${Math.round(n)}%`;
+}
+
+const FRIENDLY_LABELS: Record<string, string> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  "in-progress": "In Progress",
+  not_started: "Not Started",
+  "not-started": "Not Started",
+  done: "Done",
+  blocked: "Blocked",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  urgent: "Urgent",
+  none: "None",
+};
+
+function formatCategoryLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return label;
+  const lower = trimmed.toLowerCase();
+  const known = FRIENDLY_LABELS[lower];
+  if (known) return known;
+  if (/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
+    return trimmed
+      .replace(/[_-]+/g, " ")
+      .split(" ")
+      .map((word) => (word ? word[0]!.toUpperCase() + word.slice(1) : ""))
+      .join(" ");
+  }
+  return label;
 }
 
 /** Expandable breakdown section: category label + list of item cards */
@@ -97,7 +182,7 @@ function ExpandableBreakdownRow({
             style={{ backgroundColor: color }}
           />
           <span className="truncate text-[12px] font-medium text-[var(--foreground)]">
-            {label}
+            {formatCategoryLabel(label)}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -120,7 +205,7 @@ function ExpandableBreakdownRow({
           {rows.length === 0 ? (
             <div className="py-2 text-[12px] text-[var(--muted-foreground)]">No items.</div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
               {rows.map((row) => (
                 <div
                   key={row.id}
@@ -157,6 +242,7 @@ function ExpandableBreakdownRow({
 function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   const rawContent = (block.content || {}) as SpecChartBlockContent;
   const queryClient = useQueryClient();
+  const rawRows = rawContent.rows ?? [];
   const [localSpec, setLocalSpec] = useState<ChartSpec>(() =>
     applySpecFallbacks(rawContent.spec)
   );
@@ -170,6 +256,13 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   const [compact, setCompact] = useState(true);
   const [showBreakdown, setShowBreakdown] = useState(true);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
+  const [hasTouchedOpenCategory, setHasTouchedOpenCategory] = useState(false);
+  const [enhancedRows, setEnhancedRows] = useState<ChartRow[] | null>(null);
+  const chartAreaRef = useRef<HTMLDivElement | null>(null);
+  const [chartHeight, setChartHeight] = useState<number>(compact ? 220 : 260);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState("");
+  const [spinNonce, setSpinNonce] = useState(0);
 
   useEffect(() => {
     setLocalSpec(applySpecFallbacks(rawContent.spec));
@@ -188,7 +281,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   }, [rawContent.rows, rawContent.universeTotal, localSpec]);
 
   const availableFields = useMemo(() => {
-    const rows = rawContent.rows ?? [];
+    const rows = rawRows;
     if (!rows.length) return ["status", "priority", "assignee", "tags"];
     const keys = new Set<string>();
     for (const row of rows)
@@ -196,14 +289,14 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
         if (k !== "id") keys.add(k);
       });
     return Array.from(keys);
-  }, [rawContent.rows]);
+  }, [rawRows]);
 
   const numericFields = useMemo(
     () =>
       availableFields.filter((f) =>
         (rawContent.rows ?? []).some((r) => typeof r[f] === "number")
       ),
-    [rawContent.rows, availableFields]
+    [rawRows, availableFields]
   );
 
   const handleSpecChange = useCallback(
@@ -270,13 +363,107 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     },
     [block.id, rawContent.dataSource, invalidateBlock]
   );
-
   const isSimulation = Boolean(rawContent.metadata?.isSimulation);
   const title = localSpec.title ?? rawContent.title ?? "Chart";
+
+  useEffect(() => {
+    if (!editingTitle) {
+      setTitleInput(title);
+    }
+  }, [title, editingTitle]);
+
+  const handleTitleSave = useCallback(async () => {
+    const trimmed = titleInput.trim();
+    setEditingTitle(false);
+    if (trimmed === title) return;
+
+    await handleSpecChange({
+      ...localSpec,
+      title: trimmed || undefined,
+    });
+  }, [titleInput, title, handleSpecChange, localSpec]);
+
   const normWarn = chartData?.meta.normalizationWarning;
   const showTrackingUi = rawContent.dataSource && isRefreshableDataSource(rawContent.dataSource);
   const scope = showTrackingUi && rawContent.dataSource && "scope" in rawContent.dataSource ? rawContent.dataSource.scope : null;
-  const rows = rawContent.rows ?? [];
+  const rows = enhancedRows ?? rawRows;
+
+  // When the chart rows come from a tasks query and don't already have any readable
+  // title-like strings, fetch task titles by ID and enrich rows with "Task Title"
+  // so the breakdown panel can show actual task names instead of generic labels.
+  useEffect(() => {
+    setEnhancedRows(null);
+
+    const ds = rawContent.dataSource;
+    if (!ds) return;
+    if (!rawRows.length) return;
+
+    let isTasksSource = false;
+    if (ds.mode === "refreshable") {
+      if (ds.scope === "query") {
+        isTasksSource = ds.query.type === "tasks";
+      } else {
+        isTasksSource = ds.entityType === "task";
+      }
+    }
+    if (!isTasksSource) return;
+
+    const hasAnyReadable = rawRows.some((row) => hasReadableTitle(row));
+    if (hasAnyReadable) return;
+
+    const ids = Array.from(
+      new Set(
+        rawRows
+          .map((r) => {
+            const id = (r as { id?: unknown }).id;
+            return id != null ? String(id) : "";
+          })
+          .filter((id) => id)
+      )
+    );
+    if (!ids.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await searchTasks({ taskIds: ids, limit: ids.length });
+        if (!res.data || res.error || cancelled) return;
+        const titleById = new Map<string, string>();
+        for (const task of res.data) {
+          const title = (task as any).title;
+          if (typeof title === "string" && title.trim()) {
+            titleById.set(String((task as any).id), title.trim());
+          }
+        }
+        if (!titleById.size) return;
+
+        const nextRows = rawRows.map((row) => {
+          const id = (row as { id?: unknown }).id;
+          const idStr = id != null ? String(id) : "";
+          const existingTitle = (row as any)["Task Title"];
+          if (typeof existingTitle === "string" && existingTitle.trim() && existingTitle.trim() !== idStr) {
+            return row;
+          }
+          const fetchedTitle = titleById.get(idStr);
+          if (fetchedTitle && fetchedTitle !== idStr) {
+            return { ...row, "Task Title": fetchedTitle } as ChartRow;
+          }
+          return row;
+        });
+
+        if (!cancelled) {
+          setEnhancedRows(nextRows);
+        }
+      } catch {
+        // Ignore fetch errors; fallback labels will continue to be used.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rawContent.dataSource, rawRows, block.id]);
 
   const breakdownLabel = chartData?.meta?.labelLabel ?? localSpec.breakdown?.fieldLabel ?? localSpec.breakdown?.field ?? "Distribution";
   const categoryLabels = useMemo(() => {
@@ -288,13 +475,54 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     return groupRowsByBreakdown(rows, localSpec, categoryLabels);
   }, [rows, localSpec, categoryLabels]);
   const totalCount = rows.length;
-  useEffect(() => {
-    if (openCategory === null && categoryLabels.length > 0) {
-      setOpenCategory(categoryLabels[0]);
-    }
-  }, [categoryLabels, openCategory]);
-
   const hasBreakdown = chartData && categoryLabels.length > 0;
+  const minChartHeight = useMemo(() => {
+    const base = compact ? 220 : 260;
+    if (!hasBreakdown || !showBreakdown) return base;
+    const buckets = categoryLabels.length;
+    // Scale height up a bit as the breakdown grows, capped so it doesn't dominate the page.
+    const extraSteps = Math.min(3, Math.floor(buckets / 4)); // +1 step per ~4 buckets, up to 3 steps
+    return base + extraSteps * 80;
+  }, [compact, hasBreakdown, showBreakdown, categoryLabels.length]);
+
+  const syncChartHeight = useCallback(() => {
+    const el = chartAreaRef.current;
+    if (!el) {
+      setChartHeight((prev) => (prev === minChartHeight ? prev : minChartHeight));
+      return;
+    }
+
+    const measuredHeight = Math.floor(el.getBoundingClientRect().height);
+    const nextHeight = measuredHeight > 0 ? Math.max(minChartHeight, measuredHeight) : minChartHeight;
+    setChartHeight((prev) => (Math.abs(prev - nextHeight) <= 1 ? prev : nextHeight));
+  }, [minChartHeight]);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      syncChartHeight();
+    });
+
+    const el = chartAreaRef.current;
+    if (!el || typeof ResizeObserver === "undefined") {
+      return () => window.cancelAnimationFrame(frameId);
+    }
+
+    const observer = new ResizeObserver(() => {
+      syncChartHeight();
+    });
+    observer.observe(el);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, [syncChartHeight]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setSpinNonce((n) => n + 1);
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const getTaskHrefForRow = useCallback(
     (row: ChartRow): string | null => {
@@ -324,9 +552,39 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
       <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[15px] font-semibold tracking-tight text-[var(--foreground)]">
-              {title}
-            </h2>
+            {editingTitle && !readOnly ? (
+              <input
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleTitleSave();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setEditingTitle(false);
+                    setTitleInput(title);
+                  }
+                }}
+                autoFocus
+                className="w-full max-w-xs border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[15px] font-semibold tracking-tight text-[var(--foreground)] focus:outline-none rounded-md"
+                placeholder="Chart title"
+              />
+            ) : (
+              <button
+                type="button"
+                disabled={readOnly}
+                onClick={() => {
+                  if (readOnly) return;
+                  setEditingTitle(true);
+                }}
+                className="truncate text-left text-[15px] font-semibold tracking-tight text-[var(--foreground)] hover:text-[var(--foreground)]/90"
+              >
+                {title}
+              </button>
+            )}
             {!readOnly && (
               <span className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
                 <Sparkles className="h-3.5 w-3.5" />
@@ -334,39 +592,12 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
               </span>
             )}
           </div>
-          {!readOnly && showTrackingUi && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="text-[var(--muted-foreground)]">Scope:</span>
-              <label className="flex items-center gap-2 text-[var(--foreground)]">
-                <input
-                  type="radio"
-                  name={`chart-scope-${block.id}`}
-                  checked={scope === "fixed"}
-                  onChange={() => handleSetScope("fixed")}
-                  disabled={isSettingScope}
-                  className="h-3.5 w-3.5 accent-[var(--foreground)]"
-                />
-                Track only these items
-              </label>
-              <label className="flex items-center gap-2 text-[var(--foreground)]">
-                <input
-                  type="radio"
-                  name={`chart-scope-${block.id}`}
-                  checked={scope === "query"}
-                  onChange={() => handleSetScope("query")}
-                  disabled={isSettingScope}
-                  className="h-3.5 w-3.5 accent-[var(--foreground)]"
-                />
-                Track future items that meet requirements
-              </label>
-            </div>
-          )}
         </div>
         {!readOnly && (
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]"
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]"
               aria-label="Lock chart"
             >
               <Lock className="h-4 w-4" />
@@ -378,7 +609,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   type="button"
                   onClick={handleRefresh}
                   disabled={isRefreshing}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
                 >
                   <RefreshCw className="h-4 w-4" />
                   {isRefreshing ? "Refreshing…" : "Refresh"}
@@ -387,24 +618,13 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   type="button"
                   onClick={handleSaveAsSnapshot}
                   disabled={isSavingSnapshot}
-                  className="hidden md:inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                  className="hidden md:inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[11px] font-medium text-[var(--foreground)] whitespace-nowrap shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
                 >
                   <Save className="h-4 w-4" />
                   Save snapshot
                 </button>
               </>
             )}
-            <button
-              type="button"
-              onClick={() => setShowConfig((v) => !v)}
-              aria-label="More options"
-              className={cn(
-                "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]",
-                showConfig && "bg-[var(--surface-hover)]"
-              )}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
           </div>
         )}
       </div>
@@ -454,19 +674,31 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                 <Filter className="h-4 w-4" />
                 <span className="font-medium text-[var(--foreground)]">{breakdownLabel}</span>
                 <span className="text-[var(--border)]">•</span>
-                <span>
-                  {scope === "query"
-                    ? "Tracking future items"
-                    : scope === "fixed"
-                      ? "Tracking only selected items"
-                      : "Snapshot"}
-                </span>
+                {showTrackingUi ? (
+                  <select
+                    value={scope ?? "fixed"}
+                    onChange={(e) => handleSetScope(e.target.value as "fixed" | "query")}
+                    disabled={isSettingScope}
+                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--foreground)]"
+                  >
+                    <option value="fixed">Track only these items</option>
+                    <option value="query">Track future items</option>
+                  </select>
+                ) : (
+                  <span>
+                    {scope === "query"
+                      ? "Tracking future items"
+                      : scope === "fixed"
+                        ? "Tracking only selected items"
+                        : "Snapshot"}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setCompact((v) => !v)}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                 >
                   {compact ? "Expand" : "Compact"}
                 </button>
@@ -474,7 +706,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   <button
                     type="button"
                     onClick={() => setShowBreakdown((v) => !v)}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                   >
                     {showBreakdown ? "Hide breakdown" : "Show breakdown"}
                   </button>
@@ -506,9 +738,20 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                     {totalCount} {chartData.meta?.valueLabel?.toLowerCase() === "count" ? "items" : "total"}
                   </div>
                 </div>
-                <div className={cn("mt-3 flex-1 min-h-0 flex items-center justify-center", compact ? "min-h-[200px]" : "min-h-[260px]")}>
-                  <div className="w-full h-full max-h-[280px] min-h-[200px]">
-                    <TrakChart spec={localSpec} data={chartData} height={compact ? 220 : 260} />
+                <div
+                  ref={chartAreaRef}
+                  className={cn(
+                    "mt-3 flex-1 min-h-0 flex items-center justify-center",
+                    compact ? "min-h-[200px]" : "min-h-[260px]"
+                  )}
+                >
+                  <div className="w-full h-full">
+                    <TrakChart
+                      key={spinNonce}
+                      spec={localSpec}
+                      data={chartData}
+                      height={chartHeight}
+                    />
                   </div>
                 </div>
               </div>
@@ -537,7 +780,10 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                           count={typeof value === "number" ? value : groupRows.length}
                           percent={percent}
                           isOpen={openCategory === label}
-                          onToggle={() => setOpenCategory((cur) => (cur === label ? null : label))}
+                          onToggle={() => {
+                            setHasTouchedOpenCategory(true);
+                            setOpenCategory((cur) => (cur === label ? null : label));
+                          }}
                           rows={groupRows}
                           readOnly={readOnly}
                           getTaskHref={getTaskHrefForRow}
@@ -561,7 +807,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                           className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-2"
                         >
                           <div className="text-[10px] font-medium text-[var(--muted-foreground)] truncate" title={label}>
-                            {label}
+                            {formatCategoryLabel(label)}
                           </div>
                           <div className="mt-0.5 text-[13px] font-semibold text-[var(--foreground)] tabular-nums">
                             {groupRows.length}
@@ -600,7 +846,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                               className="h-2 w-2 rounded-[5px] shrink-0"
                               style={{ backgroundColor: resolveColor(label, idx) }}
                             />
-                            {label}
+                            {formatCategoryLabel(label)}
                           </span>
                         ))}
                       </span>

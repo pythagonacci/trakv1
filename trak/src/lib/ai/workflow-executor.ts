@@ -7,6 +7,7 @@ import { getOrCreateWorkflowSession, addWorkflowMessage, getWorkflowSessionMessa
 import { createBlock, deleteBlock } from "@/app/actions/block";
 import { executeTool } from "@/lib/ai/tool-executor";
 import { searchTasks } from "@/app/actions/ai-search";
+import { normalizeToChartRows } from "@/lib/charts/normalizeToChartRows";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 
 export interface WorkflowExecutionResult {
@@ -183,6 +184,11 @@ function extractCreatedBlockIds(toolCallsMade: ExecutionResult["toolCallsMade"])
       const blockId = (block && typeof block === "object" && "id" in block && typeof block.id === "string")
         ? block.id
         : (typeof obj?.blockId === "string" ? obj.blockId : null);
+      if (blockId) ids.push(blockId);
+      continue;
+    }
+    if (tool === "createSpecChartBlock") {
+      const blockId = typeof obj?.blockId === "string" ? obj.blockId : null;
       if (blockId) ids.push(blockId);
       continue;
     }
@@ -529,6 +535,8 @@ function buildFallbackTaskTableTitle(command: string, count: number): string {
   return `Tasks (${count})`;
 }
 
+const CHART_FALLBACK_MAX_ROWS = 500;
+
 function hasCreateTableTruncationFailure(toolCalls: ExecutionResult["toolCallsMade"]): boolean {
   return (toolCalls || []).some((call) => (
     call?.tool === "createTableFull" &&
@@ -538,8 +546,22 @@ function hasCreateTableTruncationFailure(toolCalls: ExecutionResult["toolCallsMa
   ));
 }
 
+function hasCreateSpecChartTruncationFailure(toolCalls: ExecutionResult["toolCallsMade"]): boolean {
+  return (toolCalls || []).some((call) => (
+    call?.tool === "createSpecChartBlock" &&
+    !call?.result?.success &&
+    typeof call?.result?.error === "string" &&
+    call.result.error.toLowerCase().includes("truncated")
+  ));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asRecordArray(values: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(values)) return [];
+  return values.filter((entry): entry is Record<string, unknown> => isRecord(entry));
 }
 
 function normalizeCellValue(value: unknown): string | null {
@@ -625,6 +647,433 @@ function getLatestSearchDatasetForFallback(
     return { sourceTool: call.tool, rows };
   }
   return null;
+}
+
+type ChartFallbackSearchTool =
+  | "searchTasks"
+  | "searchTimelineEvents"
+  | "searchTableRows"
+  | "searchSubtasks";
+
+type ChartFallbackDataset = {
+  sourceTool: ChartFallbackSearchTool;
+  sourceArgs: Record<string, unknown>;
+  rawResults: Array<Record<string, unknown>>;
+};
+
+function getLatestChartSearchDatasetForFallback(
+  toolCalls: ExecutionResult["toolCallsMade"]
+): ChartFallbackDataset | null {
+  for (let i = (toolCalls || []).length - 1; i >= 0; i -= 1) {
+    const call = toolCalls[i];
+    if (!call?.result?.success || !Array.isArray(call.result.data)) continue;
+    const sourceTool = call.tool as string;
+    if (
+      sourceTool !== "searchTasks" &&
+      sourceTool !== "searchTimelineEvents" &&
+      sourceTool !== "searchTableRows" &&
+      sourceTool !== "searchSubtasks"
+    ) {
+      continue;
+    }
+
+    const rawResults = asRecordArray(call.result.data);
+    if (rawResults.length === 0) continue;
+
+    return {
+      sourceTool,
+      sourceArgs: isRecord(call.arguments) ? call.arguments : {},
+      rawResults,
+    };
+  }
+
+  return null;
+}
+
+function getLatestFailedCreateSpecChartArgs(
+  toolCalls: ExecutionResult["toolCallsMade"]
+): Record<string, unknown> | null {
+  for (let i = (toolCalls || []).length - 1; i >= 0; i -= 1) {
+    const call = toolCalls[i];
+    if (call?.tool !== "createSpecChartBlock") continue;
+    if (call?.result?.success) continue;
+    if (
+      typeof call?.result?.error !== "string" ||
+      !call.result.error.toLowerCase().includes("truncated")
+    ) {
+      continue;
+    }
+    if (!isRecord(call.arguments)) continue;
+    return call.arguments;
+  }
+  return null;
+}
+
+function normalizeSubtaskStatusForChart(statusValue: unknown, completedValue: unknown): string | undefined {
+  const normalized = normalizeTaskStatusForTable(statusValue);
+  if (normalized) return normalized;
+  if (typeof completedValue === "boolean") return completedValue ? "done" : "todo";
+  return undefined;
+}
+
+function buildTaskSubtaskChartRows(tasks: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const rows: Array<Record<string, unknown>> = [];
+
+  for (const task of tasks) {
+    const taskId = typeof task.id === "string" && task.id.length > 0 ? task.id : "task";
+    const taskTitle = typeof task.title === "string" ? task.title : "";
+    const subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+
+    for (let i = 0; i < subtasks.length; i += 1) {
+      const subtask = subtasks[i];
+      if (!isRecord(subtask)) continue;
+
+      const id = typeof subtask.id === "string" && subtask.id.length > 0
+        ? subtask.id
+        : `${taskId}__subtask_${i + 1}`;
+      const title = typeof subtask.title === "string" && subtask.title.trim().length > 0
+        ? subtask.title
+        : taskTitle || `Subtask ${i + 1}`;
+
+      const row: Record<string, unknown> = {
+        id,
+        "Task Title": title,
+        type: "subtask",
+        parentTaskId: taskId,
+      };
+
+      const status = normalizeSubtaskStatusForChart(subtask.status, subtask.completed);
+      const priority = normalizeTaskPriorityForTable(subtask.priority);
+      const dueDate = toDateOnly(subtask.due_date);
+
+      if (status) row.status = status;
+      if (priority) row.priority = priority;
+      if (dueDate) row["Due Date"] = dueDate;
+      if (taskTitle) row.parentTaskTitle = taskTitle;
+
+      rows.push(row);
+    }
+  }
+
+  return rows;
+}
+
+function buildStandaloneSubtaskChartRows(subtasks: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const rows: Array<Record<string, unknown>> = [];
+
+  for (let i = 0; i < subtasks.length; i += 1) {
+    const subtask = subtasks[i];
+    const id = typeof subtask.id === "string" && subtask.id.length > 0
+      ? subtask.id
+      : `subtask_${i + 1}`;
+    const title = typeof subtask.title === "string" && subtask.title.trim().length > 0
+      ? subtask.title
+      : typeof subtask.task_title === "string"
+        ? subtask.task_title
+        : `Subtask ${i + 1}`;
+
+    const row: Record<string, unknown> = {
+      id,
+      "Task Title": title,
+      type: "subtask",
+    };
+
+    const status = normalizeSubtaskStatusForChart(subtask.status, subtask.completed);
+    const priority = normalizeTaskPriorityForTable(subtask.priority);
+    const dueDate = toDateOnly(subtask.due_date);
+
+    if (status) row.status = status;
+    if (priority) row.priority = priority;
+    if (dueDate) row["Due Date"] = dueDate;
+
+    if (typeof subtask.task_id === "string" && subtask.task_id.length > 0) {
+      row.parentTaskId = subtask.task_id;
+    }
+    if (typeof subtask.task_title === "string" && subtask.task_title.length > 0) {
+      row.parentTaskTitle = subtask.task_title;
+    }
+
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function dedupeChartRowsById(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    let id = typeof row.id === "string" && row.id.length > 0 ? row.id : `row_${out.length + 1}`;
+    if (seen.has(id)) {
+      let suffix = 2;
+      while (seen.has(`${id}__${suffix}`)) {
+        suffix += 1;
+      }
+      id = `${id}__${suffix}`;
+    }
+    seen.add(id);
+    out.push({ ...row, id });
+  }
+
+  return out;
+}
+
+function buildChartRowsFromFallbackDataset(dataset: ChartFallbackDataset): Array<Record<string, unknown>> {
+  switch (dataset.sourceTool) {
+    case "searchTasks": {
+      const taskRows = normalizeToChartRows("tasks", dataset.rawResults) as Array<Record<string, unknown>>;
+      const includeSubtasks = dataset.sourceArgs.includeSubtasks === true;
+      const subtaskRows = includeSubtasks ? buildTaskSubtaskChartRows(dataset.rawResults) : [];
+      return dedupeChartRowsById([...taskRows, ...subtaskRows]);
+    }
+    case "searchTimelineEvents":
+      return dedupeChartRowsById(
+        normalizeToChartRows("timeline_events", dataset.rawResults) as Array<Record<string, unknown>>
+      );
+    case "searchTableRows":
+      return dedupeChartRowsById(
+        normalizeToChartRows("table_rows", dataset.rawResults) as Array<Record<string, unknown>>
+      );
+    case "searchSubtasks":
+      return dedupeChartRowsById(buildStandaloneSubtaskChartRows(dataset.rawResults));
+    default:
+      return [];
+  }
+}
+
+function hasNonEmptyChartField(rows: Array<Record<string, unknown>>, field: string): boolean {
+  for (const row of rows) {
+    const value = row[field];
+    if (Array.isArray(value)) {
+      if (value.length > 0) return true;
+      continue;
+    }
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" && value.trim().length === 0) continue;
+    return true;
+  }
+  return false;
+}
+
+function inferFallbackBreakdownField(
+  rows: Array<Record<string, unknown>>,
+  preferred?: string
+): string {
+  const preferredField = typeof preferred === "string" ? preferred.trim() : "";
+  if (preferredField && hasNonEmptyChartField(rows, preferredField)) {
+    return preferredField;
+  }
+
+  const candidates = ["status", "priority", "assignee", "tags", "type", "Task Title", "title"];
+  for (const candidate of candidates) {
+    if (hasNonEmptyChartField(rows, candidate)) return candidate;
+  }
+
+  for (const row of rows) {
+    for (const [key] of Object.entries(row)) {
+      if (key === "id") continue;
+      if (hasNonEmptyChartField(rows, key)) return key;
+    }
+  }
+
+  return "status";
+}
+
+function buildFallbackChartSpec(
+  specCandidate: unknown,
+  rows: Array<Record<string, unknown>>
+): Record<string, unknown> {
+  const base = isRecord(specCandidate) ? { ...specCandidate } : {};
+  const existingBreakdown = isRecord(base.breakdown) ? base.breakdown : {};
+  const preferredBreakdownField = typeof existingBreakdown.field === "string" ? existingBreakdown.field : undefined;
+  const breakdownField = inferFallbackBreakdownField(rows, preferredBreakdownField);
+
+  const chartType = typeof base.chartType === "string" && ["pie", "doughnut", "bar"].includes(base.chartType)
+    ? base.chartType
+    : "pie";
+  const normalizeTo = typeof base.normalizeTo === "string" && ["focus", "universe"].includes(base.normalizeTo)
+    ? base.normalizeTo
+    : "focus";
+  const sort = typeof base.sort === "string" && ["value_desc", "value_asc", "label_asc", "label_desc"].includes(base.sort)
+    ? base.sort
+    : "value_desc";
+
+  const measureBase = isRecord(base.measure) ? base.measure : {};
+  const measureType = typeof measureBase.type === "string" ? measureBase.type : "count";
+  const measure =
+    measureType === "count"
+      ? { type: "count" }
+      : (measureType === "sum" || measureType === "avg") && typeof measureBase.field === "string" && measureBase.field.trim().length > 0
+        ? { type: measureType, field: measureBase.field.trim() }
+        : { type: "count" };
+
+  const spec: Record<string, unknown> = {
+    version: 1,
+    chartType,
+    breakdown: { field: breakdownField },
+    measure,
+    normalizeTo,
+    sort,
+  };
+
+  if (typeof existingBreakdown.fieldLabel === "string" && existingBreakdown.fieldLabel.trim().length > 0) {
+    spec.breakdown = { ...(spec.breakdown as Record<string, unknown>), fieldLabel: existingBreakdown.fieldLabel };
+  }
+
+  if (isRecord(base.series) && typeof base.series.field === "string" && base.series.field.trim().length > 0) {
+    const series: Record<string, unknown> = { field: base.series.field.trim() };
+    if (typeof base.series.fieldLabel === "string" && base.series.fieldLabel.trim().length > 0) {
+      series.fieldLabel = base.series.fieldLabel;
+    }
+    spec.series = series;
+  }
+
+  if (chartType === "bar" && typeof base.orientation === "string" && ["horizontal", "vertical"].includes(base.orientation)) {
+    spec.orientation = base.orientation;
+  }
+  if ((chartType === "pie" || chartType === "doughnut") && typeof base.pieComposition === "string" && ["breakdownOnly", "focusPlusRest"].includes(base.pieComposition)) {
+    spec.pieComposition = base.pieComposition;
+  }
+  if (typeof base.restLabel === "string" && base.restLabel.trim().length > 0) {
+    spec.restLabel = base.restLabel;
+  }
+  if (typeof base.topN === "number" && Number.isInteger(base.topN) && base.topN > 0) {
+    spec.topN = base.topN;
+  }
+  if (typeof base.includeOtherBucket === "boolean") {
+    spec.includeOtherBucket = base.includeOtherBucket;
+  }
+  if (typeof base.otherLabel === "string" && base.otherLabel.trim().length > 0) {
+    spec.otherLabel = base.otherLabel;
+  }
+  if (typeof base.title === "string" && base.title.trim().length > 0) {
+    spec.title = base.title;
+  }
+  if (typeof base.valueLabel === "string" && base.valueLabel.trim().length > 0) {
+    spec.valueLabel = base.valueLabel;
+  }
+  if (typeof base.labelLabel === "string" && base.labelLabel.trim().length > 0) {
+    spec.labelLabel = base.labelLabel;
+  }
+
+  return spec;
+}
+
+function inferChartDataSourceFromFallbackDataset(
+  dataset: ChartFallbackDataset
+): Record<string, unknown> | undefined {
+  if (dataset.sourceTool === "searchSubtasks") return undefined;
+
+  const type =
+    dataset.sourceTool === "searchTasks"
+      ? "tasks"
+      : dataset.sourceTool === "searchTimelineEvents"
+        ? "timeline_events"
+        : dataset.sourceTool === "searchTableRows"
+          ? "table_rows"
+          : null;
+  if (!type) return undefined;
+
+  return {
+    mode: "refreshable",
+    scope: "query",
+    query: {
+      type,
+      params: dataset.sourceArgs,
+    },
+  };
+}
+
+async function createSearchFallbackChart(params: {
+  workspaceId: string;
+  projectId?: string;
+  tabId: string;
+  command: string;
+  toolCalls: ExecutionResult["toolCallsMade"];
+  userId: string;
+  undoTracker?: ReturnType<typeof createUndoTracker>;
+}): Promise<{ blockId?: string; sourceTool: string; rowCount: number; omittedRows: number } | null> {
+  const failedArgs = getLatestFailedCreateSpecChartArgs(params.toolCalls);
+  const dataset = getLatestChartSearchDatasetForFallback(params.toolCalls);
+  if (!failedArgs || !dataset) return null;
+
+  const fallbackRows = buildChartRowsFromFallbackDataset(dataset);
+  if (fallbackRows.length === 0) return null;
+
+  const cappedRows = fallbackRows.slice(0, CHART_FALLBACK_MAX_ROWS);
+  const omittedRows = Math.max(0, fallbackRows.length - cappedRows.length);
+  const fallbackSpec = buildFallbackChartSpec(failedArgs.spec, cappedRows);
+
+  const toolArgs: Record<string, unknown> = {
+    tabId: params.tabId,
+    spec: fallbackSpec,
+    rows: cappedRows,
+    prompt: typeof failedArgs.prompt === "string" ? failedArgs.prompt : params.command,
+  };
+
+  if (typeof failedArgs.title === "string" && failedArgs.title.trim().length > 0) {
+    toolArgs.title = failedArgs.title;
+  }
+  if (typeof failedArgs.universeTotal === "number" && Number.isFinite(failedArgs.universeTotal)) {
+    toolArgs.universeTotal = failedArgs.universeTotal;
+  }
+  if (typeof failedArgs.isSimulation === "boolean") {
+    toolArgs.isSimulation = failedArgs.isSimulation;
+  }
+  if (typeof failedArgs.originalChartId === "string" && failedArgs.originalChartId.trim().length > 0) {
+    toolArgs.originalChartId = failedArgs.originalChartId;
+  }
+  if (
+    typeof failedArgs.simulationDescription === "string" &&
+    failedArgs.simulationDescription.trim().length > 0
+  ) {
+    toolArgs.simulationDescription = failedArgs.simulationDescription;
+  }
+
+  const failedDataSource = isRecord(failedArgs.dataSource) ? failedArgs.dataSource : undefined;
+  const inferredDataSource = inferChartDataSourceFromFallbackDataset(dataset);
+  if (failedDataSource) {
+    toolArgs.dataSource = failedDataSource;
+  } else if (inferredDataSource) {
+    toolArgs.dataSource = inferredDataSource;
+  }
+
+  const chartResult = await executeTool(
+    {
+      name: "createSpecChartBlock",
+      arguments: toolArgs,
+    },
+    {
+      workspaceId: params.workspaceId,
+      userId: params.userId,
+      currentTabId: params.tabId,
+      currentProjectId: params.projectId,
+      undoTracker: params.undoTracker,
+    }
+  );
+
+  if (!chartResult.success) {
+    aiDebug("workflow:chartFallbackFailed", {
+      sourceTool: dataset.sourceTool,
+      error: chartResult.error,
+    });
+    return null;
+  }
+
+  const data = isRecord(chartResult.data) ? chartResult.data : null;
+  const blockId = data && typeof data.blockId === "string"
+    ? data.blockId
+    : data && typeof data.id === "string"
+      ? data.id
+      : undefined;
+
+  return {
+    blockId,
+    sourceTool: dataset.sourceTool,
+    rowCount: cappedRows.length,
+    omittedRows,
+  };
 }
 
 async function createGenericSearchFallbackTable(params: {
@@ -1206,6 +1655,29 @@ RESPONSE PATTERN:
     }
   }
 
+  if (createdBlockIds.length === 0 && hasCreateSpecChartTruncationFailure(result.toolCallsMade)) {
+    const chartFallback = await createSearchFallbackChart({
+      workspaceId: session.workspace_id,
+      projectId: currentProjectId,
+      tabId: params.tabId,
+      command: params.command,
+      toolCalls: result.toolCallsMade,
+      userId: user.id,
+      undoTracker: workflowUndoTracker,
+    });
+
+    if (chartFallback) {
+      if (chartFallback.blockId) {
+        createdBlockIds.push(chartFallback.blockId);
+      }
+      const omittedNote = chartFallback.omittedRows > 0
+        ? ` (${chartFallback.omittedRows} additional row(s) omitted for stability).`
+        : ".";
+      const note = `I created the chart from ${chartFallback.rowCount} ${chartFallback.sourceTool} result row(s) using a fallback path after payload truncation${omittedNote}`;
+      finalResponse = finalResponse.trim().length > 0 ? `${finalResponse.trim()}\n\n${note}` : note;
+    }
+  }
+
   // Persist chat as a text block only when the user explicitly asked for a written page artifact.
   const hadSuccessfulToolCall = (result.toolCallsMade || []).some(
     (call) => call?.result?.success
@@ -1739,6 +2211,29 @@ RESPONSE PATTERN:
         const note = `I created the table from ${dataset.rows.length} ${dataset.sourceTool} result row(s) using a fallback path after payload truncation.`;
         finalResponse = finalResponse.trim().length > 0 ? `${finalResponse.trim()}\n\n${note}` : note;
       }
+    }
+  }
+
+  if (createdBlockIds.length === 0 && hasCreateSpecChartTruncationFailure(toolCallsMade)) {
+    const chartFallback = await createSearchFallbackChart({
+      workspaceId: effectiveWorkspaceId,
+      projectId: currentProjectId,
+      tabId: params.tabId,
+      command: params.command,
+      toolCalls: toolCallsMade,
+      userId: user.id,
+      undoTracker: workflowUndoTracker,
+    });
+
+    if (chartFallback) {
+      if (chartFallback.blockId) {
+        createdBlockIds.push(chartFallback.blockId);
+      }
+      const omittedNote = chartFallback.omittedRows > 0
+        ? ` (${chartFallback.omittedRows} additional row(s) omitted for stability).`
+        : ".";
+      const note = `I created the chart from ${chartFallback.rowCount} ${chartFallback.sourceTool} result row(s) using a fallback path after payload truncation${omittedNote}`;
+      finalResponse = finalResponse.trim().length > 0 ? `${finalResponse.trim()}\n\n${note}` : note;
     }
   }
 
