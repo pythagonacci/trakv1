@@ -1,9 +1,0 @@
-{
-  "build": {
-    "builder": "next",
-    "buildCommand": "npm ci && npm run build",
-    "startCommand": "./start.sh",
-    "installCommand": "npm ci --production=false"
-  }
-}
-
