@@ -1456,6 +1456,13 @@ export async function executeAICommand(
   const contextTableId = context.contextTableId;
   const contextBlockId = context.contextBlockId;
 
+  // Accumulate search results for chart row hydration (rowIds → full rows)
+  const recentSearchResultsForChart: Array<{
+    tool: string;
+    args: Record<string, unknown>;
+    data: Array<Record<string, unknown>>;
+  }> = [];
+
   // Track consecutive errors per tool to prevent extensive retry loops
   const consecutiveErrorCount = new Map<string, number>();
 
@@ -1518,9 +1525,13 @@ export async function executeAICommand(
       // Call the AI
       const llmStart = timingEnabled ? Date.now() : 0;
       const hasToolResultsInConversation = messages.some((message) => message.role === "tool");
-      const maxTokens = hasToolResultsInConversation
-        ? FINAL_RESPONSE_MAX_TOKENS
-        : toolCallTokenBudget;
+      // When search results are queued for chart hydration, the LLM's next call is
+      // almost certainly createSpecChartBlock — give it the full token budget so the
+      // tool-call JSON isn't truncated on the first attempt.
+      const chartCallLikely = chartModeActive || recentSearchResultsForChart.length > 0;
+      const maxTokens = !hasToolResultsInConversation || toolCallLengthRetries > 0 || chartCallLikely
+        ? toolCallTokenBudget
+        : FINAL_RESPONSE_MAX_TOKENS;
       const response =
         provider === "openai"
           ? await callOpenAI(openAIKey as string, messages, tools, maxTokens)
@@ -1555,9 +1566,12 @@ export async function executeAICommand(
         finishReason,
       });
 
-      // If the model stopped because of length (with or without tool calls),
-      // retry with a larger token budget.
-      if (!hasToolResultsInConversation && finishReason === "length") {
+      // If the model stopped because of length, retry with a larger token budget.
+      // Allow budget bumping when the model was attempting tool calls (even after
+      // prior tool results exist) — multi-step workflows like search→chart need
+      // enough tokens for subsequent tool calls, not just final text responses.
+      const hadToolCallsThisRound = (assistantMessage.tool_calls?.length ?? 0) > 0;
+      if (finishReason === "length" && (!hasToolResultsInConversation || hadToolCallsThisRound)) {
         const nextBudget = Math.min(
           Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
           TOOL_CALL_MAX_TOKENS_MAX
@@ -1567,7 +1581,8 @@ export async function executeAICommand(
             retry: toolCallLengthRetries + 1,
             fromMaxTokens: toolCallTokenBudget,
             toMaxTokens: nextBudget,
-            hadToolCalls: (assistantMessage.tool_calls?.length ?? 0) > 0,
+            hadToolCalls: hadToolCallsThisRound,
+            hasToolResultsInConversation,
           });
           toolCallTokenBudget = nextBudget;
           toolCallLengthRetries += 1;
@@ -1679,7 +1694,7 @@ export async function executeAICommand(
                 : toolName === "createTableFull"
                   ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
                   : toolName === "createSpecChartBlock"
-                    ? "Retry createSpecChartBlock with compact rows only (id + spec fields). For repeated categories, use __count/count compression (example: { id: 'amna', assignee: 'Amna', __count: 37 }). Optionally use rowBatches to split large arrays."
+                    ? "Retry with rowIds (array of entity ID strings from search results) for a smaller payload, or retry with fewer/more compact rows."
                   : "Retry with a smaller payload.";
               parseFailure =
                 `Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. ${retryHint}`;
@@ -1748,6 +1763,7 @@ export async function executeAICommand(
               undoTracker,
               authContext: context.authContext,
               searchedEntities: searchedEntities.length > 0 ? searchedEntities : undefined,
+              recentSearchResults: recentSearchResultsForChart.length > 0 ? recentSearchResultsForChart : undefined,
             });
           const toolDuration = timingEnabled ? Date.now() - toolStart : 0;
 
@@ -1808,7 +1824,9 @@ export async function executeAICommand(
             allToolCallsSuccessful = false;
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
             consecutiveErrorCount.set(toolName, currentErrors);
-            const maxErrors = options.maxConsecutiveToolErrors ?? 3;
+            // Chart truncation failures get a tighter limit — the fallback path handles recovery
+            const isTruncation = toolName === "createSpecChartBlock" && typeof result.error === "string" && result.error.toLowerCase().includes("truncated");
+            const maxErrors = isTruncation ? 2 : (options.maxConsecutiveToolErrors ?? 3);
 
             if (currentErrors >= maxErrors) {
               return withTiming({
@@ -1922,6 +1940,20 @@ export async function executeAICommand(
               titles: searchedEntities.slice(beforeCount).map(e => e.title),
             });
           }
+          // Collect search results for chart row hydration (rowIds → full rows)
+          if (
+            result.success &&
+            Array.isArray(result.data) &&
+            result.data.length > 0 &&
+            (toolName === "searchTasks" || toolName === "searchTimelineEvents" || toolName === "searchTableRows" || toolName === "searchSubtasks")
+          ) {
+            recentSearchResultsForChart.push({
+              tool: toolName,
+              args: toolArgs,
+              data: result.data as Array<Record<string, unknown>>,
+            });
+          }
+
           if (toolName === "searchEntitiesByProperties" && result.success && Array.isArray(result.data)) {
             const beforeCount = searchedEntities.length;
             for (const entity of result.data) {
@@ -2773,6 +2805,12 @@ export async function* executeAICommandStream(
   let toolCallTokenBudget = options.preferHigherTokenBudget ? TOOL_CALL_MAX_TOKENS_MAX : TOOL_CALL_MAX_TOKENS;
   let toolCallLengthRetries = 0;
   let approvedWriteConsumed = false;
+  // Accumulate search results for chart row hydration (rowIds → full rows) — streaming path
+  const recentSearchResultsForChartStream: Array<{
+    tool: string;
+    args: Record<string, unknown>;
+    data: Array<Record<string, unknown>>;
+  }> = [];
   // Track searched entities for deterministic source metadata annotation (streaming path)
   // Seed with entities from previous conversation turns if available
   const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
@@ -2978,9 +3016,13 @@ export async function* executeAICommandStream(
 
     try {
       const hasToolResultsInConversation = messages.some((message) => message.role === "tool");
-      const maxTokens = hasToolResultsInConversation
-        ? FINAL_RESPONSE_MAX_TOKENS
-        : toolCallTokenBudget;
+      // When search results are queued for chart hydration, the LLM's next call is
+      // almost certainly createSpecChartBlock — give it the full token budget so the
+      // tool-call JSON isn't truncated on the first attempt.
+      const chartCallLikely = chartModeActive || recentSearchResultsForChartStream.length > 0;
+      const maxTokens = !hasToolResultsInConversation || toolCallLengthRetries > 0 || chartCallLikely
+        ? toolCallTokenBudget
+        : FINAL_RESPONSE_MAX_TOKENS;
       const timingEnabled = isAITimingEnabled();
       const llmStart = timingEnabled ? Date.now() : 0;
       const stream = streamChatCompletion({
@@ -3014,9 +3056,11 @@ export async function* executeAICommandStream(
         }
       }
 
-      if (!hasToolResultsInConversation && streamedFinishReason === "length") {
-        // Retry with higher budget: either tool calls were cut off mid-stream, or model
-        // was about to emit a tool call when truncated.
+      // Allow budget bumping when the model was attempting tool calls (even after
+      // prior tool results exist) — multi-step workflows like search→chart need
+      // enough tokens for subsequent tool calls, not just final text responses.
+      const hadToolCallsThisStream = (streamedToolCalls?.length ?? 0) > 0;
+      if (streamedFinishReason === "length" && (!hasToolResultsInConversation || hadToolCallsThisStream)) {
         const nextBudget = Math.min(
           Math.max(toolCallTokenBudget + 1024, Math.round(toolCallTokenBudget * 1.5)),
           TOOL_CALL_MAX_TOKENS_MAX
@@ -3026,7 +3070,8 @@ export async function* executeAICommandStream(
             retry: toolCallLengthRetries + 1,
             fromMaxTokens: toolCallTokenBudget,
             toMaxTokens: nextBudget,
-            hadToolCalls: (streamedToolCalls?.length ?? 0) > 0,
+            hadToolCalls: hadToolCallsThisStream,
+            hasToolResultsInConversation,
           });
           toolCallTokenBudget = nextBudget;
           toolCallLengthRetries += 1;
@@ -3150,7 +3195,7 @@ export async function* executeAICommandStream(
                 : toolName === "createTableFull"
                   ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
                   : toolName === "createSpecChartBlock"
-                    ? "Retry createSpecChartBlock with compact rows only (id + spec fields). For repeated categories, use __count/count compression (example: { id: 'amna', assignee: 'Amna', __count: 37 }). Optionally use rowBatches to split large arrays."
+                    ? "Retry with rowIds (array of entity ID strings from search results) for a smaller payload, or retry with fewer/more compact rows."
                   : "Retry with a smaller payload.";
               parseFailure =
                 `Tool arguments were truncated and only partially repaired. Refusing to execute a write tool with potentially incomplete data. ${retryHint}`;
@@ -3222,6 +3267,7 @@ export async function* executeAICommandStream(
               undoTracker,
               authContext: context.authContext,
               searchedEntities: searchedEntitiesStream.length > 0 ? searchedEntitiesStream : undefined,
+              recentSearchResults: recentSearchResultsForChartStream.length > 0 ? recentSearchResultsForChartStream : undefined,
             });
 
           // Track searched entities for source metadata annotation (streaming path)
@@ -3281,6 +3327,20 @@ export async function* executeAICommandStream(
               titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
             });
           }
+          // Collect search results for chart row hydration (rowIds → full rows) — streaming path
+          if (
+            result.success &&
+            Array.isArray(result.data) &&
+            result.data.length > 0 &&
+            (toolName === "searchTasks" || toolName === "searchTimelineEvents" || toolName === "searchTableRows" || toolName === "searchSubtasks")
+          ) {
+            recentSearchResultsForChartStream.push({
+              tool: toolName,
+              args: toolArgs,
+              data: result.data as Array<Record<string, unknown>>,
+            });
+          }
+
           if (toolName === "searchEntitiesByProperties" && result.success && Array.isArray(result.data)) {
             const beforeCount = searchedEntitiesStream.length;
             for (const entity of result.data) {
@@ -3379,7 +3439,9 @@ export async function* executeAICommandStream(
           if (!result.success) {
             const currentErrors = (consecutiveErrorCount.get(toolName) || 0) + 1;
             consecutiveErrorCount.set(toolName, currentErrors);
-            const maxErrors = options.maxConsecutiveToolErrors ?? 3;
+            // Chart truncation failures get a tighter limit — the fallback path handles recovery
+            const isTruncation = toolName === "createSpecChartBlock" && typeof result.error === "string" && result.error.toLowerCase().includes("truncated");
+            const maxErrors = isTruncation ? 2 : (options.maxConsecutiveToolErrors ?? 3);
 
             if (currentErrors >= maxErrors) {
               yield {

@@ -1048,7 +1048,9 @@ const blockActionTools: ToolDefinition[] = [
       "ROW FORMAT: each row must have an 'id' field plus any fields used in breakdown/series/measure. " +
       "Use consistent field names: 'status', 'priority', 'assignee', 'tags' (array), 'type'. " +
       "tags must be string[].\n\n" +
-      "LARGE PAYLOAD STRATEGY: keep rows compact. Include only id + fields needed by spec. " +
+      "LARGE PAYLOAD STRATEGY: for simple breakdowns of search results, pass rowIds (string[]) — the server hydrates full row data automatically. " +
+      "When you need to compute/derive fields, merge multiple searches, or pre-aggregate, use rows directly. " +
+      "Keep rows compact: include only id + fields needed by spec. " +
       "For repeated categories, use row compression with __count (or count), e.g. { id: 'amna', assignee: 'Amna', __count: 37 }. " +
       "The server expands compressed rows before rendering. You may also send rowBatches (array of row arrays) as a batched alternative.\n\n" +
       "UNIVERSE: to show 'Figma files by status out of all files', set normalizeTo='universe', pass only Figma rows as rows[], " +
@@ -1062,7 +1064,8 @@ const blockActionTools: ToolDefinition[] = [
       tabId:    { type: "string", description: "Tab ID to create the chart in." },
       tabName:  { type: "string", description: "Target Tab Name (fuzzy matched)." },
       spec:     { type: "object", description: "ChartSpec v1 JSON object (see description)." },
-      rows:     { type: "array",  description: "Normalised data rows. Each must have an 'id' plus breakdown/series fields. Supports compact encoding via __count/count for repeated rows." },
+      rowIds:   { type: "array",  description: "Array of entity ID strings from prior search results. Server hydrates full row data automatically. Use when charting search results directly without field transformations." },
+      rows:     { type: "array",  description: "Normalised data rows. Each must have an 'id' plus breakdown/series fields. Supports compact encoding via __count/count for repeated rows. Use when you need computed fields, cross-search merges, pre-aggregation, or inline data." },
       rowBatches: { type: "array", description: "Optional batched rows (array of row arrays). Use for large datasets; server flattens and processes all batches." },
       universeTotal: { type: "number", description: "Total count of the full universe (denominator scope). Required when spec.normalizeTo='universe'." },
       title:    { type: "string", description: "Chart title override (also settable in spec.title)." },
@@ -1072,7 +1075,7 @@ const blockActionTools: ToolDefinition[] = [
       originalChartId: { type: "string", description: "Source chart block ID for simulations." },
       simulationDescription: { type: "string", description: "Brief description of the what-if change." },
     },
-    requiredParams: ["spec", "rows"],
+    requiredParams: ["spec"],
   },
   {
     name: "createBlock",

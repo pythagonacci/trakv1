@@ -89,6 +89,7 @@ import {
   getTabBlocks,
 } from "@/app/actions/block";
 import { createSpecChartBlock } from "@/app/actions/chart-actions";
+import { normalizeToChartRows, type ChartDataSourceType } from "@/lib/charts/normalizeToChartRows";
 
 // ============================================================================
 // IMPORTS - File Actions
@@ -240,6 +241,12 @@ export interface ToolExecutionContext {
   undoTracker?: UndoTracker;
   authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
   searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }>;
+  /** Recent search tool results for chart row hydration (rowIds → full rows). */
+  recentSearchResults?: Array<{
+    tool: string;
+    args: Record<string, unknown>;
+    data: Array<Record<string, unknown>>;
+  }>;
 }
 
 const shouldUseTestContext = () => process.env.NODE_ENV === "test";
@@ -373,6 +380,139 @@ function normalizeChartRowsForExecution(rawRows: unknown, rawBatches: unknown): 
     }
   }
   return expanded;
+}
+
+// ─── Chart row hydration (rowIds → full rows from search results) ────────
+
+type SearchResultEntry = {
+  tool: string;
+  args: Record<string, unknown>;
+  data: Array<Record<string, unknown>>;
+};
+
+function searchToolToSourceType(tool: string): ChartDataSourceType | null {
+  switch (tool) {
+    case "searchTasks": return "tasks";
+    case "searchTimelineEvents": return "timeline_events";
+    case "searchTableRows": return "table_rows";
+    default: return null;
+  }
+}
+
+/**
+ * Build a subtask chart row from raw subtask data (mirrors workflow-executor logic).
+ */
+function subtaskToChartRow(subtask: Record<string, unknown>, parentTitle?: string): ChartRowRecord {
+  const id = typeof subtask.id === "string" && subtask.id.length > 0 ? subtask.id : "subtask";
+  const title = typeof subtask.title === "string" && subtask.title.trim().length > 0
+    ? subtask.title
+    : typeof subtask.task_title === "string"
+      ? subtask.task_title
+      : "Subtask";
+  const row: ChartRowRecord = { id, "Task Title": title, type: "subtask" };
+
+  const rawStatus = String(subtask.status ?? "").trim().toLowerCase();
+  if (rawStatus) row.status = rawStatus;
+  else if (typeof subtask.completed === "boolean") row.status = subtask.completed ? "done" : "todo";
+
+  const rawPriority = String(subtask.priority ?? "").trim().toLowerCase();
+  if (rawPriority) row.priority = rawPriority;
+
+  if (typeof subtask.task_id === "string") row.parentTaskId = subtask.task_id;
+  if (parentTitle) row.parentTaskTitle = parentTitle;
+  else if (typeof subtask.task_title === "string") row.parentTaskTitle = subtask.task_title;
+
+  return row;
+}
+
+/**
+ * Hydrate rowIds into full chart rows using recent search results.
+ * Returns null if hydration cannot be performed (no matching search data).
+ */
+function hydrateChartRowsFromSearch(
+  rowIds: string[],
+  searchResults: SearchResultEntry[]
+): ChartRowRecord[] | null {
+  if (rowIds.length === 0 || searchResults.length === 0) return null;
+
+  // Build a lookup of all entity IDs → normalized chart rows from search results.
+  // Also index subtasks (nested in tasks or from searchSubtasks).
+  const rowById = new Map<string, ChartRowRecord>();
+  let hydratedAny = false;
+
+  for (const entry of searchResults) {
+    const sourceType = searchToolToSourceType(entry.tool);
+
+    if (entry.tool === "searchSubtasks") {
+      for (const subtask of entry.data) {
+        const stId = typeof subtask.id === "string" ? subtask.id : null;
+        if (stId && !rowById.has(stId)) {
+          rowById.set(stId, subtaskToChartRow(subtask));
+        }
+      }
+      continue;
+    }
+
+    if (!sourceType) continue;
+
+    const normalized = normalizeToChartRows(sourceType, entry.data);
+    for (const row of normalized) {
+      if (row.id && !rowById.has(row.id)) {
+        rowById.set(row.id, row as ChartRowRecord);
+      }
+    }
+
+    // Index subtasks nested inside task results
+    if (entry.tool === "searchTasks") {
+      for (const task of entry.data) {
+        const subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+        const parentTitle = typeof task.title === "string" ? task.title : undefined;
+        for (const subtask of subtasks) {
+          if (subtask && typeof subtask === "object" && typeof subtask.id === "string") {
+            if (!rowById.has(subtask.id)) {
+              rowById.set(subtask.id, subtaskToChartRow(subtask as Record<string, unknown>, parentTitle));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Hydrate: look up each requested ID
+  const result: ChartRowRecord[] = [];
+  for (const id of rowIds) {
+    const row = rowById.get(id);
+    if (row) {
+      result.push(row);
+      hydratedAny = true;
+    }
+  }
+
+  return hydratedAny ? result : null;
+}
+
+/**
+ * Auto-hydrate rows from search results when the LLM passes `rows` with IDs
+ * that match recent search data. Returns the original rows if no match.
+ */
+function autoHydrateRowsFromSearch(
+  rows: ChartRowRecord[],
+  searchResults: SearchResultEntry[]
+): ChartRowRecord[] {
+  if (rows.length === 0 || searchResults.length === 0) return rows;
+
+  const ids = rows.map((r) => String(r.id ?? "")).filter(Boolean);
+  if (ids.length === 0) return rows;
+
+  const hydrated = hydrateChartRowsFromSearch(ids, searchResults);
+  if (!hydrated) return rows;
+
+  // Only use hydrated rows if most IDs matched (>80%) — otherwise it's likely
+  // inline/generated data that happens to share some IDs with search results.
+  const matchRate = hydrated.length / ids.length;
+  if (matchRate < 0.8) return rows;
+
+  return hydrated;
 }
 
 async function insertRowsAdaptive(
@@ -2725,13 +2865,56 @@ export async function executeTool(
           }
           if (!tabId && context?.currentTabId) tabId = context.currentTabId;
           if (!tabId) return { success: false, error: "createSpecChartBlock: Missing tabId" };
-          const normalizedRows = normalizeChartRowsForExecution(args.rows, args.rowBatches);
+
+          // Row resolution: rowIds (hydrated) → rows (auto-hydrated if from search) → rowBatches
+          let resolvedRows: ChartRowRecord[];
+          const rawRowIds = Array.isArray(args.rowIds) ? (args.rowIds as string[]).filter((id) => typeof id === "string" && id.length > 0) : [];
+          const searchData = context?.recentSearchResults ?? [];
+
+          if (rawRowIds.length > 0 && searchData.length > 0) {
+            // Preferred path: LLM passed rowIds, hydrate from search results
+            const hydrated = hydrateChartRowsFromSearch(rawRowIds, searchData);
+            if (hydrated && hydrated.length > 0) {
+              resolvedRows = hydrated;
+              aiDebug("executeTool:chartRowHydration", {
+                mode: "rowIds",
+                requestedIds: rawRowIds.length,
+                hydratedRows: hydrated.length,
+              });
+            } else {
+              return { success: false, error: "createSpecChartBlock: rowIds provided but could not hydrate rows from search results. Pass rows directly instead." };
+            }
+          } else if (rawRowIds.length > 0 && searchData.length === 0) {
+            return { success: false, error: "createSpecChartBlock: rowIds provided but no search results available for hydration. Run a search first or pass rows directly." };
+          } else {
+            // Fallback: LLM passed rows/rowBatches directly
+            let baseRows = normalizeChartRowsForExecution(args.rows, args.rowBatches);
+
+            // Auto-hydrate: if rows match search results, enrich them
+            if (baseRows.length > 0 && searchData.length > 0) {
+              const autoHydrated = autoHydrateRowsFromSearch(baseRows, searchData);
+              if (autoHydrated !== baseRows) {
+                aiDebug("executeTool:chartRowHydration", {
+                  mode: "autoHydrate",
+                  originalRows: baseRows.length,
+                  hydratedRows: autoHydrated.length,
+                });
+                baseRows = autoHydrated;
+              }
+            }
+
+            resolvedRows = baseRows;
+          }
+
+          if (resolvedRows.length === 0) {
+            return { success: false, error: "createSpecChartBlock: No rows resolved. Provide rowIds from search results or rows directly." };
+          }
 
           return await wrapResult(
             createSpecChartBlock({
               tabId,
               spec:              args.spec as Record<string, unknown>,
-              rows:              normalizedRows,
+              rows:              resolvedRows,
               universeTotal:     args.universeTotal as number | undefined,
               title:             args.title as string | undefined,
               prompt:            args.prompt as string | undefined,

@@ -801,16 +801,11 @@ When a user requests a chart/graph/visualization over Trak entities, use createS
 
 ### Step-by-step
 1. Retrieve data using existing search tools (searchTasks, searchTableRows, searchTimelineEvents, etc.)
-2. Normalise rows into a flat array of objects. Each row MUST have an "id" field. Use these standard field names when applicable:
-   - "status" (string) — task status, row status
-   - "priority" (string)
-   - "assignee" (string — user name or id)
-   - "tags" (string array — array of tag strings)
-   - "type" (string — entity type or category)
-   - Custom field names from table fields are also fine.
-3. Build a ChartSpec v1 object (see createSpecChartBlock tool description for full schema).
-4. Call createSpecChartBlock with spec, rows, and optionally universeTotal.
-5. **When the chart is built from a single search** (searchTasks, searchTimelineEvents, or searchTableRows), include **dataSource** with the same query you used: dataSource: { mode: "refreshable", scope: "query", query: { type: "tasks" | "timeline_events" | "table_rows", params: { ...same params as the search call } } }. This makes the chart refreshable and lets the user choose “Track only these items” or “Track future items that meet these requirements” in the UI. Omit dataSource for mixed or inline data (snapshot-only chart).
+2. Build a ChartSpec v1 object (see createSpecChartBlock tool description for full schema).
+3. Call createSpecChartBlock with spec and either **rowIds** or **rows**:
+   - **rowIds:** Pass an array of entity ID strings selected from your search results. The server automatically hydrates full row data. Best when you're charting search results directly without field transformations.
+   - **rows:** Pass normalised row objects directly. Each row must have an "id" field plus breakdown/series fields. Use this when you need to compute/derive fields (e.g. extracting month from a date), merge data from multiple searches, use __count compression for pre-aggregated data, or pass inline/hand-crafted data not from a search.
+4. **When the chart is built from a single search** (searchTasks, searchTimelineEvents, or searchTableRows), include **dataSource** with the same query you used: dataSource: { mode: "refreshable", scope: "query", query: { type: "tasks" | "timeline_events" | "table_rows", params: { ...same params as the search call } } }. This makes the chart refreshable and lets the user choose “Track only these items” or “Track future items that meet these requirements” in the UI. Omit dataSource for mixed or inline data (snapshot-only chart).
 
 ### Chart type selection
 - pie / doughnut: categorical breakdown, 8 or fewer categories, shows proportions
@@ -825,28 +820,28 @@ When a user requests a chart/graph/visualization over Trak entities, use createS
 
 ### Row volume limits
 - Aim for 500 rows or fewer. If dataset is larger, use searchTasks/searchTableRows with filters to scope it down.
-- For task status breakdowns, pass the raw task rows directly (the transform engine handles grouping automatically).
-- Keep chart payloads compact: include only "id" and fields referenced by spec.
+- For simple breakdowns of search results (no field transformations): use rowIds to keep the payload compact.
+- When you need to compute fields, merge multiple searches, or pre-aggregate: use rows with only "id" and fields referenced by spec.
 - For repeated categories in count charts, use compressed rows with "__count" (or "count"), e.g. { id: "amna", assignee: "Amna", __count: 37 }; server expands automatically.
-- For very large datasets, you may send "rowBatches" (array of row arrays) instead of a single huge "rows" array.
 
 ### Examples (pseudo-JSON — pass as actual JSON objects to the tool)
 
-Pie chart — tasks by status:
+Pie chart — tasks by status (using rowIds from searchTasks results):
   spec: { version: 1, chartType: "pie", breakdown: { field: "status" }, normalizeTo: "focus" }
-  rows: [{ id: "t1", status: "todo" }, { id: "t2", status: "done" }, ...]
+  rowIds: ["task-id-1", "task-id-2", "task-id-3", ...]
+  dataSource: { mode: "refreshable", scope: "query", query: { type: "tasks", params: { tabId: "..." } } }
 
 Multi-series horizontal bar — tasks by assignee split by status:
   spec: { version: 1, chartType: "bar", orientation: "horizontal", breakdown: { field: "assignee" }, series: { field: "status" } }
-  rows: [{ id: "t1", assignee: "Alice", status: "todo" }, ...]
+  rowIds: ["task-id-1", "task-id-2", ...]
 
-Universe-normalised doughnut — Figma files out of all files:
+Inline data (no prior search — use rows directly):
   spec: { version: 1, chartType: "doughnut", breakdown: { field: "status" }, normalizeTo: "universe", pieComposition: "focusPlusRest", restLabel: "Non-Figma" }
   rows: [{ id: "f1", status: "Draft" }, { id: "f2", status: "Active" }, { id: "f3", status: "Active" }]
   universeTotal: 10
 
 ### Fallback
-Use createSpecChartBlock for all chart/visualization requests. Pre-fetch data via search tools, then pass spec + rows. When data comes from one search call, pass dataSource so the chart is refreshable by default.
+Use createSpecChartBlock for all chart/visualization requests. Pre-fetch data via search tools, then pass spec + rowIds. When data comes from one search call, pass dataSource so the chart is refreshable by default.
 
 ## Response Format
 
