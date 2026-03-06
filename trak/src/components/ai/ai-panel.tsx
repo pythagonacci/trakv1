@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, FileText, RotateCcw, Square, PanelRightClose } from "lucide-react";
+import { X, Sparkles, Loader2, Send, Paperclip, ChevronDown, FileText, RotateCcw, Square, PanelRightClose, Plus } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import {
 } from "@/app/actions/file-analysis";
 import { convertFileAnalysisToWorkflowPage } from "@/app/actions/workflow-page";
 import { createFileRecord } from "@/app/actions/file";
+import { createBlock } from "@/app/actions/block";
 import { getOrCreateFilesSpace } from "@/app/actions/project";
 import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
 import { formatBlockText } from "@/lib/format-block-text";
@@ -136,6 +137,7 @@ export function AIPanel({
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [undoingMessageId, setUndoingMessageId] = useState<string | null>(null);
+  const [addingToPageMessageId, setAddingToPageMessageId] = useState<string | null>(null);
   const [pendingWriteConfirmation, setPendingWriteConfirmation] = useState<PendingWriteConfirmation | null>(null);
   const [writeClarificationInput, setWriteClarificationInput] = useState("");
   const [contextFiles, setContextFiles] = useState<Array<{ id: string; file_name: string }>>([]);
@@ -1039,6 +1041,34 @@ export function AIPanel({
     }
   };
 
+  const handleAddToPage = async (messageId: string, content: string) => {
+    if (!tabId || !content?.trim()) {
+      setToast({ message: "No content to add or no page selected.", type: "error" });
+      return;
+    }
+    if (addingToPageMessageId) return;
+    setAddingToPageMessageId(messageId);
+    try {
+      const result = await createBlock({
+        tabId,
+        type: "text",
+        content: { text: content.trim() },
+      });
+      if ("error" in result) {
+        setToast({ message: result.error ?? "Failed to add to page", type: "error" });
+        return;
+      }
+      setToast({ message: "Added to page", type: "success" });
+      void queryClient.invalidateQueries();
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to add to page";
+      setToast({ message, type: "error" });
+    } finally {
+      setAddingToPageMessageId(null);
+    }
+  };
+
   const modePillClass = (active: boolean, compact = false) =>
     cn(
       compact ? "rounded-md px-2 py-0.5 text-[11px] transition-colors" : "rounded-md px-2.5 py-1 text-xs transition-colors",
@@ -1348,6 +1378,27 @@ export function AIPanel({
                       >
                         <RotateCcw className="h-3 w-3" />
                         Undo AI changes
+                      </button>
+                    </div>
+                  )}
+                  {message.role === "assistant" && tabId && message.content?.trim() && (
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAddToPage(message.id, message.content)}
+                        disabled={addingToPageMessageId === message.id}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+                          addingToPageMessageId === message.id && "opacity-60"
+                        )}
+                      >
+                        {addingToPageMessageId === message.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Plus className="h-3 w-3" />
+                        )}
+                        Add to page
                       </button>
                     </div>
                   )}
