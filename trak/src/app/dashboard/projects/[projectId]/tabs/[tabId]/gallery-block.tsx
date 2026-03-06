@@ -7,8 +7,11 @@ import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
 import { createFileComment } from "@/app/actions/file-comments";
 import { useFileUrls } from "./tab-canvas";
-import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus, MessageSquare } from "lucide-react";
+import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus, MessageSquare, Send, Replace, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -569,6 +572,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [hoveredImageIndex, setHoveredImageIndex] = useState<number | null>(null);
   const [isSettingsHovered, setIsSettingsHovered] = useState(false);
   const [fileCommentCounts, setFileCommentCounts] = useState<Record<string, number>>({});
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null);
 
   useEffect(() => {
     const rawLayout = (block.content?.layout as string | undefined) || null;
@@ -747,19 +751,26 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     await uploadImage(file, index);
   };
 
-  const handleImageContextMenu = async (e: React.MouseEvent, index: number) => {
+  const handleImageContextMenu = (e: React.MouseEvent, index: number) => {
     e.preventDefault();
     e.stopPropagation();
     const fileId = items[index]?.fileId;
     if (!fileId) return;
-    const input = window.prompt("Add comment to this image");
-    const text = input?.trim();
-    if (!text) return;
-    const result = await createFileComment({ fileId, text });
+    setContextMenu({ x: e.clientX, y: e.clientY, index });
+  };
+
+  const handleSubmitImageComment = async (index: number, text: string) => {
+    const fileId = items[index]?.fileId;
+    if (!fileId || !text.trim()) return;
+    const result = await createFileComment({ fileId, text: text.trim() });
     if ("error" in result) {
       alert(result.error || "Failed to add comment");
       return;
     }
+    setFileCommentCounts((prev) => ({
+      ...prev,
+      [fileId]: (prev[fileId] || 0) + 1,
+    }));
     window.dispatchEvent(
       new CustomEvent("file-analysis-comment-saved", {
         detail: { fileId },
@@ -1260,10 +1271,33 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
               </div>
 
               {/* Selected image on the right */}
-              <div className="flex-1 relative bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+              <div
+                className="flex-1 relative bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden"
+                onContextMenu={(e) => {
+                  if (sideModalIndex !== null && items[sideModalIndex]?.fileId) {
+                    handleImageContextMenu(e, sideModalIndex);
+                  }
+                }}
+              >
                 {sideModalIndex !== null && items[sideModalIndex]?.fileId && fileUrls[items[sideModalIndex].fileId!] ? (
                   <>
                     <div className="absolute top-2 right-2 z-10 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const fileId = items[sideModalIndex]?.fileId;
+                          const count = fileId ? (fileCommentCounts[fileId] || 0) : 0;
+                          handleImageContextMenu(
+                            { preventDefault: () => {}, stopPropagation: () => {}, clientX: e.clientX, clientY: e.clientY } as React.MouseEvent,
+                            sideModalIndex
+                          );
+                        }}
+                        className="rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
+                        title="Comment"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setSideModalIndex(null)}
@@ -1487,6 +1521,40 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         onChange={handleFileSelect}
       />
 
+      {contextMenu && (
+        <GalleryImageContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          imageIndex={contextMenu.index}
+          commentCount={items[contextMenu.index]?.fileId ? (fileCommentCounts[items[contextMenu.index].fileId!] || 0) : 0}
+          onClose={() => setContextMenu(null)}
+          onAddComment={async (text) => {
+            await handleSubmitImageComment(contextMenu.index, text);
+            setContextMenu(null);
+          }}
+          onReplace={() => {
+            openFilePicker(contextMenu.index);
+            setContextMenu(null);
+          }}
+          onRemove={() => {
+            if (isCollage) {
+              handleRemoveCollageImage(contextMenu.index);
+            } else {
+              const nextItems = items.map((item, idx) =>
+                idx === contextMenu.index ? { ...item, fileId: null } : item
+              );
+              setItems(nextItems);
+              persistItems(nextItems);
+            }
+            setContextMenu(null);
+          }}
+          onViewExpanded={() => {
+            setSideModalIndex(contextMenu.index);
+            setContextMenu(null);
+          }}
+        />
+      )}
+
       {lightboxIndex !== null && lightboxUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
@@ -1518,4 +1586,320 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
       )}
     </div>
   );
+}
+
+function GalleryImageContextMenu({
+  x,
+  y,
+  commentCount,
+  onClose,
+  onAddComment,
+  onReplace,
+  onRemove,
+  onViewExpanded,
+}: {
+  x: number;
+  y: number;
+  imageIndex: number;
+  commentCount: number;
+  onClose: () => void;
+  onAddComment: (text: string) => void;
+  onReplace: () => void;
+  onRemove: () => void;
+  onViewExpanded: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [showCommentInput, setShowCommentInput] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [adjustedPosition, setAdjustedPosition] = useState({ x, y });
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const referencePicker = useBlockReferencePicker();
+  const mentionStartIndexRef = useRef<number | null>(null);
+  const mentionQueryRef = useRef("");
+
+  const clearInlineMention = () => {
+    mentionStartIndexRef.current = null;
+    mentionQueryRef.current = "";
+  };
+
+  const insertInlineMention = (item: LinkableItem, searchQuery?: string) => {
+    const mentionStart = mentionStartIndexRef.current;
+    if (mentionStart === null) return;
+    const activeQuery = mentionQueryRef.current || searchQuery || "";
+    const replacement = `@${item.name}`;
+
+    setCommentText((currentValue) => {
+      const safeStart = Math.min(Math.max(mentionStart, 0), currentValue.length);
+      const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
+      return currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
+    });
+
+    clearInlineMention();
+    requestAnimationFrame(() => {
+      if (!commentInputRef.current) return;
+      const cursorPosition = mentionStart + replacement.length;
+      commentInputRef.current.focus();
+      commentInputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
+
+  const closeInlineMentionPicker = () => {
+    clearInlineMention();
+    referencePicker?.closePicker();
+  };
+
+  const getMentionPopoverAnchorRect = () => {
+    return menuRef.current?.getBoundingClientRect() ?? commentInputRef.current?.getBoundingClientRect() ?? null;
+  };
+
+  useEffect(() => {
+    if (menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      setAdjustedPosition({
+        x: x + rect.width > vw ? Math.max(8, vw - rect.width - 8) : x,
+        y: y + rect.height > vh ? Math.max(8, vh - rect.height - 8) : y,
+      });
+    }
+  }, [x, y, showCommentInput]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        closeInlineMentionPicker();
+        onClose();
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeInlineMentionPicker();
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (showCommentInput) {
+      requestAnimationFrame(() => commentInputRef.current?.focus());
+    }
+  }, [showCommentInput]);
+
+  if (typeof window === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[200] min-w-[180px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover"
+      style={{ top: adjustedPosition.y, left: adjustedPosition.x }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {!showCommentInput ? (
+        <>
+          <button
+            onClick={() => setShowCommentInput(true)}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+          >
+            <MessageSquare className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+            <span>Add comment</span>
+            {commentCount > 0 && (
+              <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">({commentCount})</span>
+            )}
+          </button>
+          <button
+            onClick={onViewExpanded}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+          >
+            <Maximize2 className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+            <span>View expanded</span>
+          </button>
+          <div className="my-1 h-px bg-[var(--border)]" />
+          <button
+            onClick={onReplace}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+          >
+            <Replace className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+            <span>Replace image</span>
+          </button>
+          <button
+            onClick={onRemove}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Remove</span>
+          </button>
+        </>
+      ) : (
+        <div className="p-1.5 space-y-2" style={{ width: 260 }}>
+          <div className="flex items-center gap-1.5">
+            <MessageSquare className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+            <span className="text-xs font-medium text-[var(--foreground)]">Add comment</span>
+          </div>
+          <textarea
+            ref={commentInputRef}
+            value={commentText}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setCommentText(nextValue);
+
+              const mentionStart = mentionStartIndexRef.current;
+              if (mentionStart === null || !referencePicker) return;
+
+              const cursorPosition = e.currentTarget.selectionStart ?? nextValue.length;
+              const shouldStopMentioning =
+                mentionStart >= nextValue.length ||
+                nextValue[mentionStart] !== "@" ||
+                cursorPosition <= mentionStart;
+
+              if (shouldStopMentioning) {
+                closeInlineMentionPicker();
+                return;
+              }
+
+              const nextQuery = nextValue.slice(mentionStart + 1, cursorPosition);
+              mentionQueryRef.current = nextQuery;
+              referencePicker.updateQuery?.(nextQuery);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                closeInlineMentionPicker();
+                if (commentText.trim()) onAddComment(commentText);
+                return;
+              }
+              if (e.key === "@" && referencePicker) {
+                e.preventDefault();
+                e.stopPropagation();
+                const currentValue = e.currentTarget.value;
+                const selectionStart = e.currentTarget.selectionStart ?? currentValue.length;
+                const selectionEnd = e.currentTarget.selectionEnd ?? selectionStart;
+                const nextValue =
+                  currentValue.slice(0, selectionStart) + "@" + currentValue.slice(selectionEnd);
+
+                setCommentText(nextValue);
+                mentionStartIndexRef.current = selectionStart;
+                mentionQueryRef.current = "";
+
+                requestAnimationFrame(() => {
+                  if (!commentInputRef.current) return;
+                  const nextCursor = selectionStart + 1;
+                  commentInputRef.current.focus();
+                  commentInputRef.current.setSelectionRange(nextCursor, nextCursor);
+                  referencePicker.openPicker({
+                    initialQuery: "",
+                    anchorRect: getMentionPopoverAnchorRect(),
+                    getAnchorRect: getMentionPopoverAnchorRect,
+                    popoverGap: -6,
+                    onSelect: insertInlineMention,
+                    onClose: clearInlineMention,
+                  });
+                });
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeInlineMentionPicker();
+                setShowCommentInput(false);
+                setCommentText("");
+                return;
+              }
+              e.stopPropagation();
+            }}
+            onKeyUp={(e) => e.stopPropagation()}
+            placeholder="Write a comment... (@ to mention)"
+            className="w-full min-h-[48px] rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:border-[var(--foreground)]/20 focus:bg-[var(--surface)] resize-none transition-colors"
+            rows={2}
+          />
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => {
+                closeInlineMentionPicker();
+                setShowCommentInput(false);
+                setCommentText("");
+              }}
+              className="text-[10px] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                closeInlineMentionPicker();
+                if (commentText.trim()) onAddComment(commentText);
+              }}
+              disabled={!commentText.trim()}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                commentText.trim()
+                  ? "bg-[var(--foreground)] text-[var(--surface)] hover:opacity-90"
+                  : "bg-[var(--border)] text-[var(--tertiary-foreground)] cursor-not-allowed"
+              )}
+            >
+              <Send className="h-3 w-3" />
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
+
+function galleryGetTextareaCaretRect(textarea: HTMLTextAreaElement): DOMRect | null {
+  const selectionStart = textarea.selectionStart ?? 0;
+  const rect = textarea.getBoundingClientRect();
+  const style = window.getComputedStyle(textarea);
+
+  const mirror = document.createElement("div");
+  mirror.style.position = "fixed";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.wordBreak = "break-word";
+  mirror.style.top = `${rect.top}px`;
+  mirror.style.left = `${rect.left}px`;
+  mirror.style.width = `${rect.width}px`;
+  mirror.style.height = `${rect.height}px`;
+  mirror.style.font = style.font;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.overflow = "hidden";
+
+  mirror.textContent = textarea.value.slice(0, selectionStart);
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+
+  const markerRect = marker.getBoundingClientRect();
+  document.body.removeChild(mirror);
+
+  const lineHeight = Number.parseFloat(style.lineHeight) || 16;
+  const caretRect = new DOMRect(
+    markerRect.left - textarea.scrollLeft,
+    markerRect.top - textarea.scrollTop,
+    1,
+    lineHeight
+  );
+
+  if (
+    !Number.isFinite(caretRect.top) ||
+    !Number.isFinite(caretRect.left) ||
+    (caretRect.top === 0 && caretRect.left === 0 && caretRect.width === 0 && caretRect.height === 0)
+  ) {
+    return null;
+  }
+
+  return caretRect;
 }
