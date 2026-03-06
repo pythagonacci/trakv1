@@ -484,15 +484,22 @@ export default function BlockWrapper({
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
-                    hasComments || commentsOpen
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                    "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+                    commentsOpen
+                      ? "border-[var(--primary)]/30 bg-[var(--primary)]/8 text-[var(--foreground)]"
+                      : hasComments
+                        ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
                   )}
                   title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
                   aria-pressed={commentsOpen}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
+                  {hasComments && !commentsOpen && (
+                    <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--surface)] text-[8px] font-medium leading-none">
+                      {comments.length > 9 ? "9+" : comments.length}
+                    </span>
+                  )}
                 </button>
                 {workspaceId && projectId && referencePicker && !isTempBlock && (
                   <button
@@ -706,15 +713,22 @@ export default function BlockWrapper({
               }}
               onMouseDown={(e) => e.stopPropagation()}
               className={cn(
-                "inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
-                hasComments || commentsOpen
-                  ? "border-blue-200 bg-blue-50 text-blue-700"
-                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+                commentsOpen
+                  ? "border-[var(--primary)]/30 bg-[var(--primary)]/8 text-[var(--foreground)]"
+                  : hasComments
+                    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
               )}
               title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
               aria-pressed={commentsOpen}
             >
               <MessageSquare className="h-3.5 w-3.5" />
+              {hasComments && !commentsOpen && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--surface)] text-[8px] font-medium leading-none">
+                  {comments.length > 9 ? "9+" : comments.length}
+                </span>
+              )}
             </button>
             {workspaceId && projectId && referencePicker && !isTempBlock && (
               <button

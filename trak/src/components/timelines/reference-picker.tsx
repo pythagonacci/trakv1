@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CheckSquare, FileText, Paperclip, Search, Square, Table, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -47,6 +48,7 @@ export default function ReferencePicker({
   initialQuery = "",
   variant = "dialog",
   anchorRect = null,
+  popoverGap = 2,
   autoFocus = true,
   onQueryChange,
 }: {
@@ -58,6 +60,7 @@ export default function ReferencePicker({
   initialQuery?: string;
   variant?: "dialog" | "popover";
   anchorRect?: DOMRect | null;
+  popoverGap?: number;
   autoFocus?: boolean;
   onQueryChange?: (query: string) => void;
 }) {
@@ -120,9 +123,9 @@ export default function ReferencePicker({
   useLayoutEffect(() => {
     if (!isOpen || variant !== "popover" || !hasValidAnchor || !anchorRect) return;
     const margin = 8;
-    const maxWidth = 320;
-    const maxHeight = 360;
-    const gap = 2;
+    const maxWidth = 260;
+    const maxHeight = 300;
+    const gap = popoverGap;
     const minLeft = margin;
     const maxLeft = window.innerWidth - maxWidth - margin;
     const minTop = margin;
@@ -143,7 +146,7 @@ export default function ReferencePicker({
 
     setPopoverLeft(left);
     setPopoverTop(top);
-  }, [isOpen, variant, anchorRect, hasValidAnchor]);
+  }, [isOpen, variant, anchorRect, hasValidAnchor, popoverGap]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -338,30 +341,42 @@ export default function ReferencePicker({
   };
 
   const pickerBody = (
-    <div className="space-y-3 py-1">
-      <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-sm focus-within:ring-2 focus-within:ring-blue-500 dark:border-neutral-800 dark:bg-neutral-900">
-        <Search className="h-3.5 w-3.5 text-neutral-400" />
+    <div className={cn("py-1", variant === "popover" ? "space-y-2" : "space-y-3")}>
+      <div className={cn(
+        "flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 dark:border-neutral-800 dark:bg-neutral-900",
+        variant === "popover" ? "text-xs" : "text-sm"
+      )}>
+        <Search className={cn("text-neutral-400", variant === "popover" ? "h-3 w-3" : "h-3.5 w-3.5")} />
         <input
           autoFocus={autoFocus}
           type="text"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder="Search..."
-          className="w-full bg-transparent text-xs text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+          className={cn(
+            "w-full bg-transparent text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100",
+            variant === "popover" ? "text-[11px]" : "text-xs"
+          )}
         />
       </div>
 
       {searchQuery.trim().length === 0 && (
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Recent</div>
-          <div className="mt-2 space-y-2">
+          <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>Recent</div>
+          <div className={cn(variant === "popover" ? "mt-1.5 space-y-1.5" : "mt-2 space-y-2")}>
             {isLoading && recentItems.length === 0 && (
-              <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-xs text-neutral-400 dark:border-neutral-800">
+              <div className={cn(
+                "rounded-lg border border-dashed border-neutral-200 text-neutral-400 dark:border-neutral-800",
+                variant === "popover" ? "px-2.5 py-3 text-[11px]" : "px-3 py-4 text-xs"
+              )}>
                 Loading recent items...
               </div>
             )}
             {!isLoading && displayItems.length === 0 && (
-              <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-xs text-neutral-400 dark:border-neutral-800">
+              <div className={cn(
+                "rounded-lg border border-dashed border-neutral-200 text-neutral-400 dark:border-neutral-800",
+                variant === "popover" ? "px-2.5 py-3 text-[11px]" : "px-3 py-4 text-xs"
+              )}>
                 No recent items found for this project.
               </div>
             )}
@@ -371,6 +386,7 @@ export default function ReferencePicker({
                 item={item}
                 isActive={index === activeIndex}
                 onSelect={() => handleSelect(item)}
+                compact={variant === "popover"}
               />
             ))}
           </div>
@@ -378,8 +394,8 @@ export default function ReferencePicker({
       )}
 
       <div>
-        <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Browse by type</div>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>Browse by type</div>
+        <div className={cn("mt-2 flex flex-wrap", variant === "popover" ? "gap-1.5" : "gap-2")}>
           {TYPE_OPTIONS.map((option) => {
             const Icon = option.icon;
             const isActive = selectedType === option.type;
@@ -390,13 +406,14 @@ export default function ReferencePicker({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setSelectedType((prev) => (prev === option.type ? null : option.type))}
                 className={cn(
-                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                  "flex items-center rounded-full border font-medium transition",
+                  variant === "popover" ? "gap-1.5 px-2.5 py-1 text-[11px]" : "gap-2 px-3 py-1.5 text-xs",
                   isActive
                     ? "border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-500/10"
                     : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
                 )}
               >
-                <Icon className="h-3.5 w-3.5" />
+                <Icon className={variant === "popover" ? "h-3 w-3" : "h-3.5 w-3.5"} />
                 {option.label}
               </button>
             );
@@ -406,15 +423,21 @@ export default function ReferencePicker({
 
       {searchQuery.trim().length > 0 && (
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Results</div>
-          <div className="mt-2 space-y-3">
+          <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>Results</div>
+          <div className={cn(variant === "popover" ? "mt-1.5 space-y-2" : "mt-2 space-y-3")}>
             {isLoading && (
-              <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-xs text-neutral-400 dark:border-neutral-800">
+              <div className={cn(
+                "rounded-lg border border-dashed border-neutral-200 text-neutral-400 dark:border-neutral-800",
+                variant === "popover" ? "px-2.5 py-3 text-[11px]" : "px-3 py-4 text-xs"
+              )}>
                 Searching...
               </div>
             )}
             {!isLoading && displayItems.length === 0 && (
-              <div className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-xs text-neutral-400 dark:border-neutral-800">
+              <div className={cn(
+                "rounded-lg border border-dashed border-neutral-200 text-neutral-400 dark:border-neutral-800",
+                variant === "popover" ? "px-2.5 py-3 text-[11px]" : "px-3 py-4 text-xs"
+              )}>
                 No matches found.
               </div>
             )}
@@ -422,7 +445,7 @@ export default function ReferencePicker({
               <>
                 {groupedByProject.people.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>
                       People
                     </div>
                     {groupedByProject.people.map((item) => {
@@ -435,6 +458,7 @@ export default function ReferencePicker({
                           item={item}
                           isActive={overallIndex === activeIndex}
                           onSelect={() => handleSelect(item)}
+                          compact={variant === "popover"}
                         />
                       );
                     })}
@@ -442,7 +466,7 @@ export default function ReferencePicker({
                 )}
                 {groupedByProject.currentProject.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>
                       This Project
                     </div>
                     {groupedByProject.currentProject.map((item) => {
@@ -455,6 +479,7 @@ export default function ReferencePicker({
                           item={item}
                           isActive={overallIndex === activeIndex}
                           onSelect={() => handleSelect(item)}
+                          compact={variant === "popover"}
                         />
                       );
                     })}
@@ -462,7 +487,7 @@ export default function ReferencePicker({
                 )}
                 {groupedByProject.workflow.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>
                       Workflow Pages
                     </div>
                     {groupedByProject.workflow.map((item) => {
@@ -475,6 +500,7 @@ export default function ReferencePicker({
                           item={item}
                           isActive={overallIndex === activeIndex}
                           onSelect={() => handleSelect(item)}
+                          compact={variant === "popover"}
                         />
                       );
                     })}
@@ -482,7 +508,7 @@ export default function ReferencePicker({
                 )}
                 {groupedByProject.otherProjects.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    <div className={cn("font-semibold uppercase tracking-wide text-neutral-400", variant === "popover" ? "text-[10px]" : "text-xs")}>
                       Other Projects
                     </div>
                     {groupedByProject.otherProjects.map((item) => {
@@ -495,6 +521,7 @@ export default function ReferencePicker({
                           item={item}
                           isActive={overallIndex === activeIndex}
                           onSelect={() => handleSelect(item)}
+                          compact={variant === "popover"}
                         />
                       );
                     })}
@@ -510,27 +537,30 @@ export default function ReferencePicker({
 
   if (variant === "popover" && hasValidAnchor && anchorRect) {
     if (!isOpen) return null;
-    return (
+    if (typeof document === "undefined") return null;
+    return createPortal(
       <div
         ref={popoverRef}
         onKeyDown={handleKeyDown}
-        className="fixed z-[100000] w-[320px] max-w-[90vw] max-h-[360px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-popover overflow-hidden flex flex-col"
+        className="fixed z-[100000] w-[260px] max-w-[90vw] max-h-[300px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-popover overflow-hidden flex flex-col"
         style={{
           left: popoverLeft ?? anchorRect.left,
           top: popoverTop ?? anchorRect.top,
         }}
       >
-        <div className="text-xs font-semibold text-[var(--foreground)] mb-2">Add attachment</div>
+        <div className="mb-1.5 text-[11px] font-semibold text-[var(--foreground)]">Add attachment</div>
         <div className="flex-1 overflow-y-auto min-h-0">
           {pickerBody}
         </div>
-        <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--border)] text-[10px] text-[var(--muted-foreground)] flex-shrink-0">
+        <div className="mt-1.5 flex flex-shrink-0 items-center justify-between border-t border-[var(--border)] pt-1.5 text-[9px] text-[var(--muted-foreground)]">
           <div>Use ↑/↓ to navigate and Enter to select.</div>
-          <Button variant="outline" size="sm" onClick={onClose} className="h-6 text-xs px-2">
+          <Button variant="outline" size="sm" onClick={onClose} className="h-6 px-2 text-[10px]">
             Close
           </Button>
         </div>
       </div>
+      ,
+      document.body
     );
   }
 
@@ -558,10 +588,12 @@ function ResultRow({
   item,
   isActive,
   onSelect,
+  compact = false,
 }: {
   item: LinkableItem;
   isActive: boolean;
   onSelect: () => void;
+  compact?: boolean;
 }) {
   const iconMap: Record<LinkableType, React.ElementType> = {
     doc: FileText,
@@ -585,16 +617,17 @@ function ResultRow({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onSelect}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition",
+        "flex w-full items-center rounded-lg border text-left transition",
+        compact ? "gap-2 px-2.5 py-1.5 text-xs" : "gap-3 px-3 py-2 text-sm",
         isActive
           ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-200"
           : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
       )}
     >
-      <Icon className="h-4 w-4 text-neutral-400" />
+      <Icon className={cn("text-neutral-400", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{item.name}</div>
-        <div className="truncate text-xs text-neutral-400">
+        <div className={cn("truncate font-medium", compact ? "text-[11px]" : "")}>{item.name}</div>
+        <div className={cn("truncate text-neutral-400", compact ? "text-[10px]" : "text-xs")}>
           {TYPE_LABELS[item.type]} · {locationText}
         </div>
       </div>

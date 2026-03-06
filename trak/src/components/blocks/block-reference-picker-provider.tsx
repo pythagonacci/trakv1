@@ -12,6 +12,7 @@ interface OpenOptions {
   anchorRect?: DOMRect | null;
   /** Called on viewport resize/scroll to keep popover anchored to trigger. */
   getAnchorRect?: () => DOMRect | null;
+  popoverGap?: number;
 }
 
 interface BlockReferencePickerContextValue {
@@ -42,6 +43,7 @@ export function BlockReferencePickerProvider({
   const [currentQuery, setCurrentQuery] = useState<string>("");
   const [pendingSelect, setPendingSelect] = useState<OpenOptions["onSelect"]>();
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [popoverGap, setPopoverGap] = useState<number>(2);
   const pendingCloseRef = useRef<(() => void) | undefined>(undefined);
   const getAnchorRectRef = useRef<(() => DOMRect | null) | undefined>(undefined);
 
@@ -53,6 +55,7 @@ export function BlockReferencePickerProvider({
     setCurrentQuery(query);
     setPendingSelect(() => options?.onSelect);
     setAnchorRect(options?.anchorRect ?? null);
+    setPopoverGap(options?.popoverGap ?? 2);
     getAnchorRectRef.current = options?.getAnchorRect;
     pendingCloseRef.current = options?.onClose;
     setIsOpen(true);
@@ -71,6 +74,7 @@ export function BlockReferencePickerProvider({
     setCurrentQuery("");
     setPendingSelect(undefined);
     setAnchorRect(null);
+    setPopoverGap(2);
     getAnchorRectRef.current = undefined;
     pendingCloseRef.current?.();
     pendingCloseRef.current = undefined;
@@ -131,6 +135,7 @@ export function BlockReferencePickerProvider({
           initialQuery={initialQuery}
           variant={anchorRect ? "popover" : "dialog"}
           anchorRect={anchorRect}
+          popoverGap={popoverGap}
           autoFocus={!anchorRect}
           onClose={handleClose}
           onSelect={handleSelect}

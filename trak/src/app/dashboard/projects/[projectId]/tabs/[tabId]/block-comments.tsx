@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { ChevronUp, X, Plus, Reply } from "lucide-react";
+import { X, Plus, Reply } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { BlockComment } from "@/types/block-comment";
@@ -276,7 +276,7 @@ export default function BlockComments({
   return createPortal(
     <div
       className={cn(
-        "fixed z-[140] w-[320px] max-w-[calc(100vw-1rem)] rounded-lg border border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur-sm p-3 shadow-popover flex flex-col max-h-[min(72vh,560px)]"
+        "fixed z-[140] w-[320px] max-w-[calc(100vw-1rem)] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 shadow-popover flex flex-col max-h-[min(72vh,560px)]"
       )}
       style={floatingStyle}
       onClick={(e) => e.stopPropagation()}
@@ -284,13 +284,10 @@ export default function BlockComments({
       onPointerDown={(e) => e.stopPropagation()}
       onDragStart={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center gap-1.5 mb-2">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-[var(--foreground)]">
-          {commentCount} {commentCount === 1 ? "comment" : "comments"}
+          {commentCount === 0 ? "Comments" : `${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}
         </span>
-        {/* Tiny square indicator - next to comment count */}
-        <div className="h-2 w-2 rounded bg-[var(--primary)]" />
-        {/* Collapse button - right next to comment count */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -298,9 +295,9 @@ export default function BlockComments({
             setIsExpanded(false);
           }}
           onMouseDown={(e) => e.stopPropagation()}
-          className="text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-colors"
+          className="flex h-5 w-5 items-center justify-center rounded text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
         >
-          <ChevronUp className="h-3 w-3" />
+          <X className="h-3 w-3" />
         </button>
       </div>
 
@@ -396,41 +393,20 @@ export default function BlockComments({
             onPointerDown={(e) => e.stopPropagation()}
           >
             {!showCommentInput ? (
-              <div className="flex items-center gap-1 justify-start">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowCommentInput(true);
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center h-4 w-4 rounded-md text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-                  title="Add Comment"
-                >
-                  <Plus className="h-2.5 w-2.5" />
-                </button>
-                {/* Reply button - right next to plus icon */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (comments.length === 0) {
-                      setReplyTarget(null);
-                      setShowCommentInput(true);
-                      requestAnimationFrame(() => {
-                        commentInputRef.current?.focus();
-                      });
-                      return;
-                    }
-                    const latest = comments[comments.length - 1];
-                    const latestAuthor = latest.author_name || latest.author_email?.split("@")[0] || "Unknown";
-                    startReply(latest.id, latestAuthor);
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center h-4 w-4 rounded-md text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
-                  title="Reply"
-                >
-                  <Reply className="h-2.5 w-2.5" />
-                </button>
-              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCommentInput(true);
+                  requestAnimationFrame(() => {
+                    commentInputRef.current?.focus();
+                  });
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-[var(--border)] px-2.5 py-2 text-xs text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] hover:border-[var(--foreground)]/20 hover:bg-[var(--surface-hover)]/50 transition-colors"
+              >
+                <Plus className="h-3 w-3" />
+                <span>{hasComments ? "Reply" : "Add a comment"}</span>
+              </button>
             ) : (
               <div className="space-y-1.5">
                 {replyTarget && (
@@ -553,8 +529,8 @@ export default function BlockComments({
                   onCompositionEnd={(e) => {
                     e.stopPropagation();
                   }}
-                  placeholder="Add comment... (Enter to submit, Shift+Enter for new line)"
-                  className="w-full min-h-[50px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+                  placeholder="Write a comment..."
+                  className="w-full min-h-[50px] rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:border-[var(--foreground)]/20 focus:bg-[var(--surface)] resize-none transition-colors"
                   rows={2}
                   disabled={!currentUser || isLoading}
                   style={{ pointerEvents: 'auto', cursor: 'text' }}
