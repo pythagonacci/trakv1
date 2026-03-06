@@ -8,6 +8,7 @@ export async function POST(req: NextRequest) {
   // Security: Only allow Supabase cron requests with CRON_SECRET.
   const authHeader = req.headers.get("authorization");
   const expectedAuth = process.env.CRON_SECRET;
+  const isManualTrigger = req.headers.get("x-manual-trigger") === "true";
 
   try {
     if (process.env.NODE_ENV === "production" && !expectedAuth) {
@@ -16,7 +17,8 @@ export async function POST(req: NextRequest) {
     }
 
     const isCronRequest = Boolean(expectedAuth) && authHeader === `Bearer ${expectedAuth}`;
-    if (!isCronRequest) {
+    const isDevManualTrigger = process.env.NODE_ENV !== "production" && isManualTrigger;
+    if (!isCronRequest && !isDevManualTrigger) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

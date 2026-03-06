@@ -6,7 +6,7 @@ import { MessageSquare, Share2, X, Plus, PanelRightClose } from "lucide-react";
 import { cn } from "@/lib/utils";
 import TabCanvasWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/tab-canvas-wrapper";
 import type { Block } from "@/app/actions/block";
-import WorkflowAIChatPanel from "./workflow-ai-chat-panel";
+import { AIPanel } from "@/components/ai";
 import { enableWorkflowPageSharing, createWorkflowPage } from "@/app/actions/workflow-page";
 import { useAI } from "@/components/ai";
 
@@ -161,12 +161,12 @@ export default function WorkflowPageLayout(props: {
 
           {chatOpen ? (
             <div className="w-[420px] max-w-[45vw] min-w-[340px] shrink-0 flex min-h-0 h-full">
-              <WorkflowAIChatPanel
+              <AIPanel
+                projectId={props.projectId ?? null}
                 tabId={props.tabId}
-                workspaceId={props.workspaceId}
+                variant="sidebar"
                 showCollapseButton={inProject}
                 onCollapse={inProject ? () => setChatOpen(false) : undefined}
-                autoScrollDashboardToTop={inProject}
               />
             </div>
           ) : inProject ? (

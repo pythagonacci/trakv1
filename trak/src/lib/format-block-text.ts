@@ -9,6 +9,14 @@ import { sanitizeHtml } from "@/lib/sanitize-html";
 
 type FormatPreset = "default" | "compact";
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
 export function formatBlockText(
   text: string,
   options: { preset?: FormatPreset } = {}
@@ -50,6 +58,11 @@ export function formatBlockText(
     if (/<u>.*?<\/u>/.test(formatted)) {
       formatted = formatted.replace(/<u>(.*?)<\/u>/g, '<u class="underline text-[var(--foreground)]">$1</u>');
     }
+    formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+      const safeLabel = escapeHtml(label);
+      const safeUrl = escapeHtml(url);
+      return `<a href="${safeUrl}" title="${safeLabel}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${safeLabel}</a>`;
+    });
     // Process markdown formatting before HTML replacements to avoid conflicts
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-[var(--foreground)]">$1</strong>');
     formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { X, Plus, Reply } from "lucide-react";
+import { X, Plus, Reply, Trash2 } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
 import { BlockComment } from "@/types/block-comment";
@@ -374,7 +374,7 @@ export default function BlockComments({
                             className="opacity-0 group-hover/comment:opacity-100 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity"
                             title="Delete comment"
                           >
-                            <X className="h-3 w-3" />
+                            <Trash2 className="h-3 w-3" />
                           </button>
                         )}
                       </div>

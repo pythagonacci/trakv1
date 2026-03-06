@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { type Block, updateBlock } from "@/app/actions/block";
 import { createClient } from "@/lib/supabase/client";
 import { createFileRecord } from "@/app/actions/file";
 import { createFileComment } from "@/app/actions/file-comments";
+import { deleteFileAnalysisComment } from "@/app/actions/file-analysis";
 import { useFileUrls } from "./tab-canvas";
-import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus, MessageSquare, Send, Replace, Trash2 } from "lucide-react";
+import { Loader2, X, Image as ImageIcon, Images, Maximize2, Minimize2, Settings, Pencil, Plus, MessageSquare, Send, Replace, Trash2, Reply } from "lucide-react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
+import { getLinkableItemHref } from "@/lib/references/navigation";
+import { formatBlockText } from "@/lib/format-block-text";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -37,6 +40,23 @@ type GalleryItem = {
   aspectRatio?: number;
 };
 
+type FileComment = {
+  id: string;
+  file_id: string;
+  text: string;
+  created_at: string;
+  user_id: string | null;
+  parent_id?: string | null;
+  author_name?: string;
+};
+
+type DraftMentionToken = {
+  start: number;
+  end: number;
+  label: string;
+  href: string;
+};
+
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 const DEFAULT_ARRAY_COLUMNS = 2;
@@ -47,6 +67,78 @@ const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string }> = {
   collage: { label: "Collage" },
   array: { label: "Array" },
 };
+
+function shiftMentionTokens(
+  tokens: DraftMentionToken[],
+  editStart: number,
+  removedLength: number,
+  insertedLength: number
+): DraftMentionToken[] {
+  const delta = insertedLength - removedLength;
+  return tokens.flatMap((token) => {
+    if (token.end <= editStart) {
+      return [token];
+    }
+    if (token.start >= editStart + removedLength) {
+      return [
+        {
+          ...token,
+          start: token.start + delta,
+          end: token.end + delta,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
+function getTextEditDelta(previousValue: string, nextValue: string) {
+  let start = 0;
+  while (
+    start < previousValue.length &&
+    start < nextValue.length &&
+    previousValue[start] === nextValue[start]
+  ) {
+    start += 1;
+  }
+
+  let previousEnd = previousValue.length;
+  let nextEnd = nextValue.length;
+  while (
+    previousEnd > start &&
+    nextEnd > start &&
+    previousValue[previousEnd - 1] === nextValue[nextEnd - 1]
+  ) {
+    previousEnd -= 1;
+    nextEnd -= 1;
+  }
+
+  return {
+    start,
+    removedLength: previousEnd - start,
+    insertedLength: nextEnd - start,
+  };
+}
+
+function serializeCommentMentions(text: string, tokens: DraftMentionToken[]) {
+  if (tokens.length === 0) return text;
+
+  const sortedTokens = [...tokens].sort((a, b) => a.start - b.start);
+  let cursor = 0;
+  let result = "";
+
+  for (const token of sortedTokens) {
+    if (token.start < cursor) continue;
+    const slice = text.slice(token.start, token.end);
+    if (slice !== token.label) continue;
+    result += text.slice(cursor, token.start);
+    result += `[${token.label}](${token.href})`;
+    cursor = token.end;
+  }
+
+  result += text.slice(cursor);
+  return result;
+}
 
 const CELL_WIDTH = 150;
 const CELL_HEIGHT = 112;
@@ -79,6 +171,7 @@ interface CollageViewProps {
   handleDrop: (e: React.DragEvent, index: number) => void;
   onImageContextMenu?: (e: React.MouseEvent, index: number) => void;
   setSideModalIndex: (v: number | null) => void;
+  setCommentsPanelOpen: (v: boolean) => void;
 }
 
 function CollageView({
@@ -102,6 +195,7 @@ function CollageView({
   handleDrop,
   onImageContextMenu,
   setSideModalIndex,
+  setCommentsPanelOpen,
 }: CollageViewProps) {
   // Collage: only show images (no empty add slots). Click/drop anywhere on the block to add.
   const displayItems = items
@@ -168,7 +262,12 @@ function CollageView({
               onResizeEnd={onResizeEnd}
               onAspectRatioLoaded={(ar) => onAspectRatioLoaded(index, ar)}
               onCaptionChange={(v) => onCaptionChange(index, v)}
-              onClick={() => item.fileId && setSideModalIndex(index)}
+              onClick={() => {
+                if (item.fileId) {
+                  setSideModalIndex(index);
+                  setCommentsPanelOpen(false);
+                }
+              }}
               onAddClick={() => openFilePicker(index)}
               onDrop={(e) => handleDrop(e, index)}
               onContextMenu={(e) => onImageContextMenu?.(e, index)}
@@ -569,9 +668,16 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [sideModalIndex, setSideModalIndex] = useState<number | null>(null);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [hoveredImageIndex, setHoveredImageIndex] = useState<number | null>(null);
   const [isSettingsHovered, setIsSettingsHovered] = useState(false);
   const [fileCommentCounts, setFileCommentCounts] = useState<Record<string, number>>({});
+  const [fileComments, setFileComments] = useState<Record<string, FileComment[]>>({});
+  const [loadingCommentFileIds, setLoadingCommentFileIds] = useState<Set<string>>(new Set());
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [deletingCommentIds, setDeletingCommentIds] = useState<Set<string>>(new Set());
+  const [replyToComment, setReplyToComment] = useState<{ id: string; authorName: string } | null>(null);
+  const [showAddCommentInPanel, setShowAddCommentInPanel] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null);
 
   useEffect(() => {
@@ -620,6 +726,72 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         setFileCommentCounts({});
       });
   }, [items]);
+
+  const loadCommentsForFile = useCallback(async (fileId: string) => {
+    const params = new URLSearchParams({ fileIds: fileId });
+    const res = await fetch(`/api/file-analysis/comments?${params.toString()}`, { cache: "no-store" });
+    const json = await res.json();
+    const nextComments = Array.isArray(json?.data)
+      ? (json.data.filter((c: FileComment) => c.file_id === fileId) as FileComment[])
+      : [];
+    setFileComments((prev) => ({ ...prev, [fileId]: nextComments }));
+  }, []);
+
+  useEffect(() => {
+    setReplyToComment(null);
+  }, [sideModalIndex]);
+
+  useEffect(() => {
+    if (sideModalIndex === null) {
+      setCommentsPanelOpen(false);
+      setShowAddCommentInPanel(false);
+    }
+  }, [sideModalIndex]);
+
+  useEffect(() => {
+    if (sideModalIndex === null) return;
+    const selectedFileId = items[sideModalIndex]?.fileId;
+    if (!selectedFileId) return;
+
+    setLoadingCommentFileIds((prev) => new Set(prev).add(selectedFileId));
+    loadCommentsForFile(selectedFileId).finally(() => {
+      setLoadingCommentFileIds((prev) => {
+        const next = new Set(prev);
+        next.delete(selectedFileId);
+        return next;
+      });
+    });
+  }, [items, sideModalIndex, loadCommentsForFile]);
+
+  useEffect(() => {
+    fetch("/api/auth/current-user", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((result) => {
+        if (result?.data?.id) setCurrentUserId(result.data.id);
+      });
+  }, []);
+
+  useEffect(() => {
+    const handleCommentSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
+      if (!detail?.fileId) return;
+      if (!items.some((item) => item.fileId === detail.fileId)) return;
+      void loadCommentsForFile(detail.fileId);
+    };
+    const handleCommentDeleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
+      if (!detail?.fileId) return;
+      if (!items.some((item) => item.fileId === detail.fileId)) return;
+      void loadCommentsForFile(detail.fileId);
+    };
+
+    window.addEventListener("file-analysis-comment-saved", handleCommentSaved as EventListener);
+    window.addEventListener("file-analysis-comment-deleted", handleCommentDeleted as EventListener);
+    return () => {
+      window.removeEventListener("file-analysis-comment-saved", handleCommentSaved as EventListener);
+      window.removeEventListener("file-analysis-comment-deleted", handleCommentDeleted as EventListener);
+    };
+  }, [items, loadCommentsForFile]);
 
   const persistItems = async (
     nextItems: GalleryItem[],
@@ -759,10 +931,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
     setContextMenu({ x: e.clientX, y: e.clientY, index });
   };
 
-  const handleSubmitImageComment = async (index: number, text: string) => {
+  const handleSubmitImageComment = async (index: number, text: string, parentId?: string | null) => {
     const fileId = items[index]?.fileId;
     if (!fileId || !text.trim()) return;
-    const result = await createFileComment({ fileId, text: text.trim() });
+    const result = await createFileComment({ fileId, text: text.trim(), parentId: parentId || undefined });
     if ("error" in result) {
       alert(result.error || "Failed to add comment");
       return;
@@ -777,6 +949,38 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
       })
     );
   };
+
+  const handleDeleteImageComment = async (commentId: string, fileId: string) => {
+    if (deletingCommentIds.has(commentId)) return;
+    setDeletingCommentIds((prev) => new Set(prev).add(commentId));
+    const result = await deleteFileAnalysisComment({ commentId });
+    if ("data" in result) {
+      setFileCommentCounts((prev) => ({
+        ...prev,
+        [fileId]: Math.max(0, (prev[fileId] || 1) - 1),
+      }));
+      await loadCommentsForFile(fileId);
+      window.dispatchEvent(
+        new CustomEvent("file-analysis-comment-deleted", { detail: { fileId } })
+      );
+    } else {
+      console.error("Failed to delete comment:", result.error);
+    }
+    setDeletingCommentIds((prev) => {
+      const next = new Set(prev);
+      next.delete(commentId);
+      return next;
+    });
+  };
+
+  const selectedExpandedFileId =
+    sideModalIndex !== null ? items[sideModalIndex]?.fileId ?? null : null;
+  const selectedExpandedComments = selectedExpandedFileId
+    ? fileComments[selectedExpandedFileId] || []
+    : [];
+  const isLoadingSelectedExpandedComments = selectedExpandedFileId
+    ? loadingCommentFileIds.has(selectedExpandedFileId)
+    : false;
 
   const uploadImage = async (file: File, index: number, baseItems?: GalleryItem[]) => {
     if (!workspaceId || !projectId) return;
@@ -1212,7 +1416,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                             isUploading && "border-solid"
                           )}
                           style={{ width: `${CELL_WIDTH}px`, height: `${CELL_HEIGHT}px` }}
-                          onClick={() => setSideModalIndex(index)}
+                          onClick={() => {
+                            setSideModalIndex(index);
+                            setCommentsPanelOpen(false);
+                          }}
                           onContextMenu={(e) => {
                             void handleImageContextMenu(e, index);
                           }}
@@ -1282,25 +1489,40 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                 {sideModalIndex !== null && items[sideModalIndex]?.fileId && fileUrls[items[sideModalIndex].fileId!] ? (
                   <>
                     <div className="absolute top-2 right-2 z-10 flex gap-2">
+                      {!commentsPanelOpen && selectedExpandedFileId && (fileCommentCounts[selectedExpandedFileId] || 0) > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCommentsPanelOpen(true);
+                          }}
+                          className="rounded-full bg-black/60 px-3 py-2 text-white text-sm transition-colors hover:bg-black/80 flex items-center gap-1.5"
+                          title="View comments"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          View comments ({(fileCommentCounts[selectedExpandedFileId] || 0)})
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          const fileId = items[sideModalIndex]?.fileId;
-                          const count = fileId ? (fileCommentCounts[fileId] || 0) : 0;
-                          handleImageContextMenu(
-                            { preventDefault: () => {}, stopPropagation: () => {}, clientX: e.clientX, clientY: e.clientY } as React.MouseEvent,
-                            sideModalIndex
-                          );
+                          setCommentsPanelOpen(true);
+                          if (selectedExpandedFileId && (fileCommentCounts[selectedExpandedFileId] || 0) === 0) {
+                            setShowAddCommentInPanel(true);
+                          }
                         }}
                         className="rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-                        title="Comment"
+                        title="Comments"
                       >
                         <MessageSquare className="h-4 w-4" />
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSideModalIndex(null)}
+                        onClick={() => {
+                          setSideModalIndex(null);
+                          setCommentsPanelOpen(false);
+                        }}
                         className="rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
                         title="Close"
                       >
@@ -1325,9 +1547,151 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                   </>
                 ) : null}
               </div>
+              {commentsPanelOpen && (
+              <div className="w-[320px] shrink-0 rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 flex flex-col">
+                <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-800 shrink-0">
+                  <div className="text-xs font-medium text-[var(--foreground)]">
+                    {selectedExpandedComments.length} {selectedExpandedComments.length === 1 ? "comment" : "comments"}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAddCommentInPanel(true);
+                      }}
+                      className="text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                    >
+                      Add comment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCommentsPanelOpen(false);
+                      }}
+                      className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                      title="Close comments"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="h-[calc(500px-41px)] overflow-y-auto p-3">
+                  {isLoadingSelectedExpandedComments ? (
+                    <div className="text-xs text-[var(--muted-foreground)]">Loading comments...</div>
+                  ) : selectedExpandedComments.length === 0 ? (
+                    <div className="text-xs text-[var(--muted-foreground)]">No comments on this image yet.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {(() => {
+                        const roots = selectedExpandedComments.filter((c) => !c.parent_id);
+                        const byParent = selectedExpandedComments.reduce<Record<string, FileComment[]>>(
+                          (acc, c) => {
+                            if (c.parent_id) {
+                              acc[c.parent_id] = acc[c.parent_id] || [];
+                              acc[c.parent_id].push(c);
+                            }
+                            return acc;
+                          },
+                          {}
+                        );
+                        return roots.map((comment) => (
+                          <div key={comment.id} className="space-y-0">
+                            <div className="group/comment rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
+                              <div
+                                className="text-[11px] leading-snug text-[var(--foreground)]"
+                                dangerouslySetInnerHTML={{
+                                  __html: formatBlockText(comment.text, { preset: "compact" }),
+                                }}
+                              />
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span className="text-[10px] text-[var(--tertiary-foreground)]">
+                                  {new Date(comment.created_at).toLocaleString()}
+                                  {comment.author_name && (
+                                    <span className="ml-1">· {currentUserId === comment.user_id ? "You" : comment.author_name}</span>
+                                  )}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setReplyToComment({ id: comment.id, authorName: comment.author_name || "User" })}
+                                    className="opacity-0 group-hover/comment:opacity-100 p-0.5 text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-opacity"
+                                    title="Reply"
+                                  >
+                                    <Reply className="h-3 w-3" />
+                                  </button>
+                                  {currentUserId && comment.user_id === currentUserId && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        selectedExpandedFileId &&
+                                        handleDeleteImageComment(comment.id, selectedExpandedFileId)
+                                      }
+                                      disabled={deletingCommentIds.has(comment.id)}
+                                      className="opacity-0 group-hover/comment:opacity-100 p-0.5 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity disabled:opacity-50"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {(byParent[comment.id] || []).map((reply) => (
+                              <CommentReply
+                                key={reply.id}
+                                reply={reply}
+                                byParent={byParent}
+                                currentUserId={currentUserId}
+                                replyToComment={replyToComment}
+                                setReplyToComment={setReplyToComment}
+                                selectedExpandedFileId={selectedExpandedFileId}
+                                handleDeleteImageComment={handleDeleteImageComment}
+                                deletingCommentIds={deletingCommentIds}
+                                sideModalIndex={sideModalIndex}
+                                handleSubmitImageComment={handleSubmitImageComment}
+                                depth={0}
+                              />
+                            ))}
+                            {replyToComment?.id === comment.id && (
+                              <div className="ml-3 mt-1.5 pl-2.5 border-l-2 border-[var(--border)]">
+                                <GalleryImageReplyInput
+                                  replyToAuthor={replyToComment.authorName}
+                                  parentId={comment.id}
+                                  onCancel={() => setReplyToComment(null)}
+                                  onSubmit={async (text, parentId) => {
+                                    await handleSubmitImageComment(sideModalIndex!, text, parentId);
+                                    setReplyToComment(null);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  )}
+                  {showAddCommentInPanel && (
+                    <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                      <GalleryImageAddCommentInput
+                        onCancel={() => setShowAddCommentInPanel(false)}
+                        onSubmit={async (text) => {
+                          if (sideModalIndex != null) {
+                            await handleSubmitImageComment(sideModalIndex, text);
+                            setShowAddCommentInPanel(false);
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+              )}
             </div>
           ) : isCollage ? (
             <CollageView
+              setCommentsPanelOpen={setCommentsPanelOpen}
               items={items}
               fileUrls={fileUrls}
               fileCommentCounts={fileCommentCounts}
@@ -1387,6 +1751,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                       if (hasFile) {
                         if (imageUrl) {
                           setSideModalIndex(index);
+                          setCommentsPanelOpen(false);
                         }
                         return;
                       }
@@ -1531,6 +1896,8 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
           onAddComment={async (text) => {
             await handleSubmitImageComment(contextMenu.index, text);
             setContextMenu(null);
+            setSideModalIndex(contextMenu.index);
+            setCommentsPanelOpen(true);
           }}
           onReplace={() => {
             openFilePicker(contextMenu.index);
@@ -1549,7 +1916,9 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
             setContextMenu(null);
           }}
           onViewExpanded={() => {
+            const count = items[contextMenu.index]?.fileId ? (fileCommentCounts[items[contextMenu.index].fileId!] || 0) : 0;
             setSideModalIndex(contextMenu.index);
+            setCommentsPanelOpen(count > 0);
             setContextMenu(null);
           }}
         />
@@ -1588,6 +1957,391 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   );
 }
 
+function CommentReply({
+  reply,
+  byParent,
+  currentUserId,
+  replyToComment,
+  setReplyToComment,
+  selectedExpandedFileId,
+  handleDeleteImageComment,
+  deletingCommentIds,
+  sideModalIndex,
+  handleSubmitImageComment,
+  depth,
+}: {
+  reply: FileComment;
+  byParent: Record<string, FileComment[]>;
+  currentUserId: string | null;
+  replyToComment: { id: string; authorName: string } | null;
+  setReplyToComment: (v: { id: string; authorName: string } | null) => void;
+  selectedExpandedFileId: string | null;
+  handleDeleteImageComment: (commentId: string, fileId: string) => void;
+  deletingCommentIds: Set<string>;
+  sideModalIndex: number | null;
+  handleSubmitImageComment: (index: number, text: string, parentId?: string) => Promise<void>;
+  depth: number;
+}) {
+  return (
+    <div className="space-y-0">
+      <div className="ml-3 mt-1.5 pl-2.5 border-l-2 border-[var(--border)]">
+        <div className="group/reply rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 px-2.5 py-1.5">
+          <div
+            className="text-[11px] leading-snug text-[var(--foreground)]"
+            dangerouslySetInnerHTML={{
+              __html: formatBlockText(reply.text, { preset: "compact" }),
+            }}
+          />
+          <div className="mt-0.5 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--tertiary-foreground)]">
+              {new Date(reply.created_at).toLocaleString()}
+              {reply.author_name && (
+                <span className="ml-1">· {currentUserId === reply.user_id ? "You" : reply.author_name}</span>
+              )}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setReplyToComment({ id: reply.id, authorName: reply.author_name || "User" })}
+                className="opacity-0 group-hover/reply:opacity-100 p-0.5 text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-opacity"
+                title="Reply"
+              >
+                <Reply className="h-3 w-3" />
+              </button>
+              {currentUserId && reply.user_id === currentUserId && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    selectedExpandedFileId &&
+                    handleDeleteImageComment(reply.id, selectedExpandedFileId)
+                  }
+                  disabled={deletingCommentIds.has(reply.id)}
+                  className="opacity-0 group-hover/reply:opacity-100 p-0.5 text-[var(--tertiary-foreground)] hover:text-red-500 transition-opacity disabled:opacity-50"
+                  title="Delete"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      {replyToComment?.id === reply.id && (
+        <div className="ml-3 mt-1.5 pl-2.5 border-l-2 border-[var(--border)]">
+          <GalleryImageReplyInput
+            replyToAuthor={replyToComment.authorName}
+            parentId={reply.id}
+            onCancel={() => setReplyToComment(null)}
+            onSubmit={async (text, parentId) => {
+              if (sideModalIndex != null) await handleSubmitImageComment(sideModalIndex, text, parentId);
+              setReplyToComment(null);
+            }}
+          />
+        </div>
+      )}
+      {(byParent[reply.id] || []).map((child) => (
+        <CommentReply
+          key={child.id}
+          reply={child}
+          byParent={byParent}
+          currentUserId={currentUserId}
+          replyToComment={replyToComment}
+          setReplyToComment={setReplyToComment}
+          selectedExpandedFileId={selectedExpandedFileId}
+          handleDeleteImageComment={handleDeleteImageComment}
+          deletingCommentIds={deletingCommentIds}
+          sideModalIndex={sideModalIndex}
+          handleSubmitImageComment={handleSubmitImageComment}
+          depth={depth + 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+function GalleryImageAddCommentInput({
+  onCancel,
+  onSubmit,
+  containerRef,
+}: {
+  onCancel: () => void;
+  onSubmit: (text: string) => Promise<void>;
+  containerRef?: React.RefObject<HTMLElement | null>;
+}) {
+  const [commentText, setCommentText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const commentTextRef = useRef("");
+  const referencePicker = useBlockReferencePicker();
+  const mentionStartIndexRef = useRef<number | null>(null);
+  const mentionQueryRef = useRef("");
+  const mentionTokensRef = useRef<DraftMentionToken[]>([]);
+
+  useEffect(() => {
+    commentTextRef.current = commentText;
+  }, [commentText]);
+
+  const clearInlineMention = () => {
+    mentionStartIndexRef.current = null;
+    mentionQueryRef.current = "";
+  };
+
+  const insertInlineMention = (item: LinkableItem, searchQuery?: string) => {
+    const mentionStart = mentionStartIndexRef.current;
+    if (mentionStart === null) return;
+    const activeQuery = mentionQueryRef.current || searchQuery || "";
+    const replacement = `@${item.name}`;
+    const href =
+      getLinkableItemHref({
+        referenceType: item.referenceType,
+        id: item.id,
+        tabId: item.tabId,
+        projectId: item.projectId,
+        isWorkflow: item.isWorkflow,
+      }) ?? (item.referenceType === "person" ? `#member-${item.id}` : `#ref-${item.id}`);
+    const replacedLength = 1 + activeQuery.length;
+
+    setCommentText((currentValue) => {
+      const safeStart = Math.min(Math.max(mentionStart, 0), currentValue.length);
+      const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
+      return currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
+    });
+    mentionTokensRef.current = shiftMentionTokens(
+      mentionTokensRef.current,
+      mentionStart,
+      replacedLength,
+      replacement.length
+    );
+    mentionTokensRef.current.push({
+      start: mentionStart,
+      end: mentionStart + replacement.length,
+      label: replacement,
+      href,
+    });
+    mentionTokensRef.current.sort((a, b) => a.start - b.start);
+
+    clearInlineMention();
+    requestAnimationFrame(() => {
+      if (!commentInputRef.current) return;
+      const cursorPosition = mentionStart + replacement.length;
+      commentInputRef.current.focus();
+      commentInputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
+
+  const closeInlineMentionPicker = () => {
+    clearInlineMention();
+    referencePicker?.closePicker();
+  };
+
+  const getMentionPopoverAnchorRect = () => {
+    return containerRef?.current?.getBoundingClientRect() ?? commentInputRef.current?.getBoundingClientRect() ?? null;
+  };
+
+  const handleSubmit = async () => {
+    closeInlineMentionPicker();
+    const serializedText = serializeCommentMentions(commentText, mentionTokensRef.current).trim();
+    if (!serializedText) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(serializedText);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (commentInputRef.current) requestAnimationFrame(() => commentInputRef.current?.focus());
+  }, []);
+
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 p-2 space-y-2">
+      <textarea
+        ref={commentInputRef}
+        value={commentText}
+        onChange={(e) => {
+          const nextValue = e.target.value;
+          const previousValue = commentTextRef.current;
+          setCommentText(nextValue);
+          const editDelta = getTextEditDelta(previousValue, nextValue);
+          mentionTokensRef.current = shiftMentionTokens(
+            mentionTokensRef.current,
+            editDelta.start,
+            editDelta.removedLength,
+            editDelta.insertedLength
+          );
+
+          const mentionStart = mentionStartIndexRef.current;
+          if (mentionStart === null || !referencePicker) return;
+
+          const cursorPosition = e.currentTarget.selectionStart ?? nextValue.length;
+          const shouldStopMentioning =
+            mentionStart >= nextValue.length ||
+            nextValue[mentionStart] !== "@" ||
+            cursorPosition <= mentionStart;
+
+          if (shouldStopMentioning) {
+            closeInlineMentionPicker();
+            return;
+          }
+
+          const nextQuery = nextValue.slice(mentionStart + 1, cursorPosition);
+          mentionQueryRef.current = nextQuery;
+          referencePicker.updateQuery?.(nextQuery);
+        }}
+        onKeyDown={(e) => {
+          const isMentionPickerActive = mentionStartIndexRef.current !== null;
+          if (
+            isMentionPickerActive &&
+            (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape")
+          ) {
+            return;
+          }
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void handleSubmit();
+            return;
+          }
+          if (e.key === "@" && referencePicker) {
+            e.preventDefault();
+            e.stopPropagation();
+            const currentValue = e.currentTarget.value;
+            const selectionStart = e.currentTarget.selectionStart ?? currentValue.length;
+            const selectionEnd = e.currentTarget.selectionEnd ?? selectionStart;
+            const nextValue =
+              currentValue.slice(0, selectionStart) + "@" + currentValue.slice(selectionEnd);
+
+            setCommentText(nextValue);
+            mentionStartIndexRef.current = selectionStart;
+            mentionQueryRef.current = "";
+
+            requestAnimationFrame(() => {
+              if (!commentInputRef.current) return;
+              const nextCursor = selectionStart + 1;
+              commentInputRef.current.focus();
+              commentInputRef.current.setSelectionRange(nextCursor, nextCursor);
+              referencePicker.openPicker({
+                initialQuery: "",
+                anchorRect: getMentionPopoverAnchorRect(),
+                getAnchorRect: getMentionPopoverAnchorRect,
+                popoverGap: -6,
+                onSelect: insertInlineMention,
+                onClose: clearInlineMention,
+              });
+            });
+            return;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            closeInlineMentionPicker();
+            onCancel();
+            return;
+          }
+          e.stopPropagation();
+        }}
+        onKeyUp={(e) => e.stopPropagation()}
+        placeholder="Write a comment... (@ to mention)"
+        className="w-full min-h-[48px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-[11px] text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:border-[var(--foreground)]/20 resize-none"
+        rows={2}
+        autoFocus
+      />
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!commentText.trim() || isSubmitting}
+          className={cn(
+            "flex items-center justify-center rounded-md p-1.5 transition-colors",
+            commentText.trim()
+              ? "bg-[var(--foreground)] text-[var(--surface)] hover:opacity-90"
+              : "bg-[var(--border)] text-[var(--tertiary-foreground)] cursor-not-allowed"
+          )}
+          title="Send"
+        >
+          <Send className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GalleryImageReplyInput({
+  replyToAuthor,
+  parentId,
+  onCancel,
+  onSubmit,
+}: {
+  replyToAuthor: string;
+  parentId: string;
+  onCancel: () => void;
+  onSubmit: (text: string, parentId: string) => Promise<void>;
+}) {
+  const [text, setText] = useState(`@${replyToAuthor} `);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(trimmed, parentId);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 p-2">
+      <div className="text-[10px] text-[var(--muted-foreground)] mb-1.5">
+        Replying to {replyToAuthor}
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void handleSubmit();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        placeholder="Write a reply..."
+        className="w-full min-h-[48px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-[11px] text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:border-[var(--foreground)]/20 resize-none"
+        rows={2}
+        autoFocus
+      />
+      <div className="flex justify-end gap-2 mt-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!text.trim() || isSubmitting}
+          className="flex items-center justify-center rounded-md p-1.5 bg-[var(--foreground)] text-[var(--surface)] hover:opacity-90 disabled:opacity-50"
+          title="Send"
+        >
+          <Send className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function GalleryImageContextMenu({
   x,
   y,
@@ -1613,9 +2367,15 @@ function GalleryImageContextMenu({
   const [commentText, setCommentText] = useState("");
   const [adjustedPosition, setAdjustedPosition] = useState({ x, y });
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const commentTextRef = useRef("");
   const referencePicker = useBlockReferencePicker();
   const mentionStartIndexRef = useRef<number | null>(null);
   const mentionQueryRef = useRef("");
+  const mentionTokensRef = useRef<DraftMentionToken[]>([]);
+
+  useEffect(() => {
+    commentTextRef.current = commentText;
+  }, [commentText]);
 
   const clearInlineMention = () => {
     mentionStartIndexRef.current = null;
@@ -1627,12 +2387,34 @@ function GalleryImageContextMenu({
     if (mentionStart === null) return;
     const activeQuery = mentionQueryRef.current || searchQuery || "";
     const replacement = `@${item.name}`;
+    const href =
+      getLinkableItemHref({
+        referenceType: item.referenceType,
+        id: item.id,
+        tabId: item.tabId,
+        projectId: item.projectId,
+        isWorkflow: item.isWorkflow,
+      }) ?? (item.referenceType === "person" ? `#member-${item.id}` : `#ref-${item.id}`);
+    const replacedLength = 1 + activeQuery.length;
 
     setCommentText((currentValue) => {
       const safeStart = Math.min(Math.max(mentionStart, 0), currentValue.length);
       const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
       return currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
     });
+    mentionTokensRef.current = shiftMentionTokens(
+      mentionTokensRef.current,
+      mentionStart,
+      replacedLength,
+      replacement.length
+    );
+    mentionTokensRef.current.push({
+      start: mentionStart,
+      end: mentionStart + replacement.length,
+      label: replacement,
+      href,
+    });
+    mentionTokensRef.current.sort((a, b) => a.start - b.start);
 
     clearInlineMention();
     requestAnimationFrame(() => {
@@ -1691,6 +2473,13 @@ function GalleryImageContextMenu({
     }
   }, [showCommentInput]);
 
+  const submitComment = () => {
+    closeInlineMentionPicker();
+    const serializedText = serializeCommentMentions(commentText, mentionTokensRef.current).trim();
+    if (!serializedText) return;
+    onAddComment(serializedText);
+  };
+
   if (typeof window === "undefined") return null;
 
   return createPortal(
@@ -1705,15 +2494,30 @@ function GalleryImageContextMenu({
       {!showCommentInput ? (
         <>
           <button
-            onClick={() => setShowCommentInput(true)}
+            onClick={() => {
+              if (commentCount > 0) {
+                onViewExpanded();
+                return;
+              }
+              setShowCommentInput(true);
+            }}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
           >
             <MessageSquare className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
-            <span>Add comment</span>
+            <span>{commentCount > 0 ? "View comments" : "Add comment"}</span>
             {commentCount > 0 && (
               <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">({commentCount})</span>
             )}
           </button>
+          {commentCount > 0 && (
+            <button
+              onClick={() => setShowCommentInput(true)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+              <span>Add comment</span>
+            </button>
+          )}
           <button
             onClick={onViewExpanded}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
@@ -1748,7 +2552,15 @@ function GalleryImageContextMenu({
             value={commentText}
             onChange={(e) => {
               const nextValue = e.target.value;
+              const previousValue = commentTextRef.current;
               setCommentText(nextValue);
+              const editDelta = getTextEditDelta(previousValue, nextValue);
+              mentionTokensRef.current = shiftMentionTokens(
+                mentionTokensRef.current,
+                editDelta.start,
+                editDelta.removedLength,
+                editDelta.insertedLength
+              );
 
               const mentionStart = mentionStartIndexRef.current;
               if (mentionStart === null || !referencePicker) return;
@@ -1769,10 +2581,16 @@ function GalleryImageContextMenu({
               referencePicker.updateQuery?.(nextQuery);
             }}
             onKeyDown={(e) => {
+              const isMentionPickerActive = mentionStartIndexRef.current !== null;
+              if (
+                isMentionPickerActive &&
+                (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape")
+              ) {
+                return;
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                closeInlineMentionPicker();
-                if (commentText.trim()) onAddComment(commentText);
+                submitComment();
                 return;
               }
               if (e.key === "@" && referencePicker) {
@@ -1809,6 +2627,7 @@ function GalleryImageContextMenu({
                 closeInlineMentionPicker();
                 setShowCommentInput(false);
                 setCommentText("");
+                mentionTokensRef.current = [];
                 return;
               }
               e.stopPropagation();
@@ -1824,6 +2643,7 @@ function GalleryImageContextMenu({
                 closeInlineMentionPicker();
                 setShowCommentInput(false);
                 setCommentText("");
+                mentionTokensRef.current = [];
               }}
               className="text-[10px] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-colors"
             >
@@ -1831,19 +2651,18 @@ function GalleryImageContextMenu({
             </button>
             <button
               onClick={() => {
-                closeInlineMentionPicker();
-                if (commentText.trim()) onAddComment(commentText);
+                submitComment();
               }}
               disabled={!commentText.trim()}
               className={cn(
-                "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "flex items-center justify-center rounded-md p-1.5 transition-colors",
                 commentText.trim()
                   ? "bg-[var(--foreground)] text-[var(--surface)] hover:opacity-90"
                   : "bg-[var(--border)] text-[var(--tertiary-foreground)] cursor-not-allowed"
               )}
+              title="Send"
             >
               <Send className="h-3 w-3" />
-              Send
             </button>
           </div>
         </div>

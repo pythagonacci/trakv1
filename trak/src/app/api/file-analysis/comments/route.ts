@@ -41,13 +41,30 @@ export async function GET(request: NextRequest) {
 
   const { data: comments, error } = await supabase
     .from("file_comments")
-    .select("id, file_id, text, created_at, user_id")
+    .select("id, file_id, text, created_at, user_id, parent_id")
     .in("file_id", fileIds)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   if (error) {
     return NextResponse.json({ error: "Failed to load file comments" }, { status: 500 });
   }
 
-  return NextResponse.json({ data: (comments || []) });
+  const userIds = Array.from(new Set((comments || []).map((c: { user_id?: string }) => c.user_id).filter(Boolean)));
+  const profileMap = new Map<string, { name?: string; email?: string }>();
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, name, email")
+      .in("id", userIds);
+    (profiles || []).forEach((p: { id: string; name?: string; email?: string }) => {
+      profileMap.set(p.id, { name: p.name, email: p.email });
+    });
+  }
+
+  const enriched = (comments || []).map((c: { user_id?: string; [k: string]: unknown }) => ({
+    ...c,
+    author_name: c.user_id ? (profileMap.get(c.user_id)?.name || profileMap.get(c.user_id)?.email?.split("@")[0] || "User") : "Unknown",
+  }));
+
+  return NextResponse.json({ data: enriched });
 }

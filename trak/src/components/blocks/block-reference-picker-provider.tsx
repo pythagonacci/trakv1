@@ -109,15 +109,14 @@ export function BlockReferencePickerProvider({
       });
       if ("error" in result) {
         console.error("Failed to create block reference:", result.error);
-        return false;
       }
 
       if (pendingSelect) {
-        // Pass the current query so the callback can replace "@" + query
+        // Always call so inline mentions (e.g. in comments) get the link even if block ref failed
         pendingSelect(item, currentQuery);
       }
 
-      return true;
+      return !("error" in result);
     },
     [blockId, createReference, pendingSelect, currentQuery]
   );
