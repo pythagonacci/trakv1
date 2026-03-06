@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { IndexingQueue } from "@/lib/search/job-queue";
 import { ResourceIndexer } from "@/lib/search/indexer";
-import { isUnauthorizedApiError, unauthorizedJsonResponse } from "@/lib/auth/require-user";
+import { isUnauthorizedApiError, requireUser, unauthorizedJsonResponse } from "@/lib/auth/require-user";
 
 export async function POST(req: NextRequest) {
-  // Security: Only allow Supabase cron requests with CRON_SECRET.
+  // Security: Allow (1) cron with CRON_SECRET, or (2) manual trigger by authenticated user.
   const authHeader = req.headers.get("authorization");
   const expectedAuth = process.env.CRON_SECRET;
   const isManualTrigger = req.headers.get("x-manual-trigger") === "true";
@@ -17,12 +17,18 @@ export async function POST(req: NextRequest) {
     }
 
     const isCronRequest = Boolean(expectedAuth) && authHeader === `Bearer ${expectedAuth}`;
-    const isDevManualTrigger = process.env.NODE_ENV !== "production" && isManualTrigger;
-    if (!isCronRequest && !isDevManualTrigger) {
+    let supabase: Awaited<ReturnType<typeof createServiceClient>>;
+
+    if (isCronRequest) {
+      // Cron has no user session; use service role to bypass RLS for queue + index writes
+      supabase = await createServiceClient();
+    } else if (isManualTrigger) {
+      // Manual trigger from UI: require logged-in user (same pattern as backfill)
+      const auth = await requireUser();
+      supabase = auth.supabase;
+    } else {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    const supabase = await createClient();
 
     const queue = new IndexingQueue(supabase);
     const indexer = new ResourceIndexer(supabase);
