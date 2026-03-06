@@ -159,17 +159,22 @@ export default function WorkflowPageLayout(props: {
             </div>
           </div>
 
-          {chatOpen ? (
-            <div className="w-[420px] max-w-[45vw] min-w-[340px] shrink-0 flex min-h-0 h-full">
-              <AIPanel
-                projectId={props.projectId ?? null}
-                tabId={props.tabId}
-                variant="sidebar"
-                showCollapseButton={inProject}
-                onCollapse={inProject ? () => setChatOpen(false) : undefined}
-              />
-            </div>
-          ) : inProject ? (
+          {/* AIPanel always mounted so streaming requests continue when collapsed */}
+          <div
+            className={cn(
+              "shrink-0 flex min-h-0 h-full overflow-hidden transition-[width] duration-200",
+              chatOpen ? "w-[420px] max-w-[45vw] min-w-[340px]" : "w-0 min-w-0"
+            )}
+          >
+            <AIPanel
+              projectId={props.projectId ?? null}
+              tabId={props.tabId}
+              variant="sidebar"
+              showCollapseButton={false}
+              onCollapse={undefined}
+            />
+          </div>
+          {!chatOpen && inProject ? (
             <button
               type="button"
               onClick={() => setChatOpen(true)}

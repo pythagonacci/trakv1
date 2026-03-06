@@ -123,7 +123,7 @@ export default function TableBlock({ block, onUpdate, previewMode = false }: Tab
   if (connectedTableId) {
     return (
       <div className="space-y-1">
-        <TableView tableId={connectedTableId} maxHeightPx={maxHeightPx ?? undefined} />
+        <TableView tableId={connectedTableId} maxHeightPx={maxHeightPx ?? undefined} currentBlockId={block.id} />
         {!previewMode && (
           <div
             className="flex justify-end pt-1 cursor-row-resize select-none"

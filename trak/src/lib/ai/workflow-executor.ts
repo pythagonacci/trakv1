@@ -1750,6 +1750,7 @@ export async function* executeWorkflowAICommandStream(params: {
   resumeFromConfirmation?: boolean;
   conversationHistory?: AIMessage[];
   persistSession?: boolean;
+  attachedFiles?: Array<{ id: string; name: string }>;
 }): AsyncGenerator<{
   type:
     | "thinking"
@@ -1804,6 +1805,14 @@ export async function* executeWorkflowAICommandStream(params: {
     ? buildSearchHistoryContext(history)
     : { searchHistory: "", hasSearchHistory: false };
   const streamInitialSearchedEntities = streamHasSearchHistory ? extractInitialSearchedEntities(history) : [];
+
+  const attachedFiles =
+    Array.isArray(params.attachedFiles) && params.attachedFiles.length > 0 ? params.attachedFiles : undefined;
+  const fileContextPrefix =
+    attachedFiles && attachedFiles.length > 0
+      ? `[Attached files for context: ${attachedFiles.map((f) => `${f.name} (id: ${f.id})`).join(", ")}. Use fileAnalysisQuery with these file IDs when relevant to answer their question.]\n\n`
+      : "";
+  const effectiveCommand = fileContextPrefix + params.command;
 
   if (persistSession && sessionId && !params.resumeFromConfirmation) {
     await addWorkflowMessage({
@@ -1973,7 +1982,7 @@ RESPONSE PATTERN:
   allowedWriteTools.push("deleteTable");
 
   const stream = executeAICommandStream(
-    params.command,
+    effectiveCommand,
     {
       workspaceId: effectiveWorkspaceId,
       workspaceName,

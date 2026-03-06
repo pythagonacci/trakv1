@@ -149,6 +149,7 @@ export function AIPanel({
   const [searchMode, setSearchMode] = useState<"answer" | "search">("answer");
   const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([]);
   const [assistantRoutingMode, setAssistantRoutingMode] = useState<"default" | "chart" | "shopify">("default");
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -271,6 +272,7 @@ export function AIPanel({
     setMentionIndex(null);
     setIsDragging(false);
     setMode("assistant");
+    setHeaderCollapsed(false);
     initializedModeRef.current = false;
   }, [routeScopeKey]);
 
@@ -359,6 +361,7 @@ export function AIPanel({
             content: m.content,
           })),
           confirmation,
+          attachedFiles: mode === "assistant" && contextFiles.length > 0 ? contextFiles.map((f) => ({ id: f.id, name: f.file_name })) : undefined,
         }),
         signal: controller.signal,
       });
@@ -538,6 +541,10 @@ export function AIPanel({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+
+    // Collapse header after first query is sent
+    setHeaderCollapsed(true);
+
     if (mode === "file") {
       if (isLoading || !sessionId) return;
       const messageText = input.trim();
@@ -736,9 +743,25 @@ export function AIPanel({
 
   const handleFileUpload = async (fileList: FileList | null) => {
     if (!fileList || !workspaceId) return;
-    if (!sessionId) {
-      setToast({ message: "Open the chat before uploading files", type: "error" });
-      return;
+
+    let effectiveSessionId = sessionId;
+    if (!effectiveSessionId) {
+      if (mode === "file") {
+        setToast({ message: "Open the chat before uploading files", type: "error" });
+        return;
+      }
+      // Assistant mode: lazy-create session for file analysis
+      const sessionResult = await getOrCreateFileAnalysisSession({
+        workspaceId,
+        projectId: projectId || undefined,
+        tabId: tabId || undefined,
+      });
+      if ("error" in sessionResult) {
+        setToast({ message: sessionResult.error, type: "error" });
+        return;
+      }
+      effectiveSessionId = sessionResult.data.id;
+      setSessionId(effectiveSessionId);
     }
 
     const files = Array.from(fileList);
@@ -797,7 +820,7 @@ export function AIPanel({
         }
 
         await addFileToAnalysisSession({
-          sessionId,
+          sessionId: effectiveSessionId,
           fileId,
           source: "upload",
         });
@@ -819,25 +842,25 @@ export function AIPanel({
     }
 
     if (uploadedIds.length > 0) {
-      await triggerUploadSummary(sessionId, uploadedIds);
+      await triggerUploadSummary(effectiveSessionId, uploadedIds);
     }
 
     setUploadingFiles((prev) => prev.filter((file) => file.status === "uploading"));
   };
 
   const handleDragOver = (event: React.DragEvent) => {
-    if (mode !== "file") return;
+    if (mode !== "file" && mode !== "assistant") return;
     event.preventDefault();
     setIsDragging(true);
   };
 
   const handleDragLeave = () => {
-    if (mode !== "file") return;
+    if (mode !== "file" && mode !== "assistant") return;
     setIsDragging(false);
   };
 
   const handleDrop = (event: React.DragEvent) => {
-    if (mode !== "file") return;
+    if (mode !== "file" && mode !== "assistant") return;
     event.preventDefault();
     setIsDragging(false);
     if (event.dataTransfer?.files?.length) {
@@ -1111,91 +1134,127 @@ export function AIPanel({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Sparkles className="h-4 w-4 shrink-0 text-[var(--primary)]" />
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-[var(--foreground)]">
-              {mode === "file" ? "File Analysis" : mode === "search" ? "Workspace Search" : "AI Assistant"}
-            </div>
-            <div className="text-xs text-[var(--muted-foreground)]">
-              {mode === "file"
-                ? "Ask questions about your files"
-                : mode === "search"
-                  ? "Unstructured RAG across your workspace"
-                  : "Prompt to actions and answers"}
-            </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs">
+      {/* Header: full when no query sent, thin bar with mode pills after first query */}
+      {headerCollapsed ? (
+        <div className="flex shrink-0 items-center justify-center border-b border-[var(--border)] bg-[var(--surface)]/95 px-3 py-1.5">
+          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
             <button
               type="button"
               onClick={() => setMode("assistant")}
-              className={modePillClass(mode === "assistant")}
+              className={modePillClass(mode === "assistant", true)}
             >
               AI Assistant
             </button>
             <button
               type="button"
               onClick={() => setMode("file")}
-              className={modePillClass(mode === "file")}
+              className={modePillClass(mode === "file", true)}
             >
               File Analysis
             </button>
             <button
               type="button"
               onClick={() => setMode("search")}
-              className={modePillClass(mode === "search")}
+              className={modePillClass(mode === "search", true)}
             >
               Search
             </button>
           </div>
-          {headerAction}
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Sparkles className="h-4 w-4 shrink-0 text-[var(--primary)]" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-[var(--foreground)]">
+                  {mode === "file" ? "File Analysis" : mode === "search" ? "Workspace Search" : "AI Assistant"}
+                </div>
+                <div className="text-xs text-[var(--muted-foreground)]">
+                  {mode === "file"
+                    ? "Ask questions about your files"
+                    : mode === "search"
+                      ? "Unstructured RAG across your workspace"
+                      : "Prompt to actions and answers"}
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setMode("assistant")}
+                  className={modePillClass(mode === "assistant")}
+                >
+                  AI Assistant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("file")}
+                  className={modePillClass(mode === "file")}
+                >
+                  File Analysis
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("search")}
+                  className={modePillClass(mode === "search")}
+                >
+                  Search
+                </button>
+              </div>
+              {headerAction}
+            </div>
+          </div>
 
-      {/* Context bar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-xs text-[var(--muted-foreground)]">
-        {mode === "file" ? (
-          <>
-            <span>
-              {tabId ? "Tab context" : projectId ? "Project context" : "Workspace context"}
-            </span>
-            <span className="flex items-center gap-1">
-              <Paperclip className="h-3 w-3" />
-              {contextFiles.length} files
-            </span>
-          </>
-        ) : mode === "search" ? (
-          <>
-            <span className="truncate">
-              {currentWorkspace?.name ? `${currentWorkspace.name} workspace` : "Workspace search"}
-            </span>
-            <span className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
-              <button
-                type="button"
-                onClick={() => setSearchMode("answer")}
-                className={modePillClass(searchMode === "answer", true)}
-              >
-                Answer
-              </button>
-              <button
-                type="button"
-                onClick={() => setSearchMode("search")}
-                className={modePillClass(searchMode === "search", true)}
-              >
-                Search
-              </button>
-            </span>
-          </>
-        ) : (
-          <span className="truncate">
-            {contextBlock ? `Context: ${contextBlock.label}` : "No block context selected"}
-          </span>
-        )}
-      </div>
+          {/* Context bar */}
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-xs text-[var(--muted-foreground)]">
+            {mode === "file" ? (
+              <>
+                <span>
+                  {tabId ? "Tab context" : projectId ? "Project context" : "Workspace context"}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Paperclip className="h-3 w-3" />
+                  {contextFiles.length} files
+                </span>
+              </>
+            ) : mode === "search" ? (
+              <>
+                <span className="truncate">
+                  {currentWorkspace?.name ? `${currentWorkspace.name} workspace` : "Workspace search"}
+                </span>
+                <span className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setSearchMode("answer")}
+                    className={modePillClass(searchMode === "answer", true)}
+                  >
+                    Answer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSearchMode("search")}
+                    className={modePillClass(searchMode === "search", true)}
+                  >
+                    Search
+                  </button>
+                </span>
+              </>
+            ) : (
+              <span className="truncate flex items-center gap-2">
+                {contextBlock ? `Context: ${contextBlock.label}` : "No block context selected"}
+                {contextFiles.length > 0 && (
+                  <span className="flex items-center gap-1 shrink-0">
+                    <Paperclip className="h-3 w-3" />
+                    {contextFiles.length} file{contextFiles.length !== 1 ? "s" : ""} attached
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Messages */}
       <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[var(--background)]/40 px-4 py-4">
@@ -1589,12 +1648,12 @@ export function AIPanel({
       {/* Input */}
       <form onSubmit={handleSubmit} className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[var(--surface)]/95 p-4">
         <div className="flex items-center gap-2">
-          {mode === "file" && (
+          {(mode === "file" || mode === "assistant") && (
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="rounded-md border border-[var(--border)] px-2 py-2 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-              title="Upload files"
+              title="Attach files"
             >
               <Paperclip className="h-4 w-4" />
             </button>
@@ -1692,7 +1751,7 @@ export function AIPanel({
           </div>
         )}
 
-        {mode === "file" && uploadingFiles.length > 0 && (
+        {(mode === "file" || mode === "assistant") && uploadingFiles.length > 0 && (
           <div className="space-y-1 text-xs text-[var(--muted-foreground)]">
             {uploadingFiles.map((file) => (
               <div key={file.id} className="flex items-center justify-between">
@@ -1704,7 +1763,7 @@ export function AIPanel({
         )}
       </form>
 
-      {mode === "file" && (
+      {(mode === "file" || mode === "assistant") && (
         <input
           ref={fileInputRef}
           type="file"

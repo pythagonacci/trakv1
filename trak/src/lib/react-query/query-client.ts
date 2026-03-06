@@ -44,6 +44,8 @@ export const queryKeys = {
   workspace: (workspaceId: string) => ['workspace', workspaceId] as const,
   table: (tableId: string) => ['table', tableId] as const,
   tableBootstrap: (tableId: string) => ['tableBootstrap', tableId] as const,
+  tableBlockReferences: (tableId: string, excludeBlockId?: string) =>
+    ['tableBlockReferences', tableId, excludeBlockId ?? ''] as const,
   tableFields: (tableId: string) => ['tableFields', tableId] as const,
   tableRows: (tableId: string, viewId?: string | null) => ['tableRows', tableId, viewId ?? 'default'] as const,
   tableView: (viewId: string) => ['tableView', viewId] as const,

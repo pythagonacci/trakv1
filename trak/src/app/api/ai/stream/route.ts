@@ -28,13 +28,14 @@ export async function POST(request: NextRequest) {
     await requireUser();
 
     const body = await request.json();
-    const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode } = body as {
+    const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode, attachedFiles } = body as {
       command: string;
       tabId?: string;
       messages?: AIMessage[];
       confirmation?: WriteConfirmationApproval | null;
       resumeFromConfirmation?: boolean;
       routingMode?: "default" | "chart" | "shopify";
+      attachedFiles?: Array<{ id: string; name: string }>;
     };
 
     if (!command || typeof command !== "string") {
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
                 : routingMode === "shopify"
                   ? "shopify"
                   : "default",
+            attachedFiles: Array.isArray(attachedFiles) && attachedFiles.length > 0 ? attachedFiles : undefined,
           });
 
           for await (const event of generator) {

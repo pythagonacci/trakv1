@@ -659,3 +659,55 @@ export async function getTableBootstrap(
     },
   };
 }
+
+export type TableBlockReference = {
+  blockId: string;
+  tabId: string;
+  tabName: string;
+  projectId: string | null;
+  projectName: string | null;
+};
+
+/**
+ * Returns blocks that reference this table (same tableId in content).
+ * Used to show "Also shown in: Tab X" when a table is displayed in multiple tabs.
+ */
+export async function getTableBlockReferences(
+  tableId: string,
+  opts?: { authContext?: AuthContext; excludeBlockId?: string }
+): Promise<ActionResult<{ count: number; locations: TableBlockReference[] }>> {
+  const access = await requireTableAccess(tableId, { authContext: opts?.authContext });
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
+  const { supabase } = access;
+
+  const { data: blocks } = await supabase
+    .from("blocks")
+    .select("id, tab_id, content, tabs!inner(name, project_id, projects(name))")
+    .eq("type", "table");
+
+  const matching = (blocks ?? []).filter((b) => {
+    const content = (b as { content?: { tableId?: string } }).content;
+    return content && typeof content.tableId === "string" && content.tableId === tableId;
+  });
+
+  const excludeId = opts?.excludeBlockId;
+  const filtered = excludeId ? matching.filter((b) => (b as { id: string }).id !== excludeId) : matching;
+
+  const locations: TableBlockReference[] = filtered.map((b) => {
+    const tab = (b as { tabs?: { name?: string; project_id?: string; projects?: { name?: string } } }).tabs;
+    return {
+      blockId: (b as { id: string }).id,
+      tabId: (b as { tab_id: string }).tab_id,
+      tabName: tab?.name ?? "Tab",
+      projectId: tab?.project_id ?? null,
+      projectName: tab?.projects?.name ?? null,
+    };
+  });
+
+  return {
+    data: {
+      count: matching.length,
+      locations,
+    },
+  };
+}

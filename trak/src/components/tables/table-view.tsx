@@ -63,6 +63,7 @@ import Toast from "@/app/dashboard/projects/toast";
 import { TableImportModal, type ImportColumnMapping } from "./table-import-modal";
 import { Switch } from "@/components/ui/switch";
 import { SourceOriginLink } from "./source-origin-link";
+import { SharedTableBadge } from "./shared-table-badge";
 import {
   parsePastedTable,
   isStructuredData,
@@ -180,9 +181,11 @@ interface Props {
   tableId: string;
   /** Optional custom max height (in pixels) for the main table scroll area. */
   maxHeightPx?: number;
+  /** Optional block ID when table is rendered inside a block; used to show "Also in X tabs" and exclude current block. */
+  currentBlockId?: string;
 }
 
-export function TableView({ tableId, maxHeightPx }: Props) {
+export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const queryClient = useQueryClient();
   const { data: bootstrap, isLoading: bootstrapLoading } = useTableBootstrap(tableId);
   const { data: tableDataFallback } = useTable(tableId);
@@ -1684,6 +1687,7 @@ export function TableView({ tableId, maxHeightPx }: Props) {
         </div>
       )}
       <div className="mb-2">
+        <SharedTableBadge tableId={tableId} currentBlockId={currentBlockId} />
         <TableHeaderCompact
           tableId={tableId}
           tableTitle={tableData?.table.title}

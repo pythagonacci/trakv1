@@ -877,14 +877,32 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
       return { error: "Not a member of this workspace" };
     }
 
-    // 6. Delete the linked table if this is a table block
+    // 6. Delete the linked table if this is a table block — but only when no other blocks reference it.
+    // Multiple blocks can share the same table (e.g. AI "render table in this tab" creates a block
+    // with the same tableId). Deleting one block must not delete the shared table.
     if (block.type === "table") {
       const content = (block.content || {}) as { tableId?: string };
       if (content.tableId) {
-        const { deleteTable } = await import("./tables/table-actions");
-        const deleteResult = await deleteTable(content.tableId, { authContext: { supabase, userId } });
-        if ("error" in deleteResult) {
-          return { error: deleteResult.error ?? "Failed to delete table" };
+        const { data: otherBlocks } = await supabase
+          .from("blocks")
+          .select("id, content")
+          .eq("type", "table")
+          .neq("id", blockId);
+
+        const otherBlocksWithSameTable = (otherBlocks ?? []).filter((b) => {
+          const c = (b as { content?: { tableId?: string } }).content;
+          return c && typeof c.tableId === "string" && c.tableId === content.tableId;
+        });
+
+        if (otherBlocksWithSameTable.length === 0) {
+          const { deleteTable } = await import("./tables/table-actions");
+          const deleteResult = await deleteTable(content.tableId, { authContext: { supabase, userId } });
+          if ("error" in deleteResult) {
+            // If table was already deleted (e.g. by another block sharing it), allow block deletion to proceed
+            if (deleteResult.error !== "Table not found") {
+              return { error: deleteResult.error ?? "Failed to delete table" };
+            }
+          }
         }
       }
     }
