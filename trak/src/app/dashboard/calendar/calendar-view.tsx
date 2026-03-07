@@ -853,7 +853,9 @@ export default function CalendarView({
     try {
       const { start, end } = getVisibleRange();
       const response = await fetch(
-        `/api/integrations/google-calendar/events?rangeStart=${encodeURIComponent(
+        `/api/integrations/google-calendar/events?workspace_id=${encodeURIComponent(
+          workspaceId
+        )}&rangeStart=${encodeURIComponent(
           start.toISOString()
         )}&rangeEnd=${encodeURIComponent(end.toISOString())}`
       );
@@ -896,7 +898,11 @@ export default function CalendarView({
     setGoogleLoading(true);
     setGoogleError(null);
     try {
-      const response = await fetch("/api/integrations/google-calendar", { method: "DELETE" });
+      const response = await fetch("/api/integrations/google-calendar", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      });
       if (!response.ok) {
         const data = await response.json();
         setGoogleError(data.error || "Failed to disconnect Google Calendar");
@@ -1018,7 +1024,11 @@ export default function CalendarView({
                   </>
                 ) : (
                   <Button variant="outline" size="sm" className="gap-2 text-xs" asChild>
-                    <a href="/api/integrations/google-calendar/connect">
+                    <a
+                      href={`/api/integrations/google-calendar/connect?workspace_id=${encodeURIComponent(
+                        workspaceId
+                      )}`}
+                    >
                       <CalendarIcon className="h-3.5 w-3.5" />
                       Connect Google
                     </a>

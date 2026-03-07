@@ -448,13 +448,13 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
                 }
               }}
               autoFocus
-              className="w-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold text-[var(--foreground)] focus:outline-none"
+              className="w-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-lg font-bold text-[var(--foreground)] focus:outline-none"
               placeholder="Section title"
             />
           ) : (
             <div
               onClick={() => setEditingTitle(true)}
-              className="cursor-text text-sm font-semibold text-[var(--foreground)] hover:text-[var(--foreground)]/90"
+              className="cursor-text text-lg font-bold text-[var(--foreground)] hover:text-[var(--foreground)]/90"
             >
               {title || <span className="text-[var(--tertiary-foreground)]">Add title…</span>}
             </div>

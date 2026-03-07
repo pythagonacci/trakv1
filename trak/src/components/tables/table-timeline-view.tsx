@@ -7,6 +7,7 @@ import {
   differenceInCalendarDays,
   differenceInCalendarMonths,
   endOfMonth,
+  endOfWeek,
   format,
   startOfDay,
   startOfMonth,
@@ -26,8 +27,64 @@ import { canGroupByField, groupRows } from "@/lib/table-grouping";
 import { getCanonicalPriorityOption, getCanonicalStatusOption } from "@/lib/tables/universal-property";
 import { formatUserDisplay } from "@/lib/field-utils";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type TimelineScale = "day" | "week" | "month";
+
+// Match timeline block column widths
+const getColumnWidth = (scale: TimelineScale): number => {
+  if (scale === "day") return 44;
+  if (scale === "week") return 80;
+  return 120;
+};
+
+// Build grid cells for date header (same structure as timeline block)
+function buildTimelineGrid(
+  start: Date,
+  end: Date,
+  scale: TimelineScale
+): { key: string; date: Date; dayLabel: string; monthLabel?: string; weekLabel?: string }[] {
+  const cells: { key: string; date: Date; dayLabel: string; monthLabel?: string; weekLabel?: string }[] = [];
+  if (scale === "day") {
+    const total = Math.max(0, differenceInCalendarDays(end, start));
+    for (let i = 0; i <= total; i++) {
+      const date = addDays(start, i);
+      const dayLabel = format(date, "d");
+      const monthLabel = dayLabel === "1" ? format(date, "MMM yyyy") : undefined;
+      cells.push({ key: `day_${date.toISOString()}`, date, dayLabel, monthLabel });
+    }
+  } else if (scale === "week") {
+    let current = startOfWeek(start);
+    const endWeek = endOfWeek(end);
+    while (current <= endWeek) {
+      const weekStart = startOfWeek(current);
+      const weekEnd = endOfWeek(current);
+      const weekLabel = `${format(weekStart, "MMM d")} - ${format(weekEnd, "MMM d")}`;
+      cells.push({
+        key: `week_${weekStart.toISOString()}`,
+        date: weekStart,
+        dayLabel: format(weekStart, "d"),
+        monthLabel: format(weekStart, "MMM yyyy"),
+        weekLabel,
+      });
+      current = addDays(current, 7);
+    }
+  } else {
+    let current = startOfMonth(start);
+    const endMonth = endOfMonth(end);
+    while (current <= endMonth) {
+      const monthLabel = format(current, "MMM yyyy");
+      cells.push({
+        key: `month_${current.toISOString()}`,
+        date: current,
+        dayLabel: format(current, "d"),
+        monthLabel,
+      });
+      current = addDays(endOfMonth(current), 1);
+    }
+  }
+  return cells;
+}
 
 interface TableTimelineViewProps {
   fields: TableField[];
@@ -116,53 +173,31 @@ const parseDateValue = (value: unknown) => {
   return tokenToDate(range.start || range.end);
 };
 
-const getScale = (rangeDays: number): TimelineScale => {
+const getScaleFromRange = (rangeDays: number): TimelineScale => {
   if (rangeDays <= 21) return "day";
   if (rangeDays <= 120) return "week";
   return "month";
 };
 
-const getBaseColumnWidth = (scale: TimelineScale) => {
-  if (scale === "day") return 76;
-  if (scale === "week") return 140;
-  return 220;
+// Match timeline block row height
+const ROW_HEIGHT_BASE = 44;
+
+// Status pill colors aligned with timeline block (todo/in_progress/blocked/done)
+const STATUS_BAR_COLORS: Record<string, string> = {
+  todo: "bg-white/12 text-white/90 border-white/20",
+  in_progress: "bg-sky-300/16 text-sky-50 border-sky-200/30",
+  blocked: "bg-red-300/16 text-red-50 border-red-200/30",
+  done: "bg-emerald-300/16 text-emerald-50 border-emerald-200/30",
 };
 
-// Layout sizing
-const ROW_HEIGHT = 48; // Smaller cards
-const ROW_GAP = 6;
-const LANE_MIN_HEIGHT = 60;
-const CARD_HORIZONTAL_PADDING = 8;
-const CARD_MIN_WIDTH = 100; // Smaller minimum width to prevent overlap
+function getStatusBarClass(statusValue: string | null): string {
+  if (!statusValue) return "bg-white/12 text-white/90 border-white/20";
+  const normalized = String(statusValue).trim().toLowerCase();
+  return STATUS_BAR_COLORS[normalized] ?? "bg-white/12 text-white/90 border-white/20";
+}
 
 const getStatusColor = (status: SelectFieldOption | null) => status?.color || "#e5e7eb";
 const getPriorityColor = (priority: PriorityLevelConfig | null) => priority?.color || "#e5e7eb";
-
-// Track packing: place each item into the first track where it doesn't overlap.
-function packIntoTracks<T extends { start: number; end: number }>(items: T[]) {
-  const sorted = [...items].sort((a, b) => a.start - b.start || a.end - b.end);
-  const trackLastEnd: number[] = [];
-  const placed: Array<T & { track: number }> = [];
-
-  for (const item of sorted) {
-    let placedTrack = -1;
-    for (let t = 0; t < trackLastEnd.length; t++) {
-      if (item.start >= trackLastEnd[t]) {
-        placedTrack = t;
-        break;
-      }
-    }
-    if (placedTrack === -1) {
-      placedTrack = trackLastEnd.length;
-      trackLastEnd.push(item.end);
-    } else {
-      trackLastEnd[placedTrack] = item.end;
-    }
-    placed.push({ ...item, track: placedTrack });
-  }
-
-  return { placed, trackCount: Math.max(1, trackLastEnd.length) };
-}
 
 export function TableTimelineView({
   fields,
@@ -182,94 +217,106 @@ export function TableTimelineView({
   const groupByField = groupBy?.fieldId ? fields.find((f) => f.id === groupBy.fieldId) : undefined;
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
-
-  // Only one tooltip at a time
+  const [viewportWidth, setViewportWidth] = useState<number>(0);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
-  // Expand columns to fill the visible viewport width
-  const [viewportWidth, setViewportWidth] = useState<number>(0);
+  // User-controlled zoom (match timeline block)
+  const rangeFromData = useMemo(() => {
+    if (!dateField) return null;
+    const withRange = rows
+      .map((row) => toDateRange(row.data?.[dateField.id]))
+      .filter((r): r is { start: string; end: string } => r != null);
+    if (!withRange.length) return null;
+    const allStarts = withRange.map((r) => tokenToDate(r.start)).filter((d): d is Date => d != null);
+    const allEnds = withRange.map((r) => tokenToDate(r.end)).filter((d): d is Date => d != null);
+    if (!allStarts.length || !allEnds.length) return null;
+    const min = new Date(Math.min(...allStarts.map((d) => d.getTime())));
+    const max = new Date(Math.max(...allEnds.map((d) => d.getTime())));
+    return {
+      start: addDays(startOfDay(min), -7),
+      end: addDays(startOfDay(max), 7),
+    };
+  }, [rows, dateField]);
+
+  const initialScale = rangeFromData
+    ? getScaleFromRange(differenceInCalendarDays(rangeFromData.end, rangeFromData.start))
+    : "week";
+  const [zoomLevel, setZoomLevel] = useState<TimelineScale>(initialScale);
 
   useEffect(() => {
     if (!viewportRef.current) return;
-
     const el = viewportRef.current;
-
     const update = () => setViewportWidth(el.clientWidth || 0);
     update();
-
     const ro = new ResizeObserver(() => update());
     ro.observe(el);
-
     return () => ro.disconnect();
   }, []);
 
+  // Rows with start/end dates (support date range column)
   const scheduledRows = useMemo(() => {
     if (!dateField) return [];
     return rows
-      .map((row) => ({ row, date: parseDateValue(row.data?.[dateField.id]) }))
-      .filter((entry) => entry.date)
-      .map((entry) => ({ row: entry.row, date: entry.date! }));
+      .map((row) => {
+        const rangeVal = toDateRange(row.data?.[dateField.id]);
+        if (!rangeVal) return null;
+        const startDate = tokenToDate(rangeVal.start);
+        const endDate = tokenToDate(rangeVal.end);
+        if (!startDate) return null;
+        return {
+          row,
+          startDate,
+          endDate: endDate ?? startDate,
+        };
+      })
+      .filter((entry): entry is { row: TableRow; startDate: Date; endDate: Date } => entry != null);
   }, [rows, dateField]);
 
   const unscheduledRows = useMemo(() => {
     if (!dateField) return rows;
-    return rows.filter((row) => !parseDateValue(row.data?.[dateField.id]));
+    return rows.filter((row) => !toDateRange(row.data?.[dateField.id]));
   }, [rows, dateField]);
 
-  const range = useMemo(() => {
-    if (!scheduledRows.length) return null;
-    const dates = scheduledRows.map((entry) => entry.date);
-    const min = new Date(Math.min(...dates.map((d) => d.getTime())));
-    const max = new Date(Math.max(...dates.map((d) => d.getTime())));
-    const start = addDays(startOfDay(min), -2);
-    const end = addDays(startOfDay(max), 2);
-    return { start, end };
-  }, [scheduledRows]);
-
-  const scale = range ? getScale(differenceInCalendarDays(range.end, range.start)) : "week";
+  const range = rangeFromData;
 
   const timelineStart = useMemo(() => {
     if (!range) return startOfWeek(startOfDay(new Date()));
-    if (scale === "day") return startOfDay(range.start);
-    if (scale === "week") return startOfWeek(range.start);
+    if (zoomLevel === "day") return startOfDay(range.start);
+    if (zoomLevel === "week") return startOfWeek(range.start);
     return startOfMonth(range.start);
-  }, [range, scale]);
+  }, [range, zoomLevel]);
 
-  const ticks = useMemo(() => {
-    if (!range) return [];
-    if (scale === "day") {
-      const total = differenceInCalendarDays(range.end, timelineStart);
-      return Array.from({ length: total + 1 }, (_, idx) => addDays(timelineStart, idx));
-    }
-    if (scale === "week") {
-      const totalWeeks = Math.ceil(differenceInCalendarDays(range.end, timelineStart) / 7);
-      return Array.from({ length: totalWeeks + 1 }, (_, idx) => addDays(timelineStart, idx * 7));
-    }
-    const totalMonths = differenceInCalendarMonths(range.end, timelineStart);
-    return Array.from({ length: totalMonths + 1 }, (_, idx) => addMonths(timelineStart, idx));
-  }, [range, scale, timelineStart]);
+  const timelineEnd = useMemo(() => {
+    if (!range) return addDays(startOfWeek(startOfDay(new Date())), 7);
+    if (zoomLevel === "day") return range.end;
+    if (zoomLevel === "week") return endOfWeek(range.end);
+    return endOfMonth(range.end);
+  }, [range, zoomLevel]);
 
+  const grid = useMemo(
+    () => (range ? buildTimelineGrid(timelineStart, timelineEnd, zoomLevel) : []),
+    [range, timelineStart, timelineEnd, zoomLevel]
+  );
+
+  const totalColumns = grid.length;
+  const baseColumnWidth = getColumnWidth(zoomLevel);
   const columnWidth = useMemo(() => {
-    const base = getBaseColumnWidth(scale);
-    if (!ticks.length) return base;
-    const desired = viewportWidth > 0 ? Math.floor(viewportWidth / ticks.length) : base;
-    return Math.max(base, desired);
-  }, [scale, ticks.length, viewportWidth]);
+    if (!totalColumns || viewportWidth <= 0) return baseColumnWidth;
+    const fill = Math.floor(viewportWidth / totalColumns);
+    return Math.max(baseColumnWidth, fill);
+  }, [baseColumnWidth, totalColumns, viewportWidth]);
 
-  const timelineWidth = useMemo(() => {
-    return Math.max(ticks.length * columnWidth, viewportWidth || 0, 520);
-  }, [ticks.length, columnWidth, viewportWidth]);
+  const timelineWidth = totalColumns * columnWidth;
 
   const getOffsetForDate = (date: Date) => {
     if (!range) return 0;
     const clamped = startOfDay(date);
-
-    if (scale === "day") return differenceInCalendarDays(clamped, timelineStart) * columnWidth;
-
-    if (scale === "week") {
+    if (zoomLevel === "day") {
+      return differenceInCalendarDays(clamped, timelineStart) * columnWidth;
+    }
+    if (zoomLevel === "week") {
       return (differenceInCalendarDays(clamped, timelineStart) / 7) * columnWidth;
     }
-
     const startMonth = startOfMonth(timelineStart);
     const months = differenceInCalendarMonths(clamped, startMonth);
     const monthStart = addMonths(startMonth, months);
@@ -280,17 +327,14 @@ export function TableTimelineView({
 
   const getDateFromOffset = (offset: number) => {
     if (!range) return null;
-
-    if (scale === "day") {
+    if (zoomLevel === "day") {
       const days = Math.round(offset / columnWidth);
       return addDays(timelineStart, days);
     }
-
-    if (scale === "week") {
+    if (zoomLevel === "week") {
       const days = Math.round((offset / columnWidth) * 7);
       return addDays(timelineStart, days);
     }
-
     const months = Math.floor(offset / columnWidth);
     const remainder = offset / columnWidth - months;
     const monthStart = addMonths(startOfMonth(timelineStart), months);
@@ -298,6 +342,7 @@ export function TableTimelineView({
     return addDays(monthStart, Math.round(monthDays * remainder));
   };
 
+  // Lanes (groups) then flat list of rows for left rail + canvas (one row per table row)
   const lanes = useMemo(() => {
     if (groupByField && canGroupByField(groupByField.type)) {
       return groupRows(rows, groupByField, [], {
@@ -314,10 +359,64 @@ export function TableTimelineView({
     return [{ id: "all", label: "All items", rows }];
   }, [rows, groupByField, groupBy?.showEmptyGroups, groupBy?.sortOrder, workspaceMembers]);
 
+  // Flat rows: only scheduled rows, in lane order, for 1:1 left rail and timeline rows
+  const flatRows = useMemo(() => {
+    const list: { row: TableRow; startDate: Date; endDate: Date; laneLabel: string }[] = [];
+    for (const lane of lanes) {
+      for (const row of lane.rows) {
+        const rangeVal = dateField ? toDateRange(row.data?.[dateField.id]) : null;
+        if (!rangeVal) continue;
+        const startDate = tokenToDate(rangeVal.start);
+        const endDate = tokenToDate(rangeVal.end);
+        if (!startDate) continue;
+        list.push({
+          row,
+          startDate,
+          endDate: endDate ?? startDate,
+          laneLabel: lane.label,
+        });
+      }
+    }
+    return list;
+  }, [lanes, dateField]);
+
+  const rowHeights = useMemo(() => flatRows.map(() => ROW_HEIGHT_BASE), [flatRows]);
+  const rowTops = useMemo(() => {
+    const tops: number[] = [];
+    let acc = 0;
+    for (const h of rowHeights) {
+      tops.push(acc);
+      acc += h;
+    }
+    return tops;
+  }, [rowHeights]);
+  const totalRowHeight = rowHeights.reduce((a, b) => a + b, 0) || ROW_HEIGHT_BASE;
+
   const priorityField = useMemo(() => fields.find((f) => f.type === "priority"), [fields]);
   const statusField = useMemo(() => fields.find((f) => f.type === "status"), [fields]);
   const personField = useMemo(() => fields.find((f) => f.type === "person"), [fields]);
   const primaryField = useMemo(() => fields.find((f) => f.is_primary) ?? fields[0], [fields]);
+
+  // Bar position (match timeline block: bar spans [start, end] inclusive)
+  const getBarStyle = (startDate: Date, endDate: Date, rowTop: number) => {
+    const start = startOfDay(startDate);
+    const end = startOfDay(addDays(endDate, 1)); // end of end day
+    let left = getOffsetForDate(start);
+    const endOffset = getOffsetForDate(end);
+    let width = Math.max(24, endOffset - left);
+    if (left < 0) {
+      width += left;
+      left = 0;
+    }
+    if (left + width > timelineWidth) width = timelineWidth - left;
+    const topOffset = rowTop + 8;
+    return {
+      position: "absolute" as const,
+      left: `${left}px`,
+      width: `${width}px`,
+      top: `${topOffset}px`,
+    };
+  };
 
   const resolveOption = (field: TableField | undefined, value: unknown) => {
     if (!field || value === null || value === undefined) return null;
@@ -351,325 +450,277 @@ export function TableTimelineView({
   const todayOffset = range ? getOffsetForDate(new Date()) : null;
 
   return (
-    <div className="bg-white p-4">
-      <div className="flex items-center gap-3 mb-3">
-        <label className="text-xs text-[var(--tertiary-foreground)] uppercase tracking-wide">Date field</label>
-        <select
-          className="text-sm border border-[var(--border)] rounded-[var(--radius-sm)] px-2 py-1 bg-[var(--surface)] text-[var(--foreground)]"
-          value={dateField.id}
-          onChange={(e) => onDateFieldChange(e.target.value)}
-        >
-          {dateFields.map((field) => (
-            <option key={field.id} value={field.id}>
-              {field.name}
-            </option>
-          ))}
-        </select>
+    <div className="space-y-3 w-full p-4">
+      {/* Header: same structure as timeline block */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex items-center gap-3">
+          <label className="text-[11px] text-[var(--muted-foreground)]">Date field</label>
+          <select
+            className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            value={dateField.id}
+            onChange={(e) => onDateFieldChange(e.target.value)}
+          >
+            {dateFields.map((field) => (
+              <option key={field.id} value={field.id}>
+                {field.name}
+              </option>
+            ))}
+          </select>
+          {range && (
+            <div className="text-[11px] text-[var(--muted-foreground)]">
+              {format(range.start, "MMM d")} – {format(range.end, "MMM d, yyyy")}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {/* Zoom controls – match timeline block */}
+          <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
+            {(["day", "week", "month"] as TimelineScale[]).map((level) => (
+              <button
+                key={level}
+                type="button"
+                onClick={() => setZoomLevel(level)}
+                className={cn(
+                  "px-2 py-1 text-[10px] font-medium rounded-[2px] transition-colors",
+                  zoomLevel === level
+                    ? "bg-[var(--foreground)] text-[var(--background)]"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                )}
+              >
+                {level[0].toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {!range && (
-        <div className="text-sm text-[var(--tertiary-foreground)] border border-dashed border-[var(--border)] rounded-[var(--radius-md)] p-4">
+        <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] p-4 text-sm text-[var(--tertiary-foreground)]">
           No dates set yet. Add a date to see items on the timeline.
         </div>
       )}
 
       {range && (
-        <div className="border border-[var(--border)] rounded-[var(--radius-md)] overflow-hidden">
-          {/* Scrollable container for both header and content */}
-          <div
-            className="overflow-x-auto"
-            ref={viewportRef}
-            onMouseLeave={() => setHoveredRowId(null)}
-          >
-            <div style={{ width: timelineWidth }}>
-              {/* Header ticks */}
-              <div className="border-b border-[var(--border)] bg-[var(--surface-muted)]">
-                <div className="flex">
-                  {ticks.map((tick, idx) => (
+        <div className={cn("grid border border-[var(--border)] bg-[var(--surface)] w-full overflow-hidden", "grid-cols-[280px_1fr]")}>
+          {/* Left rail: row labels (match timeline block) */}
+          <div className="border-r border-[var(--border)] bg-[var(--surface)] flex flex-col min-w-[280px] w-[280px] shrink-0">
+            <div className="sticky top-0 z-10 min-h-[44px] border-b border-[var(--border)] bg-[var(--surface)] shrink-0" />
+            <div className="flex flex-col min-h-0">
+              {flatRows.length === 0 ? (
+                <div className="min-h-[44px] border-b border-[var(--border)] flex items-center px-3 text-sm text-[var(--muted-foreground)]">
+                  No items with dates
+                </div>
+              ) : (
+                flatRows.map(({ row, startDate, endDate, laneLabel }, rowIndex) => {
+                  const title = primaryField ? String(row.data?.[primaryField.id] ?? "Untitled") : "Untitled";
+                  const personValue = personField ? row.data?.[personField.id] : null;
+                  const person = workspaceMembers.find((m) => m.id === personValue);
+                  return (
                     <div
-                      key={`${tick.toISOString()}-${idx}`}
-                      className="text-[11px] text-[var(--muted-foreground)] px-3 py-2 border-r border-[var(--border)] last:border-r-0 whitespace-nowrap"
-                      style={{ width: columnWidth }}
+                      key={row.id}
+                      className={cn(
+                        "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2",
+                        rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
+                      )}
+                      style={{ minHeight: ROW_HEIGHT_BASE }}
                     >
-                      {scale === "month" ? format(tick, "MMM yyyy") : format(tick, "MMM d")}
+                      <div className="flex items-center gap-2 min-h-[20px]">
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate text-sm text-[var(--foreground)] font-medium">{title}</div>
+                          {person && (
+                            <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                              {formatUserDisplay(person)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
+                          {format(startDate, "MMM d")}
+                          {startDate.getTime() !== endDate.getTime() && ` – ${format(endDate, "MMM d")}`}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right: timeline canvas (match timeline block) */}
+          <div ref={viewportRef} className="overflow-x-auto min-w-0" onMouseLeave={() => setHoveredRowId(null)}>
+            <div className="inline-block min-w-0" style={{ minWidth: `${timelineWidth}px` }}>
+              {/* Sticky date header – same as timeline block */}
+              <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] h-[44px] overflow-hidden">
+                <div
+                  className="grid"
+                  style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
+                >
+                  {grid.map((c) => (
+                    <div
+                      key={c.key}
+                      className="flex h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                    >
+                      {c.monthLabel ? (
+                        <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                          {c.monthLabel}
+                        </span>
+                      ) : (
+                        <span className="mb-0.5" />
+                      )}
+                      {c.weekLabel ? <span className="text-[9px]">{c.weekLabel}</span> : <span>{c.dayLabel}</span>}
                     </div>
                   ))}
                 </div>
               </div>
-              {lanes.map((lane) => {
-                const laneRowsWithDates = lane.rows
-                  .map((row) => ({ row, date: parseDateValue(row.data?.[dateField.id]) }))
-                  .filter((x): x is { row: TableRow; date: Date } => !!x.date);
 
-                // Make card width scale-appropriate to prevent spanning multiple dates
-                let cardWidth = CARD_MIN_WIDTH;
-                if (scale === "day") {
-                  // For day view, cards should fit within a single day column
-                  cardWidth = Math.min(CARD_MIN_WIDTH, Math.floor(columnWidth * 0.6));
-                } else if (scale === "week") {
-                  // For week view, cards should fit within a single week column
-                  cardWidth = Math.min(CARD_MIN_WIDTH, Math.floor(columnWidth * 0.5));
-                } else {
-                  // For month view, cards should fit within a single month column
-                  cardWidth = Math.min(CARD_MIN_WIDTH, Math.floor(columnWidth * 0.4));
-                }
+              {/* Timeline grid: rows, vertical lines, horizontal lines, alternating banding */}
+              <div
+                className="relative select-none"
+                style={{
+                  position: "relative",
+                  minHeight: totalRowHeight,
+                  width: timelineWidth,
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const rowId = e.dataTransfer.getData("rowId");
+                  if (!rowId || !viewportRef.current) return;
+                  const rect = viewportRef.current.getBoundingClientRect();
+                  const offset = e.clientX - rect.left + viewportRef.current.scrollLeft;
+                  const nextDate = getDateFromOffset(offset);
+                  if (!nextDate) return;
+                  onUpdateCell(rowId, dateField.id, format(nextDate, "yyyy-MM-dd"));
+                }}
+              >
+                {/* Vertical grid lines */}
+                {grid.map((_, idx) => (
+                  <div
+                    key={`vline-${idx}`}
+                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-[var(--border)]"
+                    style={{ left: idx * columnWidth, height: totalRowHeight }}
+                  />
+                ))}
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 w-px bg-[var(--border)]"
+                  style={{ left: totalColumns * columnWidth, height: totalRowHeight }}
+                />
+                {/* Horizontal row separators */}
+                {rowTops.map((top, i) => (
+                  <div
+                    key={`hline-${i}`}
+                    className="pointer-events-none absolute left-0 right-0 h-px bg-[var(--border)]"
+                    style={{ top, width: timelineWidth }}
+                  />
+                ))}
+                {flatRows.length > 0 && (
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 h-px bg-[var(--border)]"
+                    style={{ top: totalRowHeight, width: timelineWidth }}
+                  />
+                )}
+                {/* Alternating row banding */}
+                {rowTops.map((top, rowIndex) => (
+                  <div
+                    key={`band-${rowIndex}`}
+                    className="pointer-events-none absolute left-0"
+                    style={{
+                      top,
+                      left: 0,
+                      width: timelineWidth,
+                      height: rowHeights[rowIndex] ?? ROW_HEIGHT_BASE,
+                      backgroundColor: rowIndex % 2 === 1 ? "var(--surface-hover)" : undefined,
+                      opacity: 0.5,
+                    }}
+                  />
+                ))}
 
-                const items = laneRowsWithDates.map(({ row, date }) => {
-                  const normalizedDate = startOfDay(date);
-                  // Add small offset from column edge to prevent overlap
-                  const columnStart = getOffsetForDate(normalizedDate);
-                  const start = columnStart + 4; // 4px offset from column edge
-                  const end = start + cardWidth;
-                  return { row, date: normalizedDate, start, end };
-                });
+                {/* Today line */}
+                {todayOffset != null && todayOffset >= 0 && todayOffset <= timelineWidth && (
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0 w-0 border-l-2 border-blue-500"
+                    style={{ left: todayOffset, height: totalRowHeight }}
+                  />
+                )}
 
-                const { placed, trackCount } = packIntoTracks(items);
+                {/* Event bars – same look as timeline block */}
+                {flatRows.map(({ row, startDate, endDate }, rowIndex) => {
+                  const title = primaryField ? String(row.data?.[primaryField.id] ?? "Untitled") : "Untitled";
+                  const statusValue = statusField ? row.data?.[statusField.id] : null;
+                  const status = resolveOption(statusField, statusValue);
+                  const statusBarClass = getStatusBarClass(status?.id ?? status?.label ?? null);
+                  const barColor = status?.color ? withAlpha(status.color, "E6") : undefined;
+                  const showTooltip = hoveredRowId === row.id;
+                  const rowTop = rowTops[rowIndex] ?? 0;
 
-                const laneHeight = Math.max(
-                  trackCount * (ROW_HEIGHT + ROW_GAP) + ROW_GAP,
-                  LANE_MIN_HEIGHT
-                );
-
-                return (
-                  <div key={lane.id} className="border-b border-[var(--border)]">
-                    <div className="px-3 py-2 text-xs font-semibold text-[var(--foreground)] bg-[var(--surface)]">
-                      {lane.label} · {laneRowsWithDates.length}
-                    </div>
-
+                  return (
                     <div
-                      className="relative bg-white"
-                      style={{ height: laneHeight }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
+                      key={row.id}
+                      className="absolute z-10 pointer-events-auto"
+                      style={getBarStyle(startDate, endDate, rowTop)}
+                      onMouseEnter={() => setHoveredRowId(row.id)}
+                      onMouseLeave={() => setHoveredRowId((prev) => (prev === row.id ? null : prev))}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("rowId", row.id);
+                        e.dataTransfer.effectAllowed = "move";
                       }}
-                      onDrop={(e) => {
+                      onContextMenu={(e) => {
                         e.preventDefault();
-                        const rowId = e.dataTransfer.getData("rowId");
-                        if (!rowId || !viewportRef.current) return;
-
-                        const rect = viewportRef.current.getBoundingClientRect();
-                        const offset = e.clientX - rect.left + viewportRef.current.scrollLeft;
-                        const nextDate = getDateFromOffset(offset);
-                        if (!nextDate) return;
-
-                        onUpdateCell(rowId, dateField.id, format(nextDate, "yyyy-MM-dd"));
+                        onContextMenu?.(e, row.id);
                       }}
                     >
-                      {/* Grid background */}
-                      <div className="absolute inset-0 pointer-events-none">
-                        {ticks.map((_, i) => (
-                          <div
-                            key={`grid-col-${i}`}
-                            className="absolute top-0 bottom-0"
-                            style={{
-                              left: i * columnWidth,
-                              width: columnWidth,
-                              backgroundColor: i % 2 === 0 ? "rgba(249,250,251,0.55)" : "transparent",
-                              borderRight: "1px solid rgba(229,231,235,0.9)",
-                            }}
-                          />
-                        ))}
-
-                        {Array.from({ length: trackCount + 1 }).map((_, t) => (
-                          <div
-                            key={`grid-row-${t}`}
-                            className="absolute left-0 right-0"
-                            style={{
-                              top: t * (ROW_HEIGHT + ROW_GAP) + ROW_GAP - ROW_GAP / 2,
-                              borderTop: "1px solid rgba(243,244,246,1)",
-                            }}
-                          />
-                        ))}
+                      <div
+                        className="event-bar relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm"
+                        style={
+                          barColor
+                            ? { backgroundColor: barColor }
+                            : undefined
+                        }
+                      >
+                        {!barColor && <div className="absolute inset-0 bg-[var(--foreground)] rounded-[6px]" />}
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-white/80 relative z-10" />
+                        <span className="flex-1 truncate relative z-10">{title}</span>
+                        {status && (
+                          <span
+                            className={cn(
+                              "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                              getStatusBarClass(status.id ?? status.label ?? null)
+                            )}
+                          >
+                            <span className="truncate">{status.label}</span>
+                          </span>
+                        )}
                       </div>
 
-                      {/* Today line */}
-                      {todayOffset !== null &&
-                        todayOffset >= 0 &&
-                        todayOffset <= timelineWidth && (
-                          <div
-                            className="absolute top-0 bottom-0 border-l-2 border-blue-500"
-                            style={{ left: todayOffset }}
-                          />
-                        )}
-
-                      {/* Items */}
-                      {placed.map(({ row, date, start, track }) => {
-                        const title = primaryField
-                          ? String(row.data?.[primaryField.id] ?? "Untitled")
-                          : "Untitled";
-
-                        const priorityValue = priorityField ? row.data?.[priorityField.id] : null;
-                        const statusValue = statusField ? row.data?.[statusField.id] : null;
-                        const personValue = personField ? row.data?.[personField.id] : null;
-
-                        const person = workspaceMembers.find((m) => m.id === personValue);
-
-                        const priority = resolveOption(
-                          priorityField,
-                          priorityValue
-                        ) as PriorityLevelConfig | null;
-
-                        const status = resolveOption(statusField, statusValue);
-
-                        const statusColor = getStatusColor(status);
-                        const priorityColor = getPriorityColor(priority);
-
-                        const showTooltip = hoveredRowId === row.id;
-
-                        return (
-                          <div
-                            key={row.id}
-                            className="absolute"
-                            style={{
-                              left: start,
-                              top: track * (ROW_HEIGHT + ROW_GAP) + ROW_GAP,
-                              width: cardWidth,
-                            }}
-                          >
-                            {/* Event box */}
-                            <div
-                              className="relative h-full w-full"
-                              onMouseEnter={() => setHoveredRowId(row.id)}
-                              onMouseLeave={() => setHoveredRowId((prev) => (prev === row.id ? null : prev))}
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData("rowId", row.id);
-                                e.dataTransfer.effectAllowed = "move";
-                              }}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                onContextMenu?.(e, row.id);
-                              }}
-                            >
-                              <div
-                                className="h-full w-full rounded border bg-white hover:shadow-sm transition-shadow flex items-center gap-1 overflow-hidden"
-                                style={{
-                                  borderColor: "rgba(229,231,235,1)",
-                                  paddingLeft: CARD_HORIZONTAL_PADDING,
-                                  paddingRight: CARD_HORIZONTAL_PADDING,
-                                  height: ROW_HEIGHT,
-                                }}
-                              >
-                                {/* Status indicator */}
-                                <div
-                                  className="h-5 w-0.5 rounded-full flex-shrink-0"
-                                  style={{ backgroundColor: statusColor }}
-                                />
-
-                                {/* Title + Date */}
-                                <div className="min-w-0 flex-1 flex flex-col justify-center gap-0 overflow-hidden">
-                                  <div className="text-[10px] font-semibold text-[var(--foreground)] truncate leading-tight">
-                                    {title}
-                                  </div>
-                                  <div className="text-[9px] text-[var(--tertiary-foreground)] leading-tight truncate">
-                                    {format(date, "MMM d")}
-                                  </div>
-                                </div>
-
-                                {/* Right indicators */}
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  {priority && (
-                                    <div
-                                      className="h-4 px-1 rounded border flex items-center justify-center"
-                                      style={{
-                                        backgroundColor: withAlpha(priorityColor, "1A"),
-                                        borderColor: withAlpha(priorityColor, "33"),
-                                        color: priorityColor,
-                                      }}
-                                      title={priority.label}
-                                    >
-                                      {getPriorityIcon(priority.order || 0)}
-                                    </div>
-                                  )}
-
-                                  {person && (
-                                    <div
-                                      className="h-6 w-6 rounded-full border border-[var(--border)] flex items-center justify-center text-[8px] font-semibold text-[var(--foreground)] bg-[var(--surface-muted)]"
-                                      style={{ borderColor: "rgba(229,231,235,1)" }}
-                                      title={formatUserDisplay(person)}
-                                    >
-                                      {formatUserDisplay(person).slice(0, 2).toUpperCase()}
-                                    </div>
-                                  )}
-
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedRows.has(row.id)}
-                                    onChange={(e) =>
-                                      onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
-                                    }
-                                    className="w-3.5 h-3.5 rounded-[var(--radius-sm)] border-[var(--border)] text-[var(--foreground)] focus:ring-1 focus:ring-[var(--primary)] focus:ring-offset-0"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Tooltip */}
-                              {showTooltip && (
-                                <div className="absolute left-0 top-full mt-2 z-30">
-                                  <div className="w-[300px] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] shadow-lg p-3">
-                                    <div className="text-sm font-semibold text-[var(--foreground)]">{title}</div>
-                                    <div className="text-xs text-[var(--tertiary-foreground)] mt-0.5">
-                                      {toDateDisplay(date)}
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                      {status && (
-                                        <span
-                                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border"
-                                          style={{
-                                            backgroundColor: status.color
-                                              ? withAlpha(status.color, "1A")
-                                              : "#f3f4f6",
-                                            borderColor: status.color
-                                              ? withAlpha(status.color, "33")
-                                              : "#e5e7eb",
-                                            color: status.color || "#374151",
-                                          }}
-                                        >
-                                          <span
-                                            className="h-1.5 w-1.5 rounded-full"
-                                            style={{ backgroundColor: status.color || "#9ca3af" }}
-                                          />
-                                          {status.label}
-                                        </span>
-                                      )}
-
-                                      {priority && (
-                                        <span
-                                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border"
-                                          style={{
-                                            backgroundColor: priority.color
-                                              ? withAlpha(priority.color, "1A")
-                                              : "#f3f4f6",
-                                            borderColor: priority.color
-                                              ? withAlpha(priority.color, "33")
-                                              : "#e5e7eb",
-                                            color: priority.color || "#374151",
-                                          }}
-                                        >
-                                          {getPriorityIcon(priority.order || 0)}
-                                          {priority.label}
-                                        </span>
-                                      )}
-
-                                      {person && (
-                                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-[var(--surface-muted)] rounded-[var(--radius-sm)] text-xs text-[var(--foreground)]">
-                                          {formatUserDisplay(person)}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                      {showTooltip && (
+                        <div className="absolute left-0 top-full mt-2 z-30">
+                          <div className="min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg">
+                            <div className="truncate font-medium">{title}</div>
+                            <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                              {format(startDate, "MMM d")}
+                              {startDate.getTime() !== endDate.getTime() && ` – ${format(endDate, "MMM d, yyyy")}`}
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedRows.has(row.id)}
+                                onChange={(e) =>
+                                  onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
+                                }
+                                className="rounded border-[var(--border)]"
+                              />
+                              <span className="text-[11px] text-[var(--muted-foreground)]">Select row</span>
                             </div>
                           </div>
-                        );
-                      })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>

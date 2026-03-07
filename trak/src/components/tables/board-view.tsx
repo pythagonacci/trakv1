@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, Plus } from "lucide-react";
 import type {
   GroupByConfig,
   PriorityFieldConfig,
@@ -133,7 +133,7 @@ export function BoardView({
 
   if (!groupByField || !grouped) {
     return (
-      <div className="p-6 text-sm text-gray-500">
+      <div className="p-6 text-sm text-[var(--muted-foreground)]">
         Choose a field in the "Group" menu to build your board.
       </div>
     );
@@ -184,16 +184,16 @@ export function BoardView({
 
   const renderSelectBadge = (label: string, color?: string) => (
     <span
-      className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border"
+      className="inline-flex items-center gap-1.5 rounded-[4px] border border-[var(--border)] px-1.5 py-0.5 text-[10px]"
       style={{
-        backgroundColor: color ? withAlpha(color, "1A") : "#f3f4f6",
-        borderColor: color ? withAlpha(color, "33") : "#e5e7eb",
-        color: color || "#374151",
+        backgroundColor: color ? withAlpha(color, "1A") : "var(--surface-hover)",
+        borderColor: color ? withAlpha(color, "33") : "var(--border)",
+        color: color || "var(--muted-foreground)",
       }}
     >
       <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: color || "#9ca3af" }}
+        className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+        style={{ backgroundColor: color || "var(--muted-foreground)" }}
       />
       {label}
     </span>
@@ -203,11 +203,11 @@ export function BoardView({
     if (!level) return null;
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border"
+        className="inline-flex items-center gap-1 rounded-[4px] border px-1.5 py-0.5 text-[10px] font-medium"
         style={{
-          backgroundColor: level.color ? withAlpha(level.color, "1A") : "#f3f4f6",
-          borderColor: level.color ? withAlpha(level.color, "33") : "#e5e7eb",
-          color: level.color || "#374151",
+          backgroundColor: level.color ? withAlpha(level.color, "1A") : "var(--surface-hover)",
+          borderColor: level.color ? withAlpha(level.color, "33") : "var(--border)",
+          color: level.color || "var(--muted-foreground)",
         }}
       >
         {getPriorityIcon(level.order || 0)}
@@ -245,21 +245,12 @@ export function BoardView({
   };
 
   return (
-    <div className="bg-white p-6">
-      <div className="flex items-center gap-2 mb-4 text-xs text-gray-500">
-        <span className="uppercase tracking-wide text-[10px]">Grouped by</span>
-        <span className="px-2 py-1 rounded border border-gray-200 bg-white text-gray-700">
-          {groupByField.name}
-        </span>
-        <span className="text-gray-400">
-          ({(groupBy?.sortOrder ?? "asc") === "asc" ? "A→Z" : "Z→A"})
-        </span>
-      </div>
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {grouped.map((group) => (
+    <div className="overflow-x-auto">
+      <div className="flex w-full min-w-max p-3">
+        {grouped.map((group, columnIndex) => (
           <div
             key={group.groupId}
-            className="bg-gray-50/50 border border-gray-200 rounded-lg p-4 min-w-[280px] flex-shrink-0"
+            className={`flex min-w-[240px] flex-1 flex-col gap-2 ${columnIndex > 0 ? "border-l-2 border-[var(--border)] pl-3" : "pr-2"}`}
             onDragOver={(e) => {
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
@@ -273,22 +264,32 @@ export function BoardView({
               }
             }}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-medium text-[var(--muted-foreground)] flex items-center gap-1.5">
                 {group.groupColor && (
                   <span
-                    className="h-2 w-2 rounded-full"
+                    className="h-2 w-2 rounded-full flex-shrink-0"
                     style={{ backgroundColor: group.groupColor }}
                   />
                 )}
-                <h2 className="text-sm font-semibold text-gray-900">{group.groupLabel}</h2>
+                {group.groupLabel}
               </div>
-              <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded border border-gray-200">
-                {group.count}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-[var(--tertiary-foreground)]">
+                  {group.count}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleAddRow(group.groupId)}
+                  className="p-0.5 rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  aria-label={`Add row to ${group.groupLabel}`}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2 mb-3">
+            <div className="flex flex-col gap-2 min-h-[120px]">
               {group.rows.map((row) => {
                 const title = primaryField ? String(row.data?.[primaryField.id] ?? "Untitled") : "Untitled";
                 const personValue = personField ? row.data?.[personField.id] : null;
@@ -313,7 +314,7 @@ export function BoardView({
                 return (
                   <div
                     key={row.id}
-                    className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm transition-all cursor-pointer group"
+                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow cursor-pointer group hover:border-[var(--secondary)]/30 hover:shadow-sm"
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData("rowId", row.id);
@@ -325,28 +326,28 @@ export function BoardView({
                       onContextMenu?.(e, row.id);
                     }}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <h3 className="text-sm font-medium text-gray-900 flex-1">{title}</h3>
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <h3 className="text-sm font-medium text-[var(--foreground)] flex-1 min-w-0 truncate">{title}</h3>
                       <input
                         type="checkbox"
                         checked={selectedRows.has(row.id)}
                         onChange={(e) =>
                           onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
                         }
-                        className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-2 focus:ring-gray-900 focus:ring-offset-0"
+                        className="w-4 h-4 rounded border-[var(--border)] text-[var(--foreground)] focus:ring-2 focus:ring-[var(--foreground)] focus:ring-offset-0 flex-shrink-0"
                       />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
                       {dateField && Boolean(dateValue) && (
-                        <span className="text-xs text-gray-500">{toDateDisplay(dateValue)}</span>
+                        <span className="text-[10px] text-[var(--muted-foreground)]">{toDateDisplay(dateValue)}</span>
                       )}
                       {personField && person && (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">
-                          <span className="h-5 w-5 rounded-full bg-gray-200 text-[10px] flex items-center justify-center text-gray-600">
+                        <span className="inline-flex items-center gap-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface-hover)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]">
+                          <span className="h-5 w-5 rounded-full bg-[var(--border)] text-[10px] flex items-center justify-center text-[var(--muted-foreground)] flex-shrink-0">
                             {formatUserDisplay(person).slice(0, 2).toUpperCase()}
                           </span>
-                          {formatUserDisplay(person)}
+                          <span className="truncate max-w-[100px]">{formatUserDisplay(person)}</span>
                         </span>
                       )}
                       {priorityField && priority && priorityField.id !== groupByField.id && renderPriorityBadge(priority)}
@@ -359,20 +360,13 @@ export function BoardView({
                           renderSelectBadge(tag.label, tag.color)
                         )}
                       {tags.length > 2 && (
-                        <span className="text-xs text-gray-500">+{tags.length - 2}</span>
+                        <span className="text-[10px] text-[var(--muted-foreground)]">+{tags.length - 2}</span>
                       )}
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            <button
-              className="w-full text-xs text-gray-600 py-2 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors"
-              onClick={() => handleAddRow(group.groupId)}
-            >
-              + Add row
-            </button>
           </div>
         ))}
       </div>

@@ -120,7 +120,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
                   }
                 }}
                 className={cn(
-                  "w-full text-[13px] font-semibold tracking-[-0.01em] text-neutral-900 dark:text-neutral-100",
+                  "w-full text-4xl font-bold tracking-[-0.02em] text-black dark:text-white",
                   "bg-transparent border-none outline-none focus:ring-0 p-0"
                 )}
                 aria-label="Section title"
@@ -128,7 +128,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
             ) : (
               <h3
                 className={cn(
-                  "text-[13px] font-semibold tracking-[-0.01em] text-neutral-900 dark:text-neutral-100",
+                  "text-4xl font-bold tracking-[-0.02em] text-black dark:text-white",
                   "truncate",
                   canEdit && "cursor-text"
                 )}
@@ -147,7 +147,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
                 onBlur={saveSubtitle}
                 rows={2}
                 className={cn(
-                  "mt-0.5 w-full resize-none text-xs text-neutral-500 dark:text-neutral-400 leading-5",
+                  "mt-0.5 w-full resize-none text-sm text-neutral-500 dark:text-neutral-400 leading-5",
                   "bg-transparent border-none outline-none focus:ring-0 p-0"
                 )}
                 aria-label="Section subtitle"
@@ -156,7 +156,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
               (subtitleValue !== "" || canEdit) && (
                 <p
                   className={cn(
-                    "mt-0.5 text-xs text-neutral-500 dark:text-neutral-400 leading-5",
+                    "mt-0.5 text-sm text-neutral-500 dark:text-neutral-400 leading-5",
                     "line-clamp-2 min-h-[1.25rem]",
                     canEdit && "cursor-text"
                   )}
