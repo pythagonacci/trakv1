@@ -422,12 +422,12 @@ async function processInventorySync(
     return;
   }
 
-  // Get all variants for this connection
+  // Get all variants that have an inventory item (sync inventory for any with inventory_item_id)
   const { data: variants } = await supabase
     .from("trak_product_variants")
     .select("id, inventory_item_id")
-    .eq("inventory_tracked", true)
-    .in("product_id", productIds);
+    .in("product_id", productIds)
+    .not("inventory_item_id", "is", null);
 
   if (!variants || variants.length === 0) {
     return;
@@ -462,18 +462,22 @@ async function processInventorySync(
         inventoryItemId: variant.inventory_item_id,
       });
 
+      const inventoryItem = result?.inventoryItem;
+      const edges = inventoryItem?.inventoryLevels?.edges ?? [];
+
       let totalAvailable = 0;
 
-      for (const invEdge of result.inventoryItem.inventoryLevels.edges) {
-        const inv = invEdge.node;
-        totalAvailable += inv.available || 0;
+      for (const invEdge of edges) {
+        const inv = invEdge?.node;
+        if (!inv?.location) continue;
+        totalAvailable += inv.available ?? 0;
 
         await supabase.from("trak_product_inventory").upsert(
           {
             variant_id: variant.id,
             location_id: inv.location.id,
-            location_name: inv.location.name,
-            available: inv.available || 0,
+            location_name: inv.location.name ?? "",
+            available: inv.available ?? 0,
             last_synced_at: new Date().toISOString(),
           },
           {
@@ -482,7 +486,7 @@ async function processInventorySync(
         );
       }
 
-      // Update variant available_total
+      // Update variant available_total (even if 0, so UI reflects current state)
       await supabase
         .from("trak_product_variants")
         .update({ available_total: totalAvailable })

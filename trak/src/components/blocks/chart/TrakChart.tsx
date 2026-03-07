@@ -145,7 +145,7 @@ function PieChartRenderer({ data, spec, height }: PieChartRendererProps) {
 
     const RADIAN = Math.PI / 180;
     // Position label just outside the outer edge
-    const radius = outerRadius + 18;
+    const radius = outerRadius + 20;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
     const anchor = x > cx ? "start" : "end";
@@ -171,12 +171,13 @@ function PieChartRenderer({ data, spec, height }: PieChartRendererProps) {
           data={data.data.map((d) => ({ name: d.label, value: d.value }))}
           cx="50%"
           cy="50%"
-          outerRadius={isDoughnut ? "60%" : "65%"}
-          innerRadius={isDoughnut ? "38%" : 0}
+          outerRadius={isDoughnut ? "75%" : "80%"}
+          innerRadius={isDoughnut ? "46%" : 0}
           dataKey="value"
           label={renderCustomLabel}
           labelLine={{ stroke: "var(--border)", strokeWidth: 1 }}
           aria-label="Chart slices"
+          isAnimationActive={false}
         >
           {data.data.map((entry, index) => (
             <Cell
@@ -240,6 +241,7 @@ function SingleBarRenderer({ data, spec, height, orientation }: SingleBarRendere
         layout="vertical"
         data={chartData}
         margin={{ top: 4, right: 40, left: 8, bottom: 4 }}
+        isAnimationActive={false}
       >
         <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis
@@ -266,7 +268,7 @@ function SingleBarRenderer({ data, spec, height, orientation }: SingleBarRendere
           cursor={{ fill: "var(--surface-hover)" }}
           content={<CustomTooltip valueLabel={data.meta.valueLabel} />}
         />
-        <Bar dataKey="value" radius={[0, 3, 3, 0]} maxBarSize={28}>
+        <Bar dataKey="value" radius={[0, 3, 3, 0]} maxBarSize={28} isAnimationActive={false}>
           {chartData.map((entry, index) => (
             <Cell
               key={`cell-${entry.name}-${index}`}
@@ -307,6 +309,7 @@ function MultiSeriesBarRenderer({
         <BarChart
           data={chartData}
           margin={{ top: 4, right: 16, left: 8, bottom: 32 }}
+          isAnimationActive={false}
         >
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis
@@ -348,6 +351,7 @@ function MultiSeriesBarRenderer({
               radius={[2, 2, 0, 0]}
               maxBarSize={24}
               aria-label={key}
+              isAnimationActive={false}
             />
           ))}
         </BarChart>
@@ -366,6 +370,7 @@ function MultiSeriesBarRenderer({
         layout="vertical"
         data={chartData}
         margin={{ top: 4, right: 40, left: 8, bottom: 4 }}
+        isAnimationActive={false}
       >
         <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis
@@ -403,6 +408,7 @@ function MultiSeriesBarRenderer({
             radius={[0, 2, 2, 0]}
             maxBarSize={18}
             aria-label={key}
+            isAnimationActive={false}
           />
         ))}
       </BarChart>

@@ -1692,7 +1692,7 @@ export async function executeAICommand(
               const retryHint = toolName === "bulkInsertRows"
                 ? "Retry bulkInsertRows with a much smaller chunk (max 10 rows when any long_text fields are present; otherwise max 25 rows)."
                 : toolName === "createTableFull"
-                  ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
+                  ? "Retry with a smaller payload (e.g. fewer rows or split into createTableFull + bulkInsertRows)."
                   : toolName === "createSpecChartBlock"
                     ? "Retry with rowIds (array of entity ID strings from search results) for a smaller payload, or retry with fewer/more compact rows."
                   : "Retry with a smaller payload.";
@@ -3193,7 +3193,7 @@ export async function* executeAICommandStream(
               const retryHint = toolName === "bulkInsertRows"
                 ? "Retry bulkInsertRows with a much smaller chunk (max 10 rows when any long_text fields are present; otherwise max 25 rows)."
                 : toolName === "createTableFull"
-                  ? "Retry createTableFull with at most 2 rows, then continue with bulkInsertRows."
+                  ? "Retry with a smaller payload (e.g. fewer rows or split into createTableFull + bulkInsertRows)."
                   : toolName === "createSpecChartBlock"
                     ? "Retry with rowIds (array of entity ID strings from search results) for a smaller payload, or retry with fewer/more compact rows."
                   : "Retry with a smaller payload.";

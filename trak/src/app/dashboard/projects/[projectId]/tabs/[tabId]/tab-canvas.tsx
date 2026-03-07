@@ -58,6 +58,8 @@ interface TabCanvasProps {
   currentTheme?: string;
   initialFileUrls?: Record<string, string>;
   initialBlockPropertiesById?: Record<string, EntityProperties>;
+  /** When true (e.g. workflow page with AI chat), hide the page Undo button so undo is only in the AI chat */
+  hidePageUndoButton?: boolean;
 }
 
 interface BlockRow {
@@ -66,7 +68,7 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {}, initialBlockPropertiesById = {} }: TabCanvasProps) {
+export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {}, initialBlockPropertiesById = {}, hidePageUndoButton = false }: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
@@ -1260,7 +1262,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
               )}
               style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
             >
-              {undoStack.length > 0 && (
+              {!hidePageUndoButton && undoStack.length > 0 && (
                 <div className="absolute top-3 right-10 z-10">
                   <TooltipProvider delayDuration={300}>
                     <Tooltip>

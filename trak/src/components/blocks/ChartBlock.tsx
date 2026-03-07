@@ -253,13 +253,12 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
   const [isSettingScope, setIsSettingScope] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [compact, setCompact] = useState(true);
   const [showBreakdown, setShowBreakdown] = useState(true);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [hasTouchedOpenCategory, setHasTouchedOpenCategory] = useState(false);
   const [enhancedRows, setEnhancedRows] = useState<ChartRow[] | null>(null);
   const chartAreaRef = useRef<HTMLDivElement | null>(null);
-  const [chartHeight, setChartHeight] = useState<number>(compact ? 220 : 260);
+  const [chartHeight, setChartHeight] = useState<number>(260);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   const [spinNonce, setSpinNonce] = useState(0);
@@ -477,13 +476,13 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   const totalCount = rows.length;
   const hasBreakdown = chartData && categoryLabels.length > 0;
   const minChartHeight = useMemo(() => {
-    const base = compact ? 220 : 260;
+    const base = 260;
     if (!hasBreakdown || !showBreakdown) return base;
     const buckets = categoryLabels.length;
     // Scale height up a bit as the breakdown grows, capped so it doesn't dominate the page.
     const extraSteps = Math.min(3, Math.floor(buckets / 4)); // +1 step per ~4 buckets, up to 3 steps
     return base + extraSteps * 80;
-  }, [compact, hasBreakdown, showBreakdown, categoryLabels.length]);
+  }, [hasBreakdown, showBreakdown, categoryLabels.length]);
 
   const syncChartHeight = useCallback(() => {
     const el = chartAreaRef.current;
@@ -630,7 +629,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
       </div>
 
       {/* Body */}
-      <div className={cn("px-5 py-4", !compact && "pb-6")}>
+      <div className="px-5 py-4 pb-6">
         {isSaving && (
           <p className="mb-2 text-xs text-[var(--muted-foreground)]">Saving…</p>
         )}
@@ -695,13 +694,6 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCompact((v) => !v)}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                >
-                  {compact ? "Expand" : "Compact"}
-                </button>
                 {hasBreakdown && (
                   <button
                     type="button"
@@ -740,10 +732,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                 </div>
                 <div
                   ref={chartAreaRef}
-                  className={cn(
-                    "mt-3 flex-1 min-h-0 flex items-center justify-center",
-                    compact ? "min-h-[200px]" : "min-h-[260px]"
-                  )}
+                  className="mt-3 flex-1 min-h-0 flex items-center justify-center min-h-[260px]"
                 >
                   <div className="w-full h-full">
                     <TrakChart

@@ -1387,12 +1387,10 @@ const tableActionTools: ToolDefinition[] = [
       "- Creating a table implementation (schema first)\n" +
       "- Creating a table with just columns (no rows)\n" +
       "- Creating a table with just a title (no columns or rows)\n" +
-      "- Creating a table with a VERY SMALL number of initial rows (1-2 max)\n\n" +
+      "- Creating a table with schema and optional initial rows\n\n" +
       "Example: 'Create a table with columns Name, Email'\n" +
-      "Example: 'Create a table of 50 states' -> Call createTableFull (schema) then bulkInsertRows (data)\n\n" +
-      "⚠️ RELIABILITY WARNING: HARD LIMIT = 2 rows in this call.\n" +
-      "1. Use createTableFull to create the table definition (columns)\n" +
-      "2. Use bulkInsertRows to add the actual data rows in subsequent calls\n\n" +
+      "Example: 'Create a table of 50 states' -> createTableFull with fields and rows, or createTableFull (schema) then bulkInsertRows for data.\n\n" +
+      "If you include all rows in createTableFull, do NOT also call bulkInsertRows for those same rows (that would duplicate them).\n\n" +
       "🚨 CRITICAL: When creating tables FROM EXISTING DATA (tasks, timeline events, etc.):\n" +
       "- Status → type: 'status' (NOT text). Priority → type: 'priority' (NOT text)\n" +
       "- Assignee → type: 'person', value = array of user ID strings e.g. ['id1','id2']. Date → type: 'date', value = YYYY-MM-DD\n" +
@@ -1422,8 +1420,7 @@ const tableActionTools: ToolDefinition[] = [
       },
       rows: {
         type: "array",
-        description: "Array of row objects where each object has a 'data' property containing field names and values. HARD LIMIT: max 2 rows in createTableFull. If there are 3+ rows, use bulkInsertRows for the remainder. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
-        maxItems: 2,
+        description: "Array of row objects where each object has a 'data' property containing field names and values. Optional: source_entity_type/source_entity_id/source_sync_mode for source-linked copies. Format: [{ data: { 'FieldName': 'value' }, source_entity_type?: 'task'|'timeline_event'|'table_row'|'block', source_entity_id?: 'uuid', source_sync_mode?: 'snapshot'|'live' }, ...]",
         items: { type: "object" },
       },
     },

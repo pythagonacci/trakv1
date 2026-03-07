@@ -389,19 +389,22 @@ export async function importShopifyProducts(
               inventoryItemId: variant.inventoryItem.id,
             });
 
+            const inventoryItem = inventoryResult?.inventoryItem;
+            const invEdges = inventoryItem?.inventoryLevels?.edges ?? [];
+
             let totalAvailable = 0;
 
-            // Upsert inventory levels
-            for (const invEdge of inventoryResult.inventoryItem.inventoryLevels.edges) {
-              const inv = invEdge.node;
-              totalAvailable += inv.available || 0;
+            for (const invEdge of invEdges) {
+              const inv = invEdge?.node;
+              if (!inv?.location) continue;
+              totalAvailable += inv.available ?? 0;
 
               await supabase.from("trak_product_inventory").upsert(
                 {
                   variant_id: trakVariant.id,
                   location_id: inv.location.id,
-                  location_name: inv.location.name,
-                  available: inv.available || 0,
+                  location_name: inv.location.name ?? "",
+                  available: inv.available ?? 0,
                   last_synced_at: new Date().toISOString(),
                 },
                 {

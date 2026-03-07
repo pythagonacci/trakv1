@@ -26,6 +26,7 @@ import {
   List,
   Table,
   XCircle,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildDueDateRange, formatDueDateForDisplay, formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
@@ -1598,7 +1599,7 @@ export default function TaskBlock({
     }
     setExpandedSections((prev) => ({
       ...prev,
-      [taskId]: { ...(prev[taskId] || {}), comments: true, references: true },
+      [taskId]: { ...(prev[taskId] || {}), comments: true },
     }));
   };
 
@@ -2537,7 +2538,7 @@ export default function TaskBlock({
   const openReferencesPanel = (taskId: string | number) => {
     setExpandedSections((prev) => ({
       ...prev,
-      [taskId]: { ...prev[taskId], comments: true, references: true },
+      [taskId]: { ...prev[taskId], references: true },
     }));
   };
 
@@ -2545,7 +2546,6 @@ export default function TaskBlock({
     taskId: string | number,
     options?: { initialQuery?: string; cursor?: number; anchorRect?: DOMRect | null }
   ) => {
-    openReferencesPanel(taskId);
     setReferenceTaskId(String(taskId));
     setReferenceSubtaskId(null);
     const query = options?.initialQuery ?? "";
@@ -2560,16 +2560,12 @@ export default function TaskBlock({
     setIsReferenceDialogOpen(true);
   };
 
-  const openSubtaskReferencesPanel = (subtaskId: string | number) => {
+  const openSubtaskReferencesPanel = (subtaskId: string | number, anchorRect?: DOMRect | null) => {
     if (!projectId || isTempBlock) return;
-    setExpandedSubtasks((prev) => ({
-      ...prev,
-      [String(subtaskId)]: { ...(prev[String(subtaskId)] || {}), references: true },
-    }));
     setReferenceSubtaskId(String(subtaskId));
     setReferenceTaskId(null);
     setReferenceInitialQuery("");
-    setReferenceAnchorRect(null);
+    setReferenceAnchorRect(anchorRect ?? null);
     setInlineReference(null);
     setIsReferenceDialogOpen(true);
   };
@@ -2805,8 +2801,7 @@ export default function TaskBlock({
               const task = orderedTasks[virtualRow.index] as Task;
               if (!task) return null;
               const taskSections = expandedSections[task.id] || {};
-              const hasAnyExpanded = taskSections.comments || taskSections.references;
-              const hasExtendedInfo = (task.comments && task.comments.length > 0) || taskSections.references;
+              const isAttachmentsPanelExpanded = taskSections.references;
               const taskCommentCount = commentCountsByTask.get(String(task.id)) || 0;
               const hasSubtasks = task.subtasks && task.subtasks.length > 0;
               const showSubtasksPanel = hasSubtasks;
@@ -3012,25 +3007,17 @@ export default function TaskBlock({
                                 {taskCommentCount}
                               </span>
                             )}
-                            {hasExtendedInfo && (
-                              <button
-                                onClick={() => {
-                                  // Toggle comments section
-                                  if (hasAnyExpanded) {
-                                    setExpandedSections(prev => ({ ...prev, [task.id]: {} }));
-                                  } else {
-                                    setExpandedSections(prev => ({
-                                      ...prev,
-                                      [task.id]: {
-                                        comments: !!(task.comments && task.comments.length > 0)
-                                      }
-                                    }));
-                                  }
-                                }}
-                                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-                              >
-                                <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", hasAnyExpanded && "rotate-90")} />
-                              </button>
+                            {projectId && !isTempBlock && (
+                              <TaskAttachmentsTrigger
+                                taskId={String(task.id)}
+                                isExpanded={isAttachmentsPanelExpanded}
+                                onToggle={() =>
+                                  setExpandedSections((prev) => ({
+                                    ...prev,
+                                    [task.id]: { ...(prev[task.id] || {}), references: !taskSections.references },
+                                  }))
+                                }
+                              />
                             )}
                           </div>
                         )}
@@ -3040,9 +3027,39 @@ export default function TaskBlock({
                           <TaskDescription task={task} updateTask={updateTask} />
                         )}
 
-                        {/* Subtasks - Modal Display */}
-                        {showSubtasksPanel && (
-                          <div className="mt-2 space-y-1.5">
+                        {/* Subtasks - Collapsible under parent task */}
+                        {showSubtasksPanel && (() => {
+                          const isSubtasksExpanded = taskSections.subtasks !== false;
+                          const subtaskCount = (task.subtasks || []).length;
+                          return (
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setExpandedSections((prev) => ({
+                                    ...prev,
+                                    [task.id]: {
+                                      ...(prev[task.id] || {}),
+                                      subtasks: !isSubtasksExpanded,
+                                    },
+                                  }));
+                                }}
+                                className="flex items-center gap-1.5 w-full text-left text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors py-0.5 rounded-[4px] hover:bg-[var(--surface-hover)] -mx-0.5 px-0.5"
+                                aria-expanded={isSubtasksExpanded}
+                                aria-label={isSubtasksExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                              >
+                                <ChevronRight
+                                  className={cn("h-3.5 w-3.5 flex-shrink-0 transition-transform", isSubtasksExpanded && "rotate-90")}
+                                />
+                                <CheckSquare className="h-3.5 w-3.5 flex-shrink-0" />
+                                <span>
+                                  Subtasks {subtaskCount > 0 && `(${subtaskCount})`}
+                                </span>
+                              </button>
+                              {isSubtasksExpanded && (
+                                <div className="mt-1.5 space-y-1.5">
                             {(task.subtasks || []).map((subtask) => {
                               const subtaskId = String(subtask.id);
                               const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
@@ -3136,6 +3153,21 @@ export default function TaskBlock({
                                             <MessageSquare className="h-3 w-3" />
                                             {subtaskCommentCount}
                                           </span>
+                                        )}
+                                        {projectId && !isTempBlock && (
+                                          <SubtaskAttachmentsTrigger
+                                            subtaskId={subtaskId}
+                                            isExpanded={!!subtaskSections.references}
+                                            onToggle={() =>
+                                              setExpandedSubtasks((prev) => ({
+                                                ...prev,
+                                                [subtaskId]: {
+                                                  ...(prev[subtaskId] || {}),
+                                                  references: !subtaskSections.references,
+                                                },
+                                              }))
+                                            }
+                                          />
                                         )}
                                       </div>
                                       {(canUseSubtaskProperties && subtaskEntityId) || subtaskProps ? (
@@ -3281,7 +3313,14 @@ export default function TaskBlock({
                                           <MessageSquare className="mr-2 h-4 w-4" />
                                           Add comment
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => openSubtaskReferencesPanel(subtask.id)}>
+                                        <DropdownMenuItem
+                                          onClick={(e) =>
+                                            openSubtaskReferencesPanel(
+                                              subtask.id,
+                                              (e.currentTarget as HTMLElement)?.getBoundingClientRect?.()
+                                            )
+                                          }
+                                        >
                                           <Paperclip className="mr-2 h-4 w-4" />
                                           Attachments
                                         </DropdownMenuItem>
@@ -3300,7 +3339,14 @@ export default function TaskBlock({
                                     <div className="mt-2 border-t border-[var(--border)] pt-2">
                                       <SubtaskReferences
                                         subtaskId={subtaskId}
-                                        onAdd={() => openSubtaskReferencesPanel(subtask.id)}
+                                        onAdd={(e) =>
+                                          openSubtaskReferencesPanel(
+                                            subtask.id,
+                                            e?.currentTarget
+                                              ? (e.currentTarget as HTMLElement).getBoundingClientRect()
+                                              : undefined
+                                          )
+                                        }
                                         disabled={!projectId || isTempBlock}
                                       />
                                     </div>
@@ -3315,8 +3361,11 @@ export default function TaskBlock({
                               <Plus className="h-2.5 w-2.5" />
                               Add subtask
                             </button>
-                          </div>
-                        )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Inline Icons (Status / Priority / Assignee / Due Date) driven by universal properties */}
                         {canUseProperties && taskEntityId && showInlineIcons && (
@@ -3618,7 +3667,13 @@ export default function TaskBlock({
                             <MessageSquare className="mr-2 h-4 w-4" />
                             Add comment
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
+                          <DropdownMenuItem
+                            onClick={(e) =>
+                              openReferencePicker(task.id, {
+                                anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
+                              })
+                            }
+                          >
                             <Paperclip className="mr-2 h-4 w-4" />
                             Attachments
                           </DropdownMenuItem>
@@ -3632,75 +3687,94 @@ export default function TaskBlock({
                       </DropdownMenu>
                     </div>
 
-                    {/* Expanded Section */}
-                    {hasAnyExpanded && (
-                      <div className="border-t border-[var(--border)] px-2.5 py-2 space-y-2 bg-[var(--surface-muted)]">
+                    {/* Attachments panel (same style as subtask attachments) */}
+                    {taskSections.references && (
+                      <div className="mt-2 border-t border-[var(--border)] pt-2">
                         <TaskReferences
                           taskId={String(task.id)}
-                          onAdd={() => openReferencePicker(task.id)}
+                          onAdd={(e) =>
+                            openReferencePicker(task.id, {
+                              anchorRect: e?.currentTarget
+                                ? (e.currentTarget as HTMLElement).getBoundingClientRect()
+                                : null,
+                            })
+                          }
                           disabled={!projectId || isTempBlock}
                         />
-                        {/* Comments */}
-                        {taskSections.comments && (
-                          <div>
-                            <label className="text-xs font-medium text-[var(--muted-foreground)] mb-2 block">
-                              Comments {task.comments && task.comments.length > 0 && (
-                                <span className="text-[var(--tertiary-foreground)]">({task.comments.length})</span>
-                              )}
-                            </label>
-                            {task.comments && task.comments.length > 0 && (
-                              <div className="space-y-2 mb-2">
-                                {task.comments.map((comment) => (
-                                  <div key={comment.id} className="rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-2 text-xs">
-                                    {(() => {
-                                      const parsed = decodeSubtaskCommentText(comment.text);
-                                      const subtaskTitle = parsed.subtaskId
-                                        ? task.subtasks?.find((s) => String(s.id) === parsed.subtaskId)?.text || "Subtask"
-                                        : null;
-                                      return (
-                                        <>
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="text-xs font-medium text-[var(--foreground)]">{comment.author}</span>
-                                      {parsed.subtaskId && (
-                                        <span className="rounded-[4px] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">
-                                          Subtask: {subtaskTitle}
-                                        </span>
-                                      )}
-                                      <span className="text-xs text-[var(--tertiary-foreground)]">
-                                        {new Date(comment.timestamp).toLocaleString()}
-                                      </span>
-                                    </div>
-                                    <p className="text-xs text-[var(--muted-foreground)] leading-normal">{parsed.body}</p>
-                                        </>
-                                      );
-                                    })()}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={newComment[task.id] || ""}
-                                onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault();
-                                    addComment(task.id);
-                                  }
-                                }}
-                                placeholder="Add comment..."
-                                className="flex-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:outline-none"
-                              />
-                              <button
-                                onClick={() => addComment(task.id)}
-                                className="px-3 py-1.5 rounded-[4px] bg-[var(--primary)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
-                              >
-                                Send
-                              </button>
-                            </div>
+                      </div>
+                    )}
+                    {/* Comments section (separate from attachments) */}
+                    {taskSections.comments && (
+                      <div className="mt-2 border-t border-[var(--border)] pt-2">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs font-medium text-[var(--muted-foreground)]">
+                            <span>Comments</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedSections((prev) => ({ ...prev, [task.id]: { ...prev[task.id], comments: false } }))
+                              }
+                              className="text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                              aria-label="Collapse comments"
+                            >
+                              <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+                            </button>
                           </div>
-                        )}
+                          {task.comments && task.comments.length > 0 && (
+                            <div className="space-y-2">
+                              {task.comments.map((comment) => (
+                                <div
+                                  key={comment.id}
+                                  className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs"
+                                >
+                                  {(() => {
+                                    const parsed = decodeSubtaskCommentText(comment.text);
+                                    const subtaskTitle = parsed.subtaskId
+                                      ? task.subtasks?.find((s) => String(s.id) === parsed.subtaskId)?.text || "Subtask"
+                                      : null;
+                                    return (
+                                      <>
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="font-medium text-[var(--foreground)]">{comment.author}</span>
+                                          {parsed.subtaskId && (
+                                            <span className="rounded-[4px] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">
+                                              Subtask: {subtaskTitle}
+                                            </span>
+                                          )}
+                                          <span className="text-[var(--tertiary-foreground)]">
+                                            {new Date(comment.timestamp).toLocaleString()}
+                                          </span>
+                                        </div>
+                                        <p className="text-[var(--muted-foreground)] leading-normal">{parsed.body}</p>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newComment[task.id] || ""}
+                              onChange={(e) => setNewComment((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  addComment(task.id);
+                                }
+                              }}
+                              placeholder="Add comment..."
+                              className="flex-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:outline-none"
+                            />
+                            <button
+                              onClick={() => addComment(task.id)}
+                              className="px-3 py-1.5 rounded-[4px] bg-[var(--primary)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+                            >
+                              Send
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -3742,7 +3816,14 @@ export default function TaskBlock({
           onDragStart={handleBoardDragStart}
           onDragEnd={handleBoardDragEnd}
         >
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-auto"
+            style={{
+              contain: "layout style",
+              maxHeight: listHeightPx ? `${listHeightPx}px` : "70vh",
+              height: listHeightPx ? `${listHeightPx}px` : undefined,
+            }}
+          >
             <div className="flex w-full min-w-max rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
               {boardColumns.map((column, columnIndex) => (
                 <div
@@ -4075,7 +4156,13 @@ export default function TaskBlock({
                                   <MessageSquare className="mr-2 h-4 w-4" />
                                   Add comment
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
+                                <DropdownMenuItem
+                                  onClick={(e) =>
+                                    openReferencePicker(task.id, {
+                                      anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
+                                    })
+                                  }
+                                >
                                   <Paperclip className="mr-2 h-4 w-4" />
                                   Attachments
                                 </DropdownMenuItem>
@@ -4379,12 +4466,21 @@ export default function TaskBlock({
           </DragOverlay>
         </DndContext>
       ) : (
-        <div className="space-y-2">
-          <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-            <div
-              className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
-              style={{ gridTemplateColumns: tableColumnTemplate }}
-            >
+        <div className="space-y-2 min-h-0">
+          <div
+            className="min-h-0 overflow-auto"
+            style={{
+              contain: "layout style",
+              maxHeight: listHeightPx ? `${listHeightPx}px` : "70vh",
+              height: listHeightPx ? `${listHeightPx}px` : "70vh",
+            }}
+          >
+            <div className="overflow-x-auto min-h-0">
+              <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden min-w-max">
+              <div
+                className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
+                style={{ gridTemplateColumns: tableColumnTemplate }}
+              >
               <div className="flex items-center justify-center border-r border-black/10 px-2 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                 Status
               </div>
@@ -4448,6 +4544,17 @@ export default function TaskBlock({
                           const statusValue = normalizeStatusValue(statusField.value ?? null);
                           if (!statusLabel || !statusValue) return null;
 
+                          const tableStatusIcon =
+                            statusValue === "done" ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            ) : statusValue === "blocked" ? (
+                              <XCircle className="h-4 w-4 text-red-500" />
+                            ) : statusValue === "in_progress" ? (
+                              <Clock className="h-4 w-4 text-[var(--tram-yellow)]" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-neutral-300 dark:text-neutral-600" />
+                            );
+
                           if (canUseProperties && taskEntityId && !statusIsDerived) {
                             const entityProps = entityPropertiesByTaskId[task.id];
                             const fieldId = entityProps?.statuses?.[sIdx]?.id;
@@ -4464,13 +4571,11 @@ export default function TaskBlock({
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                                  className={cn(
-                                    "inline-flex items-center rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
-                                    STATUS_COLORS[statusValue]
-                                  )}
+                                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
                                   title={statusLabel}
+                                  aria-label={statusLabel}
                                 >
-                                  <span className="max-w-[180px] truncate">{statusLabel}</span>
+                                  {tableStatusIcon}
                                 </button>
                               </PropertyFieldDropdown>
                             );
@@ -4480,14 +4585,10 @@ export default function TaskBlock({
                             return (
                               <span
                                 key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
-                                className={cn(
-                                  "inline-flex items-center rounded-[4px] px-2 py-1 text-xs",
-                                  STATUS_COLORS[statusValue],
-                                  "cursor-not-allowed opacity-70"
-                                )}
+                                className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] flex-shrink-0 cursor-not-allowed opacity-70"
                                 title={statusLabel}
                               >
-                                <span className="max-w-[180px] truncate">{statusLabel}</span>
+                                {tableStatusIcon}
                               </span>
                             );
                           }
@@ -4501,14 +4602,11 @@ export default function TaskBlock({
                                 e.preventDefault();
                                 toggleTask(task.id);
                               }}
-                              className={cn(
-                                "inline-flex items-center rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
-                                STATUS_COLORS[statusValue]
-                              )}
+                              className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
                               title={statusLabel}
                               aria-label="Toggle task"
                             >
-                              <span className="max-w-[180px] truncate">{statusLabel}</span>
+                              {tableStatusIcon}
                             </button>
                           );
                         })}
@@ -4886,7 +4984,13 @@ export default function TaskBlock({
                               <DropdownMenuItem disabled>Select all subtasks</DropdownMenuItem>
                             </>
                           )}
-                          <DropdownMenuItem onClick={() => openReferencesPanel(task.id)}>
+                          <DropdownMenuItem
+                            onClick={(e) =>
+                              openReferencePicker(task.id, {
+                                anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
+                              })
+                            }
+                          >
                             <Paperclip className="mr-2 h-4 w-4" />
                             Attachments
                           </DropdownMenuItem>
@@ -5268,6 +5372,8 @@ export default function TaskBlock({
                 </div>
               );
             })}
+            </div>
+          </div>
           </div>
 
           <button
@@ -5289,6 +5395,7 @@ export default function TaskBlock({
             variant={referenceAnchorRect ? "popover" : "dialog"}
             anchorRect={referenceAnchorRect}
             autoFocus={!referenceAnchorRect}
+            showUpload={Boolean(referenceTaskId || referenceSubtaskId) && !inlineReference}
             onQueryChange={setReferenceCurrentQuery}
             onClose={() => {
               setIsReferenceDialogOpen(false);
@@ -5314,6 +5421,10 @@ export default function TaskBlock({
                   console.error("Failed to create reference:", result.error);
                   return false;
                 }
+                setExpandedSections((prev) => ({
+                  ...prev,
+                  [referenceTaskId]: { ...(prev[referenceTaskId] || {}), references: true },
+                }));
                 if (inlineReference && String(referenceTaskId) === inlineReference.taskId) {
                   const href = getLinkableItemHref({
                     referenceType: item.referenceType,
@@ -5360,6 +5471,10 @@ export default function TaskBlock({
                   console.error("Failed to create subtask reference:", result.error);
                   return false;
                 }
+                setExpandedSubtasks((prev) => ({
+                  ...prev,
+                  [referenceSubtaskId]: { ...(prev[referenceSubtaskId] || {}), references: true },
+                }));
                 return true;
               }
 
@@ -5416,13 +5531,89 @@ export default function TaskBlock({
   );
 }
 
+function TaskAttachmentsTrigger({
+  taskId,
+  isExpanded,
+  onToggle,
+  disabled,
+}: {
+  taskId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  const { data: references = [] } = useTaskReferences(taskId);
+  const count = references.length;
+  if (disabled || count === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggle();
+      }}
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] px-1.5 py-0.5 text-[10px] transition-colors",
+        isExpanded
+          ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+          : "bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--secondary)]"
+      )}
+      title={isExpanded ? "Collapse attachments" : "Expand attachments"}
+      aria-label={isExpanded ? "Collapse attachments" : "Expand attachments"}
+      aria-expanded={isExpanded}
+    >
+      <FileText className="h-3 w-3 flex-shrink-0" />
+      {count > 0 && <span>{count}</span>}
+    </button>
+  );
+}
+
+function SubtaskAttachmentsTrigger({
+  subtaskId,
+  isExpanded,
+  onToggle,
+  disabled,
+}: {
+  subtaskId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  const { data: references = [] } = useSubtaskReferences(disabled ? undefined : subtaskId);
+  const count = references.length;
+  if (disabled || count === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggle();
+      }}
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] px-1.5 py-0.5 text-[10px] transition-colors",
+        isExpanded
+          ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+          : "bg-[var(--surface)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--secondary)]"
+      )}
+      title={isExpanded ? "Collapse attachments" : "Expand attachments"}
+      aria-label={isExpanded ? "Collapse attachments" : "Expand attachments"}
+      aria-expanded={isExpanded}
+    >
+      <FileText className="h-3 w-3 flex-shrink-0" />
+      {count > 0 && <span>{count}</span>}
+    </button>
+  );
+}
+
 function TaskReferences({
   taskId,
   onAdd,
   disabled,
 }: {
   taskId: string;
-  onAdd: () => void;
+  onAdd: (e?: React.MouseEvent) => void;
   disabled?: boolean;
 }) {
   const { data: references = [] } = useTaskReferences(taskId);
@@ -5435,7 +5626,7 @@ function TaskReferences({
           <span>Attachments</span>
           <button
             type="button"
-            onClick={onAdd}
+            onClick={(e) => onAdd(e)}
             className="text-[var(--foreground)] hover:opacity-80"
           >
             Add
@@ -5458,7 +5649,7 @@ function TaskReferences({
         <span>Attachments</span>
         <button
           type="button"
-          onClick={onAdd}
+          onClick={(e) => onAdd(e)}
           className="text-[var(--foreground)] hover:opacity-80"
         >
           Add
@@ -5502,7 +5693,7 @@ function SubtaskReferences({
   disabled,
 }: {
   subtaskId: string;
-  onAdd: () => void;
+  onAdd: (e?: React.MouseEvent) => void;
   disabled?: boolean;
 }) {
   const { data: references = [] } = useSubtaskReferences(disabled ? undefined : subtaskId);
@@ -5515,7 +5706,7 @@ function SubtaskReferences({
           <span>Attachments</span>
           <button
             type="button"
-            onClick={onAdd}
+            onClick={(e) => onAdd(e)}
             className="text-[var(--foreground)] hover:opacity-80"
           >
             Add
@@ -5538,7 +5729,7 @@ function SubtaskReferences({
         <span>Attachments</span>
         <button
           type="button"
-          onClick={onAdd}
+          onClick={(e) => onAdd(e)}
           className="text-[var(--foreground)] hover:opacity-80"
         >
           Add

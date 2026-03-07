@@ -155,6 +155,7 @@ export default function WorkflowPageLayout(props: {
                 workspaceId={props.workspaceId}
                 blocks={props.blocks}
                 initialFileUrls={props.initialFileUrls}
+                hidePageUndoButton
               />
             </div>
           </div>

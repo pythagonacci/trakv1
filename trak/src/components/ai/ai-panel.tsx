@@ -131,6 +131,7 @@ export function AIPanel({
     id: string;
     role: "user" | "assistant";
     content: string;
+    attachedFileNames?: string[];
     toolCalls?: Array<{ tool: string; result?: { success: boolean; error?: string } }>;
     undoBatches?: UndoBatch[];
   }>>([]);
@@ -282,6 +283,17 @@ export function AIPanel({
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [messages, isLoading, isSyncing, assistantMessages, assistantLoading, searchEntries, searchLoading]);
 
+  // Auto-resize textarea as user types (max ~200px so input doesn't dominate the panel)
+  const MIN_TEXTAREA_HEIGHT_PX = 40;
+  const MAX_TEXTAREA_HEIGHT_PX = 200;
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const height = Math.max(MIN_TEXTAREA_HEIGHT_PX, Math.min(ta.scrollHeight, MAX_TEXTAREA_HEIGHT_PX));
+    ta.style.height = `${height}px`;
+  }, [input]);
+
   useEffect(() => {
     if (mode !== "file") {
       setShowMentions(false);
@@ -334,9 +346,18 @@ export function AIPanel({
       content: message.content,
     }));
     if (appendUserMessage) {
-      const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: trimmedCommand };
+      const attachedFileNames = mode === "assistant" && contextFiles.length > 0 ? contextFiles.map((f) => f.file_name) : undefined;
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        content: trimmedCommand,
+        ...(attachedFileNames?.length ? { attachedFileNames } : {}),
+      };
       setAssistantMessages((prev) => [...prev, userMessage]);
       outboundHistory.push({ role: "user", content: trimmedCommand });
+      if (mode === "assistant" && contextFiles.length > 0) {
+        setContextFiles([]);
+      }
     }
 
     setAssistantLoading(true);
@@ -454,7 +475,7 @@ export function AIPanel({
                 setStreamingStatus(null);
                 setStreamingResponse(null);
                 if (event.data && typeof event.data === "object") {
-                  const payload = event.data as { toolCallsMade?: unknown; undoBatches?: unknown };
+                  const payload = event.data as { toolCallsMade?: unknown; undoBatches?: unknown; createdBlockIds?: string[] };
                   if (Array.isArray(payload.undoBatches)) {
                     responseUndoBatches = payload.undoBatches as UndoBatch[];
                   }
@@ -463,6 +484,12 @@ export function AIPanel({
                     if (hasSuccessfulWriteToolCall(toolCallsMade)) {
                       markWrite();
                     }
+                  }
+                  const createdIds = payload.createdBlockIds;
+                  if (Array.isArray(createdIds) && createdIds.length > 0) {
+                    window.dispatchEvent(
+                      new CustomEvent("ai-created-blocks", { detail: { blockIds: createdIds } })
+                    );
                   }
                 }
                 break;
@@ -1126,8 +1153,8 @@ export function AIPanel({
     <aside
       className={cn(
         "relative flex h-full w-full flex-col border-l border-[var(--border)]",
-        variant === "modal" && "z-40 max-w-[480px] min-w-[360px] bg-[var(--background)]/95 shadow-[0_6px_24px_rgba(0,0,0,0.08)] backdrop-blur-sm",
-        variant === "sidebar" && "bg-[var(--surface)]",
+        variant === "modal" && "z-40 max-w-[480px] min-w-[360px] bg-[#fbfcfd] shadow-[0_6px_24px_rgba(0,0,0,0.08)] backdrop-blur-sm",
+        variant === "sidebar" && "bg-[#fbfcfd]",
         isDragging && "ring-2 ring-[var(--primary)]/40"
       )}
       onDragOver={handleDragOver}
@@ -1136,34 +1163,45 @@ export function AIPanel({
     >
       {/* Header: full when no query sent, thin bar with mode pills after first query */}
       {headerCollapsed ? (
-        <div className="flex shrink-0 items-center justify-center border-b border-[var(--border)] bg-[var(--surface)]/95 px-3 py-1.5">
-          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
-            <button
-              type="button"
-              onClick={() => setMode("assistant")}
-              className={modePillClass(mode === "assistant", true)}
-            >
-              AI Assistant
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("file")}
-              className={modePillClass(mode === "file", true)}
-            >
-              File Analysis
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("search")}
-              className={modePillClass(mode === "search", true)}
-            >
-              Search
-            </button>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] bg-[#fbfcfd] px-3 py-1.5">
+          <div className="flex flex-1 items-center justify-center min-w-0">
+            <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setMode("assistant")}
+                className={modePillClass(mode === "assistant", true)}
+              >
+                AI Assistant
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("file")}
+                className={modePillClass(mode === "file", true)}
+              >
+                File Analysis
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("search")}
+                className={modePillClass(mode === "search", true)}
+              >
+                Search
+              </button>
+            </div>
           </div>
+          {onClose ? (
+            <button
+              onClick={onClose}
+              className="shrink-0 inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
-          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 py-3">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[#fbfcfd] px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <Sparkles className="h-4 w-4 shrink-0 text-[var(--primary)]" />
               <div className="min-w-0">
@@ -1208,7 +1246,7 @@ export function AIPanel({
           </div>
 
           {/* Context bar */}
-          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-xs text-[var(--muted-foreground)]">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[#fbfcfd] px-4 py-2 text-xs text-[var(--muted-foreground)]">
             {mode === "file" ? (
               <>
                 <span>
@@ -1257,7 +1295,7 @@ export function AIPanel({
       )}
 
       {/* Messages */}
-      <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[var(--background)]/40 px-4 py-4">
+      <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#fbfcfd] px-4 py-4">
         {mode === "file" ? (
           messages.map((message) => {
             const isUser = message.role === "user";
@@ -1406,21 +1444,20 @@ export function AIPanel({
                   )}
                 >
                   {isUser ? (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <>
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      {message.attachedFileNames && message.attachedFileNames.length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--primary)]/20 pt-2 text-[11px] text-[var(--muted-foreground)]">
+                          <Paperclip className="h-3 w-3 shrink-0" />
+                          <span>Attached: {message.attachedFileNames.join(", ")}</span>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="prose prose-sm max-w-none text-[var(--foreground)]">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {message.content}
                       </ReactMarkdown>
-                    </div>
-                  )}
-                  {message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0 && (
-                    <div className="space-y-1 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted-foreground)]">
-                      {message.toolCalls.map((call, index) => (
-                        <div key={`${message.id}-tool-${index}`}>
-                          {call.tool}: {call.result?.success ? "Done" : call.result?.error || "Failed"}
-                        </div>
-                      ))}
                     </div>
                   )}
                   {message.role === "assistant" && message.undoBatches && message.undoBatches.length > 0 && (
@@ -1646,7 +1683,7 @@ export function AIPanel({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[var(--surface)]/95 p-4">
+      <form onSubmit={handleSubmit} className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[#fbfcfd] p-4">
         <div className="flex items-center gap-2">
           {(mode === "file" || mode === "assistant") && (
             <button
@@ -1672,6 +1709,28 @@ export function AIPanel({
                 </button>
               </div>
             )}
+            {(mode === "assistant" || mode === "file") && contextFiles.length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+                <Paperclip className="h-3 w-3 shrink-0" />
+                <span className="shrink-0">Attached:</span>
+                {contextFiles.map((f) => (
+                  <span
+                    key={f.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] pl-1.5 pr-1 py-0.5"
+                  >
+                    <span className="truncate max-w-[120px]">{f.file_name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setContextFiles((prev) => prev.filter((x) => x.id !== f.id))}
+                      className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                      aria-label={`Remove ${f.file_name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <textarea
               ref={inputRef}
               rows={1}
@@ -1685,7 +1744,7 @@ export function AIPanel({
                     : "Ask anything or give a command..."
               }
               className={cn(
-                "w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+                "w-full min-h-[40px] resize-none overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
                 "text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]",
                 "focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
               )}
@@ -1769,7 +1828,11 @@ export function AIPanel({
           type="file"
           multiple
           className="hidden"
-          onChange={(e) => handleFileUpload(e.target.files)}
+          onChange={(e) => {
+            const files = e.target.files;
+            handleFileUpload(files);
+            e.target.value = "";
+          }}
         />
       )}
 

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckSquare, FileText, Paperclip, Search, Square, Table, User } from "lucide-react";
+import { CheckSquare, FileText, Paperclip, Search, Square, Table, Upload, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -18,6 +18,7 @@ import {
   type LinkableItem,
   type LinkableType,
 } from "@/app/actions/timelines/linkable-actions";
+import { uploadFile } from "@/app/actions/file";
 
 type TypeFilter = LinkableType | null;
 
@@ -51,6 +52,7 @@ export default function ReferencePicker({
   popoverGap = 2,
   autoFocus = true,
   onQueryChange,
+  showUpload = false,
 }: {
   isOpen: boolean;
   projectId: string;
@@ -63,6 +65,8 @@ export default function ReferencePicker({
   popoverGap?: number;
   autoFocus?: boolean;
   onQueryChange?: (query: string) => void;
+  /** When true, shows "Upload from computer" option for attachment mode */
+  showUpload?: boolean;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState<TypeFilter>(null);
@@ -74,6 +78,8 @@ export default function ReferencePicker({
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
   const [popoverLeft, setPopoverLeft] = useState<number | null>(null);
   const [popoverTop, setPopoverTop] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hasValidAnchor =
     !!anchorRect &&
     (anchorRect.top !== 0 ||
@@ -316,6 +322,34 @@ export default function ReferencePicker({
     }
   };
 
+  const handleUpload = async (files: FileList | null) => {
+    if (!files?.length || !workspaceId || !projectId) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", files[0]);
+      const result = await uploadFile(formData, workspaceId, projectId);
+      if (result.error) {
+        console.error("Upload failed:", result.error);
+        return;
+      }
+      if (result.data) {
+        const fileItem: LinkableItem = {
+          id: result.data.id,
+          type: "file",
+          name: result.data.file_name || "File",
+          location: "Uploaded",
+          referenceType: "file",
+        };
+        const ok = await onSelect(fileItem);
+        if (ok) onClose();
+      }
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (flatItems.length === 0) return;
 
@@ -342,6 +376,31 @@ export default function ReferencePicker({
 
   const pickerBody = (
     <div className={cn("py-1", variant === "popover" ? "space-y-2" : "space-y-3")}>
+      {showUpload && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="*/*"
+            onChange={(e) => handleUpload(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg border border-dashed border-[var(--border)] px-2.5 py-2 text-left transition-colors hover:border-[var(--secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-60",
+              variant === "popover" ? "text-xs" : "text-sm"
+            )}
+          >
+            <Upload className={cn("text-[var(--muted-foreground)]", variant === "popover" ? "h-3.5 w-3.5" : "h-4 w-4")} />
+            <span className="text-[var(--foreground)]">
+              {uploading ? "Uploading…" : "Upload from computer"}
+            </span>
+          </button>
+        </>
+      )}
       <div className={cn(
         "flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 dark:border-neutral-800 dark:bg-neutral-900",
         variant === "popover" ? "text-xs" : "text-sm"

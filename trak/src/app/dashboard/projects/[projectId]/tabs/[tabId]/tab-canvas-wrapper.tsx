@@ -16,9 +16,11 @@ interface TabCanvasWrapperProps {
   initialBlockPropertiesById?: Record<string, EntityProperties>;
   scrollToTaskId?: string | null;
   initialFileUrls?: Record<string, string>;
+  /** When true (e.g. workflow page), hide the page Undo button; undo is only in the AI chat */
+  hidePageUndoButton?: boolean;
 }
 
-export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks: initialBlocks, initialBlockPropertiesById = {}, scrollToTaskId, initialFileUrls = {} }: TabCanvasWrapperProps) {
+export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks: initialBlocks, initialBlockPropertiesById = {}, scrollToTaskId, initialFileUrls = {}, hidePageUndoButton = false }: TabCanvasWrapperProps) {
   const [tabTheme, setTabTheme] = useState<string>("default");
 
   // 🚀 NEW: Use React Query for cached blocks
@@ -132,6 +134,34 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
     setTabTheme(theme);
   };
 
+  // Scroll to first created block when AI creates something (from ai-created-blocks event)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const scrollToBlock = (blockId: string) => {
+      const el = document.getElementById(`block-${blockId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        return true;
+      }
+      return false;
+    };
+    const handleAiCreatedBlocks = (e: Event) => {
+      const detail = (e as CustomEvent<{ blockIds: string[] }>).detail;
+      const blockIds = detail?.blockIds;
+      if (!Array.isArray(blockIds) || blockIds.length === 0) return;
+      const firstId = blockIds[0];
+      const tryScroll = (attempt = 0) => {
+        if (scrollToBlock(firstId)) return;
+        if (attempt < 10) {
+          setTimeout(() => tryScroll(attempt + 1), 300 + attempt * 200);
+        }
+      };
+      setTimeout(() => tryScroll(0), 400);
+    };
+    window.addEventListener("ai-created-blocks", handleAiCreatedBlocks);
+    return () => window.removeEventListener("ai-created-blocks", handleAiCreatedBlocks);
+  }, []);
+
   return (
     <div className="flex flex-1 min-h-0 flex flex-col min-w-0 w-full">
     <TabCanvas 
@@ -144,6 +174,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
       onThemeChange={handleThemeChange}
       currentTheme={tabTheme}
       initialFileUrls={fileUrls || {}}
+      hidePageUndoButton={hidePageUndoButton}
     />
     </div>
   );

@@ -276,6 +276,18 @@ export async function triggerSync(
       return { error: "Failed to create sync job" };
     }
 
+    // Trigger the worker immediately so the job is processed (cron may not be scheduled).
+    const cronSecret = process.env.CRON_SECRET;
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+    if (cronSecret && baseUrl) {
+      fetch(`${baseUrl}/api/shopify/sync/worker`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      }).catch((err) => console.error("Failed to trigger Shopify sync worker:", err));
+    }
+
     return { data: newJob.id };
   } catch (error) {
     console.error("Error in triggerSync:", error);

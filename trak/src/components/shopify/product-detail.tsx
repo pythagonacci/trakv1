@@ -80,6 +80,7 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogTitle className="sr-only">Loading product</DialogTitle>
           <div className="p-12 text-center text-gray-500">Loading...</div>
         </DialogContent>
       </Dialog>

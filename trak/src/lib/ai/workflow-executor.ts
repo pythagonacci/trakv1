@@ -1358,7 +1358,7 @@ BLOCK CREATION:
 - Use createSpecChartBlock() for visualizations
 - When the user asks to SEE, SHOW, or VISUALIZE a distribution/chart/graph (e.g. "let me see the distribution", "show me the breakdown"), you MUST call createSpecChartBlock to create the actual chart. NEVER respond with text-only descriptions of what a chart would show—always create the chart block.
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
-- For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
+- For large result sets, you can use createTableFull with schema and rows, or add rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
@@ -1434,8 +1434,10 @@ RESPONSE PATTERN:
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
    - If you did not create blocks: provide the answer directly in chat.
+   - Always end with a short, contextual follow-up tailored to what you just did (e.g. filter, drill in, add more)—not a generic "Need anything else?"
 4. User-facing wording:
    - NEVER include internal IDs (UUIDs, blockId, tableId, sessionId, tabId, workspaceId, projectId, source_entity_id) in chat responses.
+   - Do NOT mention field types, column schemas, or implementation details (e.g. "status field type", "proper status field")—use plain language only.
    - Refer to items by human-readable names/titles and plain-language context instead of IDs.
    - Format answers for readability with short paragraphs and bullets, with blank lines between sections.${hasSearchHistory ? "\n" + searchHistory : ""}`,
     },
@@ -1887,7 +1889,7 @@ BLOCK CREATION:
 - Use createSpecChartBlock() for visualizations
 - When the user asks to SEE, SHOW, or VISUALIZE a distribution/chart/graph (e.g. "let me see the distribution", "show me the breakdown"), you MUST call createSpecChartBlock to create the actual chart. NEVER respond with text-only descriptions of what a chart would show—always create the chart block.
 - For tasks/subtasks, prefer: searchTasks or searchSubtasks → createTableFull(...) to list results (use a task board only if the user explicitly asks for a board)
-- For large result sets (20+ rows), avoid oversized single payloads: create table with initial rows, then append remaining rows with bulkInsertRows in batches of ~20.
+- For large result sets, you can use createTableFull with schema and rows, or add rows with bulkInsertRows in batches of ~20.
 - Use createBlock({ type: "text" }) ONLY when the user explicitly asks for a written artifact to persist on the page (report, brief, plan, notes, documentation, summary).
 - Do NOT create text blocks for normal Q&A, status checks, caveats, or general conversation.
 - Target the current workflow tab (tabId: ${params.tabId}) for all blocks
@@ -1959,8 +1961,10 @@ RESPONSE PATTERN:
 3. Chat response style:
    - If you created/updated blocks: brief action summary of what changed.
    - If you did not create blocks: provide the answer directly in chat.
+   - Always end with a short, contextual follow-up tailored to what you just did (e.g. filter, drill in, add more)—not a generic "Need anything else?"
 4. User-facing wording:
    - NEVER include internal IDs (UUIDs, blockId, tableId, sessionId, tabId, workspaceId, projectId, source_entity_id) in chat responses.
+   - Do NOT mention field types, column schemas, or implementation details (e.g. "status field type", "proper status field")—use plain language only.
    - Refer to items by human-readable names/titles and plain-language context instead of IDs.
    - Format answers for readability with short paragraphs and bullets, with blank lines between sections.${streamHasSearchHistory ? "\n" + streamSearchHistory : ""}`,
     },
