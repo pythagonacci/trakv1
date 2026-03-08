@@ -295,6 +295,7 @@ async function processInitialImport(
                     url
                   }
                   availableForSale
+                  inventoryQuantity
                 }
               }
             }
@@ -379,6 +380,8 @@ async function processInitialImport(
               image_url: variant.image?.url,
               available_for_sale: variant.availableForSale,
               inventory_tracked: !!variant.inventoryItem,
+              available_total:
+                typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0,
             },
             {
               onConflict: "product_id,shopify_variant_id",
@@ -423,6 +426,20 @@ function isMissingLocationScopeError(error: unknown): boolean {
   return message.includes("read_locations") || (message.includes("access denied") && message.includes("location"));
 }
 
+async function fetchVariantInventoryQuantity(client: any, shopifyVariantId: string): Promise<number> {
+  const variantInventoryQuery = `
+    query GetVariantInventory($id: ID!) {
+      productVariant(id: $id) {
+        id
+        inventoryQuantity
+      }
+    }
+  `;
+  const result: any = await client.query(variantInventoryQuery, { id: shopifyVariantId });
+  const rawQty = result?.productVariant?.inventoryQuantity;
+  return typeof rawQty === "number" ? rawQty : 0;
+}
+
 /**
  * Inventory sync - updates inventory levels
  */
@@ -448,7 +465,7 @@ async function processInventorySync(
   // Get all variants that have an inventory item (sync inventory for any with inventory_item_id)
   const { data: variants } = await supabase
     .from("trak_product_variants")
-    .select("id, inventory_item_id")
+    .select("id, inventory_item_id, shopify_variant_id")
     .in("product_id", productIds)
     .not("inventory_item_id", "is", null);
 
@@ -517,23 +534,64 @@ async function processInventorySync(
         console.warn(
           `[Shopify] Missing read_locations scope; syncing totals only for variant ${variant.id}`
         );
-        result = await client.query(inventoryQueryTotalsOnly, { inventoryItemId });
+        try {
+          result = await client.query(inventoryQueryTotalsOnly, { inventoryItemId });
+        } catch (totalsError) {
+          if (!isMissingLocationScopeError(totalsError) || !variant.shopify_variant_id) {
+            throw totalsError;
+          }
+          const inventoryQuantity = await fetchVariantInventoryQuantity(
+            client,
+            variant.shopify_variant_id
+          );
+          await supabase.from("trak_product_inventory").delete().eq("variant_id", variant.id);
+          await supabase
+            .from("trak_product_variants")
+            .update({ available_total: inventoryQuantity })
+            .eq("id", variant.id);
+          processed++;
+          if (processed % 10 === 0) {
+            await queue.updateProgress(job.id, processed, total);
+          }
+          continue;
+        }
       }
 
       const inventoryItem = result?.inventoryItem;
       if (!inventoryItem) {
+        if (variant.shopify_variant_id) {
+          const inventoryQuantity = await fetchVariantInventoryQuantity(
+            client,
+            variant.shopify_variant_id
+          );
+          await supabase.from("trak_product_inventory").delete().eq("variant_id", variant.id);
+          await supabase
+            .from("trak_product_variants")
+            .update({ available_total: inventoryQuantity })
+            .eq("id", variant.id);
+          processed++;
+          if (processed % 10 === 0) {
+            await queue.updateProgress(job.id, processed, total);
+          }
+          continue;
+        }
         throw new Error(`Inventory item not found for ${inventoryItemId}`);
       }
       const edges = inventoryItem?.inventoryLevels?.edges ?? [];
 
       let totalAvailable = 0;
 
+      // Always sum quantities from all edges first (location may be null)
+      for (const invEdge of edges) {
+        totalAvailable += getAvailableQuantity(invEdge?.node);
+      }
+
       if (hasLocationBreakdown) {
+        // Upsert per-location records for edges that have location data
         for (const invEdge of edges) {
           const inv = invEdge?.node;
           if (!inv?.location) continue;
           const qty = getAvailableQuantity(inv);
-          totalAvailable += qty;
 
           await supabase.from("trak_product_inventory").upsert(
             {
@@ -549,10 +607,6 @@ async function processInventorySync(
           );
         }
       } else {
-        // Without read_locations we can still sync total available inventory.
-        for (const invEdge of edges) {
-          totalAvailable += getAvailableQuantity(invEdge?.node);
-        }
         await supabase.from("trak_product_inventory").delete().eq("variant_id", variant.id);
       }
 

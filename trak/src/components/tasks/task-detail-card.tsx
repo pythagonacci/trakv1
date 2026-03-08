@@ -487,8 +487,8 @@ export function TaskDetailCard({
                           : null;
                       onOpenCommentMentionPicker(anchorRect, getAnchorRect, (text) => {
                         const s = commentMentionStartRef.current;
-                        const endIdx = commentMentionEndRef.current ?? s + 1;
                         if (s === null) return;
+                        const endIdx = commentMentionEndRef.current ?? s + 1;
                         const link = parseCommentLinkMarkdown(text);
                         const labelOnly = link ? link.label : text;
                         setCommentDraft((prev) => prev.slice(0, s) + labelOnly + prev.slice(endIdx));

@@ -1435,9 +1435,10 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                 >
                   <div className="space-y-5 w-full">
                     {blockRows.map((row, rowIdx) => {
+                      const hoverTargetRowIndex = previewInfo?.targetRowIndex;
                       const isHoverRow =
-                        Boolean(previewInfo) &&
-                        row.rowIndex === previewInfo.targetRowIndex;
+                        hoverTargetRowIndex != null &&
+                        row.rowIndex === hoverTargetRowIndex;
                       const showRowGhostAbove = isHoverRow;
                       const showRowGhostBelow = isHoverRow;
                       const rowAboveGhostActive =

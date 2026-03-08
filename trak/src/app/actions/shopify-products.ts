@@ -283,6 +283,7 @@ export async function importShopifyProducts(
                       url
                     }
                     availableForSale
+                    inventoryQuantity
                   }
                 }
               }
@@ -362,6 +363,8 @@ export async function importShopifyProducts(
                 image_url: variant.image?.url,
                 available_for_sale: variant.availableForSale,
                 inventory_tracked: !!variant.inventoryItem,
+                available_total:
+                  typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0,
               },
               {
                 onConflict: "product_id,shopify_variant_id",
@@ -399,23 +402,6 @@ export async function importShopifyProducts(
                 }
               `;
 
-              const inventoryQueryTotalsOnly = `
-                query GetInventoryTotals($inventoryItemId: ID!) {
-                  inventoryItem(id: $inventoryItemId) {
-                    inventoryLevels(first: 50) {
-                      edges {
-                        node {
-                          quantities(names: ["available"]) {
-                            name
-                            quantity
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              `;
-
               let hasLocationBreakdown = true;
               let inventoryResult: any;
 
@@ -431,22 +417,23 @@ export async function importShopifyProducts(
                 console.warn(
                   `[Shopify] Missing read_locations scope; importing totals only for variant ${variant.id}`
                 );
-                inventoryResult = await client.query<any>(inventoryQueryTotalsOnly, {
-                  inventoryItemId: variant.inventoryItem.id,
-                });
               }
 
-              const inventoryItem = inventoryResult?.inventoryItem;
-              const invEdges = inventoryItem?.inventoryLevels?.edges ?? [];
-
-              let totalAvailable = 0;
-
               if (hasLocationBreakdown) {
+                const inventoryItem = inventoryResult?.inventoryItem;
+                const invEdges = inventoryItem?.inventoryLevels?.edges ?? [];
+
+                // Sum quantities from all edges first (location may be null)
+                let totalAvailable = 0;
+                for (const invEdge of invEdges) {
+                  totalAvailable += getAvailableQuantity(invEdge?.node);
+                }
+
+                // Upsert per-location records for edges that have location data
                 for (const invEdge of invEdges) {
                   const inv = invEdge?.node;
                   if (!inv?.location) continue;
                   const qty = getAvailableQuantity(inv);
-                  totalAvailable += qty;
 
                   await supabase.from("trak_product_inventory").upsert(
                     {
@@ -461,18 +448,20 @@ export async function importShopifyProducts(
                     }
                   );
                 }
-              } else {
-                for (const invEdge of invEdges) {
-                  totalAvailable += getAvailableQuantity(invEdge?.node);
-                }
-                await supabase.from("trak_product_inventory").delete().eq("variant_id", trakVariant.id);
-              }
 
-              // Update variant available_total
-              await supabase
-                .from("trak_product_variants")
-                .update({ available_total: totalAvailable })
-                .eq("id", trakVariant.id);
+                await supabase
+                  .from("trak_product_variants")
+                  .update({ available_total: totalAvailable })
+                  .eq("id", trakVariant.id);
+              } else {
+                const fallbackTotal =
+                  typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
+                await supabase.from("trak_product_inventory").delete().eq("variant_id", trakVariant.id);
+                await supabase
+                  .from("trak_product_variants")
+                  .update({ available_total: fallbackTotal })
+                  .eq("id", trakVariant.id);
+              }
             } catch (inventoryError) {
               console.error(`Error importing inventory for variant ${variant.id}:`, inventoryError);
             }

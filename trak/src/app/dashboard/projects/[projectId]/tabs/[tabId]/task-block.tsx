@@ -101,6 +101,7 @@ interface Task {
   assignees?: string[];
   dueDate?: string | null;
   dueTime?: string | null;
+  dueTimeEnd?: string | null;
   startDate?: string | null;
   tags?: string[];
   description?: string | null;
@@ -635,6 +636,10 @@ function BoardTaskCard(props: BoardTaskCardProps) {
     transform: CSS.Translate.toString(transform),
     transition,
   };
+  const { role: sortableRole, tabIndex: sortableTabIndex, ...sortableAttributes } = attributes;
+  const hasCardClick = "onCardClick" in props && !!props.onCardClick;
+  const cardRole = hasCardClick ? "button" : sortableRole;
+  const cardTabIndex = hasCardClick ? 0 : sortableTabIndex;
 
   const isSubtask = props.itemType === "subtask";
 
@@ -650,19 +655,19 @@ function BoardTaskCard(props: BoardTaskCardProps) {
     <div
       ref={setNodeRef}
       style={style}
-      role={"onCardClick" in props && props.onCardClick ? "button" : undefined}
-      tabIndex={"onCardClick" in props && props.onCardClick ? 0 : undefined}
+      role={cardRole}
+      tabIndex={cardTabIndex}
       onClick={handleCardClick}
-      onKeyDown={"onCardClick" in props && props.onCardClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCardClick(e as any); } } : undefined}
+      onKeyDown={hasCardClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCardClick(e as any); } } : undefined}
       className={cn(
         "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow",
         "hover:border-[var(--secondary)]/30 hover:shadow-sm",
         isDragging && "opacity-60",
         isSubtask && "border-l-[3px] border-l-[var(--primary)]/40 bg-[var(--surface)]/80",
-        "onCardClick" in props && props.onCardClick && "cursor-pointer"
+        hasCardClick && "cursor-pointer"
       )}
       onContextMenu={props.onContextMenu}
-      {...attributes}
+      {...sortableAttributes}
       {...listeners}
     >
       <div className="flex items-start gap-2">
@@ -6120,7 +6125,7 @@ export default function TaskBlock({
             onAddNote={
               projectId && !isTempBlock
                 ? async (text) => {
-                    const hint = encodeSubtaskCommentText(selectedSubtask.id, `[note] ${text}`);
+                    const hint = encodeSubtaskCommentText(String(selectedSubtask.id), `[note] ${text}`);
                     await addComment(selectedParentTask.id, hint);
                   }
                 : undefined
@@ -6128,7 +6133,7 @@ export default function TaskBlock({
             onAddComment={
               projectId && !isTempBlock
                 ? async (text) => {
-                    const hint = encodeSubtaskCommentText(selectedSubtask.id, text);
+                    const hint = encodeSubtaskCommentText(String(selectedSubtask.id), text);
                     await addComment(selectedParentTask.id, hint);
                   }
                 : undefined
