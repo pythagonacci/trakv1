@@ -148,6 +148,8 @@ export async function listBlockReferenceSummaries(blockId: string): Promise<Acti
       type_label: summary.typeLabel,
       tab_id: summary.tabId,
       project_id: summary.projectId,
+      tab_name: summary.tabName,
+      project_name: summary.projectName,
       is_workflow: summary.isWorkflow,
     });
   }
@@ -158,7 +160,15 @@ export async function listBlockReferenceSummaries(blockId: string): Promise<Acti
 async function resolveReferenceSummary(
   supabase: any,
   ref: BlockReference
-): Promise<{ title: string; typeLabel?: string; tabId?: string | null; projectId?: string | null; isWorkflow?: boolean }> {
+): Promise<{
+  title: string;
+  typeLabel?: string;
+  tabId?: string | null;
+  projectId?: string | null;
+  tabName?: string | null;
+  projectName?: string | null;
+  isWorkflow?: boolean;
+}> {
   if (ref.reference_type === "doc") {
     const { data } = await supabase.from("docs").select("title").eq("id", ref.reference_id).maybeSingle();
     return { title: data?.title || "Doc", typeLabel: "Doc" };
@@ -167,7 +177,7 @@ async function resolveReferenceSummary(
   if (ref.reference_type === "task") {
     const { data } = await supabase
       .from("task_items")
-      .select("title, tab_id, project_id")
+      .select("title, tab_id, project_id, tabs(name), projects(name)")
       .eq("id", ref.reference_id)
       .maybeSingle();
     return {
@@ -175,6 +185,8 @@ async function resolveReferenceSummary(
       typeLabel: "Task",
       tabId: data?.tab_id ?? null,
       projectId: data?.project_id ?? null,
+      tabName: (data?.tabs as { name?: string } | null)?.name ?? null,
+      projectName: (data?.projects as { name?: string } | null)?.name ?? null,
       isWorkflow: !data?.project_id,
     };
   }
@@ -182,7 +194,7 @@ async function resolveReferenceSummary(
   if (ref.reference_type === "block") {
     const { data } = await supabase
       .from("blocks")
-      .select("type, content, tab_id, tabs!inner(id, project_id)")
+      .select("type, content, tab_id, tabs!inner(id, name, project_id, projects(name))")
       .eq("id", ref.reference_id)
       .maybeSingle();
 
@@ -191,6 +203,8 @@ async function resolveReferenceSummary(
     const content = (data as any).content || {};
     const tabId = (data as any).tab_id ?? null;
     const projectId = (data as any).tabs?.project_id ?? null;
+    const tabName = (data as any).tabs?.name ?? null;
+    const projectName = (data as any).tabs?.projects?.name ?? null;
     const isWorkflow = !projectId;
 
     if (data.type === "table" && content.tableId) {
@@ -204,6 +218,8 @@ async function resolveReferenceSummary(
         typeLabel: "Table",
         tabId,
         projectId,
+        tabName,
+        projectName,
         isWorkflow,
       };
     }
@@ -217,6 +233,8 @@ async function resolveReferenceSummary(
         typeLabel,
         tabId,
         projectId,
+        tabName,
+        projectName,
         isWorkflow,
       };
     }
@@ -226,6 +244,8 @@ async function resolveReferenceSummary(
       typeLabel,
       tabId,
       projectId,
+      tabName,
+      projectName,
       isWorkflow,
     };
   }

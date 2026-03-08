@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/app/dashboard/projects/status-badge";
 import { parseDateSafe } from "@/lib/due-date";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 import type { ProjectGroupWidgetConfig, ProjectGroupFilterKind } from "../dashboard-config-types";
 
@@ -197,7 +198,7 @@ export default function DashboardProjectGroup({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      router.push(`/dashboard/projects/${p.id}`);
+                      router.push(buildProjectPath(p.id, p.name));
                     }}
                     className="w-full text-left rounded px-2 py-1.5 text-xs font-medium text-[var(--foreground)] bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] truncate"
                   >
@@ -248,7 +249,7 @@ export default function DashboardProjectGroup({
                 <li key={project.id}>
                   <button
                     type="button"
-                    onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+                    onClick={() => router.push(buildProjectPath(project.id, project.name))}
                     className={cn(
                       "w-full flex items-center justify-between gap-2 rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
                     )}

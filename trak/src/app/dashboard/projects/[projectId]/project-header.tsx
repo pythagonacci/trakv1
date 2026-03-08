@@ -18,6 +18,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
+import {
+  buildProjectDrivePath,
+  buildProjectGoogleDrivePath,
+  buildProjectOverviewPath,
+} from "@/lib/dashboard-routes";
 import { useTabContents } from "./tabs/[tabId]/tab-contents-context";
 
 interface Tab {
@@ -113,8 +118,8 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   const pathname = usePathname();
   const isOverview = pathname?.endsWith("/overview");
   const isDrivePage = pathname?.endsWith("/drive");
-  const projectOverviewPath = `/dashboard/projects/${project.id}/overview`;
-  const projectDrivePath = `/dashboard/projects/${project.id}/drive`;
+  const projectOverviewPath = buildProjectOverviewPath(project.id, project.name);
+  const projectDrivePath = buildProjectDrivePath(project.id, project.name);
 
   // Find current tab name
   const findTabName = (tabs: Tab[], tabId: string | undefined): string | null => {
@@ -187,6 +192,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
               <TabBar 
                 tabs={tabs} 
                 projectId={project.id}
+                projectName={project.name}
                 isClientProject={!!project.client}
                 clientPageEnabled={project.client_page_enabled || false}
               />
@@ -307,7 +313,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
                   Manage Access
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => router.push(`/dashboard/projects/${project.id}/integrations/google-drive`)}>
+              <DropdownMenuItem onClick={() => router.push(buildProjectGoogleDrivePath(project.id, project.name))}>
                 Google Drive
               </DropdownMenuItem>
             </DropdownMenuContent>

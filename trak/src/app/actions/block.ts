@@ -234,7 +234,7 @@ export async function getChildBlocks(parentBlockId: string) {
 /** Returns tab_id, project_id for a block. Used for navigating to source tasks. */
 export async function getBlockLocation(blockId: string): Promise<
   | { error: string }
-  | { data: { tab_id: string; project_id: string | null; is_workflow?: boolean } }
+  | { data: { tab_id: string; project_id: string | null; tab_name?: string | null; project_name?: string | null; is_workflow?: boolean } }
 > {
   try {
     const supabase = await createClient();
@@ -243,7 +243,7 @@ export async function getBlockLocation(blockId: string): Promise<
 
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("tab_id, tabs!inner(id, project_id, projects!inner(workspace_id))")
+      .select("tab_id, tabs!inner(id, name, project_id, projects!inner(workspace_id, name))")
       .eq("id", blockId)
       .single();
 
@@ -268,6 +268,8 @@ export async function getBlockLocation(blockId: string): Promise<
       data: {
         tab_id: (block as any).tab_id,
         project_id: projectId,
+        tab_name: tab?.name ?? null,
+        project_name: tab?.projects?.name ?? null,
         is_workflow: !projectId,
       },
     };

@@ -17,5 +17,7 @@ export interface BlockReferenceSummary extends BlockReference {
   type_label?: string;
   tab_id?: string | null;
   project_id?: string | null;
+  tab_name?: string | null;
+  project_name?: string | null;
   is_workflow?: boolean;
 }

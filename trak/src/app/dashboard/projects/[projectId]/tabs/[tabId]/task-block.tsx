@@ -2712,7 +2712,9 @@ export default function TaskBlock({
       referenceType: item.referenceType,
       id: item.id,
       tabId: item.tabId,
+      tabName: item.tabName,
       projectId: item.projectId,
+      projectName: item.projectName,
       isWorkflow: item.isWorkflow,
     });
     const displayName = getMentionDisplayName(item);
@@ -2767,7 +2769,9 @@ export default function TaskBlock({
           referenceType: item.referenceType,
           id: item.id,
           tabId: item.tabId,
+          tabName: item.tabName,
           projectId: item.projectId,
+          projectName: item.projectName,
           isWorkflow: item.isWorkflow,
         });
         const displayName = getMentionDisplayName(item);
@@ -5930,7 +5934,9 @@ export default function TaskBlock({
                     referenceType: item.referenceType,
                     id: item.id,
                     tabId: item.tabId,
+                    tabName: item.tabName,
                     projectId: item.projectId,
+                    projectName: item.projectName,
                     isWorkflow: item.isWorkflow,
                   });
                   if (href) {

@@ -9,6 +9,14 @@ import { getEntitiesProperties } from "@/app/actions/entity-properties";
 import TabPageLayout from "./tab-page-layout";
 import TabCanvasWrapper from "./tab-canvas-wrapper";
 import WorkflowPageLayout from "@/app/dashboard/workflow/[workflowPageId]/workflow-page-layout";
+import {
+  buildProjectTabPath,
+  isCanonicalReadableParam,
+} from "@/lib/dashboard-routes";
+import {
+  resolveProjectIdFromParam,
+  resolveTabIdFromParam,
+} from "@/lib/dashboard-route-resolvers";
 import type { Block } from "@/app/actions/block";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
@@ -25,8 +33,7 @@ export default async function TabPage({
   const renderId = Math.random().toString(36).slice(2, 10);
 
   // Await params in Next.js 15
-  const { projectId, tabId } = await params;
-  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] TAB_PAGE_RENDER id=${renderId} projectId=${projectId} tabId=${tabId}`);
+  const { projectId: projectIdParam, tabId: tabIdParam } = await params;
   const searchParamsData = await searchParams;
   const taskId = typeof searchParamsData.taskId === 'string' ? searchParamsData.taskId : null;
 
@@ -39,6 +46,19 @@ export default async function TabPage({
   const authResult = await requireWorkspaceAccess(workspaceId);
   if ('error' in authResult) {
     redirect("/login");
+  }
+
+  const projectId = await resolveProjectIdFromParam(supabase, workspaceId, projectIdParam);
+  if (!projectId) {
+    notFound();
+  }
+
+  const tabId = await resolveTabIdFromParam(supabase, projectId, tabIdParam);
+  if (!tabId) {
+    notFound();
+  }
+  if (process.env.PERF_DEBUG === "1") {
+    console.log(`[PERF] TAB_PAGE_RENDER id=${renderId} projectId=${projectId} tabId=${tabId}`);
   }
 
   const _tPage0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
@@ -107,6 +127,26 @@ export default async function TabPage({
   const hierarchicalTabs = tabsData;
   const blocks = blocksData as Block[];
   const isWorkflowTab = Boolean(tab?.is_workflow_page);
+
+  const isCanonicalProjectParam = isCanonicalReadableParam(projectIdParam, project.name);
+  const isCanonicalTabParam = isCanonicalReadableParam(tabIdParam, tab.name);
+  if (!isCanonicalProjectParam || !isCanonicalTabParam) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(searchParamsData)) {
+      if (typeof value === "string") {
+        query.append(key, value);
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === "string") {
+            query.append(key, item);
+          }
+        }
+      }
+    }
+    const queryString = query.toString();
+    const canonicalPath = buildProjectTabPath(project.id, tab.id, project.name, tab.name);
+    redirect(queryString ? `${canonicalPath}?${queryString}` : canonicalPath);
+  }
 
   const blockIds = blocks.map((block) => String(block.id));
   const blockPropertiesResult =
@@ -251,6 +291,7 @@ export default async function TabPage({
         <WorkflowPageLayout
           tabId={tabId}
           projectId={projectId}
+          projectName={project.name}
           workspaceId={workspaceId}
           title={tab.name}
           blocks={blocks}
@@ -261,6 +302,7 @@ export default async function TabPage({
         <TabCanvasWrapper
           tabId={tabId}
           projectId={projectId}
+          projectName={project.name}
           workspaceId={workspaceId}
           blocks={blocks}
           initialBlockPropertiesById={blockPropertiesById}

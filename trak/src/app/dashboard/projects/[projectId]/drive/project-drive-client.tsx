@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalAssetCard } from "@/components/integrations/google-drive/external-asset-card";
 import { DrivePreviewModal } from "@/components/integrations/google-drive/preview-modal";
+import { buildProjectGoogleDrivePath } from "@/lib/dashboard-routes";
 
 type Mapping = {
   id: string;
@@ -43,10 +44,16 @@ type DriveListItem = {
 interface ProjectDriveClientProps {
   workspaceId: string;
   projectId: string;
+  projectName: string;
   mapping: Mapping | null;
 }
 
-export default function ProjectDriveClient({ workspaceId, projectId, mapping }: ProjectDriveClientProps) {
+export default function ProjectDriveClient({
+  workspaceId,
+  projectId,
+  projectName,
+  mapping,
+}: ProjectDriveClientProps) {
   const [items, setItems] = useState<DriveListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +96,7 @@ export default function ProjectDriveClient({ workspaceId, projectId, mapping }: 
           No canonical Drive folder mapped yet for this project.
         </p>
         <Link
-          href={`/dashboard/projects/${projectId}/integrations/google-drive`}
+          href={buildProjectGoogleDrivePath(projectId, projectName)}
           className="mt-2 inline-flex text-sm text-[var(--foreground)] underline"
         >
           Set up folder mapping

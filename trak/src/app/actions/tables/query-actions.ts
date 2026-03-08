@@ -6,6 +6,7 @@
 
 import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import type { FilterCondition, SortCondition, TableRow, TableView, Table, TableField } from "@/types/table";
 import type { PostgrestFilterBuilder, PostgrestSingleResponse } from "@supabase/postgrest-js";
 
@@ -259,8 +260,10 @@ export async function getTableSourceOrigins(
       const sourceName = getBlockTitle(block.content, "Task block");
       const tab = (block as any)?.tabs as { project_id?: string; name?: string; projects?: { name?: string } } | undefined;
       const projectId = tab?.project_id;
-      const href = projectId && block.tab_id
-        ? `/dashboard/projects/${projectId}/tabs/${block.tab_id}#block-${block.id}`
+      const projectName = tab?.projects?.name;
+      const tabName = tab?.name;
+      const href = projectId && block.tab_id && projectName && tabName
+        ? `${buildProjectTabPath(projectId, block.tab_id, projectName, tabName)}#block-${block.id}`
         : null;
       const key = `task:${block.id}`;
       if (!origins.has(key)) {
@@ -300,8 +303,10 @@ export async function getTableSourceOrigins(
       const sourceName = getBlockTitle(block.content, "Timeline block");
       const tab = (block as any)?.tabs as { project_id?: string; name?: string; projects?: { name?: string } } | undefined;
       const projectId = tab?.project_id;
-      const href = projectId && block.tab_id
-        ? `/dashboard/projects/${projectId}/tabs/${block.tab_id}#block-${block.id}`
+      const projectName = tab?.projects?.name;
+      const tabName = tab?.name;
+      const href = projectId && block.tab_id && projectName && tabName
+        ? `${buildProjectTabPath(projectId, block.tab_id, projectName, tabName)}#block-${block.id}`
         : null;
       const key = `timeline_event:${block.id}`;
       if (!origins.has(key)) {
@@ -354,8 +359,10 @@ export async function getTableSourceOrigins(
       const table = tableById.get(row.table_id as string);
       if (!table) continue;
       const sourceName = typeof table.title === "string" && table.title.trim().length > 0 ? table.title : "Table";
-      const href = table.project_id && table.tab_id
-        ? `/dashboard/projects/${table.project_id}/tabs/${table.tab_id}#table-${table.id}`
+      const projectName = (table.projects as { name?: string } | null)?.name;
+      const tabName = (table.tabs as { name?: string } | null)?.name;
+      const href = table.project_id && table.tab_id && projectName && tabName
+        ? `${buildProjectTabPath(table.project_id, table.tab_id, projectName, tabName)}#table-${table.id}`
         : null;
       const key = `table_row:${table.id}`;
       if (!origins.has(key)) {
@@ -385,8 +392,10 @@ export async function getTableSourceOrigins(
       const sourceName = getBlockTitle((block as any).content, `${String((block as any).type || "block")} block`);
       const tab = (block as any)?.tabs as { project_id?: string; name?: string; projects?: { name?: string } } | undefined;
       const projectId = tab?.project_id;
-      const href = projectId && (block as any).tab_id
-        ? `/dashboard/projects/${projectId}/tabs/${(block as any).tab_id}#block-${(block as any).id}`
+      const projectName = tab?.projects?.name;
+      const tabName = tab?.name;
+      const href = projectId && (block as any).tab_id && projectName && tabName
+        ? `${buildProjectTabPath(projectId, (block as any).tab_id, projectName, tabName)}#block-${(block as any).id}`
         : null;
       const key = `block:${(block as any).id}`;
       if (!origins.has(key)) {

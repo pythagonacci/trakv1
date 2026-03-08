@@ -4,6 +4,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 import SpaceHeader from "../../space-header";
 import TabBar from "../../../../projects/[projectId]/tab-bar";
 import TabCanvas from "../../../../projects/[projectId]/tabs/[tabId]/tab-canvas";
@@ -44,7 +45,7 @@ export default async function InternalTabPage({ params }: PageProps) {
 
   // Verify this is an internal space
   if (space.project_type !== "internal") {
-    redirect("/dashboard/projects/" + spaceId);
+    redirect(buildProjectPath(spaceId, space.name));
   }
 
   // Verify the tab exists and belongs to this space
@@ -77,8 +78,8 @@ export default async function InternalTabPage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       <SpaceHeader space={space} />
-      <TabBar tabs={organizedTabs} projectId={spaceId} />
-      <TabCanvas tabId={tabId} projectId={spaceId} workspaceId={workspaceId} blocks={blocks} />
+      <TabBar tabs={organizedTabs} projectId={spaceId} projectName={space.name} />
+      <TabCanvas tabId={tabId} projectId={spaceId} projectName={space.name} workspaceId={workspaceId} blocks={blocks} />
     </div>
   );
 }

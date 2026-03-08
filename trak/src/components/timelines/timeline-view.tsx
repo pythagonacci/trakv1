@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { format, addDays, differenceInCalendarDays, startOfDay, startOfWeek, startOfMonth, startOfQuarter, startOfYear, endOfWeek, endOfMonth, endOfQuarter, endOfYear } from "date-fns";
 import { parseLocalDate, parseDateSafe } from "@/lib/due-date";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import { Plus, User, ChevronDown, ChevronRight, ZoomIn, ZoomOut, Filter, Target, Paperclip, X, AlertCircle, ArrowUp, ArrowDown, Minus, ExternalLink, Flag, Link2, Search, Calendar as CalendarIcon, CheckSquare, Square, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Block, getBlockLocation, updateBlock } from "@/app/actions/block";
@@ -1593,14 +1594,14 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   };
 
   // Navigate to reference
-  const navigateToReference = (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => {
+  const navigateToReference = (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; tab_name?: string | null; project_name?: string | null; is_workflow?: boolean }) => {
     if (ref.reference_type === "doc") {
       router.push(`/dashboard/docs/${ref.reference_id}`);
     } else if (ref.reference_type === "block" && ref.tab_id) {
       if (ref.is_workflow) {
         router.push(`/dashboard/workflow/${ref.tab_id}#block-${ref.reference_id}`);
-      } else if (ref.project_id) {
-        router.push(`/dashboard/projects/${ref.project_id}/tabs/${ref.tab_id}#block-${ref.reference_id}`);
+      } else if (ref.project_id && ref.project_name && ref.tab_name) {
+        router.push(`${buildProjectTabPath(ref.project_id, ref.tab_id, ref.project_name, ref.tab_name)}#block-${ref.reference_id}`);
       }
     } else if (ref.reference_type === "table_row") {
       // For table rows, we could navigate to the table view
@@ -2688,10 +2689,10 @@ function EventDetailsPanel({
   isOpen: boolean;
   onClose: () => void;
   onUpdate: (patch: TimelineEventPatch) => void;
-  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string; tab_id?: string; project_id?: string; is_workflow?: boolean }>;
+  references: Array<{ id: string; reference_type: string; reference_id: string; title: string; type_label?: string; tab_id?: string; project_id?: string; tab_name?: string | null; project_name?: string | null; is_workflow?: boolean }>;
   workspaceId?: string;
   onAddReference: () => void;
-  onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; is_workflow?: boolean }) => void;
+  onNavigateToReference?: (ref: { reference_type: string; reference_id: string; tab_id?: string; project_id?: string; tab_name?: string | null; project_name?: string | null; is_workflow?: boolean }) => void;
   subEventsByParentId: Record<string, TimelineEvent[]>;
   onSelectEvent: (eventId: string) => void;
   onAddSubEvent: (parentEventId: string) => void;
@@ -2983,7 +2984,15 @@ function EventDetailsPanel({
                       } else if (entityType === "task" || entityType === "block") {
                         const loc = await getBlockLocation(entityId);
                         if ("data" in loc) {
-                          onNavigateToReference({ reference_type: "block", reference_id: entityId, tab_id: loc.data.tab_id, project_id: loc.data.project_id ?? undefined, is_workflow: loc.data.is_workflow });
+                          onNavigateToReference({
+                            reference_type: "block",
+                            reference_id: entityId,
+                            tab_id: loc.data.tab_id,
+                            project_id: loc.data.project_id ?? undefined,
+                            tab_name: loc.data.tab_name ?? undefined,
+                            project_name: loc.data.project_name ?? undefined,
+                            is_workflow: loc.data.is_workflow
+                          });
                         }
                       } else if (entityType === "table_row") {
                         onNavigateToReference({ reference_type: "table_row", reference_id: entityId });

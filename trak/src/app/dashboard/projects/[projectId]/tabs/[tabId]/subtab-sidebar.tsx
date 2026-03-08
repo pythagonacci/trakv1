@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildProjectTabPath, matchesReadableEntity } from "@/lib/dashboard-routes";
 
 interface SubtabSidebarTab {
   id: string;
@@ -16,6 +17,7 @@ interface SubtabSidebarProps {
   parentTabName: string;
   subtabs: SubtabSidebarTab[];
   projectId: string;
+  projectName: string;
   isExpanded: boolean;
   setIsExpanded: (expanded: boolean) => void;
 }
@@ -25,15 +27,18 @@ export default function SubtabSidebar({
   parentTabName,
   subtabs,
   projectId,
+  projectName,
   isExpanded,
   setIsExpanded,
 }: SubtabSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const activeTabId = pathname.split("/tabs/")[1]?.split("/")[0];
+  const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
+  const isActiveTab = (tabId: string, tabName: string) =>
+    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName);
 
-  const handleTabClick = (tabId: string) => {
-    router.push(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+  const handleTabClick = (tabId: string, tabName: string) => {
+    router.push(buildProjectTabPath(projectId, tabId, projectName, tabName));
   };
 
   if (subtabs.length === 0) return null;
@@ -69,12 +74,12 @@ export default function SubtabSidebar({
               {/* Parent tab link */}
               <button
                 onClick={() => {
-                  handleTabClick(parentTabId);
+                  handleTabClick(parentTabId, parentTabName);
                   setIsExpanded(false);
                 }}
                 className={cn(
                   "w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                  activeTabId === parentTabId
+                  isActiveTab(parentTabId, parentTabName)
                     ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
                     : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                 )}
@@ -95,12 +100,12 @@ export default function SubtabSidebar({
                   <button
                     key={subtab.id}
                     onClick={() => {
-                      handleTabClick(subtab.id);
+                      handleTabClick(subtab.id, subtab.name);
                       setIsExpanded(false);
                     }}
                     className={cn(
                       "w-full text-left px-3 py-2 rounded-md text-sm transition-colors border-l-2",
-                      activeTabId === subtab.id
+                      isActiveTab(subtab.id, subtab.name)
                         ? "bg-[var(--surface-hover)] text-[var(--foreground)] border-[var(--foreground)] font-medium"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] border-transparent"
                     )}
@@ -116,4 +121,3 @@ export default function SubtabSidebar({
     </>
   );
 }
-

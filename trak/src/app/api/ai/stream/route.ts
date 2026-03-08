@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import { executeWorkflowAICommandStream } from "@/lib/ai/workflow-executor";
 import type { AIMessage } from "@/lib/ai/executor";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
+import {
+  resolveProjectIdFromParam,
+  resolveTabIdFromParam,
+} from "@/lib/dashboard-route-resolvers";
 
 /**
  * POST /api/ai/stream
@@ -25,7 +30,7 @@ import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
  */
 export async function POST(request: NextRequest) {
   try {
-    await requireUser();
+    const { supabase } = await requireUser();
 
     const body = await request.json();
     const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode, attachedFiles } = body as {
@@ -53,19 +58,33 @@ export async function POST(request: NextRequest) {
     }
 
     const referer = request.headers.get("referer");
+    let refererProjectParam: string | undefined;
     let refererTabId: string | undefined;
     if (referer) {
       try {
         const refererUrl = new URL(referer);
+        const projectTabMatch = refererUrl.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
         const tabMatch = refererUrl.pathname.match(/\/tabs\/([^/]+)/);
         const workflowMatch = refererUrl.pathname.match(/\/dashboard\/workflow\/([^/]+)/);
-        refererTabId = tabMatch?.[1] || workflowMatch?.[1];
+        refererProjectParam = projectTabMatch?.[1];
+        refererTabId = projectTabMatch?.[2] || tabMatch?.[1] || workflowMatch?.[1];
       } catch {
         // Ignore malformed referer
       }
     }
 
-    const resolvedTabId = (tabId || refererTabId || "").trim();
+    let resolvedTabId = (tabId || refererTabId || "").trim();
+    const workspaceId = await getCurrentWorkspaceId();
+    if (workspaceId && refererProjectParam && refererTabId) {
+      const resolvedProjectId = await resolveProjectIdFromParam(supabase, workspaceId, refererProjectParam);
+      if (resolvedProjectId) {
+        const resolvedFromSlug = await resolveTabIdFromParam(supabase, resolvedProjectId, refererTabId);
+        if (resolvedFromSlug) {
+          resolvedTabId = resolvedFromSlug;
+        }
+      }
+    }
+
     if (!resolvedTabId) {
       return new Response(
         `data: ${JSON.stringify({ type: "error", content: "Missing tab context" })}\n\n`,

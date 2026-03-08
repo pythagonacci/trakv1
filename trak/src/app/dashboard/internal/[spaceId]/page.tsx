@@ -1,6 +1,7 @@
 import { getSingleProject } from "@/app/actions/project";
 import { getProjectTabs } from "@/app/actions/tab";
 import { notFound, redirect } from "next/navigation";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 import SpaceHeader from "./space-header";
 import TabBar from "../../projects/[projectId]/tab-bar";
 import EmptyTabsState from "../../projects/[projectId]/empty-tabs-state";
@@ -26,7 +27,7 @@ export default async function InternalSpacePage({ params }: PageProps) {
 
   // Verify this is an internal space
   if ((space as any).project_type !== 'internal') {
-    redirect('/dashboard/projects/' + spaceId);
+    redirect(buildProjectPath(spaceId, (space as any).name));
   }
 
   // Get all tabs for this space
@@ -43,8 +44,7 @@ export default async function InternalSpacePage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       <SpaceHeader space={space} />
-      <EmptyTabsState projectId={spaceId} />
+      <EmptyTabsState projectId={spaceId} projectName={(space as any).name ?? "Internal Space"} />
     </div>
   );
 }
-

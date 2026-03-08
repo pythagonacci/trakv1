@@ -356,7 +356,9 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
       referenceType: "task",
       id: String(row.id),
       tabId: tabIdFromRow,
+      tabName: (row as any).tabName as string | undefined,
       projectId: projectIdFromRow ?? (query?.projectId ?? null),
+      projectName: (row as any).projectName as string | undefined,
       isWorkflow: false,
     });
     return href ?? `#task-${row.id}`;

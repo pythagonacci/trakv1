@@ -2096,7 +2096,9 @@ function GalleryImageAddCommentInput({
         referenceType: item.referenceType,
         id: item.id,
         tabId: item.tabId,
+        tabName: item.tabName,
         projectId: item.projectId,
+        projectName: item.projectName,
         isWorkflow: item.isWorkflow,
       }) ?? (item.referenceType === "person" ? `#member-${item.id}` : `#ref-${item.id}`);
     const replacedLength = 1 + activeQuery.length;
@@ -2392,7 +2394,9 @@ function GalleryImageContextMenu({
         referenceType: item.referenceType,
         id: item.id,
         tabId: item.tabId,
+        tabName: item.tabName,
         projectId: item.projectId,
+        projectName: item.projectName,
         isWorkflow: item.isWorkflow,
       }) ?? (item.referenceType === "person" ? `#member-${item.id}` : `#ref-${item.id}`);
     const replacedLength = 1 + activeQuery.length;

@@ -14,6 +14,7 @@ export interface LinkableItem {
   referenceType: LinkableReferenceType;
   updatedAt?: string | null;
   tabId?: string;
+  tabName?: string | null;
   projectId?: string | null;
   projectName?: string | null;
   isCurrentProject?: boolean;
@@ -173,6 +174,7 @@ export async function getRecentLinkableItems(input: {
       location: tabInfo.name || "Tasks",
       referenceType: "task",
       tabId: task.tab_id,
+      tabName: tabInfo.name || "Untitled tab",
       projectId: tabInfo.projectId,
       projectName: tabInfo.projectName,
       isCurrentProject: tabInfo.isCurrentProject,
@@ -275,6 +277,7 @@ export async function searchLinkableItems(input: {
       location: tabInfo.name || "Tasks",
       referenceType: "task",
       tabId: task.tab_id,
+      tabName: tabInfo.name || "Untitled tab",
       projectId: tabInfo.projectId,
       projectName: tabInfo.projectName,
       isCurrentProject: tabInfo.isCurrentProject,
@@ -355,6 +358,7 @@ async function buildLinkableItems(
 
     const baseItem = {
       tabId: block.tab_id,
+      tabName: tabInfo.name || "Untitled tab",
       projectId: tabInfo.projectId,
       projectName: tabInfo.projectName,
       isCurrentProject: tabInfo.isCurrentProject,

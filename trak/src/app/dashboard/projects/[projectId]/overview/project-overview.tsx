@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 
 export interface ProjectOverviewTask {
@@ -130,9 +131,9 @@ export default function ProjectOverview({
     }
   };
 
-  const goToTab = (tabId: string, taskId?: string) => {
+  const goToTab = (tabId: string, tabName: string, taskId?: string) => {
     const q = taskId ? `?taskId=${taskId}` : "";
-    router.push(`/dashboard/projects/${projectId}/tabs/${tabId}${q}`);
+    router.push(`${buildProjectTabPath(projectId, tabId, projectName, tabName)}${q}`);
   };
 
   return (
@@ -200,7 +201,7 @@ export default function ProjectOverview({
                   <TaskRow
                     key={task.id}
                     task={task}
-                    onClick={() => goToTab(task.tabId, task.id)}
+                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
                     formatDueDate={formatDueDate}
                     getPriorityColor={getPriorityColor}
                     getPriorityLabel={getPriorityLabel}
@@ -238,7 +239,7 @@ export default function ProjectOverview({
                   <TaskRow
                     key={task.id}
                     task={task}
-                    onClick={() => goToTab(task.tabId, task.id)}
+                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
                     formatDueDate={formatDueDate}
                     getPriorityColor={getPriorityColor}
                     getPriorityLabel={getPriorityLabel}
@@ -276,7 +277,7 @@ export default function ProjectOverview({
                   <TaskRow
                     key={task.id}
                     task={task}
-                    onClick={() => goToTab(task.tabId, task.id)}
+                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
                     formatDueDate={formatDueDate}
                     getPriorityColor={getPriorityColor}
                     getPriorityLabel={getPriorityLabel}
@@ -313,7 +314,7 @@ export default function ProjectOverview({
                 {teamFeedback.slice(0, 10).map((feedback) => (
                   <button
                     key={feedback.id}
-                    onClick={() => goToTab(feedback.tabId)}
+                    onClick={() => goToTab(feedback.tabId, feedback.tabName)}
                     className="group flex w-full items-start gap-2 rounded-md border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
                   >
                     <MessageSquare className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-[var(--foreground)]" />

@@ -83,6 +83,8 @@ export default function BlockReferencesPanel({
                   reference_id: ref.reference_id,
                   tab_id: ref.tab_id ?? undefined,
                   project_id: ref.project_id ?? undefined,
+                  tab_name: ref.tab_name ?? undefined,
+                  project_name: ref.project_name ?? undefined,
                   is_workflow: ref.is_workflow,
                 });
                 return (

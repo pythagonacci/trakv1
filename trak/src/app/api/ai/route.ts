@@ -5,6 +5,10 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { aiDebug, aiTiming, isAITimingEnabled } from "@/lib/ai/debug"; // Added imports
 import { getBlockWithContext } from "@/app/actions/ai-context";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
+import {
+  resolveProjectIdFromParam,
+  resolveTabIdFromParam,
+} from "@/lib/dashboard-route-resolvers";
 
 /**
  * POST /api/ai
@@ -18,8 +22,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const referer = request.headers.get("referer");
-    let currentProjectId: string | undefined;
-    let currentTabId: string | undefined;
+    let currentProjectParam: string | undefined;
+    let currentTabParam: string | undefined;
 
     if (referer) {
       try {
@@ -27,13 +31,13 @@ export async function POST(request: NextRequest) {
         // Try to match tab page first: /dashboard/projects/[projectId]/tabs/[tabId]
         let match = url.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
         if (match) {
-          currentProjectId = match[1];
-          currentTabId = match[2];
+          currentProjectParam = match[1];
+          currentTabParam = match[2];
         } else {
           // If not on a tab page, try to match project page: /dashboard/projects/[projectId]
           match = url.pathname.match(/\/dashboard\/projects\/([^/]+)(?:\/|$)/);
           if (match) {
-            currentProjectId = match[1];
+            currentProjectParam = match[1];
           }
         }
       } catch {
@@ -52,6 +56,15 @@ export async function POST(request: NextRequest) {
         { success: false, error: "No workspace selected", response: "Please select a workspace first." },
         { status: 400 }
       );
+    }
+
+    let currentProjectId: string | undefined;
+    let currentTabId: string | undefined;
+    if (currentProjectParam) {
+      currentProjectId = (await resolveProjectIdFromParam(supabase, workspaceId, currentProjectParam)) ?? undefined;
+      if (currentProjectId && currentTabParam) {
+        currentTabId = (await resolveTabIdFromParam(supabase, currentProjectId, currentTabParam)) ?? undefined;
+      }
     }
 
     // 3. Get workspace and user details for context

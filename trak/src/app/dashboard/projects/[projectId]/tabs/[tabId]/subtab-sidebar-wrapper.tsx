@@ -11,12 +11,14 @@ interface SubtabSidebarWrapperProps {
     subtabs: any[];
   } | null;
   projectId: string;
+  projectName: string;
   children: React.ReactNode;
 }
 
 export default function SubtabSidebarWrapper({
   sidebarConfig,
   projectId,
+  projectName,
   children,
 }: SubtabSidebarWrapperProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
@@ -42,6 +44,7 @@ export default function SubtabSidebarWrapper({
           parentTabName={sidebarConfig.parentTabName}
           subtabs={sidebarConfig.subtabs}
           projectId={projectId}
+          projectName={projectName}
           isExpanded={isSidebarExpanded}
           setIsExpanded={setIsSidebarExpanded}
         />
@@ -52,4 +55,3 @@ export default function SubtabSidebarWrapper({
     </>
   );
 }
-

@@ -49,6 +49,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 import type { BlockType } from "@/app/actions/block";
 
 interface Project {
@@ -422,9 +423,9 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
     }
   };
 
-  const handleProjectClick = (projectId: string) => {
+  const handleProjectClick = (projectId: string, projectName: string) => {
     if (!projectId.startsWith("temp-")) {
-      router.push(`/dashboard/projects/${projectId}`);
+      router.push(buildProjectPath(projectId, projectName));
     }
   };
 
@@ -523,7 +524,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
     return (
       <div
         key={project.id}
-        onClick={() => handleProjectClick(project.id)}
+        onClick={() => handleProjectClick(project.id, project.name)}
         className={cn(
           "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
           isTemp && "pointer-events-none opacity-70"
@@ -673,7 +674,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
               return (
                 <div
                   key={project.id}
-                  onClick={() => handleProjectClick(project.id)}
+                  onClick={() => handleProjectClick(project.id, project.name)}
                   className={cn(
                     "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
                     isTemp && "pointer-events-none opacity-70"

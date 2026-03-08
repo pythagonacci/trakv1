@@ -26,6 +26,7 @@ import {
   isTaskListWidget,
   isChartWidget,
 } from "./dashboard-config-types";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import AIOverviewBlock from "./ai-overview-block";
 import DashboardProjectCard from "./widgets/dashboard-project-card";
 import DashboardProjectGroup from "./widgets/dashboard-project-group";
@@ -249,9 +250,9 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                 clientFeedbackItems={clientFeedbackItems}
                 teamUpdatesItems={teamUpdatesItems}
                 formatRelativeTime={formatRelativeTime}
-                onNavigate={(projectId, tabId) => {
-                  if (projectId && tabId) {
-                    router.push(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+                onNavigate={(projectId, tabId, projectName, tabName) => {
+                  if (projectId && tabId && projectName && tabName) {
+                    router.push(buildProjectTabPath(projectId, tabId, projectName, tabName));
                   }
                 }}
               />
@@ -294,7 +295,14 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
-                            onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
+                            onNavigate={() => {
+                              if (task.sourceUrl) router.push(task.sourceUrl);
+                              else if (task.projectId && task.tabId && task.projectName && task.tabName) {
+                                router.push(
+                                  `${buildProjectTabPath(task.projectId, task.tabId, task.projectName, task.tabName)}?taskId=${task.id}`
+                                );
+                              }
+                            }}
                           />
                         ))}
                       </div>
@@ -313,7 +321,14 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
-                            onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
+                            onNavigate={() => {
+                              if (task.sourceUrl) router.push(task.sourceUrl);
+                              else if (task.projectId && task.tabId && task.projectName && task.tabName) {
+                                router.push(
+                                  `${buildProjectTabPath(task.projectId, task.tabId, task.projectName, task.tabName)}?taskId=${task.id}`
+                                );
+                              }
+                            }}
                           />
                         ))}
                       </div>
@@ -332,7 +347,14 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
-                            onNavigate={() => { if (task.sourceUrl) router.push(task.sourceUrl); else if (task.projectId && task.tabId) router.push(`/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`); }}
+                            onNavigate={() => {
+                              if (task.sourceUrl) router.push(task.sourceUrl);
+                              else if (task.projectId && task.tabId && task.projectName && task.tabName) {
+                                router.push(
+                                  `${buildProjectTabPath(task.projectId, task.tabId, task.projectName, task.tabName)}?taskId=${task.id}`
+                                );
+                              }
+                            }}
                           />
                         ))}
                       </div>
@@ -436,7 +458,12 @@ function NotificationsCard({
   clientFeedbackItems: ClientFeedback[];
   teamUpdatesItems: ClientFeedback[];
   formatRelativeTime: (value?: string) => string;
-  onNavigate: (projectId?: string | null, tabId?: string | null) => void;
+  onNavigate: (
+    projectId?: string | null,
+    tabId?: string | null,
+    projectName?: string,
+    tabName?: string
+  ) => void;
 }) {
   return (
     <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
@@ -465,7 +492,9 @@ function NotificationsCard({
                   feedback.timestamp
                 )}`}
                 icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-                onClick={() => onNavigate(feedback.projectId, feedback.tabId)}
+                onClick={() =>
+                  onNavigate(feedback.projectId, feedback.tabId, feedback.projectName, feedback.tabName)
+                }
               />
             ))
           )}
@@ -485,7 +514,9 @@ function NotificationsCard({
                   feedback.timestamp
                 )}`}
                 icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-                onClick={() => onNavigate(feedback.projectId, feedback.tabId)}
+                onClick={() =>
+                  onNavigate(feedback.projectId, feedback.tabId, feedback.projectName, feedback.tabName)
+                }
               />
             ))
           )}

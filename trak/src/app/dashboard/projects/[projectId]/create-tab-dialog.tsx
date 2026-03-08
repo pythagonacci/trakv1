@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { createTab, getProjectTabs, type TabWithChildren } from "@/app/actions/tab";
 import { createWorkflowPage } from "@/app/actions/workflow-page";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 
 interface CreateTabDialogProps {
   isOpen: boolean;
   onClose: () => void;
   projectId: string;
+  projectName: string;
   initialParentTabId?: string | null; // Pre-select parent if creating sub-tab from context menu
   onSuccess?: () => void; // Callback when tab is successfully created
 }
@@ -19,6 +21,7 @@ export default function CreateTabDialog({
   isOpen,
   onClose,
   projectId,
+  projectName,
   initialParentTabId,
   onSuccess,
 }: CreateTabDialogProps) {
@@ -164,7 +167,7 @@ export default function CreateTabDialog({
         }
 
         onClose();
-        router.push(`/dashboard/projects/${projectId}/tabs/${result.data.tabId}`);
+        router.push(buildProjectTabPath(projectId, result.data.tabId, projectName, trimmedName));
       } else {
         const result = await createTab({
           projectId,
@@ -180,7 +183,7 @@ export default function CreateTabDialog({
 
         onClose();
         if (result.data?.id) {
-          router.push(`/dashboard/projects/${projectId}/tabs/${result.data.id}`);
+          router.push(buildProjectTabPath(projectId, result.data.id, projectName, trimmedName));
         }
       }
       
@@ -343,4 +346,3 @@ export default function CreateTabDialog({
 
   return createPortal(dialogContent, document.body);
 }
-

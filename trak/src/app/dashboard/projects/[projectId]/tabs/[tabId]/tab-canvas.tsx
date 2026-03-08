@@ -50,6 +50,7 @@ export const useFileUrls = () => useContext(FileUrlContext);
 interface TabCanvasProps {
   tabId: string;
   projectId: string;
+  projectName?: string;
   workspaceId: string;
   blocks: Block[];
   scrollToTaskId?: string | null;
@@ -80,7 +81,19 @@ type DropPreviewInfo =
     targetRowIndex: number;
   };
 
-export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {}, initialBlockPropertiesById = {}, hidePageUndoButton = false }: TabCanvasProps) {
+export default function TabCanvas({
+  tabId,
+  projectId,
+  projectName,
+  workspaceId,
+  blocks: initialBlocks,
+  scrollToTaskId,
+  onThemeChange,
+  currentTheme: propTheme,
+  initialFileUrls = {},
+  initialBlockPropertiesById = {},
+  hidePageUndoButton = false,
+}: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
@@ -1535,6 +1548,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
           isExpanded={tocExpanded}
           onToggle={() => setTocExpanded((prev) => !prev)}
           projectId={projectId}
+          projectName={projectName}
         />
       </div>
 

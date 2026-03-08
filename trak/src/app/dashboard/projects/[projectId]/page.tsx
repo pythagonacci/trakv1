@@ -2,6 +2,12 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
+import {
+  buildProjectOverviewPath,
+  buildProjectPath,
+  isCanonicalReadableParam,
+} from "@/lib/dashboard-routes";
+import { resolveProjectIdFromParam } from "@/lib/dashboard-route-resolvers";
 import ProjectHeader from "./project-header";
 import EmptyTabsState from "./empty-tabs-state";
 
@@ -13,7 +19,7 @@ export default async function ProjectPage({
   const supabase = await createClient();
 
   // Await params in Next.js 15
-  const { projectId } = await params;
+  const { projectId: projectIdParam } = await params;
 
   // 1. Auth check
   const {
@@ -28,6 +34,11 @@ export default async function ProjectPage({
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) {
     redirect("/dashboard");
+  }
+
+  const projectId = await resolveProjectIdFromParam(supabase, workspaceId, projectIdParam);
+  if (!projectId) {
+    notFound();
   }
 
   // 3. Fetch project with client details
@@ -52,9 +63,13 @@ export default async function ProjectPage({
   const hierarchicalTabs = tabsResult.data || [];
   const projectWithTags = { ...project, tags: project.tags ?? [] };
 
+  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+    redirect(buildProjectPath(projectId, project.name));
+  }
+
   // 5. Redirect to project overview by default (or empty state if no tabs)
   if (hierarchicalTabs.length > 0) {
-    redirect(`/dashboard/projects/${projectId}/overview`);
+    redirect(buildProjectOverviewPath(projectId, project.name));
   }
 
   return (
@@ -64,7 +79,7 @@ export default async function ProjectPage({
         <ProjectHeader project={projectWithTags} workspaceId={workspaceId} />
 
         {/* Empty Tabs State */}
-          <EmptyTabsState projectId={projectId} />
+          <EmptyTabsState projectId={projectId} projectName={project.name} />
       </div>
     </div>
   );

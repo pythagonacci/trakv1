@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
 import StatusBadge from "../../projects/status-badge";
@@ -60,8 +61,8 @@ export default function ClientProjects({ projects, clientId }: ClientProjectsPro
     return { text: "No due date", isOverdue: false };
   };
 
-  const handleRowClick = (projectId: string) => {
-    router.push(`/dashboard/projects/${projectId}`);
+  const handleRowClick = (projectId: string, projectName: string) => {
+    router.push(buildProjectPath(projectId, projectName));
   };
 
   if (projects.length === 0) {
@@ -133,7 +134,7 @@ export default function ClientProjects({ projects, clientId }: ClientProjectsPro
                 <TableRow
                   key={project.id}
                   className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
-                  onClick={() => handleRowClick(project.id)}
+                  onClick={() => handleRowClick(project.id, project.name)}
                 >
                   <TableCell className="py-4">
                     <span className="text-sm font-medium text-[var(--foreground)]">
@@ -179,7 +180,7 @@ export default function ClientProjects({ projects, clientId }: ClientProjectsPro
                           className="text-sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            router.push(`/dashboard/projects/${project.id}`);
+                            router.push(buildProjectPath(project.id, project.name));
                           }}
                         >
                           View project

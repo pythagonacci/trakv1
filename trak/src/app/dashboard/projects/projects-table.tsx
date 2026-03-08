@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 
 interface Project {
   id: string;
@@ -310,9 +311,9 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     }
   };
 
-  const handleRowClick = (projectId: string) => {
+  const handleRowClick = (projectId: string, projectName: string) => {
     if (!projectId.startsWith("temp-")) {
-      router.push(`/dashboard/projects/${projectId}`);
+      router.push(buildProjectPath(projectId, projectName));
     }
   };
 
@@ -598,7 +599,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                       <TableRow
                         key={project.id}
                         className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70")}
-                        onClick={() => handleRowClick(project.id)}
+                        onClick={() => handleRowClick(project.id, project.name)}
                       >
                         <TableCell className="pl-8">
                           <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
@@ -677,7 +678,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                     <TableRow
                       key={project.id}
                       className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70", folders.length > 0 && "pl-8")}
-                      onClick={() => handleRowClick(project.id)}
+                      onClick={() => handleRowClick(project.id, project.name)}
                     >
                       <TableCell className={folders.length > 0 ? "pl-8" : ""}>
                         <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>

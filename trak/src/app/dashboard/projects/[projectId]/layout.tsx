@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
+import { resolveProjectIdFromParam } from "@/lib/dashboard-route-resolvers";
 import ProjectHeaderWrapper from "./project-header-wrapper";
 import TabBar from "./tab-bar";
 
@@ -16,7 +17,7 @@ export default async function ProjectLayout({
     params: Promise<{ projectId: string }>;
 }) {
     const supabase = await createClient();
-    const { projectId } = await params;
+    const { projectId: projectIdParam } = await params;
 
     // 1. Auth check
     const workspaceId = await getCurrentWorkspaceId();
@@ -27,6 +28,11 @@ export default async function ProjectLayout({
     const authResult = await requireWorkspaceAccess(workspaceId);
     if ('error' in authResult) {
         redirect("/login");
+    }
+
+    const projectId = await resolveProjectIdFromParam(supabase, workspaceId, projectIdParam);
+    if (!projectId) {
+        notFound();
     }
 
     // 2. Fetch project details
@@ -65,6 +71,7 @@ export default async function ProjectLayout({
                         <TabBar
                             tabs={hierarchicalTabs}
                             projectId={projectId}
+                            projectName={project.name}
                             isClientProject={!!project.client}
                             clientPageEnabled={project.client_page_enabled || false}
                         />

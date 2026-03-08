@@ -7,6 +7,7 @@ import { Calendar, Building2, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import StatusBadge from "@/app/dashboard/projects/status-badge";
 import { parseDateSafe } from "@/lib/due-date";
+import { buildProjectPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 import type { ProjectCardWidgetConfig } from "../dashboard-config-types";
 
@@ -106,7 +107,7 @@ export default function DashboardProjectCard({ config, workspaceId }: DashboardP
         "border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl",
         "cursor-pointer transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]/50"
       )}
-      onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+      onClick={() => router.push(buildProjectPath(project.id, project.name))}
     >
       <CardHeader className="pb-2 px-4 pt-4">
         <CardTitle className="text-sm font-medium truncate">{project.name}</CardTitle>

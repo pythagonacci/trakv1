@@ -6,6 +6,7 @@ import { Flag, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { parseDateSafe } from "@/lib/due-date";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 import type { TaskListWidgetConfig } from "../dashboard-config-types";
 
@@ -135,7 +136,7 @@ export default function DashboardTaskWidget({
                     if (task.sourceUrl) router.push(task.sourceUrl);
                     else if (task.projectId && task.tabId)
                       router.push(
-                        `/dashboard/projects/${task.projectId}/tabs/${task.tabId}?taskId=${task.id}`
+                        `${buildProjectTabPath(task.projectId, task.tabId, task.projectName, task.tabName)}?taskId=${task.id}`
                       );
                   }}
                   className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"

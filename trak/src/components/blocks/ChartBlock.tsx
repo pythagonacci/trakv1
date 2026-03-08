@@ -531,7 +531,9 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
         referenceType: "task",
         id: String(row.id),
         tabId: tabId ?? block.tab_id,
+        tabName: (row as any).tabName as string | undefined,
         projectId: projectId ?? null,
+        projectName: (row as any).projectName as string | undefined,
         isWorkflow: false,
       });
       return href ?? `#task-${row.id}`;

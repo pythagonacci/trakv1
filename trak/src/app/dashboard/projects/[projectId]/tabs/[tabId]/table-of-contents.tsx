@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { type Block } from "@/app/actions/block";
 import { useTabContents } from "./tab-contents-context";
 import { useTable } from "@/lib/hooks/use-table-queries";
+import { buildProjectTabPath, matchesReadableEntity } from "@/lib/dashboard-routes";
 
 const BLOCK_TYPE_LABELS: Partial<Record<Block["type"], string>> = {
   text: "Text",
@@ -114,6 +115,7 @@ interface TableOfContentsProps {
   isExpanded: boolean;
   onToggle: () => void;
   projectId: string;
+  projectName?: string;
   className?: string;
 }
 
@@ -122,11 +124,14 @@ export default function TableOfContents({
   isExpanded,
   onToggle,
   projectId,
+  projectName,
   className,
 }: TableOfContentsProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const activeTabId = pathname.split("/tabs/")[1]?.split("/")[0];
+  const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
+  const isActiveTab = (tabId: string, tabName: string) =>
+    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName);
   const tabContents = useTabContents();
   const subtabConfig = tabContents?.subtabConfig ?? null;
 
@@ -135,6 +140,10 @@ export default function TableOfContents({
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+  };
+  const navigateToTab = (tabId: string, tabName: string) => {
+    if (!projectName) return;
+    router.push(buildProjectTabPath(projectId, tabId, projectName, tabName));
   };
 
   const hasSubtabs = subtabConfig && subtabConfig.subtabs.length > 0;
@@ -194,10 +203,10 @@ export default function TableOfContents({
                 <div className={cn("p-2", hasBlocks && "border-b border-[var(--border)]")}>
                   {/* Back to parent tab */}
                   <button
-                    onClick={() => router.push(`/dashboard/projects/${projectId}/tabs/${subtabConfig.parentTabId}`)}
+                    onClick={() => navigateToTab(subtabConfig.parentTabId, subtabConfig.parentTabName)}
                     className={cn(
                       "flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors mb-1",
-                      activeTabId === subtabConfig.parentTabId
+                      isActiveTab(subtabConfig.parentTabId, subtabConfig.parentTabName)
                         ? "text-[var(--foreground)] bg-[var(--surface-hover)]"
                         : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                     )}
@@ -211,10 +220,10 @@ export default function TableOfContents({
                     {subtabConfig.subtabs.map((subtab) => (
                       <button
                         key={subtab.id}
-                        onClick={() => router.push(`/dashboard/projects/${projectId}/tabs/${subtab.id}`)}
+                        onClick={() => navigateToTab(subtab.id, subtab.name)}
                         className={cn(
                           "block w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors truncate",
-                          activeTabId === subtab.id
+                          isActiveTab(subtab.id, subtab.name)
                             ? "text-[var(--foreground)] font-medium bg-[var(--surface-hover)]"
                             : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                         )}

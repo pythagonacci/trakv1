@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getEntitiesProperties } from "@/app/actions/entity-properties";
 import { buildDueDateRange, normalizeDueDateRange } from "@/lib/due-date";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import type { EverythingItem, EverythingOptions, EverythingResult } from "@/types/everything";
 import type { EntityType, EntityProperties, Status, Priority } from "@/types/properties";
 
@@ -187,7 +188,7 @@ async function getWorkspaceEverythingFallback(
           tabName: tab.name,
           projectId: project.id,
           projectName: project.name,
-          url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block.id}`,
+          url: `${buildProjectTabPath(project.id, tab.id, project.name, tab.name)}#block-${block.id}`,
         },
         properties: {
           status: firstStatusFromNamed((event as any).statuses),
@@ -251,7 +252,7 @@ async function getWorkspaceEverythingFallback(
           tabName: tab.name,
           projectId: project.id,
           projectName: project.name,
-          url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block.id}`,
+          url: `${buildProjectTabPath(project.id, tab.id, project.name, tab.name)}#block-${block.id}`,
         },
         properties: {
           status: firstStatusFromNamed((task as any).statuses),
@@ -344,7 +345,7 @@ async function getWorkspaceEverythingFallback(
               tabName: tab.name,
               projectId: project.id,
               projectName: project.name,
-              url: `/dashboard/projects/${project.id}/tabs/${tab.id}#table-${table.id}-row-${row.id}`,
+              url: `${buildProjectTabPath(project.id, tab.id, project.name, tab.name)}#table-${table.id}-row-${row.id}`,
             },
             properties: {
               status: props.status as Status | null,
@@ -423,7 +424,7 @@ async function getWorkspaceEverythingFallback(
           tabName: tab.name,
           projectId: project.id,
           projectName: project.name,
-          url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block.id}`,
+          url: `${buildProjectTabPath(project.id, tab.id, project.name, tab.name)}#block-${block.id}`,
         },
         properties: {
           status: props?.status as Status | null,
@@ -503,7 +504,7 @@ async function getWorkspaceEverythingFallback(
             tabName: tab.name,
             projectId: project.id,
             projectName: project.name,
-            url: `/dashboard/projects/${project.id}/tabs/${tab.id}#block-${block?.id ?? task.task_block_id}`,
+            url: `${buildProjectTabPath(project.id, tab.id, project.name, tab.name)}#block-${block?.id ?? task.task_block_id}`,
           },
           properties: {
             status: (props?.status as Status | null) ?? null,

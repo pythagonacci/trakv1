@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
+import { buildProjectOverviewPath, isCanonicalReadableParam } from "@/lib/dashboard-routes";
+import { resolveProjectIdFromParam } from "@/lib/dashboard-route-resolvers";
 import { BlockComment } from "@/types/block-comment";
 import { parseDateSafe } from "@/lib/due-date";
 import ProjectOverview from "./project-overview";
@@ -16,13 +18,16 @@ export default async function ProjectOverviewPage({
   params: Promise<{ projectId: string }>;
 }) {
   const supabase = await createClient();
-  const { projectId } = await params;
+  const { projectId: projectIdParam } = await params;
 
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) redirect("/dashboard");
 
   const authResult = await requireWorkspaceAccess(workspaceId);
   if ("error" in authResult) redirect("/login");
+
+  const projectId = await resolveProjectIdFromParam(supabase, workspaceId, projectIdParam);
+  if (!projectId) notFound();
 
   // Fetch project (includes tags assigned to the project)
   const { data: projectRow, error: projectError } = await supabase
@@ -41,6 +46,10 @@ export default async function ProjectOverviewPage({
     client: Array.isArray(projectRow.client) ? projectRow.client[0] : projectRow.client,
     tags: projectRow.tags ?? [],
   };
+
+  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+    redirect(buildProjectOverviewPath(project.id, project.name));
+  }
 
   // All tab IDs for this project (flat)
   const { data: projectTabs, error: tabsError } = await supabase

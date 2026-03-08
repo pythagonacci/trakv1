@@ -85,7 +85,7 @@ export async function createWorkflowPage(params: {
   title?: string;
   projectId?: string | null;
   isWorkspaceLevel?: boolean;
-}): Promise<ActionResult<{ tabId: string; projectId: string }>> {
+}): Promise<ActionResult<{ tabId: string; tabName: string; projectId: string }>> {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
@@ -130,7 +130,7 @@ export async function createWorkflowPage(params: {
   await safeRevalidatePath(`/dashboard/projects/${projectId}`);
   await safeRevalidatePath(`/dashboard/workflow/${tabResult.data.id}`);
 
-  return { data: { tabId: tabResult.data.id, projectId } };
+  return { data: { tabId: tabResult.data.id, tabName: title, projectId } };
 }
 
 export async function getWorkspaceWorkflowPages(): Promise<ActionResult<WorkflowPageTab[]>> {
@@ -178,7 +178,7 @@ export async function convertFileAnalysisToWorkflowPage(params: {
   messageId?: string;
   title?: string;
   isWorkspaceLevel?: boolean;
-}): Promise<ActionResult<{ tabId: string; projectId: string }>> {
+}): Promise<ActionResult<{ tabId: string; tabName: string; projectId: string }>> {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   if (!user) return { error: "Unauthorized" };
@@ -239,7 +239,7 @@ export async function convertFileAnalysisToWorkflowPage(params: {
   await safeRevalidatePath(`/dashboard/projects/${projectId}`);
   await safeRevalidatePath(`/dashboard/workflow/${tabId}`);
 
-  return { data: { tabId, projectId } };
+  return { data: { tabId, tabName: title, projectId } };
 }
 
 export async function enableWorkflowPageSharing(params: {

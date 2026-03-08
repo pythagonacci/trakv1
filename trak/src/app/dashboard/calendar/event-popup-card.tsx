@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CalendarEvent } from "./calendar-view";
+import { buildProjectPath, buildProjectTabPath } from "@/lib/dashboard-routes";
 
 interface EventPopupCardProps {
   event: CalendarEvent;
@@ -30,12 +31,16 @@ export default function EventPopupCard({
   };
 
   const handleNavigate = () => {
-    if (event.type === "task" && event.projectId && event.tabId) {
-      router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}?taskId=${event.taskId}`);
-    } else if (event.type === "project" && event.projectId) {
-      router.push(`/dashboard/projects/${event.projectId}`);
-    } else if (event.type === "timeline" && event.projectId && event.tabId && event.blockId) {
-      router.push(`/dashboard/projects/${event.projectId}/tabs/${event.tabId}#block-${event.blockId}`);
+    if (event.type === "task" && event.projectId && event.tabId && event.projectName && event.tabName) {
+      router.push(
+        `${buildProjectTabPath(event.projectId, event.tabId, event.projectName, event.tabName)}?taskId=${event.taskId}`
+      );
+    } else if (event.type === "project" && event.projectId && event.projectName) {
+      router.push(buildProjectPath(event.projectId, event.projectName));
+    } else if (event.type === "timeline" && event.projectId && event.tabId && event.blockId && event.projectName && event.tabName) {
+      router.push(
+        `${buildProjectTabPath(event.projectId, event.tabId, event.projectName, event.tabName)}#block-${event.blockId}`
+      );
     } else if (event.type === "google" && event.externalUrl) {
       window.open(event.externalUrl, "_blank", "noopener,noreferrer");
     }

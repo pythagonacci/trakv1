@@ -604,7 +604,7 @@ export async function createProjectFromProduct(
 
   const { data: firstTab, error: tabError } = await supabase
     .from('tabs')
-    .select('id')
+    .select('id, name')
     .eq('project_id', project.id)
     .is('parent_tab_id', null)
     .order('position', { ascending: true })
@@ -612,7 +612,7 @@ export async function createProjectFromProduct(
     .single()
 
   if (tabError || !firstTab) {
-    return { data: { projectId: project.id, tabId: null } }
+    return { data: { projectId: project.id, projectName, tabId: null, tabName: null } }
   }
 
   const blockResult = await createBlock({
@@ -626,7 +626,7 @@ export async function createProjectFromProduct(
     console.error('Failed to add product block to tab:', blockResult.error)
   }
 
-  return { data: { projectId: project.id, tabId: firstTab.id } }
+  return { data: { projectId: project.id, projectName, tabId: firstTab.id, tabName: firstTab.name ?? null } }
 }
 
 /**

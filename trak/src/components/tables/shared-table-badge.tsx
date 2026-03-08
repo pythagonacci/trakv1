@@ -5,6 +5,7 @@ import { LayoutGrid, ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getTableBlockReferences, type TableBlockReference } from "@/app/actions/tables/query-actions";
 import { queryKeys } from "@/lib/react-query/query-client";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import {
   Tooltip,
   TooltipContent,
@@ -20,9 +21,10 @@ interface SharedTableBadgeProps {
 
 function buildTabHref(loc: TableBlockReference): string | null {
   if (!loc.tabId) return null;
-  if (loc.projectId) {
-    return `/dashboard/projects/${loc.projectId}/tabs/${loc.tabId}`;
+  if (loc.projectId && loc.projectName && loc.tabName) {
+    return buildProjectTabPath(loc.projectId, loc.tabId, loc.projectName, loc.tabName);
   }
+  if (loc.projectId) return null;
   return `/dashboard/workflow/${loc.tabId}`;
 }
 

@@ -7,9 +7,10 @@ import CreateTabDialog from "./create-tab-dialog";
 
 interface EmptyTabsStateProps {
   projectId: string;
+  projectName: string;
 }
 
-export default function EmptyTabsState({ projectId }: EmptyTabsStateProps) {
+export default function EmptyTabsState({ projectId, projectName }: EmptyTabsStateProps) {
   const router = useRouter();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
@@ -61,6 +62,7 @@ export default function EmptyTabsState({ projectId }: EmptyTabsStateProps) {
         isOpen={isCreateDialogOpen}
         onClose={() => setIsCreateDialogOpen(false)}
         projectId={projectId}
+        projectName={projectName}
         onSuccess={handleDialogSuccess}
       />
     </div>

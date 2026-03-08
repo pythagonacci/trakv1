@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare, Share2, X, Plus, PanelRightClose } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import TabCanvasWrapper from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/tab-canvas-wrapper";
 import type { Block } from "@/app/actions/block";
 import { AIPanel } from "@/components/ai";
@@ -13,6 +14,7 @@ import { useAI } from "@/components/ai";
 export default function WorkflowPageLayout(props: {
   tabId: string;
   projectId: string;
+  projectName?: string;
   workspaceId: string;
   title: string;
   blocks: Block[];
@@ -61,7 +63,18 @@ export default function WorkflowPageLayout(props: {
         return;
       }
       if (props.inProjectContext) {
-        router.push(`/dashboard/projects/${props.projectId}/tabs/${result.data.tabId}`);
+        if (!props.projectName) {
+          alert("Project name unavailable.");
+          return;
+        }
+        router.push(
+          buildProjectTabPath(
+            props.projectId,
+            result.data.tabId,
+            props.projectName,
+            result.data.tabName
+          )
+        );
       } else {
         router.push(`/dashboard/workflow/${result.data.tabId}`);
       }
@@ -151,8 +164,9 @@ export default function WorkflowPageLayout(props: {
             <div className="h-full min-h-0 overflow-auto px-2 md:px-3 lg:px-4 pt-3">
               <TabCanvasWrapper
                 tabId={props.tabId}
-                projectId={props.projectId}
-                workspaceId={props.workspaceId}
+              projectId={props.projectId}
+              projectName={props.projectName}
+              workspaceId={props.workspaceId}
                 blocks={props.blocks}
                 initialFileUrls={props.initialFileUrls}
                 hidePageUndoButton

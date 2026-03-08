@@ -10,6 +10,12 @@ import { updateTab } from "@/app/actions/tab";
 import { toggleTabVisibility, updateTabClientTitle } from "@/app/actions/client-page";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
 import {
+  buildProjectOverviewPath,
+  buildProjectPath,
+  buildProjectTabPath,
+  matchesReadableEntity,
+} from "@/lib/dashboard-routes";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -30,11 +36,18 @@ interface Tab {
 interface TabBarProps {
   tabs: Tab[];
   projectId: string;
+  projectName: string;
   isClientProject?: boolean;
   clientPageEnabled?: boolean;
 }
 
-export default function TabBar({ tabs, projectId, isClientProject = false, clientPageEnabled = false }: TabBarProps) {
+export default function TabBar({
+  tabs,
+  projectId,
+  projectName,
+  isClientProject = false,
+  clientPageEnabled = false,
+}: TabBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { currentWorkspace } = useWorkspace();
@@ -56,8 +69,24 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
   const floatingTimeoutRef = useRef<number | null>(null);
 
   const canDeleteTabs = currentWorkspace?.role === "owner" || currentWorkspace?.role === "admin";
-  const activeTabId = pathname.split("/tabs/")[1]?.split("/")[0];
-  const isOverview = pathname?.includes(`/projects/${projectId}/overview`);
+  const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
+  const resolveActiveTabId = (tabParam: string | undefined): string | undefined => {
+    if (!tabParam) return undefined;
+    const stack = [...tabs];
+    while (stack.length > 0) {
+      const current = stack.shift();
+      if (!current) continue;
+      if (matchesReadableEntity(tabParam, current.name)) {
+        return current.id;
+      }
+      if (current.children && current.children.length > 0) {
+        stack.push(...current.children);
+      }
+    }
+    return undefined;
+  };
+  const activeTabId = resolveActiveTabId(activeTabParam);
+  const isOverview = pathname?.endsWith("/overview");
 
   useEffect(() => {
     if (editingTabId && editInputRef.current) {
@@ -101,7 +130,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
       return;
     }
 
-    router.push(`/dashboard/projects/${projectId}/tabs/${tab.id}`);
+    router.push(buildProjectTabPath(projectId, tab.id, projectName, tab.name));
     setMobileMenuOpen(false);
   };
 
@@ -175,7 +204,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
     // If we deleted the currently active tab, navigate to project page
     // Revalidation in deleteTab action ensures fresh data is fetched
     if (deleteConfirmTab && activeTabId === deleteConfirmTab.id) {
-      router.push(`/dashboard/projects/${projectId}`);
+      router.push(buildProjectPath(projectId, projectName));
     }
     // No need to refresh - revalidation handles cache invalidation
   };
@@ -382,7 +411,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
       >
         <div className="flex items-start gap-3 overflow-x-auto flex-1">
           <button
-            onClick={() => router.push(`/dashboard/projects/${projectId}/overview`)}
+            onClick={() => router.push(buildProjectOverviewPath(projectId, projectName))}
             className={cn(
               "relative whitespace-nowrap px-3 py-3 text-sm transition-colors flex flex-col items-start gap-0",
               isOverview
@@ -417,7 +446,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
         <div className="mt-2 space-y-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-card lg:hidden">
           <button
             onClick={() => {
-              router.push(`/dashboard/projects/${projectId}/overview`);
+              router.push(buildProjectOverviewPath(projectId, projectName));
               setMobileMenuOpen(false);
             }}
             className={cn(
@@ -525,6 +554,7 @@ export default function TabBar({ tabs, projectId, isClientProject = false, clien
           setCreateDialogParentId(undefined);
         }}
         projectId={projectId}
+        projectName={projectName}
         initialParentTabId={createDialogParentId}
         onSuccess={handleDialogSuccess}
       />

@@ -10,6 +10,7 @@ import {
   searchTabs,
   searchTasks,
 } from "@/app/actions/ai-search";
+import { buildProjectPath, buildProjectTabPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 
 type SearchResultType = "project" | "task" | "doc" | "text_block" | "tab";
@@ -64,7 +65,7 @@ export default function GlobalSearch() {
             id: project.id,
             type: "project" as const,
             title: project.name,
-            url: `/dashboard/projects/${project.id}`,
+            url: buildProjectPath(project.id, project.name),
           }))
         );
       }
@@ -75,10 +76,12 @@ export default function GlobalSearch() {
             const projectId = task.project_id;
             const tabId = task.tab_id;
             const blockId = task.task_block_id;
+            const projectName = task.project_name;
+            const tabName = task.tab_name;
             const isStandalone = !projectId && !tabId;
             const taskUrl =
-              projectId && tabId && blockId
-                ? `/dashboard/projects/${projectId}/tabs/${tabId}?task=${blockId}-${task.id}`
+              projectId && tabId && blockId && projectName && tabName
+                ? `${buildProjectTabPath(projectId, tabId, projectName, tabName)}?task=${blockId}-${task.id}`
                 : "/dashboard";
 
             return {
@@ -118,11 +121,15 @@ export default function GlobalSearch() {
               typeof block.content?.text === "string" ? block.content.text : "Text block";
             const preview = text.replace(/\s+/g, " ").trim().slice(0, 100);
             const projectId = block.project_id;
+            const projectName = block.project_name;
+            const tabName = block.tab_name;
             return {
               id: block.id,
               type: "text_block" as const,
               title: preview || "Text block",
-              url: projectId ? `/dashboard/projects/${projectId}/tabs/${block.tab_id}` : "/dashboard",
+              url: projectId && projectName && tabName
+                ? buildProjectTabPath(projectId, block.tab_id, projectName, tabName)
+                : "/dashboard",
               preview,
             };
           })
@@ -131,12 +138,17 @@ export default function GlobalSearch() {
 
       if (tabs.data) {
         merged.push(
-          ...tabs.data.map((tab) => ({
-            id: tab.id,
-            type: "tab" as const,
-            title: tab.name,
-            url: `/dashboard/projects/${tab.project_id}/tabs/${tab.id}`,
-          }))
+          ...tabs.data.map((tab) => {
+            const projectName = tab.project_name;
+            return {
+              id: tab.id,
+              type: "tab" as const,
+              title: tab.name,
+              url: projectName
+                ? buildProjectTabPath(tab.project_id, tab.id, projectName, tab.name)
+                : "/dashboard",
+            };
+          })
         );
       }
 

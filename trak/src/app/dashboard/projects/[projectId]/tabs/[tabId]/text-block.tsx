@@ -580,7 +580,9 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
         referenceType: item.referenceType,
         id: item.id,
         tabId: item.tabId,
+        tabName: item.tabName,
         projectId: item.projectId,
+        projectName: item.projectName,
         isWorkflow: item.isWorkflow,
       });
       if (!href) return;

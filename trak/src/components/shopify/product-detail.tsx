@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getProductDetails, refreshProduct } from "@/app/actions/shopify-products";
 import { createProjectFromProduct } from "@/app/actions/project";
 import { UnitsSoldWidget } from "./units-sold-widget";
+import { buildProjectPath, buildProjectTabPath } from "@/lib/dashboard-routes";
 
 interface ProductDetailProps {
   productId: string;
@@ -69,9 +70,16 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
       }
       onClose();
       if (result.data.tabId) {
-        router.push(`/dashboard/projects/${result.data.projectId}/tabs/${result.data.tabId}`);
+        router.push(
+          buildProjectTabPath(
+            result.data.projectId,
+            result.data.tabId,
+            result.data.projectName,
+            result.data.tabName
+          )
+        );
       } else {
-        router.push(`/dashboard/projects/${result.data.projectId}`);
+        router.push(buildProjectPath(result.data.projectId, result.data.projectName));
       }
     });
   };

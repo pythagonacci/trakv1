@@ -4,6 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { getProjectDriveMapping } from "@/app/actions/google-drive";
+import {
+  buildProjectGoogleDrivePath,
+  buildProjectOverviewPath,
+  isCanonicalReadableParam,
+} from "@/lib/dashboard-routes";
+import { resolveProjectIdFromParam } from "@/lib/dashboard-route-resolvers";
 import ProjectGoogleDriveSettingsClient from "./project-settings-client";
 
 export default async function ProjectGoogleDriveSettingsPage({
@@ -11,7 +17,7 @@ export default async function ProjectGoogleDriveSettingsPage({
 }: {
   params: Promise<{ projectId: string }>;
 }) {
-  const { projectId } = await params;
+  const { projectId: projectIdParam } = await params;
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) redirect("/dashboard");
 
@@ -19,6 +25,8 @@ export default async function ProjectGoogleDriveSettingsPage({
   if ("error" in access) redirect("/login");
 
   const supabase = await createClient();
+  const projectId = await resolveProjectIdFromParam(supabase, workspaceId, projectIdParam);
+  if (!projectId) notFound();
   const { data: project } = await supabase
     .from("projects")
     .select("id, name, workspace_id")
@@ -28,13 +36,17 @@ export default async function ProjectGoogleDriveSettingsPage({
 
   if (!project) notFound();
 
+  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+    redirect(buildProjectGoogleDrivePath(project.id, project.name));
+  }
+
   const mappingResult = await getProjectDriveMapping(projectId, workspaceId);
   const mapping = "data" in mappingResult ? (mappingResult.data ?? null) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <Link
-        href={`/dashboard/projects/${projectId}/overview`}
+        href={buildProjectOverviewPath(projectId, project.name)}
         className="mb-4 inline-flex items-center gap-2 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
       >
         ← Back to Project

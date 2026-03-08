@@ -11,6 +11,7 @@ import { useEntitiesProperties } from "@/lib/hooks/use-property-queries";
 interface TabCanvasWrapperProps {
   tabId: string;
   projectId: string;
+  projectName?: string;
   workspaceId: string;
   blocks: Block[];
   initialBlockPropertiesById?: Record<string, EntityProperties>;
@@ -20,7 +21,17 @@ interface TabCanvasWrapperProps {
   hidePageUndoButton?: boolean;
 }
 
-export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks: initialBlocks, initialBlockPropertiesById = {}, scrollToTaskId, initialFileUrls = {}, hidePageUndoButton = false }: TabCanvasWrapperProps) {
+export default function TabCanvasWrapper({
+  tabId,
+  projectId,
+  projectName,
+  workspaceId,
+  blocks: initialBlocks,
+  initialBlockPropertiesById = {},
+  scrollToTaskId,
+  initialFileUrls = {},
+  hidePageUndoButton = false,
+}: TabCanvasWrapperProps) {
   const [tabTheme, setTabTheme] = useState<string>("default");
 
   // 🚀 NEW: Use React Query for cached blocks
@@ -167,6 +178,7 @@ export default function TabCanvasWrapper({ tabId, projectId, workspaceId, blocks
     <TabCanvas 
       tabId={tabId}
       projectId={projectId}
+      projectName={projectName}
       workspaceId={workspaceId}
       blocks={blocks || []}
       initialBlockPropertiesById={blockPropertiesById}
