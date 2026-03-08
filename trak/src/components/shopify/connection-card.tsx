@@ -48,7 +48,8 @@ export function ShopifyConnectionCard({ connection, onUpdate, canManage }: Shopi
       if ("error" in result) {
         alert(`Failed to trigger sync: ${result.error}`);
       } else {
-        alert("Sync job queued successfully!");
+        alert("Sync completed successfully!");
+        onUpdate();
       }
     });
   };

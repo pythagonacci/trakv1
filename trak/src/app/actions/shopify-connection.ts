@@ -247,18 +247,14 @@ export async function triggerSync(
       return { error: "Connection is not active" };
     }
 
-    // Check for existing pending/processing job of same type (deduplication)
-    const { data: existingJob } = await supabase
+    // Clean up stale pending/processing jobs that were never picked up
+    await supabase
       .from("shopify_sync_jobs")
-      .select("id")
+      .update({ status: "failed", error_message: "Stale job cleared", completed_at: new Date().toISOString() })
       .eq("connection_id", connectionId)
       .eq("job_type", jobType)
       .in("status", ["pending", "processing"])
-      .single();
-
-    if (existingJob) {
-      return { data: existingJob.id };
-    }
+      .lt("created_at", new Date(Date.now() - 5 * 60 * 1000).toISOString());
 
     // Create new sync job
     const { data: newJob, error: insertError } = await supabase
