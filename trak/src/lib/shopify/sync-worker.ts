@@ -405,6 +405,24 @@ function getAvailableQuantity(invNode: { quantities?: Array<{ name: string; quan
   return qty?.quantity ?? 0;
 }
 
+function normalizeInventoryItemId(inventoryItemId: string): string {
+  if (inventoryItemId.startsWith("gid://shopify/InventoryItem/")) {
+    return inventoryItemId;
+  }
+
+  const trimmed = inventoryItemId.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return `gid://shopify/InventoryItem/${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+function isMissingLocationScopeError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return message.includes("read_locations") || (message.includes("access denied") && message.includes("location"));
+}
+
 /**
  * Inventory sync - updates inventory levels
  */
@@ -439,60 +457,103 @@ async function processInventorySync(
   }
 
   let processed = 0;
+  let failed = 0;
+  const failureMessages: string[] = [];
   const total = variants.length;
+
+  const inventoryQueryWithLocations = `
+    query GetInventory($inventoryItemId: ID!) {
+      inventoryItem(id: $inventoryItemId) {
+        inventoryLevels(first: 50) {
+          edges {
+            node {
+              location {
+                id
+                name
+              }
+              quantities(names: ["available"]) {
+                name
+                quantity
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const inventoryQueryTotalsOnly = `
+    query GetInventoryTotals($inventoryItemId: ID!) {
+      inventoryItem(id: $inventoryItemId) {
+        inventoryLevels(first: 50) {
+          edges {
+            node {
+              quantities(names: ["available"]) {
+                name
+                quantity
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
 
   for (const variant of variants) {
     if (!variant.inventory_item_id) continue;
 
     try {
-      const inventoryQuery = `
-        query GetInventory($inventoryItemId: ID!) {
-          inventoryItem(id: $inventoryItemId) {
-            inventoryLevels(first: 50) {
-              edges {
-                node {
-                  location {
-                    id
-                    name
-                  }
-                  quantities(names: ["available"]) {
-                    name
-                    quantity
-                  }
-                }
-              }
-            }
-          }
-        }
-      `;
+      const inventoryItemId = normalizeInventoryItemId(variant.inventory_item_id);
+      let result: any;
+      let hasLocationBreakdown = true;
 
-      const result: any = await client.query(inventoryQuery, {
-        inventoryItemId: variant.inventory_item_id,
-      });
+      try {
+        result = await client.query(inventoryQueryWithLocations, { inventoryItemId });
+      } catch (error) {
+        if (!isMissingLocationScopeError(error)) {
+          throw error;
+        }
+        hasLocationBreakdown = false;
+        console.warn(
+          `[Shopify] Missing read_locations scope; syncing totals only for variant ${variant.id}`
+        );
+        result = await client.query(inventoryQueryTotalsOnly, { inventoryItemId });
+      }
 
       const inventoryItem = result?.inventoryItem;
+      if (!inventoryItem) {
+        throw new Error(`Inventory item not found for ${inventoryItemId}`);
+      }
       const edges = inventoryItem?.inventoryLevels?.edges ?? [];
 
       let totalAvailable = 0;
 
-      for (const invEdge of edges) {
-        const inv = invEdge?.node;
-        if (!inv?.location) continue;
-        const qty = getAvailableQuantity(inv);
-        totalAvailable += qty;
+      if (hasLocationBreakdown) {
+        for (const invEdge of edges) {
+          const inv = invEdge?.node;
+          if (!inv?.location) continue;
+          const qty = getAvailableQuantity(inv);
+          totalAvailable += qty;
 
-        await supabase.from("trak_product_inventory").upsert(
-          {
-            variant_id: variant.id,
-            location_id: inv.location.id,
-            location_name: inv.location.name ?? "",
-            available: qty,
-            last_synced_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "variant_id,location_id",
-          }
-        );
+          await supabase.from("trak_product_inventory").upsert(
+            {
+              variant_id: variant.id,
+              location_id: inv.location.id,
+              location_name: inv.location.name ?? "",
+              available: qty,
+              last_synced_at: new Date().toISOString(),
+            },
+            {
+              onConflict: "variant_id,location_id",
+            }
+          );
+        }
+      } else {
+        // Without read_locations we can still sync total available inventory.
+        for (const invEdge of edges) {
+          totalAvailable += getAvailableQuantity(invEdge?.node);
+        }
+        await supabase.from("trak_product_inventory").delete().eq("variant_id", variant.id);
       }
 
       // Update variant available_total (even if 0, so UI reflects current state)
@@ -506,11 +567,25 @@ async function processInventorySync(
         await queue.updateProgress(job.id, processed, total);
       }
     } catch (error) {
+      failed++;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (failureMessages.length < 3) {
+        failureMessages.push(`variant ${variant.id}: ${errorMessage}`);
+      }
       console.error(`Error syncing inventory for variant ${variant.id}:`, error);
     }
   }
 
+  await supabase.from("shopify_sync_jobs").update({ failed_items: failed }).eq("id", job.id);
   await queue.updateProgress(job.id, processed, total);
+
+  if (processed === 0 && total > 0) {
+    const details = failureMessages[0] ?? "No variants could be synced.";
+    throw new Error(
+      `Inventory sync failed for all variants (${total}). ${details} ` +
+      "Ensure Shopify app scopes include read_inventory and read_locations, then reconnect and sync again."
+    );
+  }
 }
 
 /**

@@ -92,7 +92,7 @@ export function ConnectShopifyDialog({ isOpen, onClose, workspaceId }: ConnectSh
           <div className="bg-blue-50 border border-blue-200 rounded p-3">
             <p className="text-sm text-blue-800">
               <strong>Note:</strong> You'll be redirected to Shopify to authorize access. We'll request
-              permission to read products, inventory, and orders.
+              permission to read products, inventory, locations, and orders.
             </p>
           </div>
         </div>

@@ -5,7 +5,7 @@ import { isValidShopDomain, generateRandomString } from "@/lib/shopify/encryptio
 
 const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
-const SHOPIFY_SCOPES = "read_products,read_inventory,read_orders";
+const SHOPIFY_SCOPES = "read_products,read_inventory,read_orders,read_locations";
 
 /**
  * OAuth install route - initiates Shopify OAuth flow
