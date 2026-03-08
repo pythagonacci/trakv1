@@ -377,7 +377,10 @@ export async function importShopifyProducts(
                           id
                           name
                         }
-                        available
+                        quantities(names: ["available"]) {
+                          name
+                          quantity
+                        }
                       }
                     }
                   }
@@ -397,14 +400,15 @@ export async function importShopifyProducts(
             for (const invEdge of invEdges) {
               const inv = invEdge?.node;
               if (!inv?.location) continue;
-              totalAvailable += inv.available ?? 0;
+              const qty = inv?.quantities?.find((q: { name: string }) => q.name === "available")?.quantity ?? 0;
+              totalAvailable += qty;
 
               await supabase.from("trak_product_inventory").upsert(
                 {
                   variant_id: trakVariant.id,
                   location_id: inv.location.id,
                   location_name: inv.location.name ?? "",
-                  available: inv.available ?? 0,
+                  available: qty,
                   last_synced_at: new Date().toISOString(),
                 },
                 {

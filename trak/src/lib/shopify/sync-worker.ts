@@ -400,6 +400,11 @@ async function processInitialImport(
   await queue.updateProgress(job.id, processed, processed);
 }
 
+function getAvailableQuantity(invNode: { quantities?: Array<{ name: string; quantity: number }> }): number {
+  const qty = invNode?.quantities?.find((q) => q.name === "available");
+  return qty?.quantity ?? 0;
+}
+
 /**
  * Inventory sync - updates inventory levels
  */
@@ -450,7 +455,10 @@ async function processInventorySync(
                     id
                     name
                   }
-                  available
+                  quantities(names: ["available"]) {
+                    name
+                    quantity
+                  }
                 }
               }
             }
@@ -470,14 +478,15 @@ async function processInventorySync(
       for (const invEdge of edges) {
         const inv = invEdge?.node;
         if (!inv?.location) continue;
-        totalAvailable += inv.available ?? 0;
+        const qty = getAvailableQuantity(inv);
+        totalAvailable += qty;
 
         await supabase.from("trak_product_inventory").upsert(
           {
             variant_id: variant.id,
             location_id: inv.location.id,
             location_name: inv.location.name ?? "",
-            available: inv.available ?? 0,
+            available: qty,
             last_synced_at: new Date().toISOString(),
           },
           {

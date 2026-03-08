@@ -53,6 +53,9 @@ export default function ReferencePicker({
   autoFocus = true,
   onQueryChange,
   showUpload = false,
+  initialType = null,
+  hideInstructions = false,
+  popoverSide,
 }: {
   isOpen: boolean;
   projectId: string;
@@ -67,6 +70,12 @@ export default function ReferencePicker({
   onQueryChange?: (query: string) => void;
   /** When true, shows "Upload from computer" option for attachment mode */
   showUpload?: boolean;
+  /** When set, picker opens with this type pre-selected (e.g. "file" for notes-only). */
+  initialType?: LinkableType | null;
+  /** When true, hide the "Use ↑/↓ to navigate and Enter to select" footer (e.g. for card comment/notes). */
+  hideInstructions?: boolean;
+  /** For popover: prefer this side of the anchor. "left" = picker to the left of the trigger (e.g. next to card). */
+  popoverSide?: "left" | "right";
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState<TypeFilter>(null);
@@ -100,11 +109,11 @@ export default function ReferencePicker({
       });
     }
     setSearchQuery(initialQuery || "");
-    setSelectedType(null);
+    setSelectedType(initialType ?? null);
     setResults([]);
     setActiveIndex(0);
     void loadRecent();
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen, initialType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync search query when initialQuery is updated externally (e.g. typing after @)
   useEffect(() => {
@@ -137,22 +146,26 @@ export default function ReferencePicker({
     const minTop = margin;
     const maxTop = window.innerHeight - maxHeight - margin;
 
-    // Prefer to the right of the trigger (like inline mention dropdowns)
-    let left = anchorRect.right + gap;
-    if (left + maxWidth > window.innerWidth - margin) {
-      // Not enough room on right: flip to the left of the trigger
+    // Position: prefer popoverSide when set (e.g. "left" = to the left of card); else prefer right, flip to left if no room
+    let left: number;
+    if (popoverSide === "left") {
       left = anchorRect.left - maxWidth - gap;
+    } else if (popoverSide === "right") {
+      left = anchorRect.right + gap;
+    } else {
+      left = anchorRect.right + gap;
+      if (left + maxWidth > window.innerWidth - margin) {
+        left = anchorRect.left - maxWidth - gap;
+      }
     }
-    // Clamp so popover never overflows viewport horizontally
     left = Math.max(minLeft, Math.min(left, maxLeft));
 
-    // Align top with trigger; clamp vertically so popover stays in viewport
     let top = anchorRect.top;
     top = Math.max(minTop, Math.min(top, maxTop));
 
     setPopoverLeft(left);
     setPopoverTop(top);
-  }, [isOpen, variant, anchorRect, hasValidAnchor, popoverGap]);
+  }, [isOpen, variant, anchorRect, hasValidAnchor, popoverGap, popoverSide]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -611,8 +624,8 @@ export default function ReferencePicker({
         <div className="flex-1 overflow-y-auto min-h-0">
           {pickerBody}
         </div>
-        <div className="mt-1.5 flex flex-shrink-0 items-center justify-between border-t border-[var(--border)] pt-1.5 text-[9px] text-[var(--muted-foreground)]">
-          <div>Use ↑/↓ to navigate and Enter to select.</div>
+        <div className={cn("mt-1.5 flex flex-shrink-0 border-t border-[var(--border)] pt-1.5 text-[9px] text-[var(--muted-foreground)]", hideInstructions ? "items-center justify-end" : "items-center justify-between")}>
+          {!hideInstructions && <div>Use ↑/↓ to navigate and Enter to select.</div>}
           <Button variant="outline" size="sm" onClick={onClose} className="h-6 px-2 text-[10px]">
             Close
           </Button>
@@ -630,10 +643,12 @@ export default function ReferencePicker({
           <DialogTitle>Add attachment</DialogTitle>
         </DialogHeader>
         {pickerBody}
-        <DialogFooter className="flex items-center justify-between">
-          <div className="text-xs text-neutral-400">
-            Use ↑/↓ to navigate and Enter to select.
-          </div>
+        <DialogFooter className={cn("flex items-center", hideInstructions ? "justify-end" : "justify-between")}>
+          {!hideInstructions && (
+            <div className="text-xs text-neutral-400">
+              Use ↑/↓ to navigate and Enter to select.
+            </div>
+          )}
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>

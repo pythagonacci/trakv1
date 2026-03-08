@@ -49,7 +49,12 @@ import {
   useDeleteSubtaskReference,
 } from "@/lib/hooks/use-task-queries";
 import { TaskRollupBar, type RollupTask } from "@/components/tasks/task-rollup-bar";
+import { TaskDetailCard } from "@/components/tasks/task-detail-card";
+import { useTabContents } from "./tab-contents-context";
+import { useAI } from "@/components/ai";
 import ReferencePicker from "@/components/timelines/reference-picker";
+import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { PropertyBadges, PropertyMenu, PropertyFieldDropdown } from "@/components/properties";
@@ -369,6 +374,23 @@ const formatTaskText = (text: string) => {
   return sanitizeHtml(html);
 };
 
+/** Build comment text from display draft + mention spans (input shows only names, not URLs). */
+function buildCommentWithLinks(
+  draft: string,
+  spans: Array<{ start: number; end: number; href: string; label: string }>
+): string {
+  const sorted = [...spans].sort((a, b) => a.start - b.start);
+  const parts: string[] = [];
+  let last = 0;
+  for (const span of sorted) {
+    parts.push(draft.slice(last, span.start));
+    parts.push(`[${span.label}](${span.href})`);
+    last = span.end;
+  }
+  parts.push(draft.slice(last));
+  return parts.join("");
+}
+
 function getInputCaretRect(input: HTMLInputElement) {
   const { selectionStart = 0 } = input;
   const caretIndex = selectionStart ?? 0;
@@ -398,6 +420,51 @@ function getInputCaretRect(input: HTMLInputElement) {
   const spanRect = span.getBoundingClientRect();
   document.body.removeChild(mirror);
   const caretRect = new DOMRect(spanRect.right, rect.top, 1, rect.height);
+  if (
+    !Number.isFinite(caretRect.top) ||
+    !Number.isFinite(caretRect.left) ||
+    (caretRect.top === 0 && caretRect.left === 0 && caretRect.width === 0 && caretRect.height === 0)
+  ) {
+    return null;
+  }
+  return caretRect;
+}
+
+function getTextareaCaretRect(textarea: HTMLTextAreaElement): DOMRect | null {
+  const selectionStart = textarea.selectionStart ?? 0;
+  const rect = textarea.getBoundingClientRect();
+  const style = window.getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  mirror.style.position = "fixed";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.wordBreak = "break-word";
+  mirror.style.top = `${rect.top}px`;
+  mirror.style.left = `${rect.left}px`;
+  mirror.style.width = `${rect.width}px`;
+  mirror.style.height = `${rect.height}px`;
+  mirror.style.font = style.font;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.overflow = "hidden";
+  mirror.textContent = textarea.value.slice(0, selectionStart);
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+  const markerRect = marker.getBoundingClientRect();
+  document.body.removeChild(mirror);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 16;
+  const caretRect = new DOMRect(
+    markerRect.left - textarea.scrollLeft,
+    markerRect.top - textarea.scrollTop,
+    1,
+    lineHeight
+  );
   if (
     !Number.isFinite(caretRect.top) ||
     !Number.isFinite(caretRect.left) ||
@@ -522,6 +589,7 @@ type BoardTaskCardProps =
     subtaskCount: number;
     commentCount?: number;
     onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onCardClick?: () => void;
   }
   | {
     itemType: "subtask";
@@ -549,6 +617,7 @@ type BoardTaskCardProps =
     menu: React.ReactNode;
     commentCount?: number;
     onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onCardClick?: () => void;
   };
 
 function BoardTaskCard(props: BoardTaskCardProps) {
@@ -569,15 +638,28 @@ function BoardTaskCard(props: BoardTaskCardProps) {
 
   const isSubtask = props.itemType === "subtask";
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, [role='menuitem']")) return;
+    if ("onCardClick" in props && props.onCardClick) {
+      props.onCardClick();
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
+      role={"onCardClick" in props && props.onCardClick ? "button" : undefined}
+      tabIndex={"onCardClick" in props && props.onCardClick ? 0 : undefined}
+      onClick={handleCardClick}
+      onKeyDown={"onCardClick" in props && props.onCardClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCardClick(e as any); } } : undefined}
       className={cn(
         "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow",
         "hover:border-[var(--secondary)]/30 hover:shadow-sm",
         isDragging && "opacity-60",
-        isSubtask && "border-l-[3px] border-l-[var(--primary)]/40 bg-[var(--surface)]/80"
+        isSubtask && "border-l-[3px] border-l-[var(--primary)]/40 bg-[var(--surface)]/80",
+        "onCardClick" in props && props.onCardClick && "cursor-pointer"
       )}
       onContextMenu={props.onContextMenu}
       {...attributes}
@@ -728,6 +810,9 @@ export default function TaskBlock({
   const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean; references?: boolean }>>({});
   const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, { description?: boolean; references?: boolean }>>({});
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
+  const [commentMentionSpans, setCommentMentionSpans] = useState<
+    Record<string | number, Array<{ start: number; end: number; href: string; label: string }>>
+  >({});
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
   const [referenceTaskId, setReferenceTaskId] = useState<string | null>(null);
   const [referenceSubtaskId, setReferenceSubtaskId] = useState<string | null>(null);
@@ -736,6 +821,13 @@ export default function TaskBlock({
   const [referenceCurrentQuery, setReferenceCurrentQuery] = useState("");
   const [inlineReference, setInlineReference] = useState<{ taskId: string; cursor: number } | null>(null);
   const [referenceAnchorRect, setReferenceAnchorRect] = useState<DOMRect | null>(null);
+  const referencePicker = useBlockReferencePicker();
+  const commentMentionTaskIdRef = useRef<string | number | null>(null);
+  const commentMentionStartIndexRef = useRef<number | null>(null);
+  const commentMentionQueryRef = useRef("");
+  const commentTextareaElRef = useRef<HTMLTextAreaElement | null>(null);
+  const commentCardInsertRef = useRef<((text: string) => void) | null>(null);
+  const [referenceInitialType, setReferenceInitialType] = useState<"doc" | "table" | "task" | "file" | "block" | "person" | null>(null);
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
   const editingSubtaskInputRef = useRef<HTMLInputElement | null>(null);
   const [propertiesTarget, setPropertiesTarget] = useState<{ type: EntityType; id: string; title: string } | null>(null);
@@ -751,7 +843,17 @@ export default function TaskBlock({
   const [propertyOverrides, setPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
+  const [selectedSubtaskParentTaskId, setSelectedSubtaskParentTaskId] = useState<string | null>(null);
   const taskListScrollRef = useRef<HTMLDivElement | null>(null);
+  const headerRowRef = useRef<HTMLDivElement>(null);
+  const [detailCardStickyTopPx, setDetailCardStickyTopPx] = useState(56);
+  const tabContents = useTabContents();
+  const { isOpen: aiChatOpen } = useAI();
+  const tocExpanded = tabContents?.tocExpanded ?? false;
+  const hasRightPanelOpen = tocExpanded || aiChatOpen;
+  const detailCardInsideBlock = hasRightPanelOpen;
   const initialHeightPx =
     typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
   const [listHeightPx, setListHeightPx] = useState<number | null>(initialHeightPx);
@@ -1565,7 +1667,9 @@ export default function TaskBlock({
   };
 
   const addComment = async (taskId: string | number, explicitText?: string) => {
-    const commentText = (explicitText ?? newComment[taskId] ?? "").trim();
+    const draft = explicitText ?? newComment[taskId] ?? "";
+    const spans = commentMentionSpans[taskId] ?? [];
+    const commentText = (explicitText !== undefined ? explicitText : buildCommentWithLinks(draft, spans)).trim();
     if (!commentText) return;
 
     const task = tasks.find(t => t.id === taskId);
@@ -1579,6 +1683,7 @@ export default function TaskBlock({
       const newComments = [...(task?.comments || []), comment];
       await updateTask(taskId, { comments: newComments });
       setNewComment(prev => ({ ...prev, [taskId]: "" }));
+      setCommentMentionSpans(prev => ({ ...prev, [taskId]: [] }));
       return;
     }
 
@@ -1591,6 +1696,7 @@ export default function TaskBlock({
       return;
     }
     setNewComment(prev => ({ ...prev, [taskId]: "" }));
+    setCommentMentionSpans(prev => ({ ...prev, [taskId]: [] }));
   };
 
   const openTaskCommentComposer = (taskId: string | number, initialText?: string) => {
@@ -2544,7 +2650,7 @@ export default function TaskBlock({
 
   const openReferencePicker = (
     taskId: string | number,
-    options?: { initialQuery?: string; cursor?: number; anchorRect?: DOMRect | null }
+    options?: { initialQuery?: string; cursor?: number; anchorRect?: DOMRect | null; initialType?: "doc" | "table" | "task" | "file" | "block" | null }
   ) => {
     setReferenceTaskId(String(taskId));
     setReferenceSubtaskId(null);
@@ -2552,6 +2658,7 @@ export default function TaskBlock({
     setReferenceInitialQuery(query);
     setReferenceCurrentQuery(query);
     setReferenceAnchorRect(options?.anchorRect ?? null);
+    setReferenceInitialType(options?.initialType ?? null);
     if (options?.cursor !== undefined) {
       setInlineReference({ taskId: String(taskId), cursor: options.cursor });
     } else {
@@ -2560,14 +2667,113 @@ export default function TaskBlock({
     setIsReferenceDialogOpen(true);
   };
 
-  const openSubtaskReferencesPanel = (subtaskId: string | number, anchorRect?: DOMRect | null) => {
+  const openSubtaskReferencesPanel = (subtaskId: string | number, anchorRect?: DOMRect | null, initialType?: "doc" | "table" | "task" | "file" | "block" | null) => {
     if (!projectId || isTempBlock) return;
     setReferenceSubtaskId(String(subtaskId));
     setReferenceTaskId(null);
     setReferenceInitialQuery("");
     setReferenceAnchorRect(anchorRect ?? null);
+    setReferenceInitialType(initialType ?? null);
     setInlineReference(null);
     setIsReferenceDialogOpen(true);
+  };
+
+  /** Display name for @ mentions only (never include id in the label). */
+  const getMentionDisplayName = (item: LinkableItem) => {
+    const raw = (item.name && String(item.name).trim()) || (item.email && String(item.email).trim()) || "Unknown";
+    return raw.replace(/\s*\([a-f0-9-]{36}\)\s*$/i, "").trim() || raw;
+  };
+
+  const clearInlineMention = () => {
+    commentMentionTaskIdRef.current = null;
+    commentMentionStartIndexRef.current = null;
+    commentMentionQueryRef.current = "";
+    commentTextareaElRef.current = null;
+    commentCardInsertRef.current = null;
+  };
+
+  const closeInlineMentionPicker = () => {
+    clearInlineMention();
+    referencePicker?.closePicker();
+  };
+
+  const insertInlineMention = (item: LinkableItem, searchQuery?: string) => {
+    const taskId = commentMentionTaskIdRef.current;
+    if (taskId === null) return;
+    const mentionStart = commentMentionStartIndexRef.current;
+    if (mentionStart === null) return;
+    const activeQuery = commentMentionQueryRef.current || searchQuery || "";
+    const href = getLinkableItemHref({
+      referenceType: item.referenceType,
+      id: item.id,
+      tabId: item.tabId,
+      projectId: item.projectId,
+      isWorkflow: item.isWorkflow,
+    });
+    const displayName = getMentionDisplayName(item);
+    const labelOnly = href ? `@${displayName}` : `@${displayName}`;
+
+    setNewComment((currentValue) => {
+      const current = currentValue[taskId] ?? "";
+      const safeStart = Math.min(Math.max(mentionStart, 0), current.length);
+      const safeEnd = Math.min(current.length, safeStart + 1 + activeQuery.length);
+      const next = current.slice(0, safeStart) + labelOnly + current.slice(safeEnd);
+      return { ...currentValue, [taskId]: next };
+    });
+    if (href) {
+      setCommentMentionSpans((prev) => {
+        const list = prev[taskId] ?? [];
+        const newSpan = {
+          start: mentionStart,
+          end: mentionStart + labelOnly.length,
+          href,
+          label: labelOnly,
+        };
+        return { ...prev, [taskId]: [...list, newSpan].sort((a, b) => a.start - b.start) };
+      });
+    }
+
+    clearInlineMention();
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-task-comment-input="${taskId}"]`) as HTMLTextAreaElement | null;
+      if (el) {
+        const cursorPosition = mentionStart + labelOnly.length;
+        el.focus();
+        el.setSelectionRange(cursorPosition, cursorPosition);
+      }
+    });
+  };
+
+  const openCommentMentionPickerForCard = (
+    anchorRect: DOMRect | null,
+    getAnchorRect: () => DOMRect | null,
+    onInsert: (text: string) => void
+  ) => {
+    if (!referencePicker || !projectId || isTempBlock) return;
+    commentCardInsertRef.current = onInsert;
+    referencePicker.openPicker({
+      initialQuery: "",
+      anchorRect: anchorRect ?? undefined,
+      getAnchorRect,
+      hideInstructions: true,
+      popoverSide: "left",
+      onSelect: (item: LinkableItem) => {
+        const href = getLinkableItemHref({
+          referenceType: item.referenceType,
+          id: item.id,
+          tabId: item.tabId,
+          projectId: item.projectId,
+          isWorkflow: item.isWorkflow,
+        });
+        const displayName = getMentionDisplayName(item);
+        const text = href ? `[@${displayName}](${href})` : `@${displayName}`;
+        commentCardInsertRef.current?.(text);
+        commentCardInsertRef.current = null;
+      },
+      onClose: () => {
+        commentCardInsertRef.current = null;
+      },
+    });
   };
 
   // Helper to check if icons should be shown for a task
@@ -2586,9 +2792,106 @@ export default function TaskBlock({
     }
   };
 
+  const selectedTask = selectedTaskId ? tasks.find((t) => String(t.id) === selectedTaskId) : null;
+  const selectedSubtask = selectedSubtaskId && selectedSubtaskParentTaskId
+    ? tasks.find((t) => String(t.id) === selectedSubtaskParentTaskId)?.subtasks?.find((s) => String(s.id) === selectedSubtaskId)
+    : null;
+  const selectedParentTask = selectedSubtask ? tasks.find((t) => String(t.id) === selectedSubtaskParentTaskId) : null;
+  const selectedTaskIdForCard = selectedTaskId && selectedTask ? selectedTaskId : null;
+  const selectedSubtaskIdForCard = selectedSubtaskId && selectedSubtask && selectedParentTask ? selectedSubtaskId : null;
+  const showTaskCard = Boolean(selectedTaskIdForCard && selectedTask);
+  const showSubtaskCard = Boolean(selectedSubtaskIdForCard && selectedSubtask && selectedParentTask);
+
+  // Align detail card top with first task / table header (below the block header row)
+  useEffect(() => {
+    if (!(showTaskCard || showSubtaskCard)) return;
+    const el = headerRowRef.current;
+    if (!el) return;
+    const update = () => {
+      const paddingTop = 12; // p-3
+      const marginBottom = 8; // mb-2
+      setDetailCardStickyTopPx(paddingTop + el.offsetHeight + marginBottom);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showTaskCard, showSubtaskCard]);
+
+  const closeCard = () => {
+    setSelectedTaskId(null);
+    setSelectedSubtaskId(null);
+    setSelectedSubtaskParentTaskId(null);
+  };
+
+  const buildDetailCardStatusBadge = (t: Task) => {
+    const effectiveStatus = getEffectiveStatus(String(t.id), t);
+    const effectiveStatusFields = getEffectiveStatusFields(String(t.id), t);
+    const statusField = effectiveStatusFields[0];
+    const statusLabel = statusField ? getStatusDisplayLabel(statusField) : (STATUS_OPTIONS.find((o) => o.value === effectiveStatus)?.label ?? effectiveStatus ?? "Not Started");
+    const statusValue = statusField ? normalizeStatusValue(statusField.value ?? null) : effectiveStatus;
+    const colorClass = statusValue ? STATUS_COLORS[statusValue] : "bg-[var(--surface-hover)] text-[var(--muted-foreground)]";
+    return (
+      <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", colorClass)}>
+        {statusLabel || "Not Started"}
+      </span>
+    );
+  };
+
+  const buildSubtaskDetailCardStatusBadge = (subtask: Subtask, taskId: string) => {
+    const status = getSubtaskEffectiveStatus(String(subtask.id), subtask);
+    const label = STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status ?? "Not Started";
+    const colorClass = status ? STATUS_COLORS[status] : "bg-[var(--surface-hover)] text-[var(--muted-foreground)]";
+    return (
+      <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", colorClass)}>
+        {label}
+      </span>
+    );
+  };
+
+  const buildDetailCardPriorityBadge = (t: Task) => {
+    const fields = getEffectivePriorityFields(String(t.id), t);
+    if (fields.length === 0) return null;
+    const first = fields[0];
+    const label = getPriorityDisplayLabel(first);
+    if (!label || !first.value) return null;
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-xs font-medium",
+          PRIORITY_COLORS[first.value as keyof typeof PRIORITY_COLORS]
+        )}
+        title={label}
+      >
+        <Flag className="h-3 w-3" />
+        <span>{label}</span>
+      </span>
+    );
+  };
+
+  const buildSubtaskDetailCardPriorityBadge = (subtask: Subtask) => {
+    const props = getSubtaskEffectiveProperties(String(subtask.id));
+    const priority = props?.priority ?? null;
+    if (!priority) return null;
+    const label = PRIORITY_OPTIONS.find((o) => o.value === priority)?.label ?? priority;
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-xs font-medium",
+          PRIORITY_COLORS[priority]
+        )}
+        title={label}
+      >
+        <Flag className="h-3 w-3" />
+        <span>{label}</span>
+      </span>
+    );
+  };
+
   return (
-    <div className="p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <div className={cn("flex gap-4", (showTaskCard || showSubtaskCard) && "flex-row items-stretch min-h-0")}>
+      <div className={cn("p-3", (showTaskCard || showSubtaskCard) ? "flex-1 min-w-0 min-h-0" : "w-full")}>
+      <div ref={headerRowRef} className="mb-2 flex items-center justify-between gap-2">
         <div className="flex-1">
           {editingTitle ? (
             <input
@@ -2848,8 +3151,23 @@ export default function TaskBlock({
                 >
                   <div
                     id={`task-${task.id}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button, [role='menuitem'], [data-no-card-open]")) return;
+                      setSelectedTaskId(String(task.id));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        const target = e.target as HTMLElement;
+                        if (target.closest("button, [role='menuitem'], [data-no-card-open]")) return;
+                        setSelectedTaskId(String(task.id));
+                      }
+                    }}
                     className={cn(
-                      "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 transition-all duration-150 ease-out",
+                      "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 transition-all duration-150 ease-out cursor-pointer",
                       "hover:border-[var(--foreground)]/30 hover:shadow-sm"
                     )}
                     onContextMenu={(e) => {
@@ -2988,6 +3306,7 @@ export default function TaskBlock({
                           <div className="flex items-start gap-1.5">
                             <div
                               onClick={(e) => {
+                                e.stopPropagation();
                                 const target = e.target as HTMLElement;
                                 if (target.closest('a[data-ref-link="true"]')) {
                                   return;
@@ -3010,7 +3329,7 @@ export default function TaskBlock({
                             {projectId && !isTempBlock && (
                               <TaskAttachmentsTrigger
                                 taskId={String(task.id)}
-                                isExpanded={isAttachmentsPanelExpanded}
+                                isExpanded={Boolean(isAttachmentsPanelExpanded)}
                                 onToggle={() =>
                                   setExpandedSections((prev) => ({
                                     ...prev,
@@ -3085,13 +3404,34 @@ export default function TaskBlock({
                               return (
                                 <div
                                   key={subtask.id}
-                                  className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5"
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const target = e.target as HTMLElement;
+                                    if (target.closest("button, [role='menuitem'], input, textarea")) return;
+                                    setSelectedTaskId(null);
+                                    setSelectedSubtaskId(subtaskId);
+                                    setSelectedSubtaskParentTaskId(String(task.id));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest("button, [role='menuitem'], input, textarea")) return;
+                                      setSelectedTaskId(null);
+                                      setSelectedSubtaskId(subtaskId);
+                                      setSelectedSubtaskParentTaskId(String(task.id));
+                                    }
+                                  }}
+                                  className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 cursor-pointer hover:border-[var(--secondary)]/30 transition-colors"
                                   onContextMenu={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     void openSubtaskCommentComposer({
                                       parentTaskId: task.id,
-                                      subtaskId: subtask.text || "Subtask",
+                                      subtaskId: String(subtask.id),
                                     });
                                   }}
                                 >
@@ -3745,7 +4085,10 @@ export default function TaskBlock({
                                             {new Date(comment.timestamp).toLocaleString()}
                                           </span>
                                         </div>
-                                        <p className="text-[var(--muted-foreground)] leading-normal">{parsed.body}</p>
+                                        <p
+                                          className="text-[var(--muted-foreground)] leading-normal [&_a]:text-[var(--primary)] [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:opacity-80"
+                                          dangerouslySetInnerHTML={{ __html: formatTaskText(parsed.body) }}
+                                        />
                                       </>
                                     );
                                   })()}
@@ -3754,18 +4097,103 @@ export default function TaskBlock({
                             </div>
                           )}
                           <div className="flex gap-2">
-                            <input
-                              type="text"
+                            <textarea
+                              ref={(el) => {
+                                if (commentMentionTaskIdRef.current === task.id) commentTextareaElRef.current = el;
+                              }}
+                              data-task-comment-input={task.id}
                               value={newComment[task.id] || ""}
-                              onChange={(e) => setNewComment((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                              onChange={(e) => {
+                                const ta = e.currentTarget;
+                                const nextValue = ta.value;
+                                setNewComment((prev) => ({ ...prev, [task.id]: nextValue }));
+                                // Re-anchor mention spans after edit (find each label in new draft in order)
+                                setCommentMentionSpans((prev) => {
+                                  const list = prev[task.id] ?? [];
+                                  const newSpans: Array<{ start: number; end: number; href: string; label: string }> = [];
+                                  let searchStart = 0;
+                                  for (const span of list) {
+                                    const idx = nextValue.indexOf(span.label, searchStart);
+                                    if (idx === -1) continue;
+                                    newSpans.push({
+                                      start: idx,
+                                      end: idx + span.label.length,
+                                      href: span.href,
+                                      label: span.label,
+                                    });
+                                    searchStart = idx + span.label.length;
+                                  }
+                                  return { ...prev, [task.id]: newSpans };
+                                });
+                                // Auto-grow comment textarea; scroll only when content exceeds max
+                                ta.style.height = "auto";
+                                ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+
+                                const mentionStart = commentMentionStartIndexRef.current;
+                                if (mentionStart === null || !referencePicker || commentMentionTaskIdRef.current !== task.id) return;
+
+                                const cursorPosition = e.currentTarget.selectionStart ?? nextValue.length;
+                                const shouldStopMentioning =
+                                  mentionStart >= nextValue.length ||
+                                  nextValue[mentionStart] !== "@" ||
+                                  cursorPosition <= mentionStart;
+
+                                if (shouldStopMentioning) {
+                                  closeInlineMentionPicker();
+                                  return;
+                                }
+
+                                const nextQuery = nextValue.slice(mentionStart + 1, cursorPosition);
+                                commentMentionQueryRef.current = nextQuery;
+                                referencePicker.updateQuery?.(nextQuery);
+                              }}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
+                                if (e.key === "Enter") {
+                                  if (referencePicker?.isOpen) return;
                                   e.preventDefault();
                                   addComment(task.id);
+                                  return;
+                                }
+                                if (e.key === "@" && referencePicker && projectId && !isTempBlock) {
+                                  e.preventDefault();
+                                  const currentValue = e.currentTarget.value;
+                                  const selectionStart = e.currentTarget.selectionStart ?? currentValue.length;
+                                  const selectionEnd = e.currentTarget.selectionEnd ?? selectionStart;
+                                  const nextValue =
+                                    currentValue.slice(0, selectionStart) + "@" + currentValue.slice(selectionEnd);
+
+                                  setNewComment((prev) => ({ ...prev, [task.id]: nextValue }));
+                                  commentMentionTaskIdRef.current = task.id;
+                                  commentMentionStartIndexRef.current = selectionStart;
+                                  commentMentionQueryRef.current = "";
+
+                                  requestAnimationFrame(() => {
+                                    const el = document.querySelector(`[data-task-comment-input="${task.id}"]`) as HTMLTextAreaElement | null;
+                                    if (!el) return;
+                                    commentTextareaElRef.current = el;
+                                    const nextCursor = selectionStart + 1;
+                                    el.focus();
+                                    el.setSelectionRange(nextCursor, nextCursor);
+                                    const getAnchorRect = () =>
+                                      commentTextareaElRef.current
+                                        ? getTextareaCaretRect(commentTextareaElRef.current!) ?? commentTextareaElRef.current!.getBoundingClientRect()
+                                        : null;
+                                    referencePicker.openPicker({
+                                      initialQuery: "",
+                                      anchorRect: getAnchorRect() ?? undefined,
+                                      getAnchorRect,
+                                      onSelect: insertInlineMention,
+                                      onClose: clearInlineMention,
+                                      hideInstructions: true,
+                                      popoverSide: "left",
+                                    });
+                                  });
+                                  return;
                                 }
                               }}
                               placeholder="Add comment..."
-                              className="flex-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:outline-none"
+                              rows={2}
+                              className="flex-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:outline-none resize-none min-h-[2.5rem] max-h-[200px] overflow-y-auto"
                             />
                             <button
                               onClick={() => addComment(task.id)}
@@ -3810,6 +4238,7 @@ export default function TaskBlock({
         )}
         </>
       ) : viewMode === "board" ? (
+        <>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -3977,6 +4406,7 @@ export default function TaskBlock({
                             ) : (
                               <div
                                 onClick={(e) => {
+                                  e.stopPropagation();
                                   const target = e.target as HTMLElement;
                                   if (target.closest('a[data-ref-link="true"]')) {
                                     return;
@@ -4207,6 +4637,11 @@ export default function TaskBlock({
                               menu={menu}
                               subtaskCount={subtaskCount}
                               commentCount={taskCommentCount}
+                              onCardClick={() => {
+                                setSelectedSubtaskId(null);
+                                setSelectedSubtaskParentTaskId(null);
+                                setSelectedTaskId(taskId);
+                              }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -4426,12 +4861,17 @@ export default function TaskBlock({
                               tagsBadges={subtaskTagsBadges}
                               menu={subtaskMenu}
                               commentCount={subtaskCommentCount}
+                              onCardClick={() => {
+                                setSelectedTaskId(null);
+                                setSelectedSubtaskId(subtaskId);
+                                setSelectedSubtaskParentTaskId(parentTaskId);
+                              }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 void openSubtaskCommentComposer({
                                   parentTaskId,
-                                  subtaskId: subtask.text || "Subtask",
+                                  subtaskId: String(subtask.id),
                                 });
                               }}
                             />
@@ -4465,6 +4905,15 @@ export default function TaskBlock({
             })() : null}
           </DragOverlay>
         </DndContext>
+        {!locked && (
+          <div
+            className="mt-1 flex justify-end cursor-row-resize select-none"
+            onMouseDown={handleListResizeMouseDown}
+          >
+            <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+          </div>
+        )}
+        </>
       ) : (
         <div className="space-y-2 min-h-0">
           <div
@@ -4529,7 +4978,22 @@ export default function TaskBlock({
                 <div key={task.id} className="group/task-row">
                   <div
                     id={`task-${task.id}`}
-                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0 group-hover/task-row:bg-[var(--primary)]/10"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button, [role='menuitem'], [data-no-card-open]")) return;
+                      setSelectedTaskId(String(task.id));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        const target = e.target as HTMLElement;
+                        if (target.closest("button, [role='menuitem'], [data-no-card-open]")) return;
+                        setSelectedTaskId(String(task.id));
+                      }
+                    }}
+                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0 group-hover/task-row:bg-[var(--primary)]/10 cursor-pointer"
                     style={{ gridTemplateColumns: tableColumnTemplate }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -4679,6 +5143,7 @@ export default function TaskBlock({
                           ) : (
                             <div
                               onClick={(e) => {
+                                e.stopPropagation();
                                 const target = e.target as HTMLElement;
                                 if (target.closest('a[data-ref-link="true"]')) {
                                   return;
@@ -5029,14 +5494,35 @@ export default function TaskBlock({
                       return (
                         <div
                           key={`subtask-${subtask.id}`}
-                          className="grid transition-colors duration-150 w-full group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const target = e.target as HTMLElement;
+                            if (target.closest("button, [role='menuitem'], input, textarea")) return;
+                            setSelectedTaskId(null);
+                            setSelectedSubtaskId(subtaskId);
+                            setSelectedSubtaskParentTaskId(String(task.id));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const target = e.target as HTMLElement;
+                              if (target.closest("button, [role='menuitem'], input, textarea")) return;
+                              setSelectedTaskId(null);
+                              setSelectedSubtaskId(subtaskId);
+                              setSelectedSubtaskParentTaskId(String(task.id));
+                            }
+                          }}
+                          className="grid transition-colors duration-150 w-full group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row cursor-pointer"
                           style={{ gridTemplateColumns: tableColumnTemplate }}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             void openSubtaskCommentComposer({
                               parentTaskId: task.id,
-                              subtaskId: subtask.text || "Subtask",
+                              subtaskId: String(subtask.id),
                             });
                           }}
                         >
@@ -5375,7 +5861,14 @@ export default function TaskBlock({
             </div>
           </div>
           </div>
-
+          {!locked && (
+            <div
+              className="mt-1 flex justify-end cursor-row-resize select-none"
+              onMouseDown={handleListResizeMouseDown}
+            >
+              <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+            </div>
+          )}
           <button
             onClick={addTask}
             className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
@@ -5403,9 +5896,11 @@ export default function TaskBlock({
               setReferenceInitialQuery("");
               setReferenceCurrentQuery("");
               setReferenceAnchorRect(null);
+              setReferenceInitialType(null);
               setReferenceTaskId(null);
               setReferenceSubtaskId(null);
             }}
+            initialType={referenceInitialType}
             onSelect={async (item) => {
               if (item.referenceType === "person") {
                 return false;
@@ -5434,7 +5929,7 @@ export default function TaskBlock({
                     isWorkflow: item.isWorkflow,
                   });
                   if (href) {
-                    const label = `@${item.name}`;
+                    const label = `@${getMentionDisplayName(item)}`;
                     const markdown = `[${label}](${href})`;
                     const start = inlineReference.cursor;
                     // Replace "@" + search query (currentQuery or initialQuery as fallback)
@@ -5527,7 +6022,130 @@ export default function TaskBlock({
           />
         )
       }
-    </div >
+    </div>
+    {(showTaskCard || showSubtaskCard) && (
+      <div
+        className={cn("shrink-0 z-50 min-h-0 flex flex-col h-full", detailCardInsideBlock ? "self-stretch" : "sticky self-stretch")}
+        style={detailCardInsideBlock ? undefined : { top: detailCardStickyTopPx }}
+      >
+        {showTaskCard && selectedTask && (
+          <TaskDetailCard
+            variant="task"
+            task={{
+              id: selectedTask.id,
+              text: selectedTask.text,
+              description: selectedTask.description,
+              statuses: selectedTask.statuses,
+              assignees: selectedTask.assignees,
+              dueDate: getEffectiveDueDate(String(selectedTask.id), selectedTask)?.end ?? selectedTask.dueDate ?? null,
+              dueTime: selectedTask.dueTime ?? null,
+              dueTimeEnd: selectedTask.dueTimeEnd ?? null,
+              comments: selectedTask.comments,
+            }}
+            statusBadge={buildDetailCardStatusBadge(selectedTask)}
+            priorityBadge={buildDetailCardPriorityBadge(selectedTask)}
+            assigneeLabel={
+              (() => {
+                const ids = getEffectiveAssigneeIds(String(selectedTask.id), selectedTask);
+                const names = ids.map((id) => getWorkspaceMember(id)?.name ?? getWorkspaceMember(id)?.email).filter(Boolean) as string[];
+                return names.length ? names.join(", ") : (selectedTask.assignees?.length ? selectedTask.assignees.join(", ") : null);
+              })()
+            }
+            assigneeInitial={(() => {
+              const ids = getEffectiveAssigneeIds(String(selectedTask.id), selectedTask);
+              const first = ids[0] ? getWorkspaceMember(ids[0]) : null;
+              return first?.name?.charAt(0) ?? first?.email?.charAt(0) ?? (selectedTask.assignees?.[0]?.charAt(0) ?? null);
+            })()}
+            onClose={closeCard}
+            onAddReference={
+              projectId && !isTempBlock
+                ? (anchorRect, mode) => {
+                    if (mode === "attachments") {
+                      openReferencePicker(selectedTask.id, { anchorRect });
+                    }
+                  }
+                : undefined
+            }
+            onAddNote={
+              projectId && !isTempBlock
+                ? async (text) => {
+                    await addComment(selectedTask.id, `[note] ${text}`);
+                  }
+                : undefined
+            }
+            onAddComment={
+              projectId && !isTempBlock
+                ? async (text) => {
+                    await addComment(selectedTask.id, text);
+                  }
+                : undefined
+            }
+            onOpenCommentMentionPicker={
+              projectId && !isTempBlock ? openCommentMentionPickerForCard : undefined
+            }
+            getTextareaCaretRect={getTextareaCaretRect}
+            onCommentMentionQueryChange={(query) => referencePicker?.updateQuery?.(query)}
+            onCloseCommentMentionPicker={closeInlineMentionPicker}
+            disabled={!projectId || isTempBlock}
+            insideBlock={detailCardInsideBlock}
+          />
+        )}
+        {showSubtaskCard && selectedSubtask && selectedParentTask && (
+          <TaskDetailCard
+            variant="subtask"
+            task={{
+              id: selectedSubtask.id,
+              text: selectedSubtask.text,
+              description: selectedSubtask.description,
+              comments: (selectedParentTask.comments || []).filter((c) => {
+                const parsed = decodeSubtaskCommentText(c.text);
+                return parsed.subtaskId && parsed.subtaskId === selectedSubtaskIdForCard;
+              }),
+            }}
+            statusBadge={buildSubtaskDetailCardStatusBadge(selectedSubtask, selectedSubtaskParentTaskId!)}
+            priorityBadge={buildSubtaskDetailCardPriorityBadge(selectedSubtask)}
+            assigneeLabel={null}
+            assigneeInitial={null}
+            parentTaskId={selectedSubtaskParentTaskId!}
+            onClose={closeCard}
+            onAddReference={
+              projectId && !isTempBlock
+                ? (anchorRect, mode) => {
+                    if (mode === "attachments") {
+                      openSubtaskReferencesPanel(selectedSubtask.id, anchorRect);
+                    }
+                  }
+                : undefined
+            }
+            onAddNote={
+              projectId && !isTempBlock
+                ? async (text) => {
+                    const hint = encodeSubtaskCommentText(selectedSubtask.id, `[note] ${text}`);
+                    await addComment(selectedParentTask.id, hint);
+                  }
+                : undefined
+            }
+            onAddComment={
+              projectId && !isTempBlock
+                ? async (text) => {
+                    const hint = encodeSubtaskCommentText(selectedSubtask.id, text);
+                    await addComment(selectedParentTask.id, hint);
+                  }
+                : undefined
+            }
+            onOpenCommentMentionPicker={
+              projectId && !isTempBlock ? openCommentMentionPickerForCard : undefined
+            }
+            getTextareaCaretRect={getTextareaCaretRect}
+            onCommentMentionQueryChange={(query) => referencePicker?.updateQuery?.(query)}
+            onCloseCommentMentionPicker={closeInlineMentionPicker}
+            disabled={!projectId || isTempBlock}
+            insideBlock={detailCardInsideBlock}
+          />
+        )}
+      </div>
+    )}
+    </div>
   );
 }
 

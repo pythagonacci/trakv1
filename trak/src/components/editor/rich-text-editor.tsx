@@ -82,7 +82,7 @@ export default function RichTextEditor({
 
   const editor = useEditor({
     immediatelyRender: false,
-    extensions: [
+    extensions: ([
       StarterKit.configure({
         heading: {
           levels: [1, 2, 3],
@@ -102,7 +102,7 @@ export default function RichTextEditor({
           class: "text-[var(--primary)] underline cursor-pointer hover:text-[var(--primary-hover)]",
         },
       }),
-    ],
+    ] as any),
     content,
     onUpdate: ({ editor }) => {
       onChange(editor.getJSON());

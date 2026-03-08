@@ -1,4 +1,4 @@
-export type BlockReferenceType = "doc" | "table_row" | "task" | "block" | "tab" | "person";
+export type BlockReferenceType = "doc" | "table_row" | "task" | "block" | "tab" | "person" | "file";
 
 export interface BlockReference {
   id: string;

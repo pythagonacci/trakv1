@@ -15,7 +15,6 @@ import {
   DragOverlay,
 } from "@dnd-kit/core";
 import {
-  arrayMove,
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -68,6 +67,19 @@ interface BlockRow {
   maxColumns: number; // 1, 2, or 3 - how many columns this row has
 }
 
+type DropMode = "inline" | "row-above" | "row-below";
+
+type DropPreviewInfo =
+  | {
+    mode: "inline";
+    targetRowIndex: number;
+    showGhost: boolean;
+  }
+  | {
+    mode: "row-above" | "row-below";
+    targetRowIndex: number;
+  };
+
 export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initialBlocks, scrollToTaskId, onThemeChange, currentTheme: propTheme, initialFileUrls = {}, initialBlockPropertiesById = {}, hidePageUndoButton = false }: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -76,6 +88,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   const [isMounted, setIsMounted] = useState(false);
   const [draggedBlock, setDraggedBlock] = useState<Block | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const [dropMode, setDropMode] = useState<DropMode>("inline");
   const [isCreatingBlock, setIsCreatingBlock] = useState(false);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
@@ -270,8 +283,47 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     return rows;
   }, [blocks]);
 
+  const getDropMode = useCallback(
+    (
+      event: DragOverEvent | DragEndEvent,
+      sourceRowIndex: number,
+      targetRowIndex: number,
+    ): DropMode => {
+      const translatedRect = event.active.rect.current.translated;
+      const overRect = event.over?.rect;
+
+      if (
+        translatedRect &&
+        overRect &&
+        Number.isFinite(overRect.top) &&
+        Number.isFinite(overRect.height) &&
+        overRect.height > 0
+      ) {
+        const activeCenterY = translatedRect.top + translatedRect.height / 2;
+        const edgeThreshold = Math.min(Math.max(overRect.height * 0.32, 24), 72);
+
+        if (activeCenterY <= overRect.top + edgeThreshold) {
+          return "row-above";
+        }
+        if (activeCenterY >= overRect.top + overRect.height - edgeThreshold) {
+          return "row-below";
+        }
+      }
+
+      // Fallback: when hovering the same row, preserve the old "drag down to create row below"
+      // behavior so users can still split rows even if rect data is unavailable.
+      if (sourceRowIndex === targetRowIndex) {
+        if (event.delta.y > 40) return "row-below";
+        if (event.delta.y < -40) return "row-above";
+      }
+
+      return "inline";
+    },
+    [],
+  );
+
   // Compute drop preview info: which row the block will land in and whether to show a ghost
-  const previewInfo = useMemo(() => {
+  const previewInfo = useMemo<DropPreviewInfo | null>(() => {
     if (!isDragging || !overId || !draggedBlock) return null;
     const overBlock = blocks.find(b => b.id === overId);
     if (!overBlock || overBlock.id === draggedBlock.id) return null;
@@ -279,8 +331,12 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
     const sourceRowIndex = Math.floor(draggedBlock.position);
     const targetRowIndex = Math.floor(overBlock.position);
 
+    if (dropMode === "row-above" || dropMode === "row-below") {
+      return { mode: dropMode, targetRowIndex };
+    }
+
     if (sourceRowIndex === targetRowIndex) {
-      return { targetRowIndex, showGhost: false };
+      return { mode: "inline", targetRowIndex, showGhost: false };
     }
 
     const targetRow = blockRows.find(r => r.rowIndex === targetRowIndex);
@@ -288,10 +344,9 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       ? targetRow.blocks.filter(b => b.id !== draggedBlock.id).length
       : 0;
     const showGhost = targetBlockCount < 3;
-    const ghostColumns = Math.min(3, targetBlockCount + 1);
 
-    return { targetRowIndex, showGhost, ghostColumns };
-  }, [isDragging, overId, draggedBlock, blocks, blockRows]);
+    return { mode: "inline", targetRowIndex, showGhost };
+  }, [isDragging, overId, draggedBlock, blocks, blockRows, dropMode]);
 
   const handleUpdate = (updatedBlock?: Block) => {
     if (updatedBlock) {
@@ -684,13 +739,37 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
     setIsDragging(true);
+    setDropMode("inline");
     const block = blocks.find((b) => b.id === event.active.id);
     setDraggedBlock(block || null);
   };
 
   // Handle drag over - track which block the cursor is hovering over
   const handleDragOver = (event: DragOverEvent) => {
-    setOverId((event.over?.id as string) ?? null);
+    const nextOverId = (event.over?.id as string) ?? null;
+    setOverId(nextOverId);
+
+    if (!nextOverId) {
+      setDropMode("inline");
+      return;
+    }
+
+    const activeId = event.active.id as string;
+    const activeBlock = draggedBlock ?? blocks.find((b) => b.id === activeId);
+    const overBlock = blocks.find((b) => b.id === nextOverId);
+
+    if (!activeBlock || !overBlock || activeBlock.id === overBlock.id) {
+      setDropMode("inline");
+      return;
+    }
+
+    setDropMode(
+      getDropMode(
+        event,
+        Math.floor(activeBlock.position),
+        Math.floor(overBlock.position),
+      ),
+    );
   };
 
   // Handle drag end - reorder blocks or move between rows/columns
@@ -699,6 +778,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       const { active, over } = event;
       setIsDragging(false);
       setOverId(null);
+      setDropMode("inline");
 
       // Allow dropping on the same block (no change needed)
       if (!over || active.id === over.id) {
@@ -778,14 +858,15 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
       }
 
       const overRowIndex = Math.floor(overBlock.position);
-      const overCol = overBlock.column !== undefined && overBlock.column >= 0 && overBlock.column <= 2 ? overBlock.column : 0;
 
       const isTempId = (id: string) => id.startsWith("temp-");
-
-      // If user dragged downward significantly on the same row, create a new row below
       const sourceRowIndex = Math.floor(draggedBlock.position);
-      if (overRowIndex === sourceRowIndex && event.delta.y > 40) {
-        const insertionRow = overRowIndex + 1;
+      const dropModeForEvent = getDropMode(event, sourceRowIndex, overRowIndex);
+
+      // Explicit vertical drops create a new row above or below the hovered row.
+      if (dropModeForEvent === "row-above" || dropModeForEvent === "row-below") {
+        const insertionRow =
+          dropModeForEvent === "row-above" ? overRowIndex : overRowIndex + 1;
         const updatedBlocks = blocks.map((block) => {
           if (block.id === draggedBlock.id) {
             return { ...block, position: insertionRow, column: 0 };
@@ -833,7 +914,7 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
             );
           }
         } catch (error) {
-          console.error("Error updating block when creating new row:", error);
+          console.error("Error updating block for vertical drop:", error);
         } finally {
           setTimeout(() => {
             justDraggedRef.current = false;
@@ -1303,7 +1384,15 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                       )}
                     >
                       {row.blocks.map((block) => (
-                        <div key={`${block.id}-${block.type}`} id={`block-${block.id}`} className={cn("min-w-0 scroll-mt-24", newBlockIds.has(block.id) && "animate-block-swoosh-in")}>
+                        <div
+                          key={`${block.id}-${block.type}`}
+                          id={`block-${block.id}`}
+                          className={cn(
+                            "min-w-0 scroll-mt-24",
+                            block.type === "section_header" && "-mb-3",
+                            newBlockIds.has(block.id) && "animate-block-swoosh-in"
+                          )}
+                        >
                           <BlockRenderer
                             block={block}
                             workspaceId={workspaceId}
@@ -1346,8 +1435,22 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                 >
                   <div className="space-y-5 w-full">
                     {blockRows.map((row, rowIdx) => {
-                      const isTargetRow = previewInfo?.showGhost && row.rowIndex === previewInfo.targetRowIndex;
-                      const effectiveCount = isTargetRow ? row.blocks.length + 1 : row.blocks.length;
+                      const isHoverRow =
+                        Boolean(previewInfo) &&
+                        row.rowIndex === previewInfo.targetRowIndex;
+                      const showRowGhostAbove = isHoverRow;
+                      const showRowGhostBelow = isHoverRow;
+                      const rowAboveGhostActive =
+                        previewInfo?.mode === "row-above" &&
+                        row.rowIndex === previewInfo.targetRowIndex;
+                      const rowBelowGhostActive =
+                        previewInfo?.mode === "row-below" &&
+                        row.rowIndex === previewInfo.targetRowIndex;
+                      const showInlineGhost =
+                        previewInfo?.mode === "inline" &&
+                        previewInfo.showGhost &&
+                        row.rowIndex === previewInfo.targetRowIndex;
+                      const effectiveCount = showInlineGhost ? row.blocks.length + 1 : row.blocks.length;
                       const gridClass =
                         effectiveCount === 1
                           ? "grid-cols-1"
@@ -1355,43 +1458,51 @@ export default function TabCanvas({ tabId, projectId, workspaceId, blocks: initi
                             ? "grid-cols-1 md:grid-cols-2"
                             : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
                       return (
-                        <SortableContext
-                          key={rowIdx}
-                          items={row.blocks.map((b) => b.id)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          <div className={cn("grid gap-4", gridClass)}>
-                            {row.blocks.map((block) => (
-                              <div
-                                key={`${block.id}-${block.type}`}
-                                id={`block-${block.id}`}
-                                className={cn(
-                                  "min-w-0 scroll-mt-24",
-                                  newBlockIds.has(block.id) && "animate-block-swoosh-in",
-                                )}
-                              >
-                                <BlockRenderer
-                                  block={block}
-                                  workspaceId={workspaceId}
-                                  projectId={projectId}
-                                  tabId={tabId}
-                                  blockProperties={blockPropertiesById[block.id]}
-                                  propertiesById={blockPropertiesById}
-                                  onUpdate={handleUpdate}
-                                  scrollToTaskId={scrollToTaskId}
-                                  onDelete={handleDelete}
-                                  onConvert={handleConvert}
-                                  onAddBlockAbove={handleAddBlockAbove}
-                                  onAddBlockBelow={handleAddBlockBelow}
-                                  onOpenDoc={setOpenDocId}
-                                  isDragging={isDragging && draggedBlock?.id === block.id}
-                                />
-                              </div>
-                            ))}
-                            {/* Ghost drop placeholder in target row */}
-                            {isTargetRow && <BlockDropGhost blockType={draggedBlock?.type} />}
-                          </div>
-                        </SortableContext>
+                        <React.Fragment key={rowIdx}>
+                          {showRowGhostAbove && (
+                            <RowDropGhost direction="above" active={rowAboveGhostActive} />
+                          )}
+                          <SortableContext
+                            items={row.blocks.map((b) => b.id)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <div className={cn("grid gap-4", gridClass)}>
+                              {row.blocks.map((block) => (
+                                <div
+                                  key={`${block.id}-${block.type}`}
+                                  id={`block-${block.id}`}
+                                  className={cn(
+                                    "min-w-0 scroll-mt-24",
+                                    block.type === "section_header" && "-mb-3",
+                                    newBlockIds.has(block.id) && "animate-block-swoosh-in",
+                                  )}
+                                >
+                                  <BlockRenderer
+                                    block={block}
+                                    workspaceId={workspaceId}
+                                    projectId={projectId}
+                                    tabId={tabId}
+                                    blockProperties={blockPropertiesById[block.id]}
+                                    propertiesById={blockPropertiesById}
+                                    onUpdate={handleUpdate}
+                                    scrollToTaskId={scrollToTaskId}
+                                    onDelete={handleDelete}
+                                    onConvert={handleConvert}
+                                    onAddBlockAbove={handleAddBlockAbove}
+                                    onAddBlockBelow={handleAddBlockBelow}
+                                    onOpenDoc={setOpenDocId}
+                                    isDragging={isDragging && draggedBlock?.id === block.id}
+                                  />
+                                </div>
+                              ))}
+                              {/* Ghost drop placeholder in target row */}
+                              {showInlineGhost && <BlockDropGhost blockType={draggedBlock?.type} />}
+                            </div>
+                          </SortableContext>
+                          {showRowGhostBelow && (
+                            <RowDropGhost direction="below" active={rowBelowGhostActive} />
+                          )}
+                        </React.Fragment>
                       );
                     })}
                     {/* Add block button appears right after the last block row */}
@@ -1483,6 +1594,7 @@ function BlockDragCard({ block }: { block: Block }) {
 
 /** Dashed ghost placeholder shown in the target row while dragging. */
 function BlockDropGhost({ blockType }: { blockType?: Block["type"] }) {
+  const blockLabel = blockType ? blockType.replace(/_/g, " ") : "block";
   return (
     <div
       className={cn(
@@ -1494,7 +1606,47 @@ function BlockDropGhost({ blockType }: { blockType?: Block["type"] }) {
         "transition-all duration-150 pointer-events-none",
       )}
     >
-      Drop here
+      Drop {blockLabel}
+    </div>
+  );
+}
+
+/** Full-width ghost row for vertical drop targets (above/below). */
+function RowDropGhost({ direction, active = false }: { direction: "above" | "below"; active?: boolean }) {
+  const label = direction === "above" ? "Drop above" : "Drop below";
+  return (
+    <div
+      className={cn(
+        "min-h-[84px] rounded-[var(--radius-sm)] px-3 py-2",
+        active
+          ? "border-2 border-dashed border-[var(--primary)]/35 bg-[var(--primary)]/7"
+          : "border border-dashed border-[var(--primary)]/20 bg-[var(--primary)]/3",
+        "pointer-events-none",
+        "transition-all duration-150",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-full w-full items-center justify-between gap-4 rounded-[calc(var(--radius-sm)-4px)] px-3 py-2 transition-colors duration-150",
+          active
+            ? "border border-[var(--primary)]/25 bg-[var(--surface)]/75"
+            : "border border-[var(--primary)]/12 bg-[var(--surface)]/55",
+        )}
+      >
+        <div className="w-full max-w-[280px] space-y-1.5">
+          <div className={cn("h-2.5 w-1/2 rounded", active ? "bg-[var(--primary)]/26" : "bg-[var(--primary)]/16")} />
+          <div className={cn("h-2 w-full rounded", active ? "bg-[var(--primary)]/18" : "bg-[var(--primary)]/12")} />
+          <div className={cn("h-2 w-4/5 rounded", active ? "bg-[var(--primary)]/18" : "bg-[var(--primary)]/12")} />
+        </div>
+        <span
+          className={cn(
+            "text-[10px] font-semibold uppercase tracking-[0.08em]",
+            active ? "text-[var(--primary)]/65" : "text-[var(--primary)]/45",
+          )}
+        >
+          {label}
+        </span>
+      </div>
     </div>
   );
 }

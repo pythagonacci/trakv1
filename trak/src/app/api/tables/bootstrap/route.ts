@@ -81,14 +81,15 @@ export async function GET(request: Request) {
 
   const PAGE_LIMIT = 100;
 
+  const baseQuery = supabase
+    .from("table_rows")
+    .select(
+      "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by",
+      { count: "exact", head: false }
+    )
+    .eq("table_id", tableId);
   const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
-    supabase
-      .from("table_rows")
-      .select(
-        "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by",
-        { count: "exact", head: false }
-      )
-      .eq("table_id", tableId),
+    baseQuery as unknown as PostgrestFilterBuilder<any, any, any, any>,
     filters
   );
   const sortedQuery = applyServerSorts(filteredQuery, sorts);

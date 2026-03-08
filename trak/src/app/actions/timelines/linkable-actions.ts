@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkWorkspaceMembership, getAuthenticatedUser } from "@/lib/auth-utils";
 
 export type LinkableType = "doc" | "table" | "task" | "file" | "block" | "person";
-export type LinkableReferenceType = "doc" | "task" | "block" | "person";
+export type LinkableReferenceType = "doc" | "task" | "block" | "person" | "file";
 
 export interface LinkableItem {
   id: string;

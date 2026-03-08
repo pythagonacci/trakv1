@@ -33,10 +33,14 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
   const content = (block.content ?? {}) as { title?: string; subtitle?: string };
   const [titleValue, setTitleValue] = useState(typeof content.title === "string" ? content.title : "");
   const [subtitleValue, setSubtitleValue] = useState(typeof content.subtitle === "string" ? content.subtitle : "");
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [editingSubtitle, setEditingSubtitle] = useState(false);
+  const [editingField, setEditingField] = useState<"title" | "subtitle" | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const subtitleInputRef = useRef<HTMLTextAreaElement>(null);
+  const editingTitle = editingField === "title";
+  const editingSubtitle = editingField === "subtitle";
+  const canEdit = !readOnly;
+  const hasSubtitle = subtitleValue.trim() !== "";
+  const showSubtitleSlot = hasSubtitle || (canEdit && (editingField === "title" || editingField === "subtitle"));
 
   useEffect(() => {
     setTitleValue(typeof content.title === "string" ? content.title : "");
@@ -46,16 +50,17 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
   }, [content.subtitle]);
 
   useEffect(() => {
-    if (editingTitle) titleInputRef.current?.focus();
-  }, [editingTitle]);
-  useEffect(() => {
-    if (editingSubtitle) subtitleInputRef.current?.focus();
-  }, [editingSubtitle]);
-
-  const canEdit = Boolean(onUpdate) && !readOnly;
+    if (editingField === "title") {
+      titleInputRef.current?.focus();
+      return;
+    }
+    if (editingField === "subtitle") {
+      subtitleInputRef.current?.focus();
+    }
+  }, [editingField]);
 
   const saveTitle = async () => {
-    setEditingTitle(false);
+    setEditingField((current) => (current === "title" ? null : current));
     const trimmed = titleValue.trim();
     if (trimmed === (content.title ?? "")) return;
     try {
@@ -70,7 +75,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
   };
 
   const saveSubtitle = async () => {
-    setEditingSubtitle(false);
+    setEditingField((current) => (current === "subtitle" ? null : current));
     const next = subtitleValue.trim();
     if (next === (content.subtitle ?? "")) return;
     try {
@@ -82,6 +87,20 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
     } catch (e) {
       console.error("SectionHeaderBlock saveSubtitle:", e);
     }
+  };
+
+  const startTitleEdit = () => {
+    if (!canEdit) return;
+    setEditingField("title");
+  };
+
+  const startSubtitleEdit = () => {
+    if (!canEdit) return;
+    if (titleValue.trim() === "") {
+      setEditingField("title");
+      return;
+    }
+    setEditingField("subtitle");
   };
 
   return (
@@ -99,12 +118,24 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
             "relative flex min-w-0 rounded-xl border border-neutral-200/80 dark:border-neutral-700/80",
             "bg-white dark:bg-neutral-900/60",
             "shadow-[0_1px_0_rgba(0,0,0,0.03)] dark:shadow-none",
-            "py-3 pl-3 pr-3",
+            "pt-3 pb-2 pl-3 pr-3",
             // C) 3px left accent rail
-            "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:rounded-l-xl before:bg-neutral-900/5 dark:before:bg-neutral-100/5"
+            "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:rounded-l-xl before:bg-neutral-900/5 dark:before:bg-neutral-100/5",
+            // D) Thin top accent line for stronger section separation
+            "after:absolute after:left-0 after:right-0 after:top-0 after:h-px after:rounded-t-xl after:bg-neutral-900/10 dark:after:bg-neutral-100/10"
           )}
         >
-          <div className="min-w-0 flex-1">
+          <div
+            className="min-w-0 flex-1"
+            onClick={(e) => {
+              if (!canEdit || editingField !== null) return;
+              const target = e.target as HTMLElement;
+              if (target.closest("input, textarea, button, a, [role='button'], [data-subtitle-click='true']")) {
+                return;
+              }
+              startTitleEdit();
+            }}
+          >
             {/* Title: single line, truncate; click to edit when canEdit */}
             {editingTitle && canEdit ? (
               <input
@@ -120,7 +151,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
                   }
                 }}
                 className={cn(
-                  "w-full text-4xl font-bold tracking-[-0.02em] text-black dark:text-white",
+                  "w-full text-3xl font-normal tracking-[-0.02em] text-neutral-800/90 dark:text-neutral-200",
                   "bg-transparent border-none outline-none focus:ring-0 p-0"
                 )}
                 aria-label="Section title"
@@ -128,12 +159,12 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
             ) : (
               <h3
                 className={cn(
-                  "text-4xl font-bold tracking-[-0.02em] text-black dark:text-white",
+                  "text-3xl font-normal tracking-[-0.02em] text-neutral-800/90 dark:text-neutral-200",
                   "truncate",
                   canEdit && "cursor-text"
                 )}
                 title={titleValue || undefined}
-                onClick={() => canEdit && setEditingTitle(true)}
+                onClick={startTitleEdit}
               >
                 {titleValue || " "}
               </h3>
@@ -152,20 +183,21 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
                 )}
                 aria-label="Section subtitle"
               />
-            ) : (
-              (subtitleValue !== "" || canEdit) && (
-                <p
-                  className={cn(
-                    "mt-0.5 text-sm text-neutral-500 dark:text-neutral-400 leading-5",
-                    "line-clamp-2 min-h-[1.25rem]",
-                    canEdit && "cursor-text"
-                  )}
-                  onClick={() => canEdit && setEditingSubtitle(true)}
-                >
-                  {subtitleValue || (canEdit ? " " : null)}
-                </p>
-              )
-            )}
+            ) : showSubtitleSlot ? (
+              <p
+                data-subtitle-click="true"
+                className={cn(
+                  "mt-0.5 text-sm leading-5",
+                  hasSubtitle
+                    ? "line-clamp-2 text-neutral-500 dark:text-neutral-400"
+                    : "text-neutral-400 dark:text-neutral-500",
+                  canEdit && "cursor-text"
+                )}
+                onClick={startSubtitleEdit}
+              >
+                {hasSubtitle ? subtitleValue : "Add subtitle"}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

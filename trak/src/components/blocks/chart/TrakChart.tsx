@@ -241,7 +241,6 @@ function SingleBarRenderer({ data, spec, height, orientation }: SingleBarRendere
         layout="vertical"
         data={chartData}
         margin={{ top: 4, right: 40, left: 8, bottom: 4 }}
-        isAnimationActive={false}
       >
         <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis
@@ -309,7 +308,6 @@ function MultiSeriesBarRenderer({
         <BarChart
           data={chartData}
           margin={{ top: 4, right: 16, left: 8, bottom: 32 }}
-          isAnimationActive={false}
         >
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis
@@ -370,7 +368,6 @@ function MultiSeriesBarRenderer({
         layout="vertical"
         data={chartData}
         margin={{ top: 4, right: 40, left: 8, bottom: 4 }}
-        isAnimationActive={false}
       >
         <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis

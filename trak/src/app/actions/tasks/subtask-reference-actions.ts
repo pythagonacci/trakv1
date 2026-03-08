@@ -148,6 +148,11 @@ async function resolveReferenceSummary(
     return { title: normalizedLabel, typeLabel };
   }
 
+  if (ref.reference_type === "file") {
+    const { data } = await supabase.from("files").select("file_name").eq("id", ref.reference_id).maybeSingle();
+    return { title: data?.file_name || "File", typeLabel: "File" };
+  }
+
   if (ref.reference_type === "table_row") {
     const { data: row } = await supabase
       .from("table_rows")
