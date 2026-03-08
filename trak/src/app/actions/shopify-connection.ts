@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
+import { processSyncJob, ShopifySyncJob } from "@/lib/shopify/sync-worker";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -266,9 +267,10 @@ export async function triggerSync(
         workspace_id: connection.workspace_id,
         connection_id: connectionId,
         job_type: jobType,
-        status: "pending",
+        status: "processing",
+        started_at: new Date().toISOString(),
       })
-      .select("id")
+      .select("*")
       .single();
 
     if (insertError || !newJob) {
@@ -276,16 +278,13 @@ export async function triggerSync(
       return { error: "Failed to create sync job" };
     }
 
-    // Trigger the worker immediately so the job is processed (cron may not be scheduled).
-    const cronSecret = process.env.CRON_SECRET;
-    const baseUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-    if (cronSecret && baseUrl) {
-      fetch(`${baseUrl}/api/shopify/sync/worker`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${cronSecret}` },
-      }).catch((err) => console.error("Failed to trigger Shopify sync worker:", err));
+    // Process the job directly instead of fire-and-forget HTTP call
+    // (fire-and-forget gets killed when the serverless function returns)
+    try {
+      await processSyncJob(newJob as ShopifySyncJob);
+    } catch (processError) {
+      console.error("Sync job processing failed:", processError);
+      return { error: `Sync failed: ${processError instanceof Error ? processError.message : String(processError)}` };
     }
 
     return { data: newJob.id };
