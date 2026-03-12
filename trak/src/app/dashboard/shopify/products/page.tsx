@@ -5,7 +5,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { ShopifyProductsClient } from "./products-client";
 
 export const metadata = {
-  title: "Shopify Products - TWOD",
+  title: "Products - TWOD",
   description: "Manage your imported Shopify products",
 };
 

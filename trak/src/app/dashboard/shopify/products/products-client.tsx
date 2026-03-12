@@ -77,7 +77,7 @@ export function ShopifyProductsClient({
     <div className="pl-8 pr-4 pt-12 pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Shopify Products</h1>
+        <h1 className="text-3xl font-bold mb-2">Products</h1>
         <p className="text-gray-600">View and manage your imported Shopify products</p>
       </div>
 
