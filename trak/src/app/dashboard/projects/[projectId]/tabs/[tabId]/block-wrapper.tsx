@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   FileText,
   CheckSquare,
+  LayoutGrid,
   Link2,
   AtSign,
   Table,
@@ -220,6 +221,7 @@ export default function BlockWrapper({
     }
     if (block.type === "table") return "Table block";
     if (block.type === "task") return "Task list";
+    if (block.type === "cards") return "Cards block";
     if (block.type === "timeline") return "Timeline block";
     if (block.type === "file") return "File block";
     if (block.type === "image") return "Image block";
@@ -350,6 +352,7 @@ export default function BlockWrapper({
   const blockTypeOptions: Array<{ type: Block["type"]; label: string; icon: React.ReactNode }> = [
     { type: "text", label: "Text", icon: <FileText className="h-4 w-4" /> },
     { type: "task", label: "Task list", icon: <CheckSquare className="h-4 w-4" /> },
+    { type: "cards", label: "Cards", icon: <LayoutGrid className="h-4 w-4" /> },
     { type: "link", label: "Link", icon: <Link2 className="h-4 w-4" /> },
     { type: "section_header", label: "Section Header", icon: <Heading className="h-4 w-4" /> },
     { type: "table", label: "Table", icon: <Table className="h-4 w-4" /> },

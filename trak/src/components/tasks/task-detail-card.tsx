@@ -60,7 +60,7 @@ interface TaskDetailCardProps {
     dueDate?: string | null;
     dueTime?: string | null;
     dueTimeEnd?: string | null;
-    comments?: Array<{ id: string | number; author: string; text: string; timestamp: string }>;
+    comments?: Array<{ id: string | number; author: string; text: string; timestamp: string; parentId?: string | null }>;
   };
   statusBadge: React.ReactNode;
   /** Optional priority badge (with colors). Shown next to status when present. */
@@ -75,7 +75,7 @@ interface TaskDetailCardProps {
   /** Callback to add a text note (stored as a comment with [note] prefix). */
   onAddNote?: (text: string) => void | Promise<void>;
   /** Callback to add a comment. For subtasks, parentTaskId is used. */
-  onAddComment?: (text: string) => void | Promise<void>;
+  onAddComment?: (text: string, parentId?: string | null) => void | Promise<void>;
   /** Open @ mention picker for the comment input (same as gallery). getAnchorRect() returns current caret rect for re-anchoring; onInsert(text) inserts the chosen mention. */
   onOpenCommentMentionPicker?: (
     anchorRect: DOMRect | null,
@@ -92,6 +92,7 @@ interface TaskDetailCardProps {
   disabled?: boolean;
   /** For subtasks: parent task id (for comment creation). */
   parentTaskId?: string;
+  focusCommentId?: string | null;
   className?: string;
 }
 
@@ -132,6 +133,17 @@ function stripNotePrefix(text: string): string {
   return text.startsWith(NOTE_PREFIX) ? text.slice(NOTE_PREFIX.length).trim() : text;
 }
 
+function buildCommentChildren<T extends { id: string | number; parentId?: string | null }>(comments: T[]) {
+  const map = new Map<string, T[]>();
+  for (const comment of comments) {
+    const key = comment.parentId ? String(comment.parentId) : "root";
+    const list = map.get(key) ?? [];
+    list.push(comment);
+    map.set(key, list);
+  }
+  return map;
+}
+
 export function TaskDetailCard({
   variant,
   task,
@@ -150,6 +162,7 @@ export function TaskDetailCard({
   onCloseCommentMentionPicker,
   disabled = false,
   parentTaskId,
+  focusCommentId,
   className,
 }: TaskDetailCardProps) {
   const taskRefs = useTaskReferences(variant === "task" ? String(task.id) : undefined);
@@ -170,6 +183,9 @@ export function TaskDetailCard({
   const comments = allComments.filter((c) => !isNoteComment(stripSubtaskPrefix(c.text)));
   const dateTimeLabel = formatDateAndTime(task.dueDate ?? null, task.dueTime ?? null);
   const [commentDraft, setCommentDraft] = useState("");
+  const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
+  const commentsByParent = buildCommentChildren(comments);
+  const replyTarget = replyTargetId ? comments.find((comment) => String(comment.id) === replyTargetId) ?? null : null;
   const [commentMentionSpans, setCommentMentionSpans] = useState<
     Array<{ start: number; end: number; href: string; label: string }>
   >([]);
@@ -202,14 +218,22 @@ export function TaskDetailCard({
     el.style.height = `${capped}px`;
   }, [commentDraft, onAddComment]);
 
+  useEffect(() => {
+    if (!focusCommentId) return;
+    const element = document.getElementById(`comment-${focusCommentId}`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusCommentId, task.comments]);
+
   const handleAddComment = async () => {
     const text = buildCommentWithLinks(commentDraft, commentMentionSpans).trim();
     if (!text || !onAddComment) return;
     setIsSubmittingComment(true);
     try {
-      await onAddComment(text);
+      await onAddComment(text, replyTargetId);
       setCommentDraft("");
       setCommentMentionSpans([]);
+      setReplyTargetId(null);
     } finally {
       setIsSubmittingComment(false);
     }
@@ -399,27 +423,66 @@ export function TaskDetailCard({
             </p>
             {comments.length > 0 && (
               <div className="space-y-2 max-h-48 overflow-y-auto">
-                {comments.map((c) => (
-                  <div key={String(c.id)} className="flex gap-2">
-                    <div
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[10px] font-medium text-[var(--foreground)]"
-                      aria-hidden
-                    >
-                      {(c.author || "?").charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-[var(--foreground)]">{c.author || "Unknown"}</p>
-                      <p
-                        className="text-xs text-[var(--foreground)] mt-0.5 [&_a]:text-[var(--primary)] [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:opacity-80"
-                        dangerouslySetInnerHTML={{ __html: formatCommentText(stripSubtaskPrefix(c.text)) }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                {(commentsByParent.get("root") ?? []).map((rootComment) => {
+                  const renderThread = (comment: typeof comments[number], depth = 0): React.ReactNode => {
+                    const children = commentsByParent.get(String(comment.id)) ?? [];
+                    return (
+                      <div key={String(comment.id)} id={`comment-${comment.id}`} className={cn("space-y-2", depth > 0 && "ml-8")}>
+                        <div className={cn("flex gap-2 rounded-md px-2 py-1.5", focusCommentId === String(comment.id) && "bg-[var(--surface-hover)]")}>
+                          <div
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[10px] font-medium text-[var(--foreground)]"
+                            aria-hidden
+                          >
+                            {(comment.author || "?").charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-medium text-[var(--foreground)]">{comment.author || "Unknown"}</p>
+                              {canAdd && onAddComment && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReplyTargetId(String(comment.id));
+                                    setCommentDraft((prev) => prev || `@${comment.author || "Unknown"} `);
+                                    requestAnimationFrame(() => commentInputRef.current?.focus());
+                                  }}
+                                  className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                                >
+                                  Reply
+                                </button>
+                              )}
+                            </div>
+                            <p
+                              className="text-xs text-[var(--foreground)] mt-0.5 [&_a]:text-[var(--primary)] [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:opacity-80"
+                              dangerouslySetInnerHTML={{ __html: formatCommentText(stripSubtaskPrefix(comment.text)) }}
+                            />
+                          </div>
+                        </div>
+                        {children.map((child) => renderThread(child, depth + 1))}
+                      </div>
+                    );
+                  };
+                  return renderThread(rootComment);
+                })}
               </div>
             )}
             {canAdd && onAddComment && (
-              <div className="flex gap-2 pt-1">
+              <div className="space-y-2 pt-1">
+                {replyTarget && (
+                  <div className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1">
+                    <span className="text-[10px] text-[var(--muted-foreground)]">
+                      Replying to <span className="font-medium text-[var(--foreground)]">{replyTarget.author || "Unknown"}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setReplyTargetId(null)}
+                      className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2">
                 <textarea
                   ref={commentInputRef}
                   value={commentDraft}
@@ -526,6 +589,7 @@ export function TaskDetailCard({
                   <MessageSquare className="h-3 w-3" />
                   Add
                 </button>
+                </div>
               </div>
             )}
           </div>

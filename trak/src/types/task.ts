@@ -91,6 +91,7 @@ export interface TaskComment {
   id: string;
   task_id: string;
   author_id: string | null;
+  parent_id: string | null;
   text: string;
   created_at: string;
   updated_at: string;

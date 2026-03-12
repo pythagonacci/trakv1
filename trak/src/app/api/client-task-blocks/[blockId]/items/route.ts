@@ -26,7 +26,7 @@ type TaskItemView = {
   tags?: string[];
   description?: string;
   subtasks?: { id: string; text: string; description?: string | null; completed: boolean }[];
-  comments?: { id: string; author: string; text: string; timestamp: string }[];
+  comments?: { id: string; author: string; text: string; timestamp: string; parentId?: string | null }[];
   recurring?: {
     enabled: boolean;
     frequency: "daily" | "weekly" | "monthly" | null;
@@ -156,7 +156,7 @@ export async function GET(
         .order("display_order", { ascending: true }),
       supabase
         .from("task_comments")
-        .select("id, task_id, author_id, text, created_at")
+        .select("id, task_id, author_id, parent_id, text, created_at")
         .in("task_id", taskIds)
         .order("created_at", { ascending: true }),
       supabase
