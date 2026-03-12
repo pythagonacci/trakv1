@@ -5,7 +5,7 @@ import {
   Bold,
   Italic,
   Underline,
-  Code,
+  Highlighter,
   Type,
 } from "lucide-react";
 import { type Block } from "@/app/actions/block";
@@ -33,6 +33,15 @@ interface TextBlockProps {
 }
 
 type SaveStatus = "idle" | "saving" | "saved";
+
+type HighlightColor = "yellow" | "green" | "blue" | "pink";
+
+const HIGHLIGHT_COLORS: Record<HighlightColor, { label: string; color: string }> = {
+  yellow: { label: "Yellow", color: "rgba(250, 204, 21, 0.35)" },
+  green: { label: "Green", color: "rgba(34, 197, 94, 0.30)" },
+  blue: { label: "Blue", color: "rgba(59, 130, 246, 0.30)" },
+  pink: { label: "Pink", color: "rgba(244, 114, 182, 0.30)" },
+};
 
 const escapeHtml = (value: string) =>
   value
@@ -147,6 +156,7 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
+  const [activeHighlightColor, setActiveHighlightColor] = useState<HighlightColor | null>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mentionRangeRef = useRef<Range | null>(null);
@@ -272,10 +282,17 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
   }, [content, isEditing, block.content?.text, saveContent]);
 
   const handleBlur = async () => {
-    // Small delay to allow clicking on toolbar buttons
+    // Small delay to allow clicking on toolbar buttons / dropdowns
     setTimeout(async () => {
       // Don't exit editing if a mention/reference picker selection is in progress
       if (mentionStartRef.current) return;
+
+      // If focus moved into the text block toolbar or its dropdown menus, stay in edit mode
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (activeEl && activeEl.closest('[data-textblock-toolbar="true"]')) {
+        return;
+      }
+
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -503,6 +520,9 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             return '<u>' + childText + '</u>';
           case 'code':
             return '`' + childText + '`';
+          case 'mark':
+            // Preserve highlight markup (including color/style) as raw HTML in markdown
+            return el.outerHTML;
           case 'a': {
             const href = el.getAttribute('href');
             if (!href) return childText;
@@ -572,6 +592,97 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
       syncContentFromHTML();
       updateActiveFormatting();
     }
+  };
+
+  const applyHighlight = (color: HighlightColor) => {
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv) return;
+
+    editableDiv.focus();
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const highlightDef = HIGHLIGHT_COLORS[color];
+    if (!highlightDef) return;
+
+    // If selection is already inside a highlight, just update its color
+    const commonAncestor = range.commonAncestorContainer;
+    const existingMark =
+      (commonAncestor instanceof Element
+        ? commonAncestor.closest("mark[data-highlight-color]")
+        : commonAncestor.parentElement?.closest?.("mark[data-highlight-color]")) || null;
+
+    if (existingMark) {
+      existingMark.setAttribute("data-highlight-color", color);
+      existingMark.setAttribute(
+        "style",
+        `background-color: ${highlightDef.color}; border-radius: 2px; padding: 0 1px;`
+      );
+      syncContentFromHTML();
+      setActiveHighlightColor(color);
+      return;
+    }
+
+    // If there's a text selection, wrap it in a <mark>.
+    // If the selection is collapsed (e.g. empty block), create an empty <mark>
+    // and place the caret inside so the next characters are highlighted.
+    const markEl = document.createElement("mark");
+    markEl.setAttribute("data-highlight-color", color);
+    markEl.setAttribute(
+      "style",
+      `background-color: ${highlightDef.color}; border-radius: 2px; padding: 0 1px;`
+    );
+
+    if (range.collapsed) {
+      // Insert empty highlight at caret and move cursor inside it.
+      range.insertNode(markEl);
+      const newRange = document.createRange();
+      newRange.setStart(markEl, 0);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    } else {
+      const contents = range.extractContents();
+      markEl.appendChild(contents);
+      range.insertNode(markEl);
+
+      const newRange = document.createRange();
+      newRange.selectNodeContents(markEl);
+      newRange.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
+
+    syncContentFromHTML();
+    setActiveHighlightColor(color);
+  };
+
+  const clearHighlight = () => {
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv) return;
+
+    editableDiv.focus();
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const node = range.commonAncestorContainer;
+
+    const markEl =
+      (node instanceof Element
+        ? node.closest("mark[data-highlight-color]")
+        : node.parentElement?.closest?.("mark[data-highlight-color]")) || null;
+
+    if (!markEl || !markEl.parentNode) return;
+
+    // Unwrap the mark, keeping its children
+    while (markEl.firstChild) {
+      markEl.parentNode.insertBefore(markEl.firstChild, markEl);
+    }
+    markEl.parentNode.removeChild(markEl);
+
+    syncContentFromHTML();
   };
 
   const insertInlineReference = useCallback(
@@ -872,7 +983,10 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
         }}
       >
         {/* Thin top toolbar */}
-        <div className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] rounded-t-lg z-10">
+        <div
+          className="absolute top-0 left-0 right-0 h-6 flex items-center gap-0.5 px-1 bg-[var(--surface)] rounded-t-lg z-10"
+          data-textblock-toolbar="true"
+        >
           <button
             onMouseDown={(e) => {
               e.preventDefault();
@@ -919,23 +1033,90 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
             <Underline className="h-3 w-3" />
           </button>
           <div className="h-4 w-px bg-[var(--border)] mx-0.5" />
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              insertMarkdown("`");
-            }}
-            className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-            title="Code"
-          >
-            <Code className="h-3 w-3" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  "flex h-5 w-5 items-center justify-center rounded border transition-colors",
+                  activeHighlightColor
+                    ? "border-[var(--border)] text-[var(--foreground)]"
+                    : "border-transparent text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                )}
+                style={
+                  activeHighlightColor
+                    ? { backgroundColor: HIGHLIGHT_COLORS[activeHighlightColor].color }
+                    : undefined
+                }
+                title="Highlight"
+                onClick={(e) => {
+                  if (activeHighlightColor) {
+                    // Toggle highlight typing mode off and move caret out of any current mark
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setActiveHighlightColor(null);
+
+                    const editableDiv = textareaRef.current as HTMLDivElement | null;
+                    if (!editableDiv) return;
+                    const selection = window.getSelection();
+                    if (!selection || selection.rangeCount === 0) return;
+                    const range = selection.getRangeAt(0);
+                    const node = range.startContainer;
+                    const markEl =
+                      (node instanceof Element
+                        ? node.closest("mark[data-highlight-color]")
+                        : node.parentElement?.closest?.("mark[data-highlight-color]")) || null;
+                    if (markEl && markEl.parentNode) {
+                      const newRange = document.createRange();
+                      newRange.setStartAfter(markEl);
+                      newRange.collapse(true);
+                      selection.removeAllRanges();
+                      selection.addRange(newRange);
+                    }
+                  }
+                }}
+              >
+                <Highlighter className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" data-textblock-toolbar="true">
+              {(
+                Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]
+              ).map((key) => {
+                const { label, color } = HIGHLIGHT_COLORS[key];
+                return (
+                  <DropdownMenuItem
+                    key={key}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      applyHighlight(key);
+                    }}
+                  >
+                    <span
+                      className="mr-2 inline-block h-3 w-3 rounded-sm border border-[var(--border)]"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span>{label}</span>
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.preventDefault();
+                  clearHighlight();
+                }}
+              >
+                <span className="mr-2 inline-block h-3 w-3 rounded-sm border border-dashed border-[var(--border)]" />
+                <span>Remove highlight</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
                 <Type className="h-3 w-3" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" data-textblock-toolbar="true">
               <DropdownMenuItem onClick={() => insertHeading(1)}>Heading 1</DropdownMenuItem>
               <DropdownMenuItem onClick={() => insertHeading(2)}>Heading 2</DropdownMenuItem>
               <DropdownMenuItem onClick={() => insertHeading(3)}>Heading 3</DropdownMenuItem>
