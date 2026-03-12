@@ -9,6 +9,8 @@ import { createFileRecord } from "@/app/actions/file";
 import { useFileUrls } from "./tab-canvas";
 import { Upload, Loader2, Maximize2, X, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 
 interface ImageBlockProps {
   block: Block;
@@ -33,6 +35,42 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   const [dragInfo, setDragInfo] = useState<{ startX: number; startWidth: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const captionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const captionInputRef = useRef<HTMLInputElement | null>(null);
+  const mentionStartIndexRef = useRef<number | null>(null);
+  const mentionQueryRef = useRef("");
+  const referencePicker = useBlockReferencePicker();
+
+  const clearInlineMention = () => {
+    mentionStartIndexRef.current = null;
+    mentionQueryRef.current = "";
+  };
+
+  const insertInlineMention = (item: LinkableItem, searchQuery?: string) => {
+    const mentionStart = mentionStartIndexRef.current;
+    if (mentionStart === null || !captionInputRef.current) return;
+    const activeQuery = mentionQueryRef.current || searchQuery || "";
+    const replacement = `@${item.name}`;
+    const currentValue = captionInputRef.current.value;
+
+    const safeStart = Math.min(Math.max(mentionStart, 0), currentValue.length);
+    const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
+    const nextValue = currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
+
+    handleCaptionChange(nextValue);
+
+    clearInlineMention();
+    requestAnimationFrame(() => {
+      if (!captionInputRef.current) return;
+      const cursorPosition = safeStart + replacement.length;
+      captionInputRef.current.focus();
+      captionInputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
+
+  const closeInlineMentionPicker = () => {
+    clearInlineMention();
+    referencePicker?.closePicker();
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -301,9 +339,77 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
       {/* Caption Input */}
       <div className="mt-2">
         <input
+          ref={captionInputRef}
           type="text"
           value={caption}
-          onChange={(e) => handleCaptionChange(e.target.value)}
+          onChange={(e) => {
+            const nextValue = e.target.value;
+            handleCaptionChange(nextValue);
+
+            const mentionStart = mentionStartIndexRef.current;
+            if (mentionStart === null || !referencePicker) return;
+
+            const cursorPosition = e.currentTarget.selectionStart ?? nextValue.length;
+            const shouldStopMentioning =
+              mentionStart >= nextValue.length ||
+              nextValue[mentionStart] !== "@" ||
+              cursorPosition <= mentionStart;
+
+            if (shouldStopMentioning) {
+              closeInlineMentionPicker();
+              return;
+            }
+
+            const nextQuery = nextValue.slice(mentionStart + 1, cursorPosition);
+            mentionQueryRef.current = nextQuery;
+            referencePicker.updateQuery?.(nextQuery);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "@" && referencePicker) {
+              e.preventDefault();
+              e.stopPropagation();
+              const currentValue = e.currentTarget.value;
+              const selectionStart = e.currentTarget.selectionStart ?? currentValue.length;
+              const selectionEnd = e.currentTarget.selectionEnd ?? selectionStart;
+              const nextValue =
+                currentValue.slice(0, selectionStart) + "@" + currentValue.slice(selectionEnd);
+
+              handleCaptionChange(nextValue);
+              mentionStartIndexRef.current = selectionStart;
+              mentionQueryRef.current = "";
+
+              requestAnimationFrame(() => {
+                if (!captionInputRef.current) return;
+                const nextCursor = selectionStart + 1;
+                captionInputRef.current.focus();
+                captionInputRef.current.setSelectionRange(nextCursor, nextCursor);
+
+                const getAnchorRect = () => {
+                  if (!captionInputRef.current) return null;
+                  const rect = captionInputRef.current.getBoundingClientRect();
+                  // Anchor at the input's left edge so the popover appears to the LEFT of the caption,
+                  // allowing the user to see both the picker and their text input while typing.
+                  return new DOMRect(rect.left, rect.top, rect.width, rect.height);
+                };
+
+                const anchorRect = getAnchorRect();
+                referencePicker.openPicker({
+                  initialQuery: "",
+                  anchorRect: anchorRect ?? undefined,
+                  getAnchorRect,
+                  popoverGap: 4,
+                  popoverSide: "right",
+                  onSelect: insertInlineMention,
+                  onClose: clearInlineMention,
+                  hideInstructions: true,
+                });
+              });
+              return;
+            }
+            if (e.key === "Escape") {
+              closeInlineMentionPicker();
+            }
+          }}
           placeholder="Add caption..."
           className="w-full px-2 py-1 text-sm border border-transparent rounded hover:border-neutral-300 dark:hover:border-neutral-700 focus:border-neutral-400 dark:focus:border-neutral-600 focus:outline-none bg-transparent text-neutral-600 dark:text-neutral-400"
         />
