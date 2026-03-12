@@ -20,6 +20,7 @@ export default function InviteMemberDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "teammate">("teammate");
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<"added" | "invited" | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const validateEmail = (email: string) => {
@@ -53,9 +54,17 @@ export default function InviteMemberDialog({
         return;
       }
 
-      // Success - refresh page and close dialog
+      const data = result.data as { invited?: boolean; email?: string } | undefined;
+      const wasInviteEmailSent = data && "invited" in data && data.invited === true;
+      setSuccess(wasInviteEmailSent ? "invited" : "added");
+      setIsSubmitting(false);
       router.refresh();
-      onClose();
+      // Brief delay so user can read the message, then close
+      setTimeout(() => {
+        onClose();
+        setSuccess(null);
+        setEmail("");
+      }, 2000);
     } catch (err) {
       setError("Failed to invite member. Please try again.");
       setIsSubmitting(false);
@@ -92,6 +101,17 @@ export default function InviteMemberDialog({
             <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <p>{error}</p>
+            </div>
+          )}
+
+          {/* Success: added vs invite sent */}
+          {success && (
+            <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+              {success === "added" ? (
+                <p>They already have a Trak account and have been added to this workspace. No email was sent.</p>
+              ) : (
+                <p>Invitation email sent. They can sign up via the link in the email.</p>
+              )}
             </div>
           )}
 
