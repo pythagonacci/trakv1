@@ -9,11 +9,18 @@ type ActionResult<T> = { data: T } | { error: string };
 export async function createTaskComment(input: {
   taskId: string;
   text: string;
+  parentId?: string | null;
   authContext?: AuthContext;
 }): Promise<ActionResult<TaskComment>> {
   const access = await requireTaskItemAccess(input.taskId, { authContext: input.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, userId } = access;
+
+  const { data: existingComments } = await supabase
+    .from("task_comments")
+    .select("id, author_id, text, parent_id")
+    .eq("task_id", input.taskId)
+    .order("created_at", { ascending: true });
 
   const { data, error } = await supabase
     .from("task_comments")
@@ -21,11 +28,27 @@ export async function createTaskComment(input: {
       task_id: input.taskId,
       author_id: userId,
       text: input.text,
+      parent_id: input.parentId ?? null,
     })
     .select("*")
     .single();
 
   if (error || !data) return { error: "Failed to create comment" };
+
+  try {
+    const { createTaskCommentNotifications } = await import("@/lib/notifications/service");
+    await createTaskCommentNotifications({
+      taskId: input.taskId,
+      commentId: data.id,
+      actorId: userId,
+      text: input.text,
+      existingComments: (existingComments ?? []) as Array<{ id: string; author_id: string | null; text: string; parent_id?: string | null }>,
+      parentId: data.parent_id ?? null,
+    });
+  } catch (notificationError) {
+    console.error("Failed to create task comment notifications", notificationError);
+  }
+
   return { data: data as TaskComment };
 }
 

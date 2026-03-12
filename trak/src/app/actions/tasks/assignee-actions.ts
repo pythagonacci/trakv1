@@ -24,6 +24,17 @@ export async function setTaskAssignees(
   for (const c of dbCalls) logDbCall(c.table, c.op, c.ms);
   const { supabase, task } = access;
   const workspaceId = task.workspace_id;
+  const actorId = opts?.authContext?.userId ?? access.userId;
+
+  const { data: existingAssignees } = await supabase
+    .from("task_assignees")
+    .select("assignee_id")
+    .eq("task_id", taskId);
+  const previousAssigneeIds = new Set(
+    (existingAssignees ?? [])
+      .map((row: any) => (typeof row.assignee_id === "string" ? row.assignee_id : null))
+      .filter((id): id is string => Boolean(id))
+  );
 
   // Validate assignees array
   if (!Array.isArray(assignees)) {
@@ -146,6 +157,24 @@ export async function setTaskAssignees(
 
   if (opts?.timing) opts.timing.t_insert_assignees_ms = Math.round(performance.now() - t0);
   aiDebug("setTaskAssignees:db_calls_summary", { count: dbCalls.length, calls: dbCalls, total_ms: Math.round(performance.now() - t0) });
+
+  const addedAssigneeIds = normalized
+    .map((assignee) => assignee.id ?? null)
+    .filter((id): id is string => Boolean(id) && !previousAssigneeIds.has(id as string));
+
+  if (addedAssigneeIds.length > 0) {
+    try {
+      const { createTaskAssignmentNotifications } = await import("@/lib/notifications/service");
+      await createTaskAssignmentNotifications({
+        taskId,
+        actorId,
+        addedAssigneeIds,
+      });
+    } catch (notificationError) {
+      console.error("Failed to create task assignment notifications", notificationError);
+    }
+  }
+
   return { data: null };
 }
 

@@ -809,6 +809,20 @@ export async function createFileRecord(data: {
     }
   }
 
+  try {
+    const { createFileUploadNotification } = await import("@/lib/notifications/service");
+    await createFileUploadNotification({
+      workspaceId: data.workspaceId,
+      projectId: data.projectId,
+      blockId: data.blockId || null,
+      fileId: data.fileId,
+      fileName: data.fileName,
+      actorId: user.id,
+    });
+  } catch (notificationError) {
+    logger.error("Notification file upload failed:", notificationError);
+  }
+
   revalidatePath('/dashboard/projects');
   revalidatePath('/dashboard/internal');
   return { data: fileRecord };

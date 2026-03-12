@@ -13,7 +13,11 @@ export const metadata = {
   description: "Manage workspace settings and team members",
 };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string };
+}) {
   // 1. Get current workspace
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) redirect("/dashboard");
@@ -42,6 +46,14 @@ export default async function SettingsPage() {
   const members = "data" in membersResult ? membersResult.data : [];
   const teams = "data" in teamsResult ? teamsResult.data : [];
 
+  const params = searchParams ?? {};
+  const initialTab =
+    params.tab === "teams" ||
+    params.tab === "general" ||
+    params.tab === "notifications"
+      ? params.tab
+      : "members";
+
   return (
     <SettingsClient
       workspace={workspace}
@@ -49,6 +61,7 @@ export default async function SettingsPage() {
       teams={teams || []}
       currentUserRole={membership.role}
       currentUserId={user.id}
+      initialTab={initialTab}
     />
   );
 }

@@ -39,6 +39,7 @@ import { useUser } from "@/hooks/use-user";
 import { Button } from "@/components/ui/button";
 import { AICommandPalette, useAI } from "@/components/ai";
 import { useTheme } from "./theme-context";
+import NotificationBell from "@/components/notifications/notification-bell";
 
 interface User {
   id: string;
@@ -727,6 +728,7 @@ function Header() {
   const { data: currentUser, isLoading } = useUser();
   const { headerHidden } = useDashboardHeader();
   const configModal = useDashboardConfigModal();
+  const { currentWorkspace } = useWorkspace();
   const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
   const isDashboardHome = pathname === "/dashboard";
@@ -749,6 +751,7 @@ function Header() {
         <span className="opacity-90">{displayDate}</span>
       </p>
       <div className="flex items-center gap-2">
+        <NotificationBell workspaceId={currentWorkspace?.id} />
         {isDashboardHome && configModal && (
           <Button
             size="sm"

@@ -880,6 +880,31 @@ export async function updateTaskItem(
     }
   }
 
+  try {
+    const { createTaskDueDateChangeNotification, createTaskStatusChangeNotification, getPrimaryTaskStatus } =
+      await import("@/lib/notifications/service");
+
+    if (updates.status !== undefined || updates.statuses !== undefined) {
+      await createTaskStatusChangeNotification({
+        taskId,
+        actorId: userId,
+        previousStatus: getPrimaryTaskStatus(task.statuses),
+        nextStatus: getPrimaryTaskStatus((normalizedTask as any).statuses),
+      });
+    }
+
+    if (updates.dueDate !== undefined) {
+      await createTaskDueDateChangeNotification({
+        taskId,
+        actorId: userId,
+        previousDueDate: task.due_date ?? null,
+        nextDueDate: (normalizedTask as any).due_date ?? null,
+      });
+    }
+  } catch (notificationError) {
+    console.error("Failed to create task update notifications", notificationError);
+  }
+
   return { data: normalizedTask };
 }
 

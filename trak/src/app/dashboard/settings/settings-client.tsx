@@ -3,12 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings, Users, MessageCircle, UsersRound, FolderOpen } from "lucide-react";
+import { Settings, Users, MessageCircle, UsersRound, FolderOpen, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import MembersTable from "./members/members-table";
 import GeneralSettingsForm from "./general/general-settings-form";
 import TeamsTable from "./teams/teams-table";
+import NotificationPreferencesPanel from "@/components/notifications/notification-preferences-panel";
 
 interface Workspace {
   id: string;
@@ -40,6 +41,7 @@ interface SettingsClientProps {
   teams: WorkspaceTeam[];
   currentUserRole: "owner" | "admin" | "teammate";
   currentUserId: string;
+  initialTab: "members" | "general" | "teams" | "notifications";
 }
 
 export function SettingsClient({
@@ -48,9 +50,10 @@ export function SettingsClient({
   teams,
   currentUserRole,
   currentUserId,
+  initialTab,
 }: SettingsClientProps) {
   const pathname = usePathname();
-  const [activeTab, setActiveTab] = useState<"members" | "general" | "teams">("members");
+  const [activeTab, setActiveTab] = useState<"members" | "general" | "teams" | "notifications">(initialTab);
   const { setHeaderHidden } = useDashboardHeader();
   const isSlackPage = pathname?.includes("/settings/integrations/slack");
   const isGoogleDrivePage = pathname?.includes("/settings/integrations/google-drive");
@@ -64,6 +67,10 @@ export function SettingsClient({
       setHeaderHidden(false);
     };
   }, [setHeaderHidden]);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   return (
     <div className="flex h-full flex-col">
@@ -125,6 +132,21 @@ export function SettingsClient({
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--river-indigo)]" />
             )}
           </button>
+          <button
+            onClick={() => setActiveTab("notifications")}
+            className={cn(
+              "flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors relative",
+              activeTab === "notifications"
+                ? "text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            )}
+          >
+            <Bell className="h-4 w-4" />
+            Notifications
+            {activeTab === "notifications" && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--river-indigo)]" />
+            )}
+          </button>
           <Link
             href="/dashboard/settings/integrations/slack"
             className={cn(
@@ -182,6 +204,9 @@ export function SettingsClient({
             workspaceName={workspace.name}
             canManage={canManage}
           />
+        )}
+        {activeTab === "notifications" && (
+          <NotificationPreferencesPanel workspaceId={workspace.id} />
         )}
       </div>
     </div>
