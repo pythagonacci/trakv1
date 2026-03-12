@@ -618,7 +618,7 @@ export async function createProjectFromProduct(
   const blockResult = await createBlock({
     tabId: firstTab.id,
     type: 'shopify_product',
-    content: { product_id: productId },
+    content: { product_id: productId, shopifyExpanded: true },
     authContext: { supabase, userId },
   })
 

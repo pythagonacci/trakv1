@@ -161,7 +161,13 @@ export default function ReferencePicker({
     left = Math.max(minLeft, Math.min(left, maxLeft));
 
     let top = anchorRect.top;
-    top = Math.max(minTop, Math.min(top, maxTop));
+    // When popover would be clamped down (anchor near bottom), it would overlap the input.
+    // Prefer positioning ABOVE the anchor so the user can see both picker and input.
+    if (top > maxTop && popoverSide === "left") {
+      top = Math.max(minTop, anchorRect.top - maxHeight - gap);
+    } else {
+      top = Math.max(minTop, Math.min(top, maxTop));
+    }
 
     setPopoverLeft(left);
     setPopoverTop(top);
