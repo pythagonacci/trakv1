@@ -9,7 +9,15 @@ import {
   Filter,
   ChevronDown,
   ChevronRight,
+  Settings2,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useDashboardConfigModal } from "../dashboard-config-modal-context";
 import { generateDashboardChartData } from "@/app/actions/chart-actions";
 import { buildChartData, groupRowsByBreakdown } from "@/lib/charts/transform";
 import { TrakChart } from "@/components/blocks/chart/TrakChart";
@@ -208,6 +216,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
   const [showBreakdown, setShowBreakdown] = useState(true);
   const [hasTouchedOpenCategory, setHasTouchedOpenCategory] = useState(false);
   const [spinNonce, setSpinNonce] = useState(0);
+  const dashboardConfigModal = useDashboardConfigModal();
 
   const query = "query" in config ? config.query : undefined;
   const isLegacy = !query;
@@ -400,13 +409,32 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
             <RefreshCw className="h-4 w-4" />
             {isLoading ? "Refreshing…" : "Refresh"}
           </button>
-          <button
-            type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]"
-            aria-label="More chart options"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]"
+                aria-label="More chart options"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem
+                onClick={() => setRefreshNonce((n) => n + 1)}
+                disabled={isLoading}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh chart
+              </DropdownMenuItem>
+              {dashboardConfigModal && (
+                <DropdownMenuItem onClick={() => dashboardConfigModal.open()}>
+                  <Settings2 className="h-4 w-4" />
+                  Customize dashboard
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

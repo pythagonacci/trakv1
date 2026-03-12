@@ -159,7 +159,46 @@ export default function AIOverviewBlock({
     );
   }
 
-  // Error state
+  // No data yet (e.g. new workspace) — friendly empty state
+  if (!insights && !error) {
+    return (
+      <Card className="border border-[var(--border)] bg-[var(--surface)]">
+        <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((e) => !e)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <Sparkles className="h-5 w-5" />
+              AI Overview
+            </CardTitle>
+            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
+          </div>
+        </CardHeader>
+        {isExpanded && (
+          <CardContent>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Sparkles className="h-8 w-8 text-[var(--muted-foreground)] mb-4" />
+              <p className="text-sm text-[var(--muted-foreground)] mb-4 max-w-sm">
+                Your workspace is new. Add some projects and tasks, then we&apos;ll generate an AI overview here.
+              </p>
+              <Button
+                variant="outline"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  handleRegenerate();
+                }}
+                disabled={isPending}
+                size="sm"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Try again
+              </Button>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+    );
+  }
+
+  // Error state (something went wrong)
   if (error || !insights) {
     return (
       <Card className="border border-[var(--border)] bg-[var(--surface)]">
@@ -177,7 +216,7 @@ export default function AIOverviewBlock({
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <AlertTriangle className="h-8 w-8 text-[var(--muted-foreground)] mb-4" />
               <p className="text-sm text-[var(--muted-foreground)] mb-4">
-                {error || "Unable to generate insights. Try again."}
+                {error ?? "Something went wrong. Try again."}
               </p>
               <Button
                 variant="outline"
