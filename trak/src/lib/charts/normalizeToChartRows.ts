@@ -147,6 +147,49 @@ function timelineEventLikeToChartRow(event: TimelineEventLikeRow): ChartRow {
   return row;
 }
 
+// ─── Card-like (CardResult from searchCards) ───
+
+export interface CardLikeRow {
+  id: string;
+  title?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  assignees?: Array<{ id: string; name: string }>;
+  assignee_name?: string | null;
+  tags?: Array<{ id: string; name: string; color?: string | null }>;
+  due_date?: string | null;
+  start_date?: string | null;
+  project_name?: string | null;
+  tab_name?: string | null;
+  project_id?: string | null;
+  tab_id?: string | null;
+  cards_block_id?: string | null;
+  [key: string]: unknown;
+}
+
+function cardLikeToChartRow(card: CardLikeRow): ChartRow {
+  const status = normalizeStatus(card.status) ?? null;
+  const priority = normalizePriority(card.priority) ?? null;
+  const assignee = assigneesToChart(card.assignees ?? null) ?? card.assignee_name ?? undefined;
+  const tagsArr = tagsToChart(card.tags ?? null);
+
+  const row: ChartRow = {
+    id: card.id,
+    "Task Title": card.title ?? "",
+    status: status ?? undefined,
+    priority: priority ?? undefined,
+    assignee: assignee || undefined,
+    tags: tagsArr.length > 0 ? tagsArr : undefined,
+    "Due Date": toDateOnly(card.due_date) ?? undefined,
+  };
+  if (card.project_name != null) row.Project = String(card.project_name);
+  if (card.tab_name != null) row.Tab = String(card.tab_name);
+  if (card.project_id != null) (row as any).projectId = String(card.project_id);
+  if (card.tab_id != null) (row as any).tabId = String(card.tab_id);
+  if (card.cards_block_id != null) (row as any).cardsBlockId = String(card.cards_block_id);
+  return row;
+}
+
 // ─── Table row-like (TableRowResult: id, data, plus optional entity_properties) ───
 
 export interface TableRowLikeRow {
@@ -205,7 +248,7 @@ function tableRowLikeToChartRow(rowLike: TableRowLikeRow): ChartRow {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export type ChartDataSourceType = "tasks" | "timeline_events" | "table_rows";
+export type ChartDataSourceType = "tasks" | "timeline_events" | "table_rows" | "cards";
 
 /**
  * Normalize API results to ChartRow[] for buildChartData.
@@ -224,6 +267,8 @@ export function normalizeToChartRows(
       return rawResults.map((r) => timelineEventLikeToChartRow(r as TimelineEventLikeRow));
     case "table_rows":
       return rawResults.map((r) => tableRowLikeToChartRow(r as TableRowLikeRow));
+    case "cards":
+      return rawResults.map((r) => cardLikeToChartRow(r as CardLikeRow));
     default:
       return [];
   }

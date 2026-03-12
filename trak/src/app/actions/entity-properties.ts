@@ -550,6 +550,15 @@ async function getWorkspaceIdForEntity(
       return (data?.tables as any)?.workspace_id ?? null;
     }
 
+    case "card": {
+      const { data } = await supabase
+        .from("cards")
+        .select("workspace_id")
+        .eq("id", entityId)
+        .maybeSingle();
+      return data?.workspace_id ?? null;
+    }
+
     default:
       return null;
   }
@@ -601,6 +610,14 @@ async function getProjectIdForEntity(
         .eq("id", entityId)
         .maybeSingle();
       return (data as any)?.tabs?.project_id ?? null;
+    }
+    case "card": {
+      const { data } = await supabase
+        .from("cards")
+        .select("project_id")
+        .eq("id", entityId)
+        .maybeSingle();
+      return data?.project_id ?? null;
     }
     default:
       return null;
@@ -655,6 +672,15 @@ async function getEntityTitle(
 
     case "table_row": {
       return "Table Row";
+    }
+
+    case "card": {
+      const { data } = await supabase
+        .from("cards")
+        .select("title")
+        .eq("id", entityId)
+        .maybeSingle();
+      return data?.title || "Card";
     }
 
     default:
@@ -812,6 +838,14 @@ export async function setEntityProperties(
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
   if ("error" in access) return { error: access.error };
   const { supabase, workspaceId, userId } = access;
+  const previousTaskSnapshot =
+    input.entity_type === "task"
+      ? await supabase
+          .from("task_items")
+          .select("statuses, due_date")
+          .eq("id", input.entity_id)
+          .maybeSingle()
+      : null;
 
   const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
   if ("error" in definitions) return { error: definitions.error };
@@ -1281,6 +1315,44 @@ export async function setEntityProperties(
         }
       }
     }
+
+    try {
+      const { createTaskDueDateChangeNotification, createTaskStatusChangeNotification, getPrimaryTaskStatus } =
+        await import("@/lib/notifications/service");
+      const previousStatus = getPrimaryTaskStatus(previousTaskSnapshot?.data?.statuses);
+      const nextStatus = getPrimaryTaskStatus(taskItemUpdates.statuses);
+      const previousDueDate = previousTaskSnapshot?.data?.due_date ?? null;
+      const nextDueDate =
+        updates.due_date !== undefined
+          ? (taskItemUpdates.due_date ?? null)
+          : previousTaskSnapshot?.data?.due_date ?? null;
+
+      if (
+        updates.status !== undefined ||
+        updates.statuses !== undefined
+      ) {
+        await createTaskStatusChangeNotification({
+          taskId: input.entity_id,
+          actorId: userId,
+          previousStatus,
+          nextStatus,
+        });
+      }
+
+      if (
+        updates.due_date !== undefined ||
+        updates.due_dates !== undefined
+      ) {
+        await createTaskDueDateChangeNotification({
+          taskId: input.entity_id,
+          actorId: userId,
+          previousDueDate,
+          nextDueDate,
+        });
+      }
+    } catch (notificationError) {
+      console.error("Failed to create task property notifications", notificationError);
+    }
   }
 
   if (input.entity_type === "subtask") {
@@ -1394,6 +1466,64 @@ export async function setEntityProperties(
         skipSourceWriteback: true,
       });
     }
+  }
+
+  if (input.entity_type === "card") {
+    const statusFields = (((data as any).statuses ?? []) as Array<{ field_name?: unknown; value?: unknown }>)
+      .map((field) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value:
+          field?.value === "todo" || field?.value === "in_progress" || field?.value === "blocked" || field?.value === "done"
+            ? field.value
+            : null,
+      }))
+      .filter((field) => field.field_name.length > 0 && field.value);
+    const priorityFields = (((data as any).priorities ?? []) as Array<{ field_name?: unknown; value?: unknown }>)
+      .map((field) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value:
+          field?.value === "low" || field?.value === "medium" || field?.value === "high" || field?.value === "urgent"
+            ? field.value
+            : null,
+      }))
+      .filter((field) => field.field_name.length > 0 && field.value);
+    const assigneeFields = (((data as any).assignees ?? []) as Array<{ field_name?: unknown; value?: unknown }>)
+      .map((field) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value: Array.isArray(field?.value)
+          ? (field.value as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+          : [],
+      }))
+      .filter((field) => field.field_name.length > 0);
+    const dueDateFields = (((data as any).due_dates ?? []) as Array<{ field_name?: unknown; value?: unknown }>)
+      .map((field) => ({
+        field_name: String(field?.field_name || "").trim(),
+        value: normalizeDueDateRange(field?.value),
+      }))
+      .filter((field) => field.field_name.length > 0 && field.value)
+      .map((field) => ({
+        field_name: field.field_name,
+        value: field.value as DueDateRange,
+      }));
+    const dueDateRange = normalizeDueDateRange((data as any).due_date ?? null);
+
+    await supabase
+      .from("cards")
+      .update({
+        statuses: statusFields,
+        priorities: priorityFields,
+        assignees: assigneeFields,
+        due_dates: dueDateFields,
+        assignee_id: (data as any).assignee_id ?? null,
+        start_date: getDueDateStart(dueDateRange),
+        due_date: getDueDateEnd(dueDateRange),
+        tags: Array.isArray((data as any).tags)
+          ? ((data as any).tags as unknown[])
+              .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+          : [],
+        updated_by: userId,
+      })
+      .eq("id", input.entity_id);
   }
 
   if (
@@ -1568,6 +1698,13 @@ export async function addTag(input: AddTagInput): Promise<ActionResult<EntityPro
   const refreshed = await getEntityProperties(input.entity_type, input.entity_id);
   if ("error" in refreshed) return refreshed;
   if (!refreshed.data) return { error: "Failed to add tag" };
+
+  if (input.entity_type === "card") {
+    await supabase
+      .from("cards")
+      .update({ tags: refreshed.data.tags ?? [] })
+      .eq("id", input.entity_id);
+  }
   return { data: refreshed.data };
 }
 
@@ -1613,6 +1750,13 @@ export async function removeTag(input: RemoveTagInput): Promise<ActionResult<Ent
   const refreshed = await getEntityProperties(input.entity_type, input.entity_id);
   if ("error" in refreshed) return refreshed;
   if (!refreshed.data) return { error: "Failed to remove tag" };
+
+  if (input.entity_type === "card") {
+    await supabase
+      .from("cards")
+      .update({ tags: refreshed.data.tags ?? [] })
+      .eq("id", input.entity_id);
+  }
   return { data: refreshed.data };
 }
 
@@ -1658,6 +1802,22 @@ export async function clearEntityProperties(
         due_dates: [],
         due_date: null,
         start_date: null,
+      })
+      .eq("id", entityId);
+  }
+
+  if (entityType === "card") {
+    await supabase
+      .from("cards")
+      .update({
+        statuses: [],
+        priorities: [],
+        assignee_id: null,
+        assignees: [],
+        due_dates: [],
+        due_date: null,
+        start_date: null,
+        tags: [],
       })
       .eq("id", entityId);
   }

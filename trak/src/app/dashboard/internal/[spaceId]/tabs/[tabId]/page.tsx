@@ -8,6 +8,7 @@ import { buildProjectPath } from "@/lib/dashboard-routes";
 import SpaceHeader from "../../space-header";
 import TabBar from "../../../../projects/[projectId]/tab-bar";
 import TabCanvas from "../../../../projects/[projectId]/tabs/[tabId]/tab-canvas";
+import { CardCountProvider } from "../../../../projects/[projectId]/tabs/[tabId]/card-count-context";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -79,7 +80,9 @@ export default async function InternalTabPage({ params }: PageProps) {
     <div className="space-y-6">
       <SpaceHeader space={space} />
       <TabBar tabs={organizedTabs} projectId={spaceId} projectName={space.name} />
-      <TabCanvas tabId={tabId} projectId={spaceId} projectName={space.name} workspaceId={workspaceId} blocks={blocks} />
+      <CardCountProvider>
+        <TabCanvas tabId={tabId} projectId={spaceId} projectName={space.name} workspaceId={workspaceId} blocks={blocks} />
+      </CardCountProvider>
     </div>
   );
 }

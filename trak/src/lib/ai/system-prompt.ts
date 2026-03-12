@@ -747,7 +747,7 @@ User: "Assign task X to Amna"
 1. **Structured Search** (for finding specific entities by properties):
    - searchTasks, searchSubtasks, searchProjects, searchTabs, searchClients, searchWorkspaceMembers
    - searchTables, searchTableRows, searchTimelineEvents
-   - searchBlocks, searchDocs, searchDocContent, searchFiles
+   - searchBlocks, searchCards, searchDocs, searchDocContent, searchFiles
    - searchTags, searchAll
    - Use when: Looking for specific tasks/projects/etc. by name, status, assignee, etc.
 
@@ -775,10 +775,11 @@ User: "Assign task X to Amna"
 - Subtask: createTaskSubtask, updateTaskSubtask, deleteTaskSubtask
 - Project: createProject, updateProject, deleteProject
 - Tab: createTab, updateTab, deleteTab
-- Block: createBlock, updateBlock, deleteBlock, createSpecChartBlock
+- Block: createBlock, updateBlock, deleteBlock, createSpecChartBlock, createCard, updateCard, deleteCard
 - Table: createField, updateField, deleteField, createRow, updateRow, updateCell, deleteRow, bulkInsertRows, bulkUpdateRows
 - Timeline: createTimelineEvent, createTimelineSubEvent, updateTimelineEvent, deleteTimelineEvent, createTimelineDependency
 - Property: setEntityProperty, removeEntityProperty
+- setEntityProperty and removeEntityProperty also work for cards via entityType: "card".
 - Client: createClient, updateClient, deleteClient
 - Doc: createDoc, updateDoc, archiveDoc, deleteDoc
 - Comment: createComment, updateComment, deleteComment
@@ -789,12 +790,12 @@ User: "Assign task X to Amna"
 When a user requests a chart/graph/visualization over Trak entities, use createSpecChartBlock (preferred):
 
 ### Step-by-step
-1. Retrieve data using existing search tools (searchTasks, searchTableRows, searchTimelineEvents, etc.)
+1. Retrieve data using existing search tools (searchTasks, searchCards, searchTableRows, searchTimelineEvents, etc.)
 2. Build a ChartSpec v1 object (see createSpecChartBlock tool description for full schema).
 3. Call createSpecChartBlock with spec and either **rowIds** or **rows**:
    - **rowIds:** Pass an array of entity ID strings selected from your search results. The server automatically hydrates full row data. Best when you're charting search results directly without field transformations.
    - **rows:** Pass normalised row objects directly. Each row must have an "id" field plus breakdown/series fields. Use this when you need to compute/derive fields (e.g. extracting month from a date), merge data from multiple searches, use __count compression for pre-aggregated data, or pass inline/hand-crafted data not from a search.
-4. **When the chart is built from a single search** (searchTasks, searchTimelineEvents, or searchTableRows), include **dataSource** with the same query you used: dataSource: { mode: "refreshable", scope: "query", query: { type: "tasks" | "timeline_events" | "table_rows", params: { ...same params as the search call } } }. This makes the chart refreshable and lets the user choose “Track only these items” or “Track future items that meet these requirements” in the UI. Omit dataSource for mixed or inline data (snapshot-only chart).
+4. **When the chart is built from a single search** (searchTasks, searchCards, searchTimelineEvents, or searchTableRows), include **dataSource** with the same query you used: dataSource: { mode: "refreshable", scope: "query", query: { type: "tasks" | "cards" | "timeline_events" | "table_rows", params: { ...same params as the search call } } }. This makes the chart refreshable and lets the user choose “Track only these items” or “Track future items that meet these requirements” in the UI. Omit dataSource for mixed or inline data (snapshot-only chart).
 
 ### Chart type selection
 - pie / doughnut: categorical breakdown, 8 or fewer categories, shows proportions

@@ -352,7 +352,6 @@ export default function BlockWrapper({
   const blockTypeOptions: Array<{ type: Block["type"]; label: string; icon: React.ReactNode }> = [
     { type: "text", label: "Text", icon: <FileText className="h-4 w-4" /> },
     { type: "task", label: "Task list", icon: <CheckSquare className="h-4 w-4" /> },
-    { type: "cards", label: "Cards", icon: <LayoutGrid className="h-4 w-4" /> },
     { type: "link", label: "Link", icon: <Link2 className="h-4 w-4" /> },
     { type: "section_header", label: "Section Header", icon: <Heading className="h-4 w-4" /> },
     { type: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
@@ -371,6 +370,12 @@ export default function BlockWrapper({
     layout === "array"
       ? { layout: "array" as const, arrayColumns: 2, arrayRows: 2, items: [] }
       : { layout: "collage" as const, items: [] };
+
+  const cardsLayouts = [
+    { label: "Single card", content: { title: "Cards", viewMode: "grid", initialCardCount: 1 } },
+    { label: "Array (2×2)", content: { title: "Cards", viewMode: "grid", initialCardCount: 4 } },
+    { label: "Array (2×3)", content: { title: "Cards", viewMode: "grid", initialCardCount: 6 } },
+  ];
 
   const isTextBlock = block.type === "text";
 
@@ -581,6 +586,26 @@ export default function BlockWrapper({
                                 ))}
                               </DropdownMenuSubContent>
                             </DropdownMenuSub>
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                                <LayoutGrid className="h-3 w-3" />
+                                <span>Cards</span>
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                                {cardsLayouts.map((c) => (
+                                  <DropdownMenuItem
+                                    key={`add-above-cards-${c.label}`}
+                                    onClick={() => {
+                                      onAddBlockAbove?.(block.id, "cards", c.content);
+                                      setMenuOpen(false);
+                                    }}
+                                    className="!py-1 !px-1.5 !text-[10px]"
+                                  >
+                                    <span>{c.label}</span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
                           </DropdownMenuSubContent>
                         </DropdownMenuSub>
                         <DropdownMenuSub>
@@ -620,6 +645,26 @@ export default function BlockWrapper({
                                     className="!py-1 !px-1.5 !text-[10px]"
                                   >
                                     <span>{g.label}</span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                                <LayoutGrid className="h-3 w-3" />
+                                <span>Cards</span>
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                                {cardsLayouts.map((c) => (
+                                  <DropdownMenuItem
+                                    key={`add-below-cards-${c.label}`}
+                                    onClick={() => {
+                                      onAddBlockBelow?.(block.id, "cards", c.content);
+                                      setMenuOpen(false);
+                                    }}
+                                    className="!py-1 !px-1.5 !text-[10px]"
+                                  >
+                                    <span>{c.label}</span>
                                   </DropdownMenuItem>
                                 ))}
                               </DropdownMenuSubContent>
@@ -806,6 +851,26 @@ export default function BlockWrapper({
                           ))}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <LayoutGrid className="h-3 w-3" />
+                          <span>Cards</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                          {cardsLayouts.map((c) => (
+                            <DropdownMenuItem
+                              key={`add-above-cards-${c.label}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, "cards", c.content);
+                                setMenuOpen(false);
+                              }}
+                              className="!py-1 !px-1.5 !text-[10px]"
+                            >
+                              <span>{c.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -845,6 +910,26 @@ export default function BlockWrapper({
                               className="!py-1 !px-1.5 !text-[10px]"
                             >
                               <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <LayoutGrid className="h-3 w-3" />
+                          <span>Cards</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                          {cardsLayouts.map((c) => (
+                            <DropdownMenuItem
+                              key={`add-below-cards-${c.label}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, "cards", c.content);
+                                setMenuOpen(false);
+                              }}
+                              className="!py-1 !px-1.5 !text-[10px]"
+                            >
+                              <span>{c.label}</span>
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuSubContent>
@@ -892,6 +977,28 @@ export default function BlockWrapper({
                                 className="!py-1 !px-1.5 !text-[10px]"
                               >
                                 <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      )}
+                      {(block.type as Block["type"]) !== "cards" && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <LayoutGrid className="h-3 w-3" />
+                            <span>Cards</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {cardsLayouts.map((c) => (
+                              <DropdownMenuItem
+                                key={`convert-cards-${c.label}`}
+                                onClick={() => {
+                                  onConvert?.(block.id, "cards", c.content);
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{c.label}</span>
                               </DropdownMenuItem>
                             ))}
                           </DropdownMenuSubContent>
@@ -1021,6 +1128,26 @@ export default function BlockWrapper({
                           ))}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <LayoutGrid className="h-3 w-3" />
+                          <span>Cards</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                          {cardsLayouts.map((c) => (
+                            <DropdownMenuItem
+                              key={`add-above-cards-${c.label}`}
+                              onClick={() => {
+                                onAddBlockAbove?.(block.id, "cards", c.content);
+                                setMenuOpen(false);
+                              }}
+                              className="!py-1 !px-1.5 !text-[10px]"
+                            >
+                              <span>{c.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -1060,6 +1187,26 @@ export default function BlockWrapper({
                               className="!py-1 !px-1.5 !text-[10px]"
                             >
                               <span>{g.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                          <LayoutGrid className="h-3 w-3" />
+                          <span>Cards</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                          {cardsLayouts.map((c) => (
+                            <DropdownMenuItem
+                              key={`add-below-cards-${c.label}`}
+                              onClick={() => {
+                                onAddBlockBelow?.(block.id, "cards", c.content);
+                                setMenuOpen(false);
+                              }}
+                              className="!py-1 !px-1.5 !text-[10px]"
+                            >
+                              <span>{c.label}</span>
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuSubContent>

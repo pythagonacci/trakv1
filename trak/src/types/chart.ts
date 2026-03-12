@@ -6,12 +6,13 @@ export type ChartType = "bar" | "line" | "pie" | "doughnut";
 
 /**
  * Serializable query params for re-running search on refresh.
- * Shapes match the corresponding search API (searchTasks, searchTimelineEvents, searchTableRows).
+ * Shapes match the corresponding search API (searchTasks, searchTimelineEvents, searchTableRows, searchCards).
  */
 export type ChartDataQuery =
   | { type: "tasks"; params: Record<string, unknown> }
   | { type: "timeline_events"; params: Record<string, unknown> }
-  | { type: "table_rows"; params: Record<string, unknown> };
+  | { type: "table_rows"; params: Record<string, unknown> }
+  | { type: "cards"; params: Record<string, unknown> };
 
 /**
  * Refreshable query scope: chart is driven by the stored query; refresh re-runs it.
@@ -29,7 +30,7 @@ export interface ChartDataSourceRefreshableQuery {
 export interface ChartDataSourceRefreshableFixed {
   mode: "refreshable";
   scope: "fixed";
-  entityType: "task" | "timeline_event" | "table_row";
+  entityType: "task" | "timeline_event" | "table_row" | "card";
   entityIds: string[];
   previousQuery?: ChartDataQuery;
 }

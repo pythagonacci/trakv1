@@ -265,14 +265,14 @@ export function PriorityBadge({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors",
+        "inline-flex w-fit max-w-full self-start items-start justify-start gap-0.5 rounded px-1 py-0.5 text-left text-xs font-medium leading-tight transition-colors",
         PRIORITY_COLORS[priority],
         inherited && "border border-dashed opacity-75",
         onClick && "cursor-pointer hover:opacity-80"
       )}
     >
-      <Flag className="h-3 w-3 flex-shrink-0" />
-      <span>{text}</span>
+      <Flag className="mt-px h-3 w-3 flex-shrink-0" />
+      <span className="min-w-0 break-words leading-tight">{text}</span>
     </button>
   );
 }

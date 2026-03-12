@@ -19,6 +19,7 @@ import {
   searchWorkspaceMembers,
   searchTabs,
   searchBlocks,
+  searchCards,
   searchDocs,
   searchDocContent,
   searchTables,
@@ -88,6 +89,11 @@ import {
   deleteBlock,
   getTabBlocks,
 } from "@/app/actions/block";
+import {
+  createCard,
+  updateCard,
+  deleteCard,
+} from "@/app/actions/cards/item-actions";
 import { createSpecChartBlock } from "@/app/actions/chart-actions";
 import { normalizeToChartRows, type ChartDataSourceType } from "@/lib/charts/normalizeToChartRows";
 
@@ -240,7 +246,7 @@ export interface ToolExecutionContext {
   currentProjectId?: string;
   undoTracker?: UndoTracker;
   authContext?: AuthContext; // Pre-authenticated context (for Slack, API calls, etc.)
-  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }>;
+  searchedEntities?: Array<{ id: string; title: string; entityType: "task" | "card" | "timeline_event" | "table_row" | "block" | "subtask" }>;
   /** Recent search tool results for chart row hydration (rowIds → full rows). */
   recentSearchResults?: Array<{
     tool: string;
@@ -395,6 +401,7 @@ function searchToolToSourceType(tool: string): ChartDataSourceType | null {
     case "searchTasks": return "tasks";
     case "searchTimelineEvents": return "timeline_events";
     case "searchTableRows": return "table_rows";
+    case "searchCards": return "cards";
     default: return null;
   }
 }
@@ -1471,6 +1478,9 @@ export async function executeTool(
 
         case "searchBlocks":
           return await wrapResult(searchBlocks({ ...args as any, authContext }));
+
+        case "searchCards":
+          return await wrapResult(searchCards({ ...args as any, authContext }));
 
         case "searchDocs":
           return await wrapResult(searchDocs({ ...args as any, authContext }));
@@ -2954,6 +2964,47 @@ export async function executeTool(
             })
           );
         }
+
+        case "createCard":
+          return await wrapResult(
+            createCard(
+              {
+                cardsBlockId: args.cardsBlockId as string,
+                title: args.title as string | undefined,
+                notes: args.notes as string | null | undefined,
+                status: args.status as any,
+                priority: args.priority as any,
+                assigneeIds: args.assigneeIds as string[] | undefined,
+                tags: args.tags as string[] | undefined,
+                dueDate: args.dueDate as any,
+                statuses: args.statuses as any,
+                priorities: args.priorities as any,
+              },
+              { authContext: authContext ?? undefined }
+            )
+          );
+
+        case "updateCard":
+          return await wrapResult(
+            updateCard(
+              args.cardId as string,
+              {
+                title: args.title as string | undefined,
+                notes: args.notes as string | null | undefined,
+                status: args.status as any,
+                priority: args.priority as any,
+                assigneeIds: args.assigneeIds as string[] | undefined,
+                tags: args.tags as string[] | undefined,
+                dueDate: args.dueDate as any,
+                statuses: args.statuses as any,
+                priorities: args.priorities as any,
+              },
+              { authContext: authContext ?? undefined }
+            )
+          );
+
+        case "deleteCard":
+          return await wrapResult(deleteCard(args.cardId as string, { authContext: authContext ?? undefined }));
 
         case "updateBlock":
           return await wrapResult(

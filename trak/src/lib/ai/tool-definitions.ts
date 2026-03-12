@@ -297,7 +297,7 @@ const searchTools: ToolDefinition[] = [
     category: "search",
     parameters: {
       searchText: { type: "string", description: "Search by block content" },
-      type: { type: "string", description: "Filter by block type", enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "section_header", "link", "pdf", "chart", "doc_reference"] },
+      type: { type: "string", description: "Filter by block type", enum: ["text", "task", "cards", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "section_header", "link", "pdf", "chart", "doc_reference"] },
       projectId: { type: "string", description: "Filter by project ID" },
       projectName: { type: "string", description: "Filter by project name (partial match)" },
       tabId: { type: "string", description: "Filter by tab ID" },
@@ -308,6 +308,25 @@ const searchTools: ToolDefinition[] = [
       tagName: { type: "string", description: "Filter by tag name (partial match)" },
       status: { type: "string", description: "Filter by status (via entity_properties)", enum: ["todo", "in_progress", "done", "blocked"] },
       priority: { type: "string", description: "Filter by priority (via entity_properties)", enum: ["low", "medium", "high", "urgent"] },
+      limit: { type: "number", description: "Maximum number of results" },
+    },
+    requiredParams: [],
+  },
+  {
+    name: "searchCards",
+    description: "SEARCH for cards inside cards blocks (read-only). Use to FIND individual cards by title, notes, project/tab, or universal properties before updating or deleting them.",
+    category: "search",
+    parameters: {
+      searchText: { type: "string", description: "Search by card title or notes" },
+      projectId: { type: "string", description: "Filter by project ID" },
+      tabId: { type: "string", description: "Filter by tab ID" },
+      cardsBlockId: { type: "string", description: "Filter to one cards block ID" },
+      assigneeId: { type: "string", description: "Filter by assignee user ID" },
+      assigneeName: { type: "string", description: "Filter by assignee name" },
+      tagId: { type: "string", description: "Filter by tag ID" },
+      tagName: { type: "string", description: "Filter by tag name" },
+      status: { type: "string", description: "Filter by status", enum: ["todo", "in_progress", "done", "blocked"] },
+      priority: { type: "string", description: "Filter by priority", enum: ["low", "medium", "high", "urgent"] },
       limit: { type: "number", description: "Maximum number of results" },
     },
     requiredParams: [],
@@ -372,8 +391,8 @@ const searchTools: ToolDefinition[] = [
       tabId: { type: "string", description: "Optional: Limit to a tab (required if scope=tab)" },
       entityTypes: {
         type: "array",
-        description: "Entity types to include (default: task, subtask, block, timeline_event, table_row)",
-        items: { type: "string", enum: ["task", "subtask", "block", "timeline_event", "table_row"] },
+        description: "Entity types to include (default: task, card, subtask, block, timeline_event, table_row)",
+        items: { type: "string", enum: ["task", "card", "subtask", "block", "timeline_event", "table_row"] },
       },
       status: { type: "string", description: "Filter by status value (e.g. todo, in_progress, done, blocked)" },
       statusOperator: {
@@ -427,7 +446,7 @@ const searchTools: ToolDefinition[] = [
       entityType: {
         type: "string",
         description: "Type of entity to resolve",
-        enum: ["task", "subtask", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
+        enum: ["task", "card", "subtask", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
       },
       name: { type: "string", description: "Name to search for" },
       projectId: { type: "string", description: "Optional: Limit search to specific project" },
@@ -443,7 +462,7 @@ const searchTools: ToolDefinition[] = [
       entityType: {
         type: "string",
         description: "Type of entity",
-        enum: ["task", "subtask", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
+        enum: ["task", "card", "subtask", "project", "client", "member", "tab", "block", "doc", "table", "table_row", "timeline_event", "file", "payment", "tag"],
       },
       id: { type: "string", description: "The entity ID" },
     },
@@ -457,7 +476,7 @@ const searchTools: ToolDefinition[] = [
       entityType: {
         type: "string",
         description: "Type of entity",
-        enum: ["block", "task", "subtask", "timeline_event", "table_row"],
+        enum: ["block", "task", "card", "subtask", "timeline_event", "table_row"],
       },
       id: { type: "string", description: "The entity ID" },
     },
@@ -1028,7 +1047,7 @@ const blockActionTools: ToolDefinition[] = [
     name: "createSpecChartBlock",
     description:
       "PREFERRED chart tool. Create a spec-driven chart block. " +
-      "Use this when the user asks for a chart/graph/visualization over Trak entities (tasks, table rows, timeline events, etc.). " +
+      "Use this when the user asks for a chart/graph/visualization over Trak entities (tasks, cards, table rows, timeline events, etc.). " +
       "Steps: (1) retrieve data using search tools, (2) normalise rows with consistent field names, (3) build a ChartSpec JSON, (4) call this tool. " +
       "Do NOT generate JSX. Output a validated JSON spec and the data rows.\n\n" +
       "CHART SPEC v1 reference:\n" +
@@ -1055,9 +1074,9 @@ const blockActionTools: ToolDefinition[] = [
       "The server expands compressed rows before rendering. You may also send rowBatches (array of row arrays) as a batched alternative.\n\n" +
       "UNIVERSE: to show 'Figma files by status out of all files', set normalizeTo='universe', pass only Figma rows as rows[], " +
       "and set universeTotal to the count of ALL files. To add a 'Non-Figma' slice, set pieComposition='focusPlusRest'.\n\n" +
-      "DATA SOURCE (refresh + scope): When the chart data comes from searchTasks, searchTimelineEvents, or searchTableRows, " +
+      "DATA SOURCE (refresh + scope): When the chart data comes from searchTasks, searchCards, searchTimelineEvents, or searchTableRows, " +
       "pass dataSource so the chart can be refreshed and can track future matching items. Use dataSource: { mode: 'refreshable', scope: 'query', query: { type, params } } " +
-      "where type is 'tasks' | 'timeline_events' | 'table_rows' and params are the same serializable arguments you used for that search (e.g. searchText, status, projectId, limit). " +
+      "where type is 'tasks' | 'cards' | 'timeline_events' | 'table_rows' and params are the same serializable arguments you used for that search (e.g. searchText, status, projectId, limit). " +
       "The user can later choose \"Track only these items\" in the UI to lock the chart to the current set. Omit dataSource for inline/mixed data (snapshot-only chart).",
     category: "block",
     parameters: {
@@ -1070,7 +1089,7 @@ const blockActionTools: ToolDefinition[] = [
       universeTotal: { type: "number", description: "Total count of the full universe (denominator scope). Required when spec.normalizeTo='universe'." },
       title:    { type: "string", description: "Chart title override (also settable in spec.title)." },
       prompt:   { type: "string", description: "Original user request (stored for traceability)." },
-      dataSource: { type: "object", description: "Optional. When chart is from a single search: { mode: 'refreshable', scope: 'query', query: { type: 'tasks'|'timeline_events'|'table_rows', params: { ...same as search } } }. Enables Refresh and scope switching." },
+      dataSource: { type: "object", description: "Optional. When chart is from a single search: { mode: 'refreshable', scope: 'query', query: { type: 'tasks'|'cards'|'timeline_events'|'table_rows', params: { ...same as search } } }. Enables Refresh and scope switching." },
       isSimulation: { type: "boolean", description: "True for what-if simulations." },
       originalChartId: { type: "string", description: "Source chart block ID for simulations." },
       simulationDescription: { type: "string", description: "Brief description of the what-if change." },
@@ -1092,7 +1111,7 @@ const blockActionTools: ToolDefinition[] = [
       type: {
         type: "string",
         description: "Block type",
-        enum: ["text", "task", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "section_header", "link", "pdf", "chart", "doc_reference"],
+        enum: ["text", "task", "cards", "table", "timeline", "image", "file", "video", "embed", "gallery", "section", "section_header", "link", "pdf", "chart", "doc_reference"],
       },
       content: { type: "object", description: "Block content (varies by type)" },
       position: { type: "number", description: "Row position (0-based)" },
@@ -1100,6 +1119,109 @@ const blockActionTools: ToolDefinition[] = [
       parentBlockId: { type: "string", description: "Parent section block ID for nested blocks" },
     },
     requiredParams: ["type"],
+  },
+  {
+    name: "createCard",
+    description: "Create a new card inside a cards block.",
+    category: "block",
+    parameters: {
+      cardsBlockId: { type: "string", description: "The cards block ID that will contain the card" },
+      title: { type: "string", description: "Card title" },
+      notes: { type: "string", description: "Optional notes/body" },
+      status: { type: "string", description: "Primary status", enum: ["todo", "in_progress", "done", "blocked"] },
+      priority: { type: "string", description: "Primary priority", enum: ["low", "medium", "high", "urgent"] },
+      assigneeIds: { type: "array", description: "Assignee profile IDs", items: { type: "string" } },
+      tags: { type: "array", description: "Tag names", items: { type: "string" } },
+      dueDate: {
+        type: "object",
+        description: "Due date range",
+        properties: {
+          start: { type: "string", description: "Start date YYYY-MM-DD" },
+          end: { type: "string", description: "End date YYYY-MM-DD" },
+        },
+      },
+      statuses: {
+        type: "array",
+        description: "Named status fields",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Field name" },
+            value: { type: "string", description: "Status value", enum: ["todo", "in_progress", "done", "blocked"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+      priorities: {
+        type: "array",
+        description: "Named priority fields",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Field name" },
+            value: { type: "string", description: "Priority value", enum: ["low", "medium", "high", "urgent"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+    },
+    requiredParams: ["cardsBlockId"],
+  },
+  {
+    name: "updateCard",
+    description: "Update an existing card.",
+    category: "block",
+    parameters: {
+      cardId: { type: "string", description: "The card ID" },
+      title: { type: "string", description: "Updated title" },
+      notes: { type: "string", description: "Updated notes/body" },
+      status: { type: "string", description: "Primary status", enum: ["todo", "in_progress", "done", "blocked"] },
+      priority: { type: "string", description: "Primary priority", enum: ["low", "medium", "high", "urgent"] },
+      assigneeIds: { type: "array", description: "Assignee profile IDs", items: { type: "string" } },
+      tags: { type: "array", description: "Tag names", items: { type: "string" } },
+      dueDate: {
+        type: "object",
+        description: "Due date range",
+        properties: {
+          start: { type: "string", description: "Start date YYYY-MM-DD" },
+          end: { type: "string", description: "End date YYYY-MM-DD" },
+        },
+      },
+      statuses: {
+        type: "array",
+        description: "Named status fields",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Field name" },
+            value: { type: "string", description: "Status value", enum: ["todo", "in_progress", "done", "blocked"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+      priorities: {
+        type: "array",
+        description: "Named priority fields",
+        items: {
+          type: "object",
+          properties: {
+            field_name: { type: "string", description: "Field name" },
+            value: { type: "string", description: "Priority value", enum: ["low", "medium", "high", "urgent"] },
+          },
+          required: ["field_name", "value"],
+        },
+      },
+    },
+    requiredParams: ["cardId"],
+  },
+  {
+    name: "deleteCard",
+    description: "Delete a card permanently.",
+    category: "block",
+    parameters: {
+      cardId: { type: "string", description: "The card ID" },
+    },
+    requiredParams: ["cardId"],
   },
   {
     name: "updateBlock",
@@ -1704,11 +1826,11 @@ const propertyActionTools: ToolDefinition[] = [
   {
     name: "setEntityProperty",
     description:
-      "Set a property value on an entity (task, subtask, block, timeline_event, table_row). " +
+      "Set a property value on an entity (task, card, subtask, block, timeline_event, table_row). " +
       "Provide fieldType (status/priority/assignee/due_date/tags) and fieldName (the display name) plus value.",
     category: "property",
     parameters: {
-      entityType: { type: "string", description: "Entity type", enum: ["task", "subtask", "block", "timeline_event", "table_row"] },
+      entityType: { type: "string", description: "Entity type", enum: ["task", "card", "subtask", "block", "timeline_event", "table_row"] },
       entityId: { type: "string", description: "The entity ID" },
       fieldType: { type: "string", description: "Property type: status, priority, assignee, due_date, or tags", enum: ["status", "priority", "assignee", "due_date", "tags"] },
       fieldName: { type: "string", description: "Display name for the property (e.g. 'Status', 'Priority', 'Assignee')" },
@@ -2102,7 +2224,7 @@ export const toolsByEntityType: Record<EntityToolGroup, ToolDefinition[]> = {
   ]),
   project: pickTools(["searchProjects", "createProject", "updateProject", "deleteProject"]),
   tab: pickTools(["searchTabs", "createTab", "updateTab", "deleteTab"]),
-  block: pickTools(["searchBlocks", "createBlock", "updateBlock", "deleteBlock"]),
+  block: pickTools(["searchBlocks", "searchCards", "createBlock", "createCard", "updateCard", "deleteCard", "updateBlock", "deleteBlock"]),
   table: pickTools([
     "searchTables",
     "searchTableRows",

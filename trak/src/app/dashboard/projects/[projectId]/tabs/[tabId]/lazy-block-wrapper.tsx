@@ -8,6 +8,7 @@ import { type BlockType } from "@/app/actions/block";
 const BLOCK_HEIGHT_ESTIMATES: Partial<Record<BlockType, number>> = {
   text: 80,
   task: 320,
+  cards: 360,
   table: 240,
   timeline: 300,
   image: 280,

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import TabCanvas from "./tab-canvas";
+import { CardCountProvider } from "./card-count-context";
 import { type Block } from "@/app/actions/block";
 import type { EntityProperties } from "@/types/properties";
 import { TAB_THEMES } from "./tab-themes";
@@ -60,6 +61,11 @@ export default function TabCanvasWrapper({
     const ids: string[] = [];
     if (block.type === 'image' && block.content?.fileId) {
       ids.push(block.content.fileId as string);
+    }
+    if (block.type === 'cards' && Array.isArray(block.content?.items)) {
+      block.content.items.forEach((item: any) => {
+        if (item?.fileId) ids.push(item.fileId as string);
+      });
     }
     if (block.type === 'gallery' && Array.isArray(block.content?.items)) {
       block.content.items.forEach((item: any) => {
@@ -175,6 +181,7 @@ export default function TabCanvasWrapper({
 
   return (
     <div className="flex flex-1 min-h-0 flex flex-col min-w-0 w-full">
+    <CardCountProvider>
     <TabCanvas 
       tabId={tabId}
       projectId={projectId}
@@ -188,6 +195,7 @@ export default function TabCanvasWrapper({
       initialFileUrls={fileUrls || {}}
       hidePageUndoButton={hidePageUndoButton}
     />
+    </CardCountProvider>
     </div>
   );
 }

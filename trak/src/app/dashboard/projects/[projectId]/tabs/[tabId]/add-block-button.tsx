@@ -5,6 +5,7 @@ import {
   Plus,
   FileText,
   CheckSquare,
+  LayoutGrid,
   Link2,
   Minus,
   Table,
@@ -21,6 +22,7 @@ import {
   Heading,
 } from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
+import { createCard } from "@/app/actions/cards/item-actions";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -167,7 +169,9 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     setIsCreating(true);
 
     const nextPosition = getNextPosition?.() ?? 0;
-    const content = contentOverride ?? getDefaultContent(type);
+    const rawContent = contentOverride ?? getDefaultContent(type);
+    const { initialCardCount, ...content } = rawContent as Record<string, unknown> & { initialCardCount?: number };
+    const blockContent = Object.keys(content).length > 0 ? content : getDefaultContent(type);
 
     // Create optimistic block IMMEDIATELY (before server call)
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
@@ -176,7 +180,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       tab_id: tabId,
       parent_block_id: parentBlockId || null,
       type: type,
-      content,
+      content: blockContent,
       position: nextPosition, // Aim for next row
       column: 0,
       is_template: false,
@@ -198,7 +202,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       const result = await createBlock({
         tabId,
         type,
-        content,
+        content: blockContent,
         position: nextPosition,
         parentBlockId: parentBlockId || null,
       });
@@ -210,7 +214,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
           id: optimisticBlockId,
           status: 'failed',
           error: result.error,
-          retry: () => handleCreateBlock(type)
+          retry: () => handleCreateBlock(type, rawContent as Record<string, unknown>)
         })));
         // Call error callback to allow parent to handle UI state
         onBlockError?.(optimisticBlockId);
@@ -218,7 +222,25 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       }
 
       if (result.data) {
-        onBlockResolved?.(optimisticBlockId, result.data);
+        const savedBlock = result.data;
+        // For cards blocks: create initial cards if requested
+        const cardCount = initialCardCount ?? 0;
+        if (type === "cards" && cardCount > 0 && savedBlock.id) {
+          for (let i = 0; i < cardCount; i++) {
+            const cardResult = await createCard({
+              cardsBlockId: savedBlock.id,
+              title: "Untitled card",
+              status: "todo",
+              width: "half",
+              height: "tall",
+              displayOrder: i,
+            });
+            if ("error" in cardResult) {
+              console.error("Failed to create initial card:", cardResult.error);
+            }
+          }
+        }
+        onBlockResolved?.(optimisticBlockId, savedBlock);
       }
     } catch (error) {
       console.error("Create block exception:", error);
@@ -242,6 +264,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         viewMode: "list",
         boardGroupBy: "status",
       };
+      case "cards": return { title: "Cards", viewMode: "grid" };
       case "link": return { title: null, url: null, caption: "" };
       case "divider": return {};
       case "section_header": return { title: "New Section", subtitle: "" };
@@ -445,6 +468,40 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
               </div>
             </DropdownMenuItem>
           ))}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+              <div className="flex h-7 w-7 items-center justify-center bg-[var(--surface-muted)] text-[var(--foreground)]">
+                <LayoutGrid className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-[var(--foreground)]">Cards</div>
+                <div className="text-xs text-[var(--tertiary-foreground)]">Visual asset cards with structured metadata</div>
+              </div>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-52">
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("cards", { title: "Cards", viewMode: "grid", initialCardCount: 1 })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">Single card</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">Half-width block with one card</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("cards", { title: "Cards", viewMode: "grid", initialCardCount: 4 })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">Array (2×2)</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">4 cards in a 2×2 grid</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("cards", { title: "Cards", viewMode: "grid", initialCardCount: 6 })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">Array (2×3)</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">6 cards in a 2×3 grid</span>
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
               <div className="flex h-7 w-7 items-center justify-center bg-[var(--surface-muted)] text-[var(--foreground)]">

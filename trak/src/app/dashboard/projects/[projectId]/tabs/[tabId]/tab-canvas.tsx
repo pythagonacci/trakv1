@@ -19,16 +19,18 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { type Block, type BlockType, deleteBlock, updateBlock, createBlock } from "@/app/actions/block";
+import { createCard } from "@/app/actions/cards/item-actions";
 import EmptyCanvasState from "./empty-canvas-state";
 import AddBlockButton from "./add-block-button";
 import BlockRenderer from "./block-renderer";
 import DocSidebar from "./doc-sidebar";
 import TableOfContents from "./table-of-contents";
 import { useTabContents } from "./tab-contents-context";
+import { useCardCountContext } from "./card-count-context";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { Undo2, FileText, CheckSquare, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, Heading, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
+import { Undo2, FileText, CheckSquare, LayoutGrid, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, Heading, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { EntityProperties } from "@/types/properties";
 import {
@@ -510,12 +512,17 @@ export default function TabCanvas({
 
   const handleConvert = async (blockId: string, newType: BlockType, contentOverride?: Record<string, unknown>) => {
     let newContent: Record<string, unknown>;
+    let initialCardCount = 0;
     if (contentOverride !== undefined) {
-      newContent = contentOverride;
+      const { initialCardCount: count, ...rest } = contentOverride as Record<string, unknown> & { initialCardCount?: number };
+      initialCardCount = count ?? 0;
+      newContent = Object.keys(rest).length > 0 ? rest : { title: "Cards", viewMode: "grid" };
     } else if (newType === "text") {
       newContent = { text: "" };
     } else if (newType === "task") {
       newContent = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+    } else if (newType === "cards") {
+      newContent = { title: "Cards", viewMode: "grid" };
     } else if (newType === "link") {
       newContent = { title: "", url: "" };
     } else if (newType === "divider") {
@@ -574,6 +581,23 @@ export default function TabCanvas({
       return;
     }
 
+    // For cards blocks: create initial cards if requested
+    if (newType === "cards" && initialCardCount > 0 && result.data?.id) {
+      for (let i = 0; i < initialCardCount; i++) {
+        const cardResult = await createCard({
+          cardsBlockId: result.data.id,
+          title: "Untitled card",
+          status: "todo",
+          width: "half",
+          height: "tall",
+          displayOrder: i,
+        });
+        if ("error" in cardResult) {
+          console.error("Failed to create initial card:", cardResult.error);
+        }
+      }
+    }
+
     // Update local state and cache with the converted block (no full page refresh)
     if (result.data) {
       setBlocks((prev) =>
@@ -594,6 +618,8 @@ export default function TabCanvas({
         return { text: "" };
       case "task":
         return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+      case "cards":
+        return { title: "New Cards Block", viewMode: "grid" };
       case "link":
         return { title: null, url: null, caption: "" };
       case "divider":
@@ -702,14 +728,17 @@ export default function TabCanvas({
 
     await shiftRowsForInsertion(insertionRow);
 
-    const content = contentOverride ?? getDefaultContent(type);
+    const rawContent = contentOverride ?? getDefaultContent(type);
+    const { initialCardCount, ...content } = rawContent as Record<string, unknown> & { initialCardCount?: number };
+    const blockContent = Object.keys(content).length > 0 ? content : getDefaultContent(type);
+
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticBlock = {
       id: optimisticBlockId,
       tab_id: tabId,
       parent_block_id: null,
       type,
-      content,
+      content: blockContent,
       position: insertionRow,
       column: 0,
       is_template: false,
@@ -725,16 +754,33 @@ export default function TabCanvas({
     createBlock({
       tabId,
       type,
-      content,
+      content: blockContent,
       position: insertionRow,
       column: 0,
     })
-      .then((result) => {
+      .then(async (result) => {
         if (result.error) {
           console.error(`Failed to create block ${direction}:`, result.error);
           handleBlockError(optimisticBlockId);
         } else if (result.data) {
-          resolveOptimisticBlock(optimisticBlockId, result.data);
+          const savedBlock = result.data;
+          const cardCount = initialCardCount ?? 0;
+          if (type === "cards" && cardCount > 0 && savedBlock.id) {
+            for (let i = 0; i < cardCount; i++) {
+              const cardResult = await createCard({
+                cardsBlockId: savedBlock.id,
+                title: "Untitled card",
+                status: "todo",
+                width: "half",
+                height: "tall",
+                displayOrder: i,
+              });
+              if ("error" in cardResult) {
+                console.error("Failed to create initial card:", cardResult.error);
+              }
+            }
+          }
+          resolveOptimisticBlock(optimisticBlockId, savedBlock);
         }
       })
       .catch((error) => {
@@ -1313,6 +1359,24 @@ export default function TabCanvas({
     return [...blocks].sort((a, b) => a.position - b.position);
   }, [blocks]);
 
+  const { cardCounts } = useCardCountContext() ?? { cardCounts: {} };
+
+  const getGridClassForRow = useCallback(
+    (row: BlockRow, effectiveCount: number) => {
+      if (effectiveCount !== 1) {
+        return effectiveCount === 2
+          ? "grid-cols-1 md:grid-cols-2"
+          : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+      }
+      const singleBlock = row.blocks[0];
+      // Cards block with 1 card (or unknown count) = half width; 2+ cards = full width
+      const cardCount = singleBlock?.type === "cards" ? (cardCounts[singleBlock.id] ?? 1) : 0;
+      const isSingleCardBlock = singleBlock?.type === "cards" && cardCount === 1;
+      return isSingleCardBlock ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1";
+    },
+    [cardCounts]
+  );
+
   return (
     <FileUrlContext.Provider value={initialFileUrls}>
       <div className="flex flex-1 min-h-0 w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
@@ -1387,14 +1451,7 @@ export default function TabCanvas({
                   {blockRows.map((row, rowIdx) => (
                     <div
                       key={rowIdx}
-                      className={cn(
-                        "grid gap-4",
-                        row.blocks.length === 1
-                          ? "grid-cols-1"
-                          : row.maxColumns === 2
-                            ? "grid-cols-1 md:grid-cols-2"
-                            : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-                      )}
+                      className={cn("grid gap-4", getGridClassForRow(row, row.blocks.length))}
                     >
                       {row.blocks.map((block) => (
                         <div
@@ -1465,12 +1522,7 @@ export default function TabCanvas({
                         previewInfo.showGhost &&
                         row.rowIndex === previewInfo.targetRowIndex;
                       const effectiveCount = showInlineGhost ? row.blocks.length + 1 : row.blocks.length;
-                      const gridClass =
-                        effectiveCount === 1
-                          ? "grid-cols-1"
-                          : effectiveCount === 2
-                            ? "grid-cols-1 md:grid-cols-2"
-                            : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+                      const gridClass = getGridClassForRow(row, effectiveCount);
                       return (
                         <React.Fragment key={rowIdx}>
                           {showRowGhostAbove && (
@@ -1565,6 +1617,7 @@ function BlockDragCard({ block }: { block: Block }) {
   const iconMap: Partial<Record<Block["type"], React.ReactNode>> = {
     text: <FileText className="h-4 w-4" />,
     task: <CheckSquare className="h-4 w-4" />,
+    cards: <LayoutGrid className="h-4 w-4" />,
     link: <Link2 className="h-4 w-4" />,
     divider: <Minus className="h-4 w-4" />,
     section_header: <Heading className="h-4 w-4" />,
@@ -1582,7 +1635,7 @@ function BlockDragCard({ block }: { block: Block }) {
     pdf: <Paperclip className="h-4 w-4" />,
   };
   const labelMap: Partial<Record<Block["type"], string>> = {
-    text: "Text", task: "Task list", link: "Link", divider: "Divider",
+    text: "Text", task: "Task list", cards: "Cards", link: "Link", divider: "Divider",
     section_header: "Section Header",
     table: "Table", timeline: "Timeline", file: "File", video: "Video",
     image: "Image", gallery: "Gallery", embed: "Embed", section: "Section",
@@ -1675,6 +1728,7 @@ function getDragBlockTitle(block: Block): string {
       return typeof text === "string" && text.trim() ? text.slice(0, 40) : "Text block";
     }
     case "task": return (content.title as string) ?? "Task block";
+    case "cards": return (content.title as string) ?? "Cards";
     case "table": return (content.title as string) ?? "Table";
     case "image": return (content.alt as string) ?? (content.filename as string) ?? "Image";
     case "file": return (content.filename as string) ?? "File";

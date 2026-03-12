@@ -42,7 +42,7 @@ export interface AIToolCall {
   };
 }
 
-export type SearchManifestEntity = { id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" };
+export type SearchManifestEntity = { id: string; title: string; entityType: "task" | "card" | "timeline_event" | "table_row" | "block" | "subtask" };
 
 export interface SearchManifest {
   entities: SearchManifestEntity[];
@@ -581,6 +581,7 @@ const STRUCTURED_SEARCH_FALLBACK_TOOLS = new Set([
   "searchDocs",
   "searchDocContent",
   "searchBlocks",
+  "searchCards",
   "searchFiles",
   "searchAll",
   "searchTasks",
@@ -1032,7 +1033,7 @@ const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
     project: ["createProject"],
     table: ["createTableFull", "createTable", "createField", "bulkCreateFields", "createRow", "bulkInsertRows"],
     tab: ["createTab"],
-    block: ["createBlock"],
+    block: ["createBlock", "createCard"],
     doc: ["createDoc"],
     client: ["createClient"],
     timeline: ["createTimelineEvent"],
@@ -1055,7 +1056,7 @@ const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
       "updateField",
     ],
     tab: ["updateTab"],
-    block: ["updateBlock"],
+    block: ["updateBlock", "updateCard"],
     doc: ["updateDoc"],
     client: ["updateClient"],
     timeline: ["updateTimelineEvent"],
@@ -1065,7 +1066,7 @@ const SINGLE_ACTION_TOOLS: Record<string, Record<string, string[]>> = {
     project: ["deleteProject"],
     table: ["deleteTable", "deleteRow", "deleteRows", "deleteField"],
     tab: ["deleteTab"],
-    block: ["deleteBlock"],
+    block: ["deleteBlock", "deleteCard"],
     doc: ["deleteDoc", "archiveDoc"],
     client: ["deleteClient"],
     timeline: ["deleteTimelineEvent", "deleteTimelineDependency"],
@@ -1190,7 +1191,7 @@ export async function executeAICommand(
       : commandForRouting;
   let timingLogged = false;
   // Initialize source-tracking state before any early-return paths call withTiming().
-  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
+  const searchedEntities: Array<{ id: string; title: string; entityType: "task" | "card" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
     ...(options.initialSearchedEntities ?? []),
   ];
   const searchToolsUsed = new Set<string>();
@@ -1922,6 +1923,21 @@ export async function executeAICommand(
               titles: searchedEntities.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "searchCards" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntities.length;
+            for (const card of result.data) {
+              if (card.id && card.title) {
+                searchedEntities.push({ id: card.id, title: card.title, entityType: "card" });
+              }
+            }
+            searchToolsUsed.add(toolName);
+            aiDebug("sourceTracking:entitiesTracked", {
+              tool: toolName,
+              newEntities: searchedEntities.length - beforeCount,
+              totalTracked: searchedEntities.length,
+              titles: searchedEntities.slice(beforeCount).map(e => e.title),
+            });
+          }
           if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data)) {
             const beforeCount = searchedEntities.length;
             for (const subtask of result.data) {
@@ -1945,7 +1961,7 @@ export async function executeAICommand(
             result.success &&
             Array.isArray(result.data) &&
             result.data.length > 0 &&
-            (toolName === "searchTasks" || toolName === "searchTimelineEvents" || toolName === "searchTableRows" || toolName === "searchSubtasks")
+            (toolName === "searchTasks" || toolName === "searchTimelineEvents" || toolName === "searchTableRows" || toolName === "searchSubtasks" || toolName === "searchCards")
           ) {
             recentSearchResultsForChart.push({
               tool: toolName,
@@ -2813,7 +2829,7 @@ export async function* executeAICommandStream(
   }> = [];
   // Track searched entities for deterministic source metadata annotation (streaming path)
   // Seed with entities from previous conversation turns if available
-  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
+  const searchedEntitiesStream: Array<{ id: string; title: string; entityType: "task" | "card" | "timeline_event" | "table_row" | "block" | "subtask" }> = [
     ...(options.initialSearchedEntities ?? []),
   ];
   if (options.initialSearchedEntities && options.initialSearchedEntities.length > 0) {
@@ -3309,6 +3325,21 @@ export async function* executeAICommandStream(
               titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
             });
           }
+          if (toolName === "searchCards" && result.success && Array.isArray(result.data)) {
+            const beforeCount = searchedEntitiesStream.length;
+            for (const card of result.data) {
+              if (card.id && card.title) {
+                searchedEntitiesStream.push({ id: card.id, title: card.title, entityType: "card" });
+              }
+            }
+            searchToolsUsedStream.add(toolName);
+            aiDebug("sourceTracking:entitiesTracked:stream", {
+              tool: toolName,
+              newEntities: searchedEntitiesStream.length - beforeCount,
+              totalTracked: searchedEntitiesStream.length,
+              titles: searchedEntitiesStream.slice(beforeCount).map(e => e.title),
+            });
+          }
           if (toolName === "searchSubtasks" && result.success && Array.isArray(result.data)) {
             const beforeCount = searchedEntitiesStream.length;
             for (const subtask of result.data) {
@@ -3332,7 +3363,7 @@ export async function* executeAICommandStream(
             result.success &&
             Array.isArray(result.data) &&
             result.data.length > 0 &&
-            (toolName === "searchTasks" || toolName === "searchTimelineEvents" || toolName === "searchTableRows" || toolName === "searchSubtasks")
+            (toolName === "searchTasks" || toolName === "searchTimelineEvents" || toolName === "searchTableRows" || toolName === "searchSubtasks" || toolName === "searchCards")
           ) {
             recentSearchResultsForChartStream.push({
               tool: toolName,

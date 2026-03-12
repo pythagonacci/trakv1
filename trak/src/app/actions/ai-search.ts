@@ -309,6 +309,31 @@ interface BlockResult {
   files?: Array<{ id: string; file_name: string; file_size: number; file_type: string | null }>;
 }
 
+interface CardResult {
+  id: string;
+  title: string;
+  notes: string | null;
+  asset_file_id: string | null;
+  asset_kind: string | null;
+  asset_caption: string | null;
+  cards_block_id: string;
+  workspace_id: string;
+  project_id: string | null;
+  project_name: string | null;
+  tab_id: string | null;
+  tab_name: string | null;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  due_date: string | null;
+  start_date: string | null;
+  created_at: string;
+  updated_at: string;
+  assignees?: Array<{ id: string; name: string }>;
+  tags?: Array<{ id: string; name: string; color?: string | null }>;
+  status?: string | null;
+  priority?: string | null;
+}
+
 interface DocResult {
   id: string;
   title: string;
@@ -490,6 +515,7 @@ interface DocContentSearchResult {
 
 type EntityType =
   | "task"
+  | "card"
   | "subtask"
   | "project"
   | "client"
@@ -840,7 +866,7 @@ interface EnrichedProperty {
 async function getEntitiesWithPropertyFilter(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
-  entityType: "task" | "subtask" | "block" | "timeline_event" | "table_row",
+  entityType: "task" | "card" | "subtask" | "block" | "timeline_event" | "table_row",
   fieldType: string,
   filterType: "id" | "name",
   filterValue: string | string[]
@@ -905,7 +931,7 @@ async function getEntitiesWithPropertyFilter(
 async function getEntitiesWithDatePropertyFilter(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
-  entityType: "task" | "block" | "timeline_event",
+  entityType: "task" | "card" | "block" | "timeline_event",
   fieldType: string,
   filter: DateFilter
 ): Promise<string[]> {
@@ -926,7 +952,7 @@ async function getEntitiesWithDatePropertyFilter(
   }
 
   const matchesDateFilter = (value: unknown): boolean => {
-    const dateValue = typeof value === "string" ? value : null;
+    const dateValue = normalizeDateValue(value);
 
     if (filter.isNull) {
       return dateValue === null;
@@ -956,7 +982,7 @@ async function getEntitiesWithDatePropertyFilter(
 async function enrichEntitiesWithProperties(
   supabase: Awaited<ReturnType<typeof createClient>>,
   workspaceId: string,
-  entityType: "task" | "subtask" | "block" | "timeline_event" | "table_row",
+  entityType: "task" | "card" | "subtask" | "block" | "timeline_event" | "table_row",
   entityIds: string[]
 ): Promise<Map<string, EnrichedProperty[]>> {
   if (entityIds.length === 0) {
@@ -2424,6 +2450,148 @@ export async function searchBlocks(
   } catch (err) {
     console.error("searchBlocks exception:", err);
     return { data: null, error: "Failed to search blocks" };
+  }
+}
+
+export async function searchCards(params: {
+  searchText?: string;
+  projectId?: string | string[];
+  tabId?: string | string[];
+  cardsBlockId?: string | string[];
+  cardIds?: string[]; // When set, fetch only these card IDs (e.g. for chart fixed-scope refresh)
+  assigneeId?: string | string[];
+  assigneeName?: string;
+  tagId?: string | string[];
+  tagName?: string;
+  status?: string | string[];
+  priority?: string | string[];
+  dueDate?: DateFilter;
+  limit?: number;
+  authContext?: AuthContext;
+}): Promise<SearchResponse<CardResult>> {
+  const ctx = await getSearchContext({ authContext: params.authContext });
+  if (ctx.error !== null) return { data: null, error: ctx.error };
+
+  const { supabase, workspaceId } = ctx;
+  const limit = params.limit ?? 50;
+
+  try {
+    // When cardIds provided (e.g. chart fixed-scope refresh), skip property filters and filter by ID only
+    let matchingCardIds: string[] | null = params.cardIds?.length ? params.cardIds : null;
+    const hasPropertyFilters = !matchingCardIds && !!(
+      params.assigneeId ||
+      params.assigneeName ||
+      params.tagId ||
+      params.tagName ||
+      params.status ||
+      params.priority ||
+      params.dueDate
+    );
+
+    if (hasPropertyFilters) {
+      if (params.assigneeId) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithPropertyFilter(supabase, workspaceId, "card", "assignee", "id", params.assigneeId)
+        );
+      }
+      if (params.assigneeName) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithPropertyFilter(supabase, workspaceId, "card", "assignee", "name", params.assigneeName)
+        );
+      }
+      if (params.tagId) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithPropertyFilter(supabase, workspaceId, "card", "tags", "id", params.tagId)
+        );
+      }
+      if (params.tagName) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithPropertyFilter(supabase, workspaceId, "card", "tags", "name", params.tagName)
+        );
+      }
+      if (params.status) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithPropertyFilter(supabase, workspaceId, "card", "status", "name", params.status)
+        );
+      }
+      if (params.priority) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithPropertyFilter(supabase, workspaceId, "card", "priority", "name", params.priority)
+        );
+      }
+      if (params.dueDate) {
+        matchingCardIds = intersectIds(
+          matchingCardIds,
+          await getEntitiesWithDatePropertyFilter(supabase, workspaceId, "card", "due_date", params.dueDate)
+        );
+      }
+      if (matchingCardIds !== null && matchingCardIds.length === 0) {
+        return { data: [], error: null };
+      }
+    }
+
+    let query = supabase
+      .from("cards")
+      .select("id, title, notes, asset_file_id, asset_kind, asset_caption, cards_block_id, workspace_id, project_id, tab_id, assignee_id, due_date, start_date, created_at, updated_at, projects(name), tabs(name)")
+      .eq("workspace_id", workspaceId);
+
+    const projectIds = normalizeArrayFilter(params.projectId);
+    const tabIds = normalizeArrayFilter(params.tabId);
+    const blockIds = normalizeArrayFilter(params.cardsBlockId);
+    if (projectIds) query = query.in("project_id", projectIds);
+    if (tabIds) query = query.in("tab_id", tabIds);
+    if (blockIds) query = query.in("cards_block_id", blockIds);
+    if (matchingCardIds) query = query.in("id", matchingCardIds);
+
+    const { data, error } = await query.order("updated_at", { ascending: false }).limit(limit * 10);
+    if (error) return { data: null, error: error.message ?? "Failed to search cards" };
+
+    let results = ((data ?? []) as unknown[]) as CardResult[];
+    const searchLower = params.searchText?.trim().toLowerCase();
+    if (searchLower) {
+      const searchWords = tokenizeSearchText(searchLower).map((word) => word.toLowerCase());
+      results = results.filter((card) => {
+        const haystack = `${card.title} ${card.notes ?? ""}`.toLowerCase();
+        return searchWords.some((word) => haystack.includes(word));
+      });
+    }
+    results = results.slice(0, limit);
+
+    const cardIds = results.map((card) => card.id);
+    const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "card", cardIds);
+
+    const mapped: CardResult[] = results.map((card) => {
+      const props = propertiesMap.get(card.id) ?? [];
+      const assigneeProp = props.find((prop) => prop.name === "Assignee");
+      const tagsProp = props.find((prop) => prop.name === "Tags");
+      const statusProp = props.find((prop) => prop.name === "Status");
+      const priorityProp = props.find((prop) => prop.name === "Priority");
+      const assignees = parseAssigneeValue(assigneeProp?.value);
+      const tags = normalizeTagsValue(tagsProp?.value);
+      const project = coerceRelation<{ name: string }>((card as any).projects);
+      const tab = coerceRelation<{ name: string }>((card as any).tabs);
+      return {
+        ...card,
+        project_name: project?.name ?? null,
+        tab_name: tab?.name ?? null,
+        assignee_name: assignees[0]?.name ?? null,
+        assignees,
+        tags,
+        status: normalizeStatusValue(normalizeSelectValue(statusProp?.value)),
+        priority: normalizePriorityValue(normalizeSelectValue(priorityProp?.value)),
+      };
+    });
+
+    return { data: mapped, error: null };
+  } catch (err) {
+    console.error("searchCards exception:", err);
+    return { data: null, error: "Failed to search cards" };
   }
 }
 
@@ -3982,7 +4150,7 @@ export async function searchTags(params: {
       .select("entity_id, value")
       .eq("workspace_id", workspaceId)
       .eq("field_type", "tags")
-      .in("entity_type", ["task", "block", "timeline_event", "table_row"]);
+      .in("entity_type", ["task", "card", "block", "timeline_event", "table_row"]);
 
     if (error) {
       console.error("searchTags error:", error);
@@ -4061,7 +4229,7 @@ export async function searchTags(params: {
  * @param params.limit - Maximum results (default 50)
  */
 export async function searchEntityProperties(params: {
-  entityType?: "task" | "block" | "timeline_event";
+  entityType?: "task" | "card" | "block" | "timeline_event";
   fieldName?: string;
   fieldType?: string | string[];
   valueFilter?: {
@@ -4415,6 +4583,51 @@ export async function getEntityById(params: {
             id: data.id,
             name: data.title,
             data: enrichedData,
+            context: {
+              workspace_id: data.workspace_id,
+              project_id: data.project_id ?? undefined,
+              project_name: project?.name ?? undefined,
+              tab_id: data.tab_id ?? undefined,
+              tab_name: tab?.name ?? undefined,
+            },
+          },
+          error: null,
+        };
+      }
+
+      case "card": {
+        const { data, error } = await supabase
+          .from("cards")
+          .select("*, projects(name), tabs(name)")
+          .eq("id", params.id)
+          .eq("workspace_id", workspaceId)
+          .single();
+
+        if (error || !data) return { data: null, error: error?.message ?? "Card not found" };
+
+        const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "card", [params.id]);
+        const props = propertiesMap.get(params.id) ?? [];
+        const assigneeProp = props.find((p) => p.name === "Assignee");
+        const tagsProp = props.find((p) => p.name === "Tags");
+        const statusProp = props.find((p) => p.name === "Status");
+        const priorityProp = props.find((p) => p.name === "Priority");
+        const assignees = parseAssigneeValue(assigneeProp?.value);
+        const tags = normalizeTagsValue(tagsProp?.value);
+        const project = coerceRelation<{ name: string }>(data.projects);
+        const tab = coerceRelation<{ name: string }>(data.tabs);
+
+        return {
+          data: {
+            type: "card",
+            id: data.id,
+            name: data.title,
+            data: {
+              ...data,
+              assignees,
+              tags,
+              status: normalizeStatusValue(normalizeSelectValue(statusProp?.value)),
+              priority: normalizePriorityValue(normalizeSelectValue(priorityProp?.value)),
+            },
             context: {
               workspace_id: data.workspace_id,
               project_id: data.project_id ?? undefined,
@@ -4926,7 +5139,7 @@ export async function getEntityById(params: {
  * @param params.includeLinks - Whether to include entity links (default: true)
  */
 export async function getEntityContext(params: {
-  entityType: "block" | "task" | "subtask" | "timeline_event" | "table_row";
+  entityType: "block" | "task" | "card" | "subtask" | "timeline_event" | "table_row";
   id: string;
   includeProperties?: boolean;
   includeLinks?: boolean;
@@ -5050,7 +5263,7 @@ export async function getEntityContextById(params: {
     const result: EntityContextResult = { ...entityResult.data };
 
     // Get entity properties (only for entity types that support properties)
-    const propertyEntityTypes = ["task", "subtask", "block", "timeline_event"];
+    const propertyEntityTypes = ["task", "card", "subtask", "block", "timeline_event"];
     if (includeProperties && propertyEntityTypes.includes(params.entityType)) {
       const { data: properties } = await supabase
         .from("entity_properties")
@@ -5537,6 +5750,38 @@ export async function resolveEntityByName(params: {
             confidence: inTargetProject && confidence === "partial" ? "high" : confidence,
             context: {
               project_id: task.project_id ?? undefined,
+              project_name: project?.name ?? undefined,
+            },
+          });
+        }
+        break;
+      }
+
+      case "card": {
+        const { data } = await supabase
+          .from("cards")
+          .select("id, title, project_id, projects(name)")
+          .eq("workspace_id", workspaceId)
+          .ilike("title", `%${searchName}%`)
+          .limit(limit * 2);
+
+        for (const card of data ?? []) {
+          const titleLower = card.title.toLowerCase();
+          const project = coerceRelation<{ name: string }>(card.projects);
+
+          let confidence: "exact" | "high" | "partial" = "partial";
+          if (titleLower === searchName) confidence = "exact";
+          else if (titleLower.startsWith(searchName)) confidence = "high";
+
+          const inTargetProject = params.projectId && card.project_id === params.projectId;
+
+          results.push({
+            id: card.id,
+            name: card.title,
+            type: "card",
+            confidence: inTargetProject && confidence === "partial" ? "high" : confidence,
+            context: {
+              project_id: card.project_id ?? undefined,
               project_name: project?.name ?? undefined,
             },
           });
@@ -6268,7 +6513,7 @@ export async function searchEntitiesByProperties(params: {
   scope?: "workspace" | "project" | "tab";
   projectId?: string;
   tabId?: string;
-  entityTypes?: Array<"task" | "subtask" | "block" | "timeline_event" | "table_row">;
+  entityTypes?: Array<"task" | "card" | "subtask" | "block" | "timeline_event" | "table_row">;
   status?: string | string[];
   statusOperator?: "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
   priority?: string | string[];
@@ -6416,6 +6661,7 @@ export async function searchAll(params: {
   // Determine which entity types to search
   const allTypes: Array<EntityType | "block" | "comment"> = [
     "task",
+    "card",
     "subtask",
     "project",
     "client",
@@ -6446,6 +6692,10 @@ export async function searchAll(params: {
         includeSubtasks,
       }));
       typeOrder.push("task");
+    }
+    if (typesToSearch.includes("card")) {
+      searchPromises.push(searchCards({ searchText: params.searchText, projectId: params.projectId, limit: limitPerType }));
+      typeOrder.push("card");
     }
     if (typesToSearch.includes("subtask")) {
       searchPromises.push(searchSubtasks({ searchText: params.searchText, projectId: params.projectId, limit: limitPerType }));
@@ -6530,6 +6780,22 @@ export async function searchAll(params: {
                 project_name: task.project_name ?? undefined,
                 tab_id: task.tab_id ?? undefined,
                 tab_name: task.tab_name ?? undefined,
+              },
+            });
+          }
+          break;
+        case "card":
+          for (const card of result.data as CardResult[]) {
+            results.push({
+              type: "card",
+              id: card.id,
+              name: card.title,
+              description: card.notes ?? undefined,
+              context: {
+                project_id: card.project_id ?? undefined,
+                project_name: card.project_name ?? undefined,
+                tab_id: card.tab_id ?? undefined,
+                tab_name: card.tab_name ?? undefined,
               },
             });
           }

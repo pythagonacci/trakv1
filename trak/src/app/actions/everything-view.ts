@@ -29,7 +29,7 @@ function firstStatusFromNamed(statuses: unknown): Status | null {
 
 /**
  * Get all items with properties across the entire workspace
- * Aggregates timeline events, task items, table rows, and blocks with properties
+ * Aggregates timeline events, task items, cards, table rows, and blocks with properties
  */
 export async function getWorkspaceEverything(
   workspaceId: string,
@@ -57,9 +57,11 @@ export async function getWorkspaceEverything(
   }
 
   const items = (rawItems || []).map(mapRawItemToEverythingItem);
+  const cardItems = await fetchCardEverythingItems(supabase, workspaceId);
+  const combinedItems = [...items, ...cardItems];
   const normalizedItems = await maybeFilterWorkflowTaskCopies(
     supabase,
-    items,
+    combinedItems,
     options?.includeWorkflowRepresentations
   );
   const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
@@ -362,7 +364,14 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
-  // Query 4: Blocks with Properties
+  // Query 4: Cards
+  const cardItems = await fetchCardEverythingItems(supabase, workspaceId, {
+    tabById,
+    projectById,
+  });
+  items.push(...cardItems);
+
+  // Query 5: Blocks with Properties
   const { data: blocks } = await supabase
     .from('blocks')
     .select(`
@@ -439,7 +448,7 @@ async function getWorkspaceEverythingFallback(
     }
   }
 
-  // Query 5: Subtasks with entity_properties (universal properties). Only include subtasks that have at least one property in entity_properties.
+  // Query 6: Subtasks with entity_properties (universal properties). Only include subtasks that have at least one property in entity_properties.
   const { data: subtaskPropRows } = await supabase
     .from('entity_properties')
     .select('entity_id')
@@ -642,6 +651,74 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
     created_at: raw.created_at,
     updated_at: raw.updated_at,
   };
+}
+
+async function fetchCardEverythingItems(
+  supabase: any,
+  workspaceId: string,
+  context?: {
+    tabById?: Map<string, { id: string; name: string; project_id: string }>;
+    projectById?: Map<string, { id: string; name: string }>;
+  }
+): Promise<EverythingItem[]> {
+  const items: EverythingItem[] = [];
+  const { data: cards } = await supabase
+    .from("cards")
+    .select("id, title, cards_block_id, project_id, tab_id, statuses, priorities, assignee_id, start_date, due_date, tags, created_at, updated_at")
+    .eq("workspace_id", workspaceId);
+
+  if (!cards || cards.length === 0) return items;
+
+  let tabById = context?.tabById;
+  let projectById = context?.projectById;
+
+  if (!tabById || !projectById) {
+    const projectIds = Array.from(new Set(cards.map((card: any) => card.project_id).filter(Boolean)));
+    const { data: tabs } = await supabase
+      .from("tabs")
+      .select("id, name, project_id")
+      .in("id", Array.from(new Set(cards.map((card: any) => card.tab_id).filter(Boolean))));
+    const { data: projects } = projectIds.length
+      ? await supabase.from("projects").select("id, name").in("id", projectIds)
+      : { data: [] };
+
+    tabById = new Map((tabs ?? []).map((tab: any) => [tab.id, tab]));
+    projectById = new Map((projects ?? []).map((project: any) => [project.id, project]));
+  }
+
+  for (const card of cards) {
+    if (!card.tab_id || !card.project_id) continue;
+    const tab = tabById.get(card.tab_id);
+    const project = projectById.get(card.project_id);
+    if (!tab || !project) continue;
+
+    items.push({
+      id: card.id,
+      type: "card" as EntityType,
+      name: card.title || "Card",
+      source: {
+        type: "block",
+        id: card.cards_block_id ?? card.id,
+        name: "Cards",
+        tabId: tab.id,
+        tabName: tab.name,
+        projectId: project.id,
+        projectName: project.name,
+        url: `${buildProjectTabPath(project.id, tab.id, project.name, tab.name)}#card-${card.id}`,
+      },
+      properties: {
+        status: firstStatusFromNamed((card as any).statuses),
+        priority: firstPriorityFromNamed((card as any).priorities),
+        assignee_ids: card.assignee_id ? [card.assignee_id] : [],
+        due_date: buildDueDateRange(card.start_date ?? null, card.due_date ?? null),
+        tags: Array.isArray(card.tags) ? card.tags : [],
+      },
+      created_at: card.created_at,
+      updated_at: card.updated_at,
+    });
+  }
+
+  return items;
 }
 
 async function hydrateEverythingProperties(

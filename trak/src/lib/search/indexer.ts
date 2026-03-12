@@ -239,6 +239,42 @@ export class ResourceIndexer {
                 }
             }
 
+            if (blockType === "cards") {
+                const { data: cards } = await this.supabase
+                    .from("cards")
+                    .select("title, notes, tags, statuses, priorities")
+                    .eq("cards_block_id", block.id)
+                    .order("display_order", { ascending: true });
+
+                const cardText = (cards ?? [])
+                    .map((card) => {
+                        const statuses = Array.isArray((card as any).statuses)
+                            ? ((card as any).statuses as Array<{ field_name?: string; value?: string }>)
+                                  .map((entry) => `${entry.field_name ?? "Status"}: ${entry.value ?? ""}`.trim())
+                                  .filter(Boolean)
+                                  .join(", ")
+                            : "";
+                        const priorities = Array.isArray((card as any).priorities)
+                            ? ((card as any).priorities as Array<{ field_name?: string; value?: string }>)
+                                  .map((entry) => `${entry.field_name ?? "Priority"}: ${entry.value ?? ""}`.trim())
+                                  .filter(Boolean)
+                                  .join(", ")
+                            : "";
+                        const tags = Array.isArray((card as any).tags) ? ((card as any).tags as string[]).join(", ") : "";
+                        return [
+                            `Card: ${card.title ?? "Untitled"}`,
+                            card.notes ? `Notes: ${card.notes}` : "",
+                            statuses ? `Statuses: ${statuses}` : "",
+                            priorities ? `Priorities: ${priorities}` : "",
+                            tags ? `Tags: ${tags}` : "",
+                        ].filter(Boolean).join("\n");
+                    })
+                    .filter(Boolean)
+                    .join("\n\n");
+
+                text = [text, cardText].filter(Boolean).join("\n\n");
+            }
+
             return {
                 text,
                 tabId: block.tab_id

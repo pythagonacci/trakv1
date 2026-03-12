@@ -31,6 +31,11 @@ const TaskBlock = dynamic(() => import("./task-block"), {
   ssr: true,
 });
 
+const CardsBlock = dynamic(() => import("./cards-block"), {
+  loading: () => <BlockLoadingState />,
+  ssr: true,
+});
+
 const TimelineBlock = dynamic(() => import("./timeline-block"), {
   loading: () => <BlockLoadingState />,
   ssr: true,
@@ -189,6 +194,8 @@ export default function BlockRenderer({
             publicToken={readOnly ? publicToken : undefined}
           />
         );
+      case "cards":
+        return <CardsBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "link":
         return <LinkBlock block={block} onUpdate={onUpdate} />;
       case "divider":

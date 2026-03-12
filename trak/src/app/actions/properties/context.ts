@@ -91,6 +91,15 @@ export async function getWorkspaceIdForEntity(
       return data?.workspace_id ?? null;
     }
 
+    case "card": {
+      const { data } = await supabase
+        .from("cards")
+        .select("workspace_id")
+        .eq("id", entityId)
+        .maybeSingle();
+      return data?.workspace_id ?? null;
+    }
+
     case "table_row": {
       const { data } = await supabase
         .from("table_rows")

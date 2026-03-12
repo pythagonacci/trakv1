@@ -57,7 +57,7 @@ export function groupItems(
 
     case "entity_type":
       // Create entity type groups
-      ["timeline_event", "task", "table_row", "block"].forEach((groupId) => {
+      ["timeline_event", "task", "card", "table_row", "block"].forEach((groupId) => {
         groups.set(groupId, {
           id: groupId,
           label: getEntityTypeLabel(groupId),
@@ -262,6 +262,7 @@ function getEntityTypeLabel(entityType: string): string {
   const labels: Record<string, string> = {
     timeline_event: "Timeline Events",
     task: "Tasks",
+    card: "Cards",
     subtask: "Subtasks",
     table_row: "Table Rows",
     block: "Blocks",

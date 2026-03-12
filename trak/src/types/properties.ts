@@ -5,7 +5,7 @@
 // Entity Types
 // ============================================================================
 
-export type EntityType = 'block' | 'task' | 'subtask' | 'timeline_event' | 'table_row';
+export type EntityType = 'block' | 'task' | 'subtask' | 'timeline_event' | 'table_row' | 'card';
 
 // ============================================================================
 // Property Values

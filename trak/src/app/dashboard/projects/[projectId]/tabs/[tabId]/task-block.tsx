@@ -28,6 +28,7 @@ import {
   XCircle,
   FileText,
 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { buildDueDateRange, formatDueDateForDisplay, formatDueDateRange, getDueDateEnd, hasDueDate } from "@/lib/due-date";
 import { type Block } from "@/app/actions/block";
@@ -107,7 +108,7 @@ interface Task {
   description?: string | null;
   subtasks?: Subtask[];
   attachments?: { id: string | number; name: string; url: string; type: string }[];
-  comments?: { id: string | number; author: string; text: string; timestamp: string }[];
+  comments?: { id: string | number; author: string; text: string; timestamp: string; parentId?: string | null }[];
   recurring?: {
     enabled: boolean;
     frequency?: "daily" | "weekly" | "monthly" | null;
@@ -886,6 +887,8 @@ export default function TaskBlock({
   const setTaskSyncModeMutation = useSetTaskSyncModeForBlock(block.id);
   const subtaskMutations = useTaskSubtasks(block.id);
   const commentMutations = useTaskComments(block.id);
+  const searchParams = useSearchParams();
+  const focusedCommentId = searchParams.get("commentId");
   const createReferenceMutation = useCreateTaskReference(referenceTaskId || undefined);
   const createSubtaskReferenceMutation = useCreateSubtaskReference(referenceSubtaskId || undefined);
 
@@ -1337,40 +1340,48 @@ export default function TaskBlock({
     }
   }, [tasks, taskOrder]);
 
-  // Scroll to task when scrollToTaskId matches
-  // Task ID format from dashboard: `${block.id}-${task.id}`
+  // Scroll to task when scrollToTaskId matches. Accept both `${block.id}-${task.id}` and raw task IDs.
   useEffect(() => {
-    if (scrollToTaskId && block.id) {
-      // Check if scrollToTaskId starts with this block's ID
-      if (scrollToTaskId.startsWith(`${block.id}-`)) {
-        // Extract task ID (everything after block.id-)
-        const taskIdFromUrl = scrollToTaskId.substring(`${block.id}-`.length);
+    if (!scrollToTaskId || !block.id) return;
 
-        // Check if this block contains the task we're looking for
-        const taskExists = tasks.some(t => String(t.id) === taskIdFromUrl);
+    const taskIdFromUrl = scrollToTaskId.startsWith(`${block.id}-`)
+      ? scrollToTaskId.substring(`${block.id}-`.length)
+      : scrollToTaskId;
+    const taskExists = tasks.some((task) => String(task.id) === taskIdFromUrl);
 
-        if (taskExists) {
-          // Small delay to ensure DOM is ready
-          const timer = setTimeout(() => {
-            const taskElement = document.getElementById(`task-${taskIdFromUrl}`);
-            if (taskElement) {
-              taskElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              // Very subtle highlight - just a light background fade
-              taskElement.style.transition = 'background-color 0.3s ease';
-              taskElement.style.backgroundColor = 'var(--surface-hover)';
-              setTimeout(() => {
-                taskElement.style.backgroundColor = '';
-                setTimeout(() => {
-                  taskElement.style.transition = '';
-                }, 300);
-              }, 1500);
-            }
-          }, 100);
-          return () => clearTimeout(timer);
-        }
-      }
-    }
+    if (!taskExists) return;
+
+    setSelectedTaskId(taskIdFromUrl);
+    const timer = setTimeout(() => {
+      const taskElement = document.getElementById(`task-${taskIdFromUrl}`);
+      if (!taskElement) return;
+      taskElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      taskElement.style.transition = 'background-color 0.3s ease';
+      taskElement.style.backgroundColor = 'var(--surface-hover)';
+      setTimeout(() => {
+        taskElement.style.backgroundColor = '';
+        setTimeout(() => {
+          taskElement.style.transition = '';
+        }, 300);
+      }, 1500);
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [scrollToTaskId, tasks, block.id]);
+
+  useEffect(() => {
+    if (!focusedCommentId) return;
+    const owningTask = tasks.find((task) =>
+      (task.comments || []).some((comment) => String(comment.id) === focusedCommentId)
+    );
+    if (!owningTask) return;
+
+    setSelectedTaskId(String(owningTask.id));
+    setExpandedSections((prev) => ({
+      ...prev,
+      [owningTask.id]: { ...(prev[owningTask.id] || {}), comments: true },
+    }));
+  }, [focusedCommentId, tasks]);
 
   const toggleTask = async (taskId: string | number) => {
     // For temp blocks (unsaved), just toggle local task status for UI.
@@ -1671,7 +1682,7 @@ export default function TaskBlock({
     await subtaskMutations.remove.mutateAsync(String(subtaskId));
   };
 
-  const addComment = async (taskId: string | number, explicitText?: string) => {
+  const addComment = async (taskId: string | number, explicitText?: string, parentId?: string | null) => {
     const draft = explicitText ?? newComment[taskId] ?? "";
     const spans = commentMentionSpans[taskId] ?? [];
     const commentText = (explicitText !== undefined ? explicitText : buildCommentWithLinks(draft, spans)).trim();
@@ -1684,6 +1695,7 @@ export default function TaskBlock({
         author: "Current User", // TODO: Get from auth context
         text: commentText,
         timestamp: new Date().toISOString(),
+        parentId: parentId ?? null,
       };
       const newComments = [...(task?.comments || []), comment];
       await updateTask(taskId, { comments: newComments });
@@ -1695,6 +1707,7 @@ export default function TaskBlock({
     const result = await commentMutations.create.mutateAsync({
       taskId: String(taskId),
       text: commentText,
+      parentId: parentId ?? null,
     });
     if ("error" in result) {
       console.error("Failed to add comment:", result.error);
@@ -6086,11 +6099,12 @@ export default function TaskBlock({
             }
             onAddComment={
               projectId && !isTempBlock
-                ? async (text) => {
-                    await addComment(selectedTask.id, text);
+                ? async (text, parentId) => {
+                    await addComment(selectedTask.id, text, parentId);
                   }
                 : undefined
             }
+            focusCommentId={focusedCommentId}
             onOpenCommentMentionPicker={
               projectId && !isTempBlock ? openCommentMentionPickerForCard : undefined
             }
@@ -6138,12 +6152,13 @@ export default function TaskBlock({
             }
             onAddComment={
               projectId && !isTempBlock
-                ? async (text) => {
+                ? async (text, parentId) => {
                     const hint = encodeSubtaskCommentText(String(selectedSubtask.id), text);
-                    await addComment(selectedParentTask.id, hint);
+                    await addComment(selectedParentTask.id, hint, parentId);
                   }
                 : undefined
             }
+            focusCommentId={focusedCommentId}
             onOpenCommentMentionPicker={
               projectId && !isTempBlock ? openCommentMentionPickerForCard : undefined
             }

@@ -13,7 +13,7 @@ import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 // TYPES
 // ============================================================================
 
-export type BlockType = "text" | "task" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "section_header" | "chart" | "doc_reference" | "shopify_product";
+export type BlockType = "text" | "task" | "cards" | "link" | "divider" | "table" | "timeline" | "file" | "video" | "image" | "gallery" | "embed" | "pdf" | "section" | "section_header" | "chart" | "doc_reference" | "shopify_product";
 
 export interface Block {
   id: string;
@@ -453,6 +453,9 @@ export async function createBlock(data: {
         case "task":
           content = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
           break;
+        case "cards":
+          content = { title: "New Cards Block", viewMode: "grid" };
+          break;
         case "link":
           content = { title: "", url: "", description: "" };
           break;
@@ -665,7 +668,7 @@ export async function updateBlock(data: {
 
     const { data: block, error: blockError } = await supabase
       .from("blocks")
-      .select("id, tab_id, type, locked")
+      .select("id, tab_id, type, content, locked")
       .eq("id", data.blockId.trim())
       .single();
 
@@ -774,6 +777,32 @@ export async function updateBlock(data: {
     if (updateError) {
       console.error("Update block error:", updateError);
       return { error: updateError.message || "Failed to update block" };
+    }
+
+    const previousComments = Array.isArray((block as any).content?._blockComments)
+      ? ((block as any).content._blockComments as Array<Record<string, any>>)
+      : [];
+    const nextComments = Array.isArray((updatedBlock as any).content?._blockComments)
+      ? ((updatedBlock as any).content._blockComments as Array<Record<string, any>>)
+      : [];
+    const previousCommentIds = new Set(previousComments.map((comment) => String(comment.id)));
+    const newInternalComments = nextComments.filter((comment) => {
+      const commentId = String(comment.id || "");
+      return commentId && !previousCommentIds.has(commentId) && comment.source !== "external";
+    });
+
+    if (newInternalComments.length > 0) {
+      try {
+        const { createBlockCommentNotifications } = await import("@/lib/notifications/service");
+        await createBlockCommentNotifications({
+          blockId: updatedBlock.id,
+          actorId: user.id,
+          existingComments: previousComments as any,
+          newComments: newInternalComments as any,
+        });
+      } catch (notificationError) {
+        console.error("Failed to create block comment notifications", notificationError);
+      }
     }
 
     // 7.5. If this is a task block, clear is_placeholder on all its tasks (block was edited in any way)

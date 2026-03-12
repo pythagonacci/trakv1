@@ -17,7 +17,7 @@ import type { ChartBlockContent, ChartType, ChartDataSource, ChartDataQuery, Spe
 import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { normalizeToChartRows } from "@/lib/charts/normalizeToChartRows";
 import type { ChartRow, ChartSpec } from "@/lib/charts/chartSpec";
-import { searchTasks, searchTimelineEvents, searchTableRows } from "@/app/actions/ai-search";
+import { searchTasks, searchTimelineEvents, searchTableRows, searchCards } from "@/app/actions/ai-search";
 import type { TableField } from "@/types/table";
 import type { DashboardChartQuery } from "@/app/dashboard/dashboard-config-types";
 
@@ -896,9 +896,10 @@ async function getSpecChartBlockWithAuth(blockId: string, authContext: AuthConte
 
 function queryTypeToEntityType(
   type: ChartDataQuery["type"]
-): "task" | "timeline_event" | "table_row" {
+): "task" | "timeline_event" | "table_row" | "card" {
   if (type === "tasks") return "task";
   if (type === "timeline_events") return "timeline_event";
+  if (type === "cards") return "card";
   return "table_row";
 }
 
@@ -956,6 +957,18 @@ export async function refreshChartBlock(
           } as Parameters<typeof searchTimelineEvents>[0]);
           universeTotal = countRes.data?.length ?? newRows.length;
         }
+      } else if (q.type === "cards") {
+        const res = await searchCards(params as Parameters<typeof searchCards>[0]);
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("cards", res.data ?? []);
+        if (needsUniverseTotal) {
+          const countRes = await searchCards({
+            ...(q.params as Record<string, unknown>),
+            limit: 5000,
+            authContext,
+          } as Parameters<typeof searchCards>[0]);
+          universeTotal = countRes.data?.length ?? newRows.length;
+        }
       } else {
         const res = await searchTableRows(params as Parameters<typeof searchTableRows>[0]);
         if (res.error) return { error: res.error };
@@ -981,6 +994,10 @@ export async function refreshChartBlock(
         const res = await searchTimelineEvents({ eventIds: entityIds, limit: idLimit, authContext });
         if (res.error) return { error: res.error };
         newRows = normalizeToChartRows("timeline_events", res.data ?? []);
+      } else if (entityType === "card") {
+        const res = await searchCards({ cardIds: entityIds, limit: idLimit, authContext });
+        if (res.error) return { error: res.error };
+        newRows = normalizeToChartRows("cards", res.data ?? []);
       } else {
         const res = await searchTableRows({ rowIds: entityIds, limit: idLimit, authContext });
         if (res.error) return { error: res.error };

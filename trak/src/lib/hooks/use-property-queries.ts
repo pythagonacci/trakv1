@@ -208,6 +208,7 @@ export function useSetEntityProperties(
       }
       // Task/timeline blocks showing this entity should refetch so they render the new property values
       if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
+      if (entityType === "card") qc.invalidateQueries({ queryKey: ["cardItems"] });
       if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
     },
   });
@@ -252,6 +253,7 @@ export function useSetEntityPropertiesForType(entityType: EntityType, workspaceI
         qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
       }
       if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
+      if (entityType === "card") qc.invalidateQueries({ queryKey: ["cardItems"] });
       if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
     },
   });
@@ -281,6 +283,12 @@ export function useAddTag(
       qc.invalidateQueries({
         queryKey: ["entitiesProperties", entityType, workspaceId],
       });
+      qc.invalidateQueries({
+        queryKey: queryKeys.workspaceEverything(workspaceId),
+      });
+      if (entityType === "card") {
+        qc.invalidateQueries({ queryKey: ["cardItems"] });
+      }
     },
   });
 }
@@ -343,6 +351,12 @@ export function useRemoveTag(
       qc.invalidateQueries({
         queryKey: ["entitiesProperties", entityType, workspaceId],
       });
+      qc.invalidateQueries({
+        queryKey: queryKeys.workspaceEverything(workspaceId),
+      });
+      if (entityType === "card") {
+        qc.invalidateQueries({ queryKey: ["cardItems"] });
+      }
     },
   });
 }
@@ -358,6 +372,9 @@ export function useClearEntityProperties(entityType: EntityType, entityId: strin
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
       });
+      if (entityType === "card") {
+        qc.invalidateQueries({ queryKey: ["cardItems"] });
+      }
     },
   });
 }

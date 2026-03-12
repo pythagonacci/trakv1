@@ -42,6 +42,7 @@ export async function queryEntities(
   const entityTypes = params.entity_types ?? [
     "block",
     "task",
+    "card",
     "timeline_event",
     "table_row",
   ];
@@ -343,6 +344,33 @@ async function queryEntitiesByType(
           id: task.id,
           title: task.title,
           context: (task.tabs as any)?.name ?? "",
+        });
+      }
+      break;
+    }
+
+    case "card": {
+      let query = supabase
+        .from("cards")
+        .select("id, title, project_id, tab_id")
+        .eq("workspace_id", params.workspace_id);
+
+      if (params.scope === "project" && params.project_id) {
+        query = query.eq("project_id", params.project_id);
+      } else if (params.scope === "tab" && params.tab_id) {
+        query = query.eq("tab_id", params.tab_id);
+      }
+
+      const { data: cards } = await query;
+      const typedCards = (cards ?? []) as Array<{ id: string; title: string }>;
+      const filteredCards = await filterByProperties(supabase, "card", typedCards, params.properties);
+
+      for (const card of filteredCards) {
+        results.push({
+          type: "card",
+          id: card.id,
+          title: card.title,
+          context: "Cards",
         });
       }
       break;
@@ -722,6 +750,9 @@ function getBlockTitle(block: {
 
     case "task":
       return (content as any).title ?? "Task block";
+
+    case "cards":
+      return (content as any).title ?? "Cards";
 
     case "table":
       return (content as any).title ?? "Table";
