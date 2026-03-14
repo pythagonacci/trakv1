@@ -154,10 +154,44 @@ export default function TabCanvasWrapper({
   // Scroll to first created block when AI creates something (from ai-created-blocks event)
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const pendingCleanupFns = new Set<() => void>();
+
+    const getScrollableAncestor = (el: HTMLElement): HTMLElement | null => {
+      let parent = el.parentElement;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        const overflowY = style.overflowY;
+        const canScroll = (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") && parent.scrollHeight > parent.clientHeight;
+        if (canScroll) return parent;
+        parent = parent.parentElement;
+      }
+      return null;
+    };
+
+    const smoothCenterElement = (el: HTMLElement) => {
+      const scrollParent = getScrollableAncestor(el);
+      if (!scrollParent) {
+        const rect = el.getBoundingClientRect();
+        const targetTop = window.scrollY + rect.top - (window.innerHeight / 2 - rect.height / 2);
+        const maxScrollTop = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        const clampedTop = Math.max(0, Math.min(targetTop, maxScrollTop));
+        window.scrollTo({ top: clampedTop, behavior: "smooth" });
+        return;
+      }
+
+      const parentRect = scrollParent.getBoundingClientRect();
+      const elementRect = el.getBoundingClientRect();
+      const offsetWithinParent = elementRect.top - parentRect.top;
+      const targetTop = scrollParent.scrollTop + offsetWithinParent - (scrollParent.clientHeight / 2 - elementRect.height / 2);
+      const maxScrollTop = Math.max(0, scrollParent.scrollHeight - scrollParent.clientHeight);
+      const clampedTop = Math.max(0, Math.min(targetTop, maxScrollTop));
+      scrollParent.scrollTo({ top: clampedTop, behavior: "smooth" });
+    };
+
     const scrollToBlock = (blockId: string) => {
       const el = document.getElementById(`block-${blockId}`);
       if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        smoothCenterElement(el);
         return true;
       }
       return false;
@@ -167,16 +201,48 @@ export default function TabCanvasWrapper({
       const blockIds = detail?.blockIds;
       if (!Array.isArray(blockIds) || blockIds.length === 0) return;
       const firstId = blockIds[0];
-      const tryScroll = (attempt = 0) => {
-        if (scrollToBlock(firstId)) return;
-        if (attempt < 10) {
-          setTimeout(() => tryScroll(attempt + 1), 300 + attempt * 200);
+
+      if (scrollToBlock(firstId)) return;
+
+      let disconnected = false;
+      let timeoutId: number | null = null;
+      const observer = new MutationObserver(() => {
+        tryScroll();
+      });
+      const cleanup = () => {
+        if (disconnected) return;
+        disconnected = true;
+        observer.disconnect();
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+        pendingCleanupFns.delete(cleanup);
+      };
+      const tryScroll = () => {
+        if (scrollToBlock(firstId)) {
+          cleanup();
         }
       };
-      setTimeout(() => tryScroll(0), 400);
+      pendingCleanupFns.add(cleanup);
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      // Two-frame defer ensures layout has committed after mount before measuring/scrolling.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          tryScroll();
+        });
+      });
+
+      timeoutId = window.setTimeout(() => {
+        cleanup();
+      }, 12000);
     };
     window.addEventListener("ai-created-blocks", handleAiCreatedBlocks);
-    return () => window.removeEventListener("ai-created-blocks", handleAiCreatedBlocks);
+    return () => {
+      window.removeEventListener("ai-created-blocks", handleAiCreatedBlocks);
+      pendingCleanupFns.forEach((cleanup) => cleanup());
+      pendingCleanupFns.clear();
+    };
   }, []);
 
   return (

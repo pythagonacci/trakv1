@@ -86,6 +86,33 @@ const hasSuccessfulWriteToolCall = (toolCallsMade: unknown) => {
   });
 };
 
+const extractCreatedBlockIdsFromToolResult = (toolName: string, data: unknown): string[] => {
+  if (!data || typeof data !== "object") return [];
+  const obj = data as Record<string, unknown>;
+
+  if (toolName === "createTableFull") {
+    return typeof obj.blockId === "string" && obj.blockId.length > 0 ? [obj.blockId] : [];
+  }
+
+  if (toolName === "createTable") {
+    const nested = obj.block;
+    if (nested && typeof nested === "object" && "id" in nested && typeof nested.id === "string" && nested.id.length > 0) {
+      return [nested.id];
+    }
+    return typeof obj.blockId === "string" && obj.blockId.length > 0 ? [obj.blockId] : [];
+  }
+
+  if (toolName === "createSpecChartBlock") {
+    return typeof obj.blockId === "string" && obj.blockId.length > 0 ? [obj.blockId] : [];
+  }
+
+  if (toolName === "createBlock" || toolName === "createTaskBoardFromTasks") {
+    return typeof obj.id === "string" && obj.id.length > 0 ? [obj.id] : [];
+  }
+
+  return [];
+};
+
 function extractRoutingTags(raw: string): { mode: "default" | "chart" | "shopify"; cleaned: string; hadTag: boolean } {
   const hasChart = /(^|\s)@chart\b/i.test(raw);
   const hasShopify = /(^|\s)@shopify\b/i.test(raw);
@@ -408,11 +435,19 @@ export function AIPanel({
       let receivedConfirmation: PendingWriteConfirmation | null = null;
       const toolCalls: Array<{ tool: string; result?: { success: boolean; error?: string }; isWrite: boolean }> = [];
       let responseUndoBatches: UndoBatch[] = [];
-      let didWrite = false;
+      const dispatchedCreatedBlockIds = new Set<string>();
       const markWrite = () => {
-        didWrite = true;
         void queryClient.invalidateQueries();
         router.refresh();
+      };
+      const dispatchCreatedBlocks = (blockIds: string[]) => {
+        const freshIds = blockIds.filter((id) => {
+          if (!id || dispatchedCreatedBlockIds.has(id)) return false;
+          dispatchedCreatedBlockIds.add(id);
+          return true;
+        });
+        if (freshIds.length === 0) return;
+        window.dispatchEvent(new CustomEvent("ai-created-blocks", { detail: { blockIds: freshIds } }));
       };
 
       while (true) {
@@ -458,12 +493,18 @@ export function AIPanel({
                 break;
               case "tool_result":
                 if (event.data && typeof event.data === "object" && "success" in event.data) {
-                  const result = event.data as { success: boolean; error?: string };
+                  const result = event.data as { success: boolean; error?: string; data?: unknown };
                   if (toolCalls.length > 0) {
                     const lastCall = toolCalls[toolCalls.length - 1];
                     lastCall.result = result;
                     if (result.success && lastCall.isWrite) {
                       markWrite();
+                    }
+                    if (result.success) {
+                      const createdBlockIds = extractCreatedBlockIdsFromToolResult(lastCall.tool, result.data);
+                      if (createdBlockIds.length > 0) {
+                        dispatchCreatedBlocks(createdBlockIds);
+                      }
                     }
                   }
                 }
@@ -490,9 +531,7 @@ export function AIPanel({
                   }
                   const createdIds = payload.createdBlockIds;
                   if (Array.isArray(createdIds) && createdIds.length > 0) {
-                    window.dispatchEvent(
-                      new CustomEvent("ai-created-blocks", { detail: { blockIds: createdIds } })
-                    );
+                    dispatchCreatedBlocks(createdIds);
                   }
                 }
                 break;

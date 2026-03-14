@@ -261,7 +261,6 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   const [chartHeight, setChartHeight] = useState<number>(260);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
-  const [spinNonce, setSpinNonce] = useState(0);
 
   useEffect(() => {
     setLocalSpec(applySpecFallbacks(rawContent.spec));
@@ -516,13 +515,6 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     };
   }, [syncChartHeight]);
 
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setSpinNonce((n) => n + 1);
-    }, 5000);
-    return () => window.clearInterval(intervalId);
-  }, []);
-
   const getTaskHrefForRow = useCallback(
     (row: ChartRow): string | null => {
       const projectId = typeof row.projectId === "string" ? row.projectId : undefined;
@@ -742,7 +734,6 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                 >
                   <div className="w-full h-full">
                     <TrakChart
-                      key={spinNonce}
                       spec={localSpec}
                       data={chartData}
                       height={chartHeight}
