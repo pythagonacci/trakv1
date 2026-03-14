@@ -58,7 +58,7 @@ import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { PropertyBadges, PropertyMenu, PropertyFieldDropdown } from "@/components/properties";
-import { DateRangeCalendar } from "@/components/due-date-calendar";
+import { DateRangeCalendarDropdown } from "@/components/due-date-calendar";
 import {
   useEntitiesProperties,
   useSetEntityPropertiesForType,
@@ -66,7 +66,7 @@ import {
 } from "@/lib/hooks/use-property-queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { PRIORITY_COLORS, PRIORITY_OPTIONS, STATUS_COLORS, STATUS_OPTIONS, type EntityProperties, type EntityType, type Status } from "@/types/properties";
+import { PRIORITY_COLORS, PRIORITY_OPTIONS, STATUS_COLORS, STATUS_OPTIONS, type EntityProperties, type EntityType, type Priority, type Status } from "@/types/properties";
 import { type TaskBlockContent, type TaskItemPriority } from "@/types/task";
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable, closestCenter } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -849,6 +849,8 @@ export default function TaskBlock({
   } | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesAnchorRect, setPropertiesAnchorRect] = useState<DOMRect | null>(null);
+  const [propertiesMenuTriggerRect, setPropertiesMenuTriggerRect] = useState<DOMRect | null>(null);
+  const [openTaskAssigneeMenuId, setOpenTaskAssigneeMenuId] = useState<string | null>(null);
   const [taskOrder, setTaskOrder] = useState<string[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<BoardItemId | null>(null);
@@ -877,14 +879,45 @@ export default function TaskBlock({
     focus?: {
       group: "status" | "priority" | "assignees" | "due_date" | "tags";
       fieldId?: string;
-    } | null
+    } | null,
+    anchorRect?: DOMRect | null
   ) => {
     setPropertiesTarget(target);
     setPropertiesFocus(focus ?? null);
-    const rect = element?.getBoundingClientRect() ?? null;
+    const rect = anchorRect ?? element?.getBoundingClientRect() ?? null;
     setPropertiesAnchorRect(rect);
     setPropertiesOpen(true);
   };
+
+  const capturePropertiesMenuTriggerRect = useCallback((element: HTMLElement | null) => {
+    setPropertiesMenuTriggerRect(element?.getBoundingClientRect() ?? null);
+  }, []);
+
+  const handlePropertiesMenuTriggerPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    capturePropertiesMenuTriggerRect(event.currentTarget);
+  }, [capturePropertiesMenuTriggerRect]);
+
+  const handlePropertiesMenuTriggerKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+      capturePropertiesMenuTriggerRect(event.currentTarget);
+    }
+  }, [capturePropertiesMenuTriggerRect]);
+
+  const openPropertiesFromMenuTrigger = useCallback((
+    fallbackElement: HTMLElement | null,
+    target: { type: EntityType; id: string; title: string },
+    focus?: {
+      group: "status" | "priority" | "assignees" | "due_date" | "tags";
+      fieldId?: string;
+    } | null
+  ) => {
+    openPropertiesFromElement(
+      fallbackElement,
+      target,
+      focus,
+      propertiesMenuTriggerRect
+    );
+  }, [openPropertiesFromElement, propertiesMenuTriggerRect]);
 
   const createTaskMutation = useCreateTaskItem(block.id);
   const updateTaskMutation = useUpdateTaskItem(block.id);
@@ -1171,6 +1204,23 @@ export default function TaskBlock({
     const fieldName = (priorityField.field_name?.trim() || "Priority").trim();
     return fieldName.toLowerCase() !== "priority" ? `${fieldName}: ${priorityLabel}` : priorityLabel;
   };
+
+  const getDefaultPriorityField = (taskId: string, task: Task): { field_name: string; value: Priority | null } => {
+    const props = getEffectiveProperties(taskId, task);
+    const fieldName =
+      props?.priorities?.[0]?.field_name?.trim() ||
+      task.priorities?.[0]?.field_name?.trim() ||
+      "Priority";
+    return { field_name: fieldName, value: null };
+  };
+
+  const getRenderablePriorityFields = (taskId: string, task: Task): Array<{ field_name: string; value: Priority | null }> => {
+    const fields = getEffectivePriorityFields(taskId, task);
+    return fields.length > 0 ? fields : [getDefaultPriorityField(taskId, task)];
+  };
+
+  const getPriorityButtonLabel = (priorityField: { field_name: string; value: Priority | null }) =>
+    priorityField.value ? getPriorityDisplayLabel(priorityField as TaskItemPriority) : null;
 
   const normalizeStatusValue = (value?: string | null): Status | null => {
     if (!value) return null;
@@ -1883,7 +1933,7 @@ export default function TaskBlock({
     applyPropertyOverride(taskId, { assignee_ids: assigneeIds });
     await setTaskProperties.mutateAsync({
       entityId: taskId,
-      updates: { assignee_ids: assigneeIds },
+      updates: { assignee_ids: assigneeIds.length ? assigneeIds : null },
     });
   };
 
@@ -3064,8 +3114,8 @@ export default function TaskBlock({
               const showReadOnlyProperties = Boolean(taskEntityId) && !isTempBlock;
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
               const effectiveStatusFields = getEffectiveStatusFields(String(task.id), task);
-              const isDone = effectiveStatus === "done";
               const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
+              const isDone = effectiveStatus === "done";
               const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
               const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
               const assigneeNames = effectiveAssigneeIds
@@ -3368,10 +3418,10 @@ export default function TaskBlock({
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter" || e.key === " ") {
-                                      e.preventDefault();
-                                      e.stopPropagation();
                                       const target = e.target as HTMLElement;
                                       if (target.closest("button, [role='menuitem'], input, textarea")) return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
                                       setSelectedTaskId(null);
                                       setSelectedSubtaskId(subtaskId);
                                       setSelectedSubtaskParentTaskId(String(task.id));
@@ -3554,7 +3604,11 @@ export default function TaskBlock({
                                     </div>
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
-                                        <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                                        <button
+                                          onPointerDown={handlePropertiesMenuTriggerPointerDown}
+                                          onKeyDown={handlePropertiesMenuTriggerKeyDown}
+                                          className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                                        >
                                           <MoreVertical className="h-3.5 w-3.5" />
                                         </button>
                                       </DropdownMenuTrigger>
@@ -3563,7 +3617,7 @@ export default function TaskBlock({
                                           <>
                                             <DropdownMenuItem
                                               onClick={(event) =>
-                                                openPropertiesFromElement(
+                                                openPropertiesFromMenuTrigger(
                                                   event.currentTarget as HTMLElement,
                                                   {
                                                     type: "subtask",
@@ -3709,11 +3763,10 @@ export default function TaskBlock({
                               );
                             })}
 
-                            {effectivePriorityFields.map((priorityField, pIdx) => {
-                              const priorityLabel = getPriorityDisplayLabel(priorityField);
-                              if (!priorityLabel || !priorityField.value) return null;
+                            {getRenderablePriorityFields(String(task.id), task).map((priorityField, pIdx) => {
+                              const priorityLabel = getPriorityButtonLabel(priorityField);
                               const entityProps = entityPropertiesByTaskId[task.id];
-                              const fieldId = entityProps?.priorities?.[pIdx]?.id;
+                              const fieldId = priorityField.value ? entityProps?.priorities?.[pIdx]?.id : undefined;
                               return (
                                 <PropertyFieldDropdown
                                   key={`${task.id}-priority-${priorityField.field_name.toLowerCase()}`}
@@ -3729,19 +3782,26 @@ export default function TaskBlock({
                                     onClick={(e) => e.stopPropagation()}
                                     className={cn(
                                       "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-opacity hover:opacity-90",
-                                      PRIORITY_COLORS[priorityField.value]
+                                      priorityField.value
+                                        ? PRIORITY_COLORS[priorityField.value]
+                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                                     )}
-                                    title={priorityLabel}
+                                    title={priorityField.value ? (priorityLabel ?? undefined) : `Set ${priorityField.field_name}`}
                                   >
                                     <Flag className="h-3 w-3" />
-                                    <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                    {priorityLabel ? <span className="max-w-[220px] truncate">{priorityLabel}</span> : null}
                                   </button>
                                 </PropertyFieldDropdown>
                               );
                             })}
 
                             {/* Assignees (multiple) */}
-                            <DropdownMenu>
+                            <DropdownMenu
+                              open={openTaskAssigneeMenuId === String(task.id)}
+                              onOpenChange={(open) => {
+                                setOpenTaskAssigneeMenuId(open ? String(task.id) : null);
+                              }}
+                            >
                               <DropdownMenuTrigger asChild>
                                 <button
                                   type="button"
@@ -3762,12 +3822,10 @@ export default function TaskBlock({
                                 <div className="flex flex-col gap-0.5">
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setTaskProperties.mutate({
-                                        entityId: taskEntityId,
-                                        updates: { assignee_ids: null },
-                                      })
-                                    }
+                                    onClick={() => {
+                                      setOpenTaskAssigneeMenuId(null);
+                                      void updateTaskAssignees(String(task.id), []);
+                                    }}
                                     className={cn(
                                       "w-full rounded px-1.5 py-0.5 text-left text-[10px] transition-colors",
                                       effectiveAssigneeIds.length === 0
@@ -3787,10 +3845,8 @@ export default function TaskBlock({
                                           const next = isAssigned
                                             ? effectiveAssigneeIds.filter((id) => id !== m.user_id)
                                             : [...effectiveAssigneeIds, m.user_id];
-                                          setTaskProperties.mutate({
-                                            entityId: taskEntityId,
-                                            updates: { assignee_ids: next.length ? next : null },
-                                          });
+                                          setOpenTaskAssigneeMenuId(null);
+                                          void updateTaskAssignees(String(task.id), next);
                                         }}
                                         className={cn(
                                           "w-full rounded px-1.5 py-0.5 text-left text-[10px] transition-colors truncate",
@@ -3808,61 +3864,34 @@ export default function TaskBlock({
                             </DropdownMenu>
 
                             {/* Due Date */}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={(e) => e.stopPropagation()}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
-                                    hasDueDateValue
-                                      ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                      : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-                                  )}
-                                  title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
-                                >
-                                  <Calendar className="h-3 w-3" />
-                                  {dueDateLabel && <span className="whitespace-nowrap">{dueDateLabel}</span>}
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="start"
-                                className="w-auto min-w-[200px] p-1.5"
+                            <DateRangeCalendarDropdown
+                              range={{
+                                start: effectiveDueDate?.start ?? null,
+                                end: effectiveDueDate?.end ?? null,
+                              }}
+                              onChange={(nextRange) =>
+                                setTaskProperties.mutate({
+                                  entityId: taskEntityId,
+                                  updates: { due_date: buildDueDateRange(nextRange.start, nextRange.end) },
+                                })
+                              }
+                            >
+                              <button
+                                type="button"
                                 onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors",
+                                  hasDueDateValue
+                                    ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                )}
+                                title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
                               >
-                                <div className="space-y-1.5">
-                                  <DateRangeCalendar
-                                    range={{
-                                      start: effectiveDueDate?.start ?? null,
-                                      end: effectiveDueDate?.end ?? null,
-                                    }}
-                                    onChange={(nextRange) =>
-                                      setTaskProperties.mutate({
-                                        entityId: taskEntityId,
-                                        updates: { due_date: buildDueDateRange(nextRange.start, nextRange.end) },
-                                      })
-                                    }
-                                  />
-                                  {hasDueDateValue && (
-                                    <>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() =>
-                                          setTaskProperties.mutate({
-                                            entityId: taskEntityId,
-                                            updates: { due_date: null },
-                                          })
-                                        }
-                                        className="text-red-600"
-                                      >
-                                        Clear dates
-                                      </DropdownMenuItem>
-                                    </>
-                                  )}
-                                </div>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                                <Calendar className="h-3 w-3" />
+                                {dueDateLabel && <span className="whitespace-nowrap">{dueDateLabel}</span>}
+                              </button>
+                            </DateRangeCalendarDropdown>
                           </div>
                         )}
                       </div>
@@ -3907,7 +3936,11 @@ export default function TaskBlock({
                       {/* Three-dot menu */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
+                          <button
+                            onPointerDown={handlePropertiesMenuTriggerPointerDown}
+                            onKeyDown={handlePropertiesMenuTriggerKeyDown}
+                            className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0"
+                          >
                             <MoreVertical className="h-3.5 w-3.5" />
                           </button>
                         </DropdownMenuTrigger>
@@ -3916,7 +3949,7 @@ export default function TaskBlock({
                             <>
                               <DropdownMenuItem
                                 onClick={(event) =>
-                                  openPropertiesFromElement(
+                                  openPropertiesFromMenuTrigger(
                                     event.currentTarget as HTMLElement,
                                     { type: "task", id: taskEntityId, title: task.text || "Task" },
                                     null
@@ -4439,7 +4472,7 @@ export default function TaskBlock({
                                       "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium",
                                       PRIORITY_COLORS[priorityField.value]
                                     )}
-                                    title={priorityLabel}
+                                    title={priorityLabel ?? undefined}
                                   >
                                     <Flag className="h-3 w-3" />
                                     <span className="max-w-[180px] truncate">{priorityLabel}</span>
@@ -4487,7 +4520,11 @@ export default function TaskBlock({
                           const menu = (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
+                                <button
+                                  onPointerDown={handlePropertiesMenuTriggerPointerDown}
+                                  onKeyDown={handlePropertiesMenuTriggerKeyDown}
+                                  className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0"
+                                >
                                   <MoreVertical className="h-3.5 w-3.5" />
                                 </button>
                               </DropdownMenuTrigger>
@@ -4496,7 +4533,7 @@ export default function TaskBlock({
                                   <>
                                     <DropdownMenuItem
                                       onClick={(event) =>
-                                        openPropertiesFromElement(
+                                        openPropertiesFromMenuTrigger(
                                           event.currentTarget as HTMLElement,
                                           { type: "task", id: taskEntityId, title: task.text || "Task" },
                                           null
@@ -4748,7 +4785,11 @@ export default function TaskBlock({
                           const subtaskMenu = (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0">
+                                <button
+                                  onPointerDown={handlePropertiesMenuTriggerPointerDown}
+                                  onKeyDown={handlePropertiesMenuTriggerKeyDown}
+                                  className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] flex-shrink-0"
+                                >
                                   <MoreVertical className="h-3.5 w-3.5" />
                                 </button>
                               </DropdownMenuTrigger>
@@ -4757,7 +4798,7 @@ export default function TaskBlock({
                                   <>
                                     <DropdownMenuItem
                                       onClick={(event) =>
-                                        openPropertiesFromElement(
+                                        openPropertiesFromMenuTrigger(
                                           event.currentTarget as HTMLElement,
                                           { type: "subtask", id: subtaskEntityId, title: subtask.text || "Subtask" },
                                           null
@@ -4913,7 +4954,6 @@ export default function TaskBlock({
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
               const effectiveStatusFields = getEffectiveStatusFields(String(task.id), task);
               const isDone = effectiveStatus === "done";
-              const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
               const effectiveAssigneeIds = getEffectiveAssigneeIds(String(task.id), task);
               const effectiveDueDate = getEffectiveDueDate(String(task.id), task);
               const effectiveTags = getEffectiveTags(String(task.id), task);
@@ -5141,14 +5181,12 @@ export default function TaskBlock({
                     </div>
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1">
-                        {effectivePriorityFields.length > 0 ? (
-                          effectivePriorityFields.map((priorityField, pIdx) => {
-                            const priorityLabel = getPriorityDisplayLabel(priorityField);
-                            if (!priorityLabel || !priorityField.value) return null;
+                        {getRenderablePriorityFields(String(task.id), task).map((priorityField, pIdx) => {
+                            const priorityLabel = getPriorityButtonLabel(priorityField);
 
                             if (canUseProperties && taskEntityId) {
                               const entityProps = entityPropertiesByTaskId[task.id];
-                              const fieldId = entityProps?.priorities?.[pIdx]?.id;
+                              const fieldId = priorityField.value ? entityProps?.priorities?.[pIdx]?.id : undefined;
                               return (
                                 <PropertyFieldDropdown
                                   key={`${task.id}-table-priority-${priorityField.field_name.toLowerCase()}`}
@@ -5163,12 +5201,14 @@ export default function TaskBlock({
                                     onClick={(e) => e.stopPropagation()}
                                     className={cn(
                                       "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
-                                      PRIORITY_COLORS[priorityField.value]
+                                      priorityField.value
+                                        ? PRIORITY_COLORS[priorityField.value]
+                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                                     )}
-                                    title={priorityLabel}
+                                    title={priorityField.value ? (priorityLabel ?? undefined) : `Set ${priorityField.field_name}`}
                                   >
-                                    {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
-                                    <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                    {(shouldShowIcons(task) || !priorityLabel) && <Flag className="h-3 w-3" />}
+                                    {priorityLabel ? <span className="max-w-[220px] truncate">{priorityLabel}</span> : null}
                                   </button>
                                 </PropertyFieldDropdown>
                               );
@@ -5179,18 +5219,17 @@ export default function TaskBlock({
                                 key={`${task.id}-table-priority-${priorityField.field_name.toLowerCase()}`}
                                 className={cn(
                                   "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs",
-                                  PRIORITY_COLORS[priorityField.value]
+                                  priorityField.value
+                                    ? PRIORITY_COLORS[priorityField.value]
+                                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]"
                                 )}
-                                title={priorityLabel}
+                                title={priorityLabel ?? undefined}
                               >
-                                {shouldShowIcons(task) && <Flag className="h-3 w-3" />}
-                                <span className="max-w-[220px] truncate">{priorityLabel}</span>
+                                {(shouldShowIcons(task) || !priorityLabel) && <Flag className="h-3 w-3" />}
+                                {priorityLabel ? <span className="max-w-[220px] truncate">{priorityLabel}</span> : null}
                               </span>
                             );
-                          })
-                        ) : (
-                          <span className="text-xs text-[var(--muted-foreground)]">—</span>
-                        )}
+                          })}
                       </div>
                     </div>
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
@@ -5258,56 +5297,34 @@ export default function TaskBlock({
                     </div>
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       {canUseProperties && taskEntityId ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              className={cn(
-                                "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
-                                hasDueDateValue
-                                  ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-                              )}
-                              title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
-                            >
-                              {shouldShowIcons(task) && <Calendar className="h-3 w-3" />}
-                              <span className="whitespace-nowrap">{dueDateLabel || "No due date"}</span>
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="start"
-                            className="w-auto min-w-[200px] p-1.5"
+                        <DateRangeCalendarDropdown
+                          range={{
+                            start: effectiveDueDate?.start ?? null,
+                            end: effectiveDueDate?.end ?? null,
+                          }}
+                          onChange={(nextRange) =>
+                            updateTaskDueDate(
+                              String(task.id),
+                              buildDueDateRange(nextRange.start, nextRange.end)
+                            )
+                          }
+                        >
+                          <button
+                            type="button"
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-[4px] px-2 py-1 text-xs transition-colors",
+                              hasDueDateValue
+                                ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                            )}
+                            title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
                           >
-                            <div className="space-y-1.5">
-                              <DateRangeCalendar
-                                range={{
-                                  start: effectiveDueDate?.start ?? null,
-                                  end: effectiveDueDate?.end ?? null,
-                                }}
-                                onChange={(nextRange) =>
-                                  updateTaskDueDate(
-                                    String(task.id),
-                                    buildDueDateRange(nextRange.start, nextRange.end)
-                                  )
-                                }
-                              />
-                              {hasDueDateValue && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    onClick={() => updateTaskDueDate(String(task.id), null)}
-                                    className="text-red-600"
-                                  >
-                                    Clear dates
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                            </div>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                            {shouldShowIcons(task) && <Calendar className="h-3 w-3" />}
+                            <span className="whitespace-nowrap">{dueDateLabel || "No due date"}</span>
+                          </button>
+                        </DateRangeCalendarDropdown>
                       ) : (
                         <span className="text-xs text-[var(--muted-foreground)]">{dueDateLabel ?? "—"}</span>
                       )}
@@ -5346,7 +5363,11 @@ export default function TaskBlock({
                     <div className="px-2 py-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className="flex h-7 w-7 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                          <button
+                            onPointerDown={handlePropertiesMenuTriggerPointerDown}
+                            onKeyDown={handlePropertiesMenuTriggerKeyDown}
+                            className="flex h-7 w-7 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                          >
                             <MoreVertical className="h-3.5 w-3.5" />
                           </button>
                         </DropdownMenuTrigger>
@@ -5355,7 +5376,7 @@ export default function TaskBlock({
                             <>
                               <DropdownMenuItem
                                 onClick={(event) =>
-                                  openPropertiesFromElement(
+                                  openPropertiesFromMenuTrigger(
                                     event.currentTarget as HTMLElement,
                                     { type: "task", id: taskEntityId, title: task.text || "Task" },
                                     null
@@ -5464,10 +5485,10 @@ export default function TaskBlock({
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
                               const target = e.target as HTMLElement;
                               if (target.closest("button, [role='menuitem'], input, textarea")) return;
+                              e.preventDefault();
+                              e.stopPropagation();
                               setSelectedTaskId(null);
                               setSelectedSubtaskId(subtaskId);
                               setSelectedSubtaskParentTaskId(String(task.id));
@@ -5648,56 +5669,34 @@ export default function TaskBlock({
                           </div>
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => e.stopPropagation()}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className={cn(
-                                      "inline-flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs transition-colors",
-                                      hasSubtaskDueDate
-                                        ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
-                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-                                    )}
-                                    title={hasSubtaskDueDate ? `Due: ${subtaskDueDateLabel}` : "Set due date"}
-                                  >
-                                    <Calendar className="h-3 w-3" />
-                                    <span className="whitespace-nowrap">{subtaskDueDateLabel || "No due date"}</span>
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="start"
-                                  className="w-auto min-w-[200px] p-1.5"
+                              <DateRangeCalendarDropdown
+                                range={{
+                                  start: subtaskDueDate?.start ?? null,
+                                  end: subtaskDueDate?.end ?? null,
+                                }}
+                                onChange={(nextRange) =>
+                                  updateSubtaskDueDate(
+                                    subtaskId,
+                                    buildDueDateRange(nextRange.start, nextRange.end)
+                                  )
+                                }
+                              >
+                                <button
+                                  type="button"
                                   onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs transition-colors",
+                                    hasSubtaskDueDate
+                                      ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                      : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                                  )}
+                                  title={hasSubtaskDueDate ? `Due: ${subtaskDueDateLabel}` : "Set due date"}
                                 >
-                                  <div className="space-y-1.5">
-                                    <DateRangeCalendar
-                                      range={{
-                                        start: subtaskDueDate?.start ?? null,
-                                        end: subtaskDueDate?.end ?? null,
-                                      }}
-                                      onChange={(nextRange) =>
-                                        updateSubtaskDueDate(
-                                          subtaskId,
-                                          buildDueDateRange(nextRange.start, nextRange.end)
-                                        )
-                                      }
-                                    />
-                                    {hasSubtaskDueDate && (
-                                      <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onClick={() => updateSubtaskDueDate(subtaskId, null)}
-                                          className="text-red-600"
-                                        >
-                                          Clear dates
-                                        </DropdownMenuItem>
-                                      </>
-                                    )}
-                                  </div>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                                  <Calendar className="h-3 w-3" />
+                                  <span className="whitespace-nowrap">{subtaskDueDateLabel || "No due date"}</span>
+                                </button>
+                              </DateRangeCalendarDropdown>
                             ) : (
                               <span className="text-xs text-[var(--muted-foreground)]">{subtaskDueDateLabel ?? "—"}</span>
                             )}
@@ -5739,7 +5738,11 @@ export default function TaskBlock({
                           <div className="px-2 py-1.5">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                                <button
+                                  onPointerDown={handlePropertiesMenuTriggerPointerDown}
+                                  onKeyDown={handlePropertiesMenuTriggerKeyDown}
+                                  className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                                >
                                   <MoreVertical className="h-3 w-3" />
                                 </button>
                               </DropdownMenuTrigger>
@@ -5748,12 +5751,15 @@ export default function TaskBlock({
                                   <>
                                     <DropdownMenuItem
                                       onClick={() => {
-                                        setPropertiesTarget({
-                                          type: "subtask",
-                                          id: subtaskEntityId,
-                                          title: subtask.text || "Subtask",
-                                        });
-                                        setPropertiesOpen(true);
+                                        openPropertiesFromMenuTrigger(
+                                          null,
+                                          {
+                                            type: "subtask",
+                                            id: subtaskEntityId,
+                                            title: subtask.text || "Subtask",
+                                          },
+                                          null
+                                        );
                                       }}
                                     >
                                       <Tag className="mr-2 h-4 w-4 text-[var(--muted-foreground)]" />
@@ -5948,8 +5954,10 @@ export default function TaskBlock({
                 setPropertiesTarget(null);
                 setPropertiesFocus(null);
                 setPropertiesAnchorRect(null);
+                setPropertiesMenuTriggerRect(null);
               }
             }}
+            size="compact"
             anchorRect={propertiesAnchorRect}
             entityType={propertiesTarget.type}
             entityId={propertiesTarget.id}

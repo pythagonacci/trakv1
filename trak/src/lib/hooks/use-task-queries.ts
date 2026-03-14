@@ -24,6 +24,9 @@ const taskKeys = {
   subtaskReferences: (subtaskId: string) => ["subtaskReferences", subtaskId] as const,
 };
 
+type TaskReferenceSummary = Extract<Awaited<ReturnType<typeof listTaskReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
+type SubtaskReferenceSummary = Extract<Awaited<ReturnType<typeof listSubtaskReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
+
 export function useTaskItems(
   blockId: string,
   options?: { enabled?: boolean; publicToken?: string }
@@ -175,7 +178,31 @@ export function useTaskSubtasks(blockId: string) {
   return {
     create: useMutation({
       mutationFn: createTaskSubtask,
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        const optimisticSubtask: { id: string; text: string; description?: string | null; completed: boolean } = {
+          id: `optimistic-subtask-${Date.now()}`,
+          text: input.title,
+          description: input.description ?? null,
+          completed: Boolean(input.completed),
+        };
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) =>
+              t.id === input.taskId
+                ? { ...t, subtasks: [...(t.subtasks ?? []), optimisticSubtask] }
+                : t
+            ),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
+      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
     update: useMutation({
       mutationFn: (input: { subtaskId: string; updates: Parameters<typeof updateTaskSubtask>[1] }) =>
@@ -200,7 +227,24 @@ export function useTaskSubtasks(blockId: string) {
     }),
     remove: useMutation({
       mutationFn: (subtaskId: string) => deleteTaskSubtask(subtaskId),
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (subtaskId) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) => ({
+              ...t,
+              subtasks: t.subtasks?.filter((s) => s.id !== subtaskId),
+            })),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
+      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
     reorder: useMutation({
       mutationFn: (input: { taskId: string; orderedSubtaskIds: string[] }) =>
@@ -233,7 +277,32 @@ export function useTaskComments(blockId: string) {
   return {
     create: useMutation({
       mutationFn: createTaskComment,
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        const optimisticComment = {
+          id: `optimistic-comment-${Date.now()}`,
+          author: "You",
+          text: input.text,
+          timestamp: new Date().toISOString(),
+          parentId: input.parentId ?? null,
+        };
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) =>
+              t.id === input.taskId
+                ? { ...t, comments: [...(t.comments ?? []), optimisticComment] }
+                : t
+            ),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
+      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
     update: useMutation({
       mutationFn: (input: { commentId: string; updates: Parameters<typeof updateTaskComment>[1] }) =>
@@ -258,7 +327,24 @@ export function useTaskComments(blockId: string) {
     }),
     remove: useMutation({
       mutationFn: deleteTaskComment,
-      onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onMutate: async (commentId) => {
+        await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
+        const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        if (previous) {
+          qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
+            ...previous,
+            tasks: previous.tasks.map((t) => ({
+              ...t,
+              comments: t.comments?.filter((c) => c.id !== commentId),
+            })),
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _input, ctx) => {
+        if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
+      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
     }),
   };
 }
@@ -338,6 +424,33 @@ export function useCreateSubtaskReference(subtaskId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createSubtaskReference,
+    onMutate: async (input) => {
+      if (!subtaskId) return { previous: undefined };
+      await qc.cancelQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
+      const previous = qc.getQueryData<SubtaskReferenceSummary>(taskKeys.subtaskReferences(subtaskId));
+      const optimistic = {
+        id: `optimistic-subtask-ref-${Date.now()}`,
+        workspace_id: "",
+        subtask_id: input.subtaskId,
+        reference_type: input.referenceType,
+        reference_id: input.referenceId,
+        table_id: input.tableId ?? null,
+        created_by: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        title: input.referenceId,
+      };
+      qc.setQueryData<SubtaskReferenceSummary>(taskKeys.subtaskReferences(subtaskId), (current) => [
+        optimistic,
+        ...((current ?? []) as SubtaskReferenceSummary),
+      ] as SubtaskReferenceSummary);
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (subtaskId && ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.subtaskReferences(subtaskId), ctx.previous);
+      }
+    },
     onSuccess: () => {
       if (subtaskId) qc.invalidateQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
     },
@@ -348,6 +461,21 @@ export function useDeleteSubtaskReference(subtaskId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (referenceId: string) => deleteSubtaskReference(referenceId),
+    onMutate: async (referenceId) => {
+      if (!subtaskId) return { previous: undefined };
+      await qc.cancelQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
+      const previous = qc.getQueryData<SubtaskReferenceSummary>(taskKeys.subtaskReferences(subtaskId));
+      qc.setQueryData<SubtaskReferenceSummary>(taskKeys.subtaskReferences(subtaskId), (current) => {
+        const refs = (current ?? []) as SubtaskReferenceSummary;
+        return refs.filter((ref) => ref.id !== referenceId) as SubtaskReferenceSummary;
+      });
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (subtaskId && ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.subtaskReferences(subtaskId), ctx.previous);
+      }
+    },
     onSuccess: () => {
       if (subtaskId) qc.invalidateQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
     },
@@ -358,6 +486,33 @@ export function useCreateTaskReference(taskId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createTaskReference,
+    onMutate: async (input) => {
+      if (!taskId) return { previous: undefined };
+      await qc.cancelQueries({ queryKey: taskKeys.references(taskId) });
+      const previous = qc.getQueryData<TaskReferenceSummary>(taskKeys.references(taskId));
+      const optimistic = {
+        id: `optimistic-task-ref-${Date.now()}`,
+        workspace_id: "",
+        task_id: input.taskId,
+        reference_type: input.referenceType,
+        reference_id: input.referenceId,
+        table_id: input.tableId ?? null,
+        created_by: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        title: input.referenceId,
+      };
+      qc.setQueryData<TaskReferenceSummary>(taskKeys.references(taskId), (current) => [
+        optimistic,
+        ...((current ?? []) as TaskReferenceSummary),
+      ] as TaskReferenceSummary);
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (taskId && ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.references(taskId), ctx.previous);
+      }
+    },
     onSuccess: () => {
       if (taskId) qc.invalidateQueries({ queryKey: taskKeys.references(taskId) });
     },
@@ -368,6 +523,21 @@ export function useDeleteTaskReference(taskId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (referenceId: string) => deleteTaskReference(referenceId),
+    onMutate: async (referenceId) => {
+      if (!taskId) return { previous: undefined };
+      await qc.cancelQueries({ queryKey: taskKeys.references(taskId) });
+      const previous = qc.getQueryData<TaskReferenceSummary>(taskKeys.references(taskId));
+      qc.setQueryData<TaskReferenceSummary>(taskKeys.references(taskId), (current) => {
+        const refs = (current ?? []) as TaskReferenceSummary;
+        return refs.filter((ref) => ref.id !== referenceId) as TaskReferenceSummary;
+      });
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (taskId && ctx?.previous !== undefined) {
+        qc.setQueryData(taskKeys.references(taskId), ctx.previous);
+      }
+    },
     onSuccess: () => {
       if (taskId) qc.invalidateQueries({ queryKey: taskKeys.references(taskId) });
     },

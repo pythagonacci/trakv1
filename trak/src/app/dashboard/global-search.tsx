@@ -26,6 +26,18 @@ interface SearchResult {
   metadata?: Record<string, any>;
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    !!target.closest('[contenteditable="true"]') ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select"
+  );
+}
+
 export default function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -207,7 +219,9 @@ export default function GlobalSearch() {
   // Focus search on Cmd/Ctrl + K
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if (e.defaultPrevented) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (isEditableKeyboardTarget(e.target)) return;
         e.preventDefault();
         searchInputRef.current?.focus();
         setIsOpen(true);

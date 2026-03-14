@@ -25,9 +25,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { X, User, Tag as TagIcon, Save, ChevronDown } from "lucide-react";
+import { X, User, Tag as TagIcon, Save, ChevronDown, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { normalizeDueDateRange } from "@/lib/due-date";
+import { DateRangeCalendarDropdown } from "@/components/due-date-calendar";
 import {
   useEntityProperties,
   useSetEntityProperties,
@@ -55,6 +56,7 @@ interface PropertyMenuProps {
   entityId: string;
   workspaceId: string;
   entityTitle?: string;
+  size?: "default" | "compact";
   /** When set, the menu opens as a popover anchored to this element (e.g. the three-dots trigger). */
   anchorRef?: React.RefObject<HTMLElement | null>;
   /** Captured at open time (e.g. trigger.getBoundingClientRect()) so position stays fixed and doesn't follow cursor. */
@@ -288,10 +290,11 @@ function PopoverSection({
   title,
   onAdd,
   children,
-}: { title: string; onAdd?: () => void; children: React.ReactNode }) {
+  compact = false,
+}: { title: string; onAdd?: () => void; children: React.ReactNode; compact?: boolean }) {
   return (
     <div className="px-0 py-1">
-      <div className="flex items-center justify-between pb-0.5">
+      <div className={cn("flex items-center justify-between", compact ? "pb-0" : "pb-0.5")}>
         <div className="text-[10px] font-semibold tracking-wide text-[var(--muted-foreground)] uppercase">
           {title}
         </div>
@@ -325,6 +328,7 @@ export function PropertyMenu({
   entityId,
   workspaceId,
   entityTitle,
+  size = "default",
   anchorRef,
   anchorRect,
   projectId,
@@ -358,7 +362,13 @@ export function PropertyMenu({
     statusDisabled && assigneesDisabled && priorityDisabled && dueDateDisabled && tagsDisabled;
 
   const focusedGroup = focus?.group;
-  const usePopover = Boolean(open && (anchorRect ?? anchorRef?.current));
+  const usePopover = open && (Boolean(anchorRect) || anchorRef !== undefined);
+  const isCompact = size === "compact";
+  const panelWidth = isCompact ? 240 : 280;
+  const estimatedHeight = isCompact ? 300 : 320;
+  const popoverMaxHeightClass = isCompact ? "max-h-[min(80vh,340px)]" : "max-h-[min(85vh,380px)]";
+  const popoverWidthClass = isCompact ? "w-[240px]" : "w-[280px]";
+  const dialogWidthClass = isCompact ? "max-w-[520px] sm:max-w-[560px]" : "max-w-[600px] sm:max-w-[640px]";
 
   // Position popover once from captured anchorRect (or single read of anchorRef). No continuous observation so it doesn't follow cursor.
   useEffect(() => {
@@ -367,9 +377,7 @@ export function PropertyMenu({
       return;
     }
     const gap = 4;
-    const panelWidth = 280;
     const margin = 8;
-    const estimatedHeight = 320;
     let rect: DOMRect | null = null;
     if (anchorRect) {
       rect = anchorRect;
@@ -400,7 +408,7 @@ export function PropertyMenu({
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [open, anchorRect, anchorRef]);
+  }, [open, anchorRect, anchorRef, panelWidth, estimatedHeight]);
 
   // Click-outside is handled by the backdrop div rendered in the portal (see below).
   // We do NOT use a document-level click listener because Radix Select v2 unmounts
@@ -511,6 +519,7 @@ export function PropertyMenu({
         <>
           <PopoverSection
             title="Statuses"
+            compact={isCompact}
             onAdd={statusDisabled ? undefined : () => setStatusDrafts((prev) => [...prev, { id: `status-new-${Date.now()}`, field_name: getNextStatusFieldName(prev), value: direct?.status ?? null } as StatusFieldDraft])}
           >
             {statusDisabled ? (
@@ -559,6 +568,7 @@ export function PropertyMenu({
         <>
           <PopoverSection
             title="Priorities"
+            compact={isCompact}
             onAdd={
               focusedGroup === undefined && !priorityDisabled
                 ? () =>
@@ -663,6 +673,7 @@ export function PropertyMenu({
         <>
           <PopoverSection
             title="Assignees"
+            compact={isCompact}
             onAdd={assigneesDisabled ? undefined : () => setAssigneeDrafts((prev) => [...prev, { id: `assignee-new-${Date.now()}`, field_name: getNextAssigneeFieldName(prev), value: [] } as AssigneeFieldDraft])}
           >
             {assigneesDisabled ? (
@@ -732,6 +743,7 @@ export function PropertyMenu({
         <>
           <PopoverSection
             title="Due dates"
+            compact={isCompact}
             onAdd={
               focusedGroup === undefined && !dueDateDisabled
                 ? () =>
@@ -751,64 +763,110 @@ export function PropertyMenu({
               .map((field) => {
                 const startStr = field.value.start ? format(new Date(field.value.start), "MMM d, yyyy") : null;
                 const endStr = field.value.end ? format(new Date(field.value.end), "MMM d, yyyy") : null;
+                const hasDueDateValue = Boolean(field.value.start || field.value.end);
+                const compactDueDateLabel = `${startStr ?? "—"} ${endStr ? `→ ${endStr}` : ""}`.trim();
                 return (
                   <div key={field.id} className="rounded px-1.5 py-1 hover:bg-[var(--surface-hover)]">
-                    <input
-                      value={field.field_name}
-                      onChange={(e) => setDueDateDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, field_name: e.target.value } : entry))}
-                      placeholder="Name"
-                      className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
-                    />
-                    <div className="mt-0.5 flex items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Dot tone="neutral" />
-                        <span className="text-[11px] font-semibold whitespace-nowrap">
-                          {startStr ?? "—"}
-                          <span className="text-[var(--muted-foreground)] font-medium"> {"\u2192"} </span>
-                          {endStr ?? "—"}
-                        </span>
-                      </div>
-                      {!dueDateDisabled && (
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <input
-                            type="date"
-                            value={field.value.start ?? ""}
-                            onChange={(e) =>
-                              setDueDateDrafts((prev) =>
-                                prev.map((entry) =>
-                                  entry.id === field.id
-                                    ? { ...entry, value: { ...entry.value, start: e.target.value || null } }
-                                    : entry
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={field.field_name}
+                        onChange={(e) => setDueDateDrafts((prev) => prev.map((entry) => entry.id === field.id ? { ...entry, field_name: e.target.value } : entry))}
+                        placeholder="Name"
+                        className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
+                      />
+                      {dueDateDrafts.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDueDateDrafts((prev) => prev.filter((e) => e.id !== field.id))
+                          }
+                          className="shrink-0 rounded p-0.5 text-[var(--muted-foreground)]"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-0.5 space-y-1">
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Dot tone="neutral" />
+                          {isCompact && !dueDateDisabled ? (
+                            <DateRangeCalendarDropdown
+                              range={{
+                                start: field.value.start ?? null,
+                                end: field.value.end ?? null,
+                              }}
+                              onChange={(nextRange) =>
+                                setDueDateDrafts((prev) =>
+                                  prev.map((entry) =>
+                                    entry.id === field.id
+                                      ? { ...entry, value: { start: nextRange.start, end: nextRange.end } }
+                                      : entry
+                                  )
                                 )
-                              )
-                            }
-                            className="w-20 text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5"
-                          />
-                          <input
-                            type="date"
-                            value={field.value.end ?? ""}
-                            onChange={(e) =>
-                              setDueDateDrafts((prev) =>
-                                prev.map((entry) =>
-                                  entry.id === field.id
-                                    ? { ...entry, value: { ...entry.value, end: e.target.value || null } }
-                                    : entry
-                                )
-                              )
-                            }
-                            className="w-20 text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5"
-                          />
-                          {dueDateDrafts.length > 1 && (
+                              }
+                            >
                             <button
                               type="button"
-                              onClick={() =>
-                                setDueDateDrafts((prev) => prev.filter((e) => e.id !== field.id))
-                              }
-                              className="rounded p-0.5 text-[var(--muted-foreground)]"
+                              aria-label={hasDueDateValue ? "Edit due date" : "Add due date"}
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 text-left text-[11px] font-semibold transition-colors",
+                                hasDueDateValue
+                                  ? "min-w-0 truncate border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                              )}
                             >
-                              <X className="h-2.5 w-2.5" />
+                              <Calendar className="h-3 w-3" />
+                              {hasDueDateValue ? <span className="truncate">{compactDueDateLabel}</span> : null}
                             </button>
+                            </DateRangeCalendarDropdown>
+                          ) : (
+                            <span className="min-w-0 truncate text-[11px] font-semibold">
+                              {startStr ?? "—"}
+                              <span className="text-[var(--muted-foreground)] font-medium"> {"\u2192"} </span>
+                              {endStr ?? "—"}
+                            </span>
                           )}
+                        </div>
+                      </div>
+                      {!dueDateDisabled && !isCompact && (
+                        <div className={cn("min-w-0", isCompact ? "pl-[10px]" : "")}>
+                          <div className={cn("flex gap-0.5", isCompact ? "flex-col items-stretch" : "items-center justify-end")}>
+                            <input
+                              type="date"
+                              value={field.value.start ?? ""}
+                              onChange={(e) =>
+                                setDueDateDrafts((prev) =>
+                                  prev.map((entry) =>
+                                    entry.id === field.id
+                                      ? { ...entry, value: { ...entry.value, start: e.target.value || null } }
+                                      : entry
+                                  )
+                                )
+                              }
+                              className={cn(
+                                "text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5 min-w-0",
+                                isCompact ? "w-full" : "w-20"
+                              )}
+                            />
+                            <input
+                              type="date"
+                              value={field.value.end ?? ""}
+                              onChange={(e) =>
+                                setDueDateDrafts((prev) =>
+                                  prev.map((entry) =>
+                                    entry.id === field.id
+                                      ? { ...entry, value: { ...entry.value, end: e.target.value || null } }
+                                      : entry
+                                  )
+                                )
+                              }
+                              className={cn(
+                                "text-[10px] rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5 min-w-0",
+                                isCompact ? "w-full" : "w-20"
+                              )}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1497,7 +1555,11 @@ export function PropertyMenu({
             the subsequent click event — making onClick unreliable when a dropdown is open. */}
         <div className="fixed inset-0 z-[99]" onPointerDown={() => onOpenChange(false)} />
         <div
-          className="z-[100] w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col max-h-[min(85vh,380px)]"
+          className={cn(
+            "z-[100] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col",
+            popoverWidthClass,
+            popoverMaxHeightClass
+          )}
           style={{
             position: "fixed",
             left: popoverPosition.left,
@@ -1544,7 +1606,7 @@ export function PropertyMenu({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[600px] sm:max-w-[640px] p-4 sm:p-5">
+      <DialogContent className={cn(dialogWidthClass, "p-4 sm:p-5")}>
         <DialogHeader className="mb-4 space-y-0.5">
           <DialogTitle className="text-sm font-semibold tracking-tight">
             Properties

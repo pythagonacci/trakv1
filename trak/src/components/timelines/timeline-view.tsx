@@ -121,6 +121,18 @@ interface WorkspaceMember {
   role: string;
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    !!target.closest('[contenteditable="true"]') ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select"
+  );
+}
+
 const DEFAULT_COLORS = [
   "bg-blue-500/50",
   "bg-indigo-500/50",
@@ -974,6 +986,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     window.addEventListener("resize", doUpdate);
     window.addEventListener("scroll", doUpdate, true);
     const handleEscape = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
       if (e.key === "Escape") closePanel();
     };
     window.addEventListener("keydown", handleEscape);
@@ -1893,6 +1906,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   void saveTimelineTitle();
                 } else if (e.key === "Escape") {
                   e.preventDefault();
+                  e.stopPropagation();
                   setTitleValue(timelineTitle);
                   setIsEditingTitle(false);
                 }
@@ -3932,6 +3946,7 @@ function EditEventDialog({
   React.useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
       if (e.key === "Escape") {
         closePanel();
       }

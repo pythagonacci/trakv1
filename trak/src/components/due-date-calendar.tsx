@@ -1,17 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   addDays,
-  addMonths,
-  endOfMonth,
   format,
   isSameDay,
   startOfMonth,
   startOfWeek,
-  subMonths,
 } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface DateRange {
@@ -27,8 +28,6 @@ interface DateRangeCalendarProps {
 const WEEK_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 export function DateRangeCalendar({ range, onChange }: DateRangeCalendarProps) {
-  const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
-
   const normalizedRange = useMemo(
     () => ({
       start: range.start ?? null,
@@ -37,9 +36,16 @@ export function DateRangeCalendar({ range, onChange }: DateRangeCalendarProps) {
     [range]
   );
 
+  // Only show current month or the month of the due date (start)
+  const currentMonth = useMemo(() => {
+    if (normalizedRange.start) {
+      return startOfMonth(new Date(normalizedRange.start + "T12:00:00"));
+    }
+    return startOfMonth(new Date());
+  }, [normalizedRange.start]);
+
   const monthDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
     const gridStart = startOfWeek(monthStart, { weekStartsOn: 0 });
     const totalSlots = 42;
     return Array.from({ length: totalSlots }, (_, index) => addDays(gridStart, index));
@@ -99,45 +105,36 @@ export function DateRangeCalendar({ range, onChange }: DateRangeCalendarProps) {
 
   const isRangeStart = (dateIso: string) => normalizedRange.start === dateIso;
   const isRangeEnd = (dateIso: string) => normalizedRange.end === dateIso;
-  const hasRange = normalizedRange.start != null && normalizedRange.end != null;
+  const hasSelection = normalizedRange.start != null;
 
-  const rangeLabel = hasRange
-    ? `${format(new Date(normalizedRange.start + "T12:00:00"), "MMM d")} → ${format(new Date(normalizedRange.end + "T12:00:00"), "MMM d")}`
-    : null;
+  const goToToday = () => {
+    const today = format(new Date(), "yyyy-MM-dd");
+    onChange({ start: today, end: null });
+  };
+
+  const clearDate = () => {
+    onChange({ start: null, end: null });
+  };
 
   return (
-    <div className="space-y-1.5">
-      {rangeLabel && (
-        <div className="rounded-md bg-[var(--surface-muted)] px-2 py-1 text-[10px] font-medium text-[var(--foreground)] text-center">
-          {rangeLabel}
-        </div>
-      )}
-      <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-        <button
-          type="button"
-          onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
-          className="h-6 w-6 rounded-full hover:bg-[var(--surface-muted)] flex items-center justify-center"
-        >
-          <ChevronLeft className="h-3 w-3" />
-        </button>
-        <span className="font-semibold text-xs">{format(currentMonth, "MMM yyyy")}</span>
-        <button
-          type="button"
-          onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
-          className="h-6 w-6 rounded-full hover:bg-[var(--surface-muted)] flex items-center justify-center"
-        >
-          <ChevronRight className="h-3 w-3" />
-        </button>
+    <div className="p-2">
+      {/* Header: Month/Year (no navigation - only current month or due date month) */}
+      <div className="mb-1.5 flex items-center justify-center">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--foreground)]">
+          {format(currentMonth, "MMM yyyy")}
+        </span>
       </div>
 
-      <div className="grid grid-cols-7 gap-0.5 text-[10px] text-[var(--muted-foreground)]">
+      {/* Weekdays row */}
+      <div className="mb-1 grid grid-cols-7 gap-0 text-center">
         {WEEK_DAYS.map((day) => (
-          <span key={day} className="flex items-center justify-center">
+          <span key={day} className="text-[10px] font-medium text-[var(--foreground)]">
             {day}
           </span>
         ))}
       </div>
 
+      {/* Dates grid */}
       <div className="grid grid-cols-7 gap-0.5">
         {monthDays.map((day) => {
           const iso = format(day, "yyyy-MM-dd");
@@ -152,19 +149,14 @@ export function DateRangeCalendar({ range, onChange }: DateRangeCalendarProps) {
               key={iso}
               type="button"
               onClick={() => handleDayClick(day)}
-              disabled={!isCurrentMonth}
               className={cn(
-                "relative flex h-7 w-7 items-center justify-center text-xs font-medium transition",
-                !isCurrentMonth && "text-[var(--muted-foreground)]",
-                isStart || isEnd
-                  ? "z-10 rounded-full bg-[var(--foreground)] text-white"
-                  : inRange
-                  ? "rounded-none bg-[var(--primary)]/15 text-[var(--foreground)]"
-                  : "text-[var(--foreground)]",
+                "relative flex h-6 w-6 items-center justify-center rounded text-[11px] font-medium transition-colors",
+                !isCurrentMonth && "text-[var(--muted-foreground)]/60",
+                isCurrentMonth && !isStart && !isEnd && !inRange && "text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
                 isToday && !isStart && !isEnd && "ring-1 ring-[var(--border)]",
-                isStart && "rounded-l-full",
-                isEnd && "rounded-r-full",
-                inRange && !isStart && !isEnd && "rounded-none"
+                (isStart || isEnd) && "bg-[var(--foreground)] text-white hover:bg-[var(--foreground)]/90",
+                inRange && "bg-[var(--foreground)]/10 text-[var(--foreground)]",
+                !isCurrentMonth && "hover:bg-[var(--surface-hover)]/50"
               )}
             >
               {format(day, "d")}
@@ -172,6 +164,77 @@ export function DateRangeCalendar({ range, onChange }: DateRangeCalendarProps) {
           );
         })}
       </div>
+
+      {/* Footer: Today + Clear date */}
+      <div className="mt-1.5 flex items-center justify-between border-t border-[var(--border)] pt-1.5">
+        <button
+          type="button"
+          onClick={goToToday}
+          className="text-[10px] font-medium text-[var(--foreground)] hover:underline"
+        >
+          Today
+        </button>
+        {hasSelection && (
+          <button
+            type="button"
+            onClick={clearDate}
+            className="text-[10px] font-medium text-orange-600 hover:text-orange-700 hover:underline dark:text-orange-500 dark:hover:text-orange-400"
+          >
+            Clear date
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Approximate height of the calendar popover */
+const CALENDAR_HEIGHT = 220;
+
+/** Minimum space below trigger to prefer bottom placement */
+const MIN_SPACE_BELOW = CALENDAR_HEIGHT + 8;
+
+interface DateRangeCalendarDropdownProps {
+  range: DateRange;
+  onChange: (range: DateRange) => void;
+  children: React.ReactNode;
+}
+
+export function DateRangeCalendarDropdown({
+  range,
+  onChange,
+  children,
+}: DateRangeCalendarDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const [side, setSide] = useState<"bottom" | "right">("bottom");
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (next && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setSide(spaceBelow < MIN_SPACE_BELOW ? "right" : "bottom");
+    }
+    setOpen(next);
+  }, []);
+
+  return (
+    <div ref={triggerRef} className="inline-block">
+      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+        <DropdownMenuTrigger asChild>
+          {children}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          side={side}
+          avoidCollisions={true}
+          collisionPadding={8}
+          className="z-[200] w-auto min-w-[11rem] p-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DateRangeCalendar range={range} onChange={onChange} />
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

@@ -1,11 +1,207 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createCard, deleteCard, updateCard } from "@/app/actions/cards/item-actions";
 import { createCardComment, deleteCardComment, updateCardComment } from "@/app/actions/cards/comment-actions";
-import type { CardsBlockBundle } from "@/app/actions/cards/query-actions";
+import type { CardCommentView, CardItemView, CardsBlockBundle } from "@/app/actions/cards/query-actions";
+import type { CardItem } from "@/types/card";
+import type { EntityProperties } from "@/types/properties";
 
 const cardKeys = {
   items: (blockId: string) => ["cardItems", blockId] as const,
 };
+
+function createEmptyEntityProperties(cardId: string): EntityProperties {
+  const now = new Date().toISOString();
+  return {
+    id: `optimistic-props-${cardId}`,
+    entity_type: "card",
+    entity_id: cardId,
+    workspace_id: "",
+    status: null,
+    priority: null,
+    assignee_id: null,
+    assignee_ids: [],
+    due_date: null,
+    tags: [],
+    priorities: [],
+    statuses: [],
+    assignees: [],
+    due_dates: [],
+    tag_fields: [],
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function mergeCardEntityProperties(
+  cardId: string,
+  current: EntityProperties | undefined,
+  updates: Partial<Parameters<typeof updateCard>[1]> | Partial<Parameters<typeof createCard>[0]>
+): EntityProperties {
+  const base = current ? { ...current } : createEmptyEntityProperties(cardId);
+
+  if (updates.status !== undefined) {
+    base.status = updates.status ?? null;
+    base.statuses = updates.status
+      ? [{ id: `${cardId}-status-default`, entity_type: "card", entity_id: cardId, workspace_id: "", field_name: "Status", field_type: "status", value: updates.status, created_at: base.created_at, updated_at: base.updated_at }]
+      : [];
+  }
+  if (updates.statuses !== undefined) {
+    base.statuses = (updates.statuses ?? [])
+      .filter((entry): entry is { field_name: string; value: "todo" | "in_progress" | "blocked" | "done" } => entry.value !== null)
+      .map((entry, index) => ({
+        id: `${cardId}-status-${index}`,
+        entity_type: "card" as const,
+        entity_id: cardId,
+        workspace_id: "",
+        field_name: entry.field_name,
+        field_type: "status" as const,
+        value: entry.value,
+        created_at: base.created_at,
+        updated_at: base.updated_at,
+      }));
+    base.status = base.statuses[0]?.value ?? null;
+  }
+  if (updates.priority !== undefined) {
+    base.priority = updates.priority ?? null;
+    base.priorities = updates.priority
+      ? [{ id: `${cardId}-priority-default`, entity_type: "card", entity_id: cardId, workspace_id: "", field_name: "Priority", field_type: "priority", value: updates.priority, created_at: base.created_at, updated_at: base.updated_at }]
+      : [];
+  }
+  if (updates.priorities !== undefined) {
+    base.priorities = (updates.priorities ?? [])
+      .filter((entry): entry is { field_name: string; value: "low" | "medium" | "high" | "urgent" } => entry.value !== null)
+      .map((entry, index) => ({
+        id: `${cardId}-priority-${index}`,
+        entity_type: "card" as const,
+        entity_id: cardId,
+        workspace_id: "",
+        field_name: entry.field_name,
+        field_type: "priority" as const,
+        value: entry.value,
+        created_at: base.created_at,
+        updated_at: base.updated_at,
+      }));
+    base.priority = base.priorities[0]?.value ?? null;
+  }
+  if (updates.assigneeIds !== undefined) {
+    base.assignee_ids = updates.assigneeIds ?? [];
+    base.assignee_id = base.assignee_ids[0] ?? null;
+    base.assignees = base.assignee_ids.length
+      ? [{ id: `${cardId}-assignee-default`, entity_type: "card", entity_id: cardId, workspace_id: "", field_name: "Assignee", field_type: "assignee", value: base.assignee_ids, created_at: base.created_at, updated_at: base.updated_at }]
+      : [];
+  }
+  if (updates.assignees !== undefined) {
+    base.assignees = (updates.assignees ?? []).map((entry, index) => ({
+      id: `${cardId}-assignee-${index}`,
+      entity_type: "card" as const,
+      entity_id: cardId,
+      workspace_id: "",
+      field_name: entry.field_name,
+      field_type: "assignee" as const,
+      value: entry.value ?? [],
+      created_at: base.created_at,
+      updated_at: base.updated_at,
+    }));
+    const firstField = base.assignees[0]?.value ?? [];
+    base.assignee_ids = firstField;
+    base.assignee_id = firstField[0] ?? null;
+  }
+  if (updates.dueDate !== undefined) {
+    base.due_date = updates.dueDate ?? null;
+    base.due_dates = updates.dueDate
+      ? [{ id: `${cardId}-due-date-default`, entity_type: "card", entity_id: cardId, workspace_id: "", field_name: "Due Date", field_type: "due_date", value: updates.dueDate, created_at: base.created_at, updated_at: base.updated_at }]
+      : [];
+  }
+  if (updates.dueDates !== undefined) {
+    base.due_dates = (updates.dueDates ?? [])
+      .filter((entry): entry is { field_name: string; value: { start: string | null; end: string | null } } => entry.value !== null)
+      .map((entry, index) => ({
+        id: `${cardId}-due-date-${index}`,
+        entity_type: "card" as const,
+        entity_id: cardId,
+        workspace_id: "",
+        field_name: entry.field_name,
+        field_type: "due_date" as const,
+        value: entry.value,
+        created_at: base.created_at,
+        updated_at: base.updated_at,
+      }));
+    base.due_date = base.due_dates[0]?.value ?? null;
+  }
+  if (updates.tags !== undefined) {
+    base.tags = updates.tags;
+  }
+
+  base.updated_at = new Date().toISOString();
+  return base;
+}
+
+function applyCardUpdates(card: CardItemView, updates: Partial<Parameters<typeof updateCard>[1]>): CardItemView {
+  const next = { ...card };
+
+  if (updates.title !== undefined) next.title = updates.title.trim() || "Untitled card";
+  if (updates.notes !== undefined) next.notes = updates.notes ?? null;
+  if (updates.assetFileId !== undefined) next.assetFileId = updates.assetFileId ?? null;
+  if (updates.assetFileIds !== undefined) next.assetFileIds = updates.assetFileIds;
+  if (updates.assetKind !== undefined) next.assetKind = updates.assetKind ?? null;
+  if (updates.assetCaption !== undefined) next.assetCaption = updates.assetCaption ?? null;
+  if (updates.width !== undefined) next.width = updates.width;
+  if (updates.height !== undefined) next.height = updates.height;
+  if (updates.status !== undefined) next.statuses = updates.status ? [{ field_name: "Status", value: updates.status }] : [];
+  if (updates.statuses !== undefined) next.statuses = updates.statuses ?? [];
+  if (updates.priority !== undefined) next.priorities = updates.priority ? [{ field_name: "Priority", value: updates.priority }] : [];
+  if (updates.priorities !== undefined) next.priorities = updates.priorities ?? [];
+  if (updates.assigneeIds !== undefined) {
+    next.assigneeId = updates.assigneeIds?.[0] ?? null;
+    next.assignees = (updates.assigneeIds?.length ?? 0) > 0 ? [{ field_name: "Assignee", value: updates.assigneeIds ?? [] }] : [];
+  }
+  if (updates.assignees !== undefined) {
+    next.assignees = updates.assignees ?? [];
+    const firstIds = updates.assignees?.[0]?.value ?? [];
+    next.assigneeId = firstIds[0] ?? null;
+  }
+  if (updates.dueDate !== undefined) {
+    next.startDate = updates.dueDate?.start ?? null;
+    next.dueDate = updates.dueDate?.end ?? updates.dueDate?.start ?? null;
+    next.dueDates = updates.dueDate ? [{ field_name: "Due Date", value: updates.dueDate }] : [];
+  }
+  if (updates.dueDates !== undefined) {
+    next.dueDates = updates.dueDates ?? [];
+    const firstDueDate = updates.dueDates?.[0]?.value ?? null;
+    next.startDate = firstDueDate?.start ?? null;
+    next.dueDate = firstDueDate?.end ?? firstDueDate?.start ?? null;
+  }
+  if (updates.tags !== undefined) next.tags = updates.tags;
+  next.updated_at = new Date().toISOString();
+
+  return next;
+}
+
+function toCardItemView(card: CardItem): CardItemView {
+  return {
+    id: card.id,
+    title: card.title,
+    notes: card.notes,
+    assetFileId: card.asset_file_id,
+    assetFileIds: Array.isArray(card.asset_file_ids) && card.asset_file_ids.length > 0 ? card.asset_file_ids : undefined,
+    assetKind: card.asset_kind,
+    assetCaption: card.asset_caption,
+    width: card.width === "full" ? "full" : "half",
+    height: card.height === "compact" ? "compact" : "tall",
+    assigneeId: card.assignee_id,
+    assigneeName: null,
+    dueDate: card.due_date,
+    startDate: card.start_date,
+    statuses: Array.isArray(card.statuses) ? card.statuses : [],
+    priorities: Array.isArray(card.priorities) ? card.priorities : [],
+    assignees: Array.isArray(card.assignees) ? card.assignees : [],
+    dueDates: Array.isArray(card.due_dates) ? card.due_dates : [],
+    tags: Array.isArray(card.tags) ? card.tags : [],
+    comments: [],
+    created_at: card.created_at,
+    updated_at: card.updated_at,
+  };
+}
 
 export function useCards(blockId: string, options?: { enabled?: boolean }) {
   return useQuery({
@@ -26,6 +222,71 @@ export function useCreateCard(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: Parameters<typeof createCard>[0]) => createCard(input),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
+      const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
+      const tempId = `optimistic-card-${Date.now()}`;
+      const now = new Date().toISOString();
+      const optimisticCard: CardItemView = {
+        id: tempId,
+        title: input.title?.trim() || "Untitled card",
+        notes: input.notes ?? null,
+        assetFileId: input.assetFileId ?? (input.assetFileIds?.[0] ?? null),
+        assetFileIds: input.assetFileIds,
+        assetKind: input.assetKind ?? null,
+        assetCaption: input.assetCaption ?? null,
+        width: input.width ?? "half",
+        height: input.height ?? "tall",
+        assigneeId: input.assigneeIds?.[0] ?? null,
+        assigneeName: null,
+        dueDate: input.dueDate?.end ?? input.dueDate?.start ?? null,
+        startDate: input.dueDate?.start ?? null,
+        statuses: input.statuses ?? (input.status ? [{ field_name: "Status", value: input.status }] : []),
+        priorities: input.priorities ?? (input.priority ? [{ field_name: "Priority", value: input.priority }] : []),
+        assignees: input.assignees ?? ((input.assigneeIds?.length ?? 0) > 0 ? [{ field_name: "Assignee", value: input.assigneeIds ?? [] }] : []),
+        dueDates: input.dueDates ?? (input.dueDate ? [{ field_name: "Due Date", value: input.dueDate }] : []),
+        tags: input.tags ?? [],
+        comments: [],
+        created_at: now,
+        updated_at: now,
+      };
+
+      qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => ({
+        cards: [...(current?.cards ?? []), optimisticCard],
+        entityPropertiesByCardId: {
+          ...(current?.entityPropertiesByCardId ?? {}),
+          [tempId]: mergeCardEntityProperties(tempId, undefined, input),
+        },
+      }));
+
+      return { previous, tempId };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        qc.setQueryData(cardKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, _input, context) => {
+      if ("error" in result) {
+        if (context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+        return;
+      }
+
+      if (context?.tempId) {
+        qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+          if (!current) return current;
+          const { [context.tempId]: optimisticProps, ...restProps } = current.entityPropertiesByCardId;
+          return {
+            cards: current.cards.map((card) => (card.id === context.tempId ? toCardItemView(result.data) : card)),
+            entityPropertiesByCardId: optimisticProps
+              ? { ...restProps, [result.data.id]: { ...optimisticProps, entity_id: result.data.id } }
+              : restProps,
+          };
+        });
+      }
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: cardKeys.items(blockId) }),
   });
 }
@@ -35,6 +296,55 @@ export function useUpdateCard(blockId: string) {
   return useMutation({
     mutationFn: (input: { cardId: string; updates: Parameters<typeof updateCard>[1] }) =>
       updateCard(input.cardId, input.updates),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
+      const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
+      qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+        if (!current) return current;
+        return {
+          cards: current.cards.map((card) =>
+            card.id === input.cardId ? applyCardUpdates(card, input.updates) : card
+          ),
+          entityPropertiesByCardId: {
+            ...current.entityPropertiesByCardId,
+            [input.cardId]: mergeCardEntityProperties(
+              input.cardId,
+              current.entityPropertiesByCardId[input.cardId],
+              input.updates
+            ),
+          },
+        };
+      });
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        qc.setQueryData(cardKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, input, context) => {
+      if ("error" in result) {
+        if (context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+        return;
+      }
+
+      qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+        if (!current) return current;
+        return {
+          cards: current.cards.map((card) => (card.id === input.cardId ? toCardItemView(result.data) : card)),
+          entityPropertiesByCardId: {
+            ...current.entityPropertiesByCardId,
+            [input.cardId]: mergeCardEntityProperties(
+              input.cardId,
+              current.entityPropertiesByCardId[input.cardId],
+              input.updates
+            ),
+          },
+        };
+      });
+    },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: cardKeys.items(blockId) });
       qc.invalidateQueries({ queryKey: ["tableRows"] });
@@ -47,6 +357,30 @@ export function useDeleteCard(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (cardId: string) => deleteCard(cardId),
+    onMutate: async (cardId) => {
+      await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
+      const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
+      qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+        if (!current) return current;
+        const restProps = { ...current.entityPropertiesByCardId };
+        delete restProps[cardId];
+        return {
+          cards: current.cards.filter((card) => card.id !== cardId),
+          entityPropertiesByCardId: restProps,
+        };
+      });
+      return { previous };
+    },
+    onError: (_error, _cardId, context) => {
+      if (context?.previous) {
+        qc.setQueryData(cardKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, _cardId, context) => {
+      if ("error" in result && context?.previous) {
+        qc.setQueryData(cardKeys.items(blockId), context.previous);
+      }
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: cardKeys.items(blockId) }),
   });
 }
@@ -56,15 +390,102 @@ export function useCardComments(blockId: string) {
   return {
     create: useMutation({
       mutationFn: createCardComment,
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
+        const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
+        const tempId = `optimistic-card-comment-${Date.now()}`;
+        const optimisticComment: CardCommentView = {
+          id: tempId,
+          author: "You",
+          text: input.text,
+          timestamp: new Date().toISOString(),
+        };
+        qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            cards: current.cards.map((card) =>
+              card.id === input.cardId
+                ? { ...card, comments: [...(card.comments ?? []), optimisticComment] }
+                : card
+            ),
+          };
+        });
+        return { previous };
+      },
+      onError: (_error, _input, context) => {
+        if (context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+      },
+      onSuccess: (result, _input, context) => {
+        if ("error" in result && context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+      },
       onSettled: () => qc.invalidateQueries({ queryKey: cardKeys.items(blockId) }),
     }),
     update: useMutation({
       mutationFn: (input: { commentId: string; updates: Parameters<typeof updateCardComment>[1] }) =>
         updateCardComment(input.commentId, input.updates),
+      onMutate: async (input) => {
+        await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
+        const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
+        qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            cards: current.cards.map((card) => ({
+              ...card,
+              comments: (card.comments ?? []).map((comment) =>
+                comment.id === input.commentId
+                  ? { ...comment, text: input.updates.text ?? comment.text }
+                  : comment
+              ),
+            })),
+          };
+        });
+        return { previous };
+      },
+      onError: (_error, _input, context) => {
+        if (context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+      },
+      onSuccess: (result, _input, context) => {
+        if ("error" in result && context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+      },
       onSettled: () => qc.invalidateQueries({ queryKey: cardKeys.items(blockId) }),
     }),
     remove: useMutation({
       mutationFn: (commentId: string) => deleteCardComment(commentId),
+      onMutate: async (commentId) => {
+        await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
+        const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
+        qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            cards: current.cards.map((card) => ({
+              ...card,
+              comments: (card.comments ?? []).filter((comment) => comment.id !== commentId),
+            })),
+          };
+        });
+        return { previous };
+      },
+      onError: (_error, _commentId, context) => {
+        if (context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+      },
+      onSuccess: (result, _commentId, context) => {
+        if ("error" in result && context?.previous) {
+          qc.setQueryData(cardKeys.items(blockId), context.previous);
+        }
+      },
       onSettled: () => qc.invalidateQueries({ queryKey: cardKeys.items(blockId) }),
     }),
   };

@@ -37,6 +37,18 @@ export interface AIBlockContext {
   label: string;
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    !!target.closest('[contenteditable="true"]') ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select"
+  );
+}
+
 export function AIProvider({ children }: AIProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [suppressInlineSidebar, setSuppressInlineSidebar] = useState(false);
@@ -85,8 +97,10 @@ export function AIProvider({ children }: AIProviderProps) {
   // Global keyboard shortcut for CMD+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       // CMD+K (Mac) or Ctrl+K (Windows/Linux)
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (isEditableKeyboardTarget(e.target)) return;
         e.preventDefault();
         toggleCommandPalette();
       }

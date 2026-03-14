@@ -231,10 +231,35 @@ export function useSetEntityPropertiesForType(entityType: EntityType, workspaceI
       if ("error" in result) throw new Error(result.error);
       return result.data;
     },
-    // No onMutate here: this hook is used by task lists that read from the BULK
-    // entitiesProperties cache. Updating the per-entity cache optimistically would
-    // only trigger unexpected re-renders in PropertyFieldDropdown (which reads per-entity
-    // cache) without providing any visible benefit to the task list itself.
+    onMutate: async (args) => {
+      await qc.cancelQueries({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
+
+      const previousBulk = qc.getQueriesData<Record<string, EntityProperties>>({
+        queryKey: ["entitiesProperties", entityType, workspaceId],
+      });
+
+      for (const [queryKey, data] of previousBulk) {
+        if (!Array.isArray(queryKey)) continue;
+        const idsKey = typeof queryKey[3] === "string" ? queryKey[3] : "";
+        if (!idsKeyContainsEntity(idsKey, args.entityId)) continue;
+
+        qc.setQueryData<Record<string, EntityProperties>>(queryKey, {
+          ...(data ?? {}),
+          [args.entityId]: mergePropertiesOptimistic(data?.[args.entityId], args.updates),
+        });
+      }
+
+      return { previousBulk };
+    },
+    onError: (_err, _args, context) => {
+      if (context?.previousBulk) {
+        for (const [queryKey, data] of context.previousBulk) {
+          qc.setQueryData(queryKey, data);
+        }
+      }
+    },
     onSuccess: (_result, args) => {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, args.entityId),

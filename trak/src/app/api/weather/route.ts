@@ -48,7 +48,7 @@ export async function GET(request: Request) {
         ? weatherJson.current_weather.weathercode
         : null;
 
-    let location = "Location unavailable";
+    let location = formatCoordinateFallback(lat, lon);
     if (geoJson && Array.isArray(geoJson.results) && geoJson.results.length > 0) {
       const entry = geoJson.results[0] as {
         name?: string;
@@ -79,4 +79,15 @@ export async function GET(request: Request) {
       { status: 502 }
     );
   }
+}
+
+function formatCoordinateFallback(lat: string, lon: string) {
+  const latitude = Number.parseFloat(lat);
+  const longitude = Number.parseFloat(lon);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return "Location unavailable";
+  }
+
+  return `Near ${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
 }

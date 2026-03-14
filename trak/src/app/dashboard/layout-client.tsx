@@ -231,12 +231,12 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       (position) => {
         void resolveWeather(position.coords.latitude, position.coords.longitude);
       },
-      () => {
+      (error) => {
         if (!cancelled) {
           setWeather({
             tempF: null,
             location: "Location unavailable",
-            summary: "Location access denied",
+            summary: geolocationErrorSummary(error),
             resolved: true,
           });
         }
@@ -289,6 +289,19 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       </div>
     </div>
   );
+}
+
+function geolocationErrorSummary(error: GeolocationPositionError) {
+  switch (error.code) {
+    case error.PERMISSION_DENIED:
+      return "Location access denied";
+    case error.POSITION_UNAVAILABLE:
+      return "Position unavailable";
+    case error.TIMEOUT:
+      return "Location lookup timed out";
+    default:
+      return "Location unavailable";
+  }
 }
 
 function describeWeather(code: number | null, windMph: number | null) {

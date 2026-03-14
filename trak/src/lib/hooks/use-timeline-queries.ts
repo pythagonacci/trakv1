@@ -7,12 +7,161 @@ import { createTimelineReference, updateTimelineReference, deleteTimelineReferen
 import { createTimelineDependency, deleteTimelineDependency, getTimelineDependencies } from "@/app/actions/timelines/dependency-actions";
 import { getResolvedTimelineItems } from "@/app/actions/timelines/query-actions";
 import { autoScheduleTimeline } from "@/app/actions/timelines/auto-schedule-actions";
-import type { TimelineDependency, TimelineEvent, TimelineItem } from "@/types/timeline";
+import type { TimelineDependency, TimelineEvent, TimelineEventPriority, TimelineEventStatus, TimelineItem } from "@/types/timeline";
 
 const timelineKeys = {
   items: (blockId: string) => ["timelineItems", blockId] as const,
   dependencies: (blockId: string) => ["timelineDependencies", blockId] as const,
 };
+
+type TimelineReferenceSummary = Extract<Awaited<ReturnType<typeof listTimelineReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
+
+function sortTimelineItems(items: TimelineItem[]): TimelineItem[] {
+  return [...items].sort((a, b) => {
+    if (a.display_order !== b.display_order) return a.display_order - b.display_order;
+    if (a.start_date !== b.start_date) return a.start_date.localeCompare(b.start_date);
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function mergeTimelineStatuses(
+  existing: TimelineItem["statuses"],
+  updates: { status?: string; statuses?: TimelineItem["statuses"] }
+): TimelineItem["statuses"] {
+  if (updates.statuses !== undefined) return updates.statuses;
+  if (updates.status !== undefined) return [{ field_name: "Status", value: updates.status as TimelineEventStatus }];
+  return existing;
+}
+
+function mergeTimelinePriorities(
+  existing: TimelineItem["priorities"],
+  updates: { priority?: string | null; priorities?: TimelineItem["priorities"] }
+): TimelineItem["priorities"] {
+  if (updates.priorities !== undefined) return updates.priorities;
+  if (updates.priority !== undefined) {
+    return updates.priority ? [{ field_name: "Priority", value: updates.priority as TimelineEventPriority }] : [];
+  }
+  return existing;
+}
+
+function buildTimelineAssignees(
+  updates: Partial<{
+    assignees: TimelineItem["assignees"];
+    assigneeIds: string[];
+    assigneeTeamIds: string[];
+    assigneeId: string | null;
+    assigneeTeamId: string | null;
+  }>,
+  existing: TimelineItem["assignees"]
+): TimelineItem["assignees"] {
+  if (updates.assignees !== undefined) return updates.assignees;
+
+  if (updates.assigneeIds !== undefined || updates.assigneeTeamIds !== undefined) {
+    const values = [
+      ...((updates.assigneeIds ?? []).map((id) => ({ type: "user" as const, id }))),
+      ...((updates.assigneeTeamIds ?? []).map((id) => ({ type: "team" as const, id }))),
+    ];
+    return values.length > 0 ? [{ field_name: "Assignee", value: values }] : [];
+  }
+
+  if (updates.assigneeId !== undefined || updates.assigneeTeamId !== undefined) {
+    const values = [
+      ...(updates.assigneeId ? [{ type: "user" as const, id: updates.assigneeId }] : []),
+      ...(updates.assigneeTeamId ? [{ type: "team" as const, id: updates.assigneeTeamId }] : []),
+    ];
+    return values.length > 0 ? [{ field_name: "Assignee", value: values }] : [];
+  }
+
+  return existing;
+}
+
+function getPrimaryTimelineAssigneeIds(assignees: TimelineItem["assignees"]): {
+  assignee_id: string | null;
+  assignee_team_id: string | null;
+} {
+  for (const field of assignees ?? []) {
+    const values = Array.isArray(field?.value) ? field.value : [];
+    const firstUser = values.find((entry) => entry?.type === "user" && typeof entry.id === "string");
+    const firstTeam = values.find((entry) => entry?.type === "team" && typeof entry.id === "string");
+    if (firstUser?.id || firstTeam?.id) {
+      return {
+        assignee_id: firstUser?.id ?? null,
+        assignee_team_id: firstTeam?.id ?? null,
+      };
+    }
+  }
+
+  return { assignee_id: null, assignee_team_id: null };
+}
+
+function toTimelineItem(event: TimelineEvent): TimelineItem {
+  return {
+    id: event.id,
+    type: "event",
+    title: event.title,
+    start_date: event.start_date,
+    end_date: event.end_date,
+    statuses: event.statuses ?? [],
+    priorities: event.priorities ?? [],
+    assignees: event.assignees ?? [],
+    assignee_id: event.assignee_id,
+    assignee_team_id: event.assignee_team_id ?? null,
+    parent_event_id: event.parent_event_id ?? null,
+    source_entity_type: event.source_entity_type ?? null,
+    source_entity_id: event.source_entity_id ?? null,
+    source_sync_mode: event.source_sync_mode ?? null,
+    progress: event.progress,
+    color: event.color,
+    is_milestone: event.is_milestone,
+    notes: event.notes ?? null,
+    baseline_start: event.baseline_start ?? null,
+    baseline_end: event.baseline_end ?? null,
+    display_order: event.display_order,
+  };
+}
+
+function patchTimelineItem(
+  item: TimelineItem,
+  updates: Partial<Parameters<typeof updateTimelineEvent>[1]>
+): TimelineItem {
+  const assignees = buildTimelineAssignees(
+    {
+      assignees: updates.assignees,
+      assigneeIds: updates.assigneeIds,
+      assigneeTeamIds: updates.assigneeTeamIds,
+      assigneeId: updates.assigneeId,
+      assigneeTeamId: updates.assigneeTeamId,
+    },
+    item.assignees ?? []
+  );
+  const assigneeCompat = getPrimaryTimelineAssigneeIds(assignees);
+
+  return {
+    ...item,
+    ...(updates.title !== undefined ? { title: updates.title } : {}),
+    ...(updates.startDate !== undefined ? { start_date: updates.startDate } : {}),
+    ...(updates.endDate !== undefined ? { end_date: updates.endDate } : {}),
+    statuses: mergeTimelineStatuses(item.statuses ?? [], {
+      status: updates.status,
+      statuses: updates.statuses as TimelineItem["statuses"] | undefined,
+    }) ?? [],
+    priorities: mergeTimelinePriorities(item.priorities ?? [], {
+      priority: updates.priority,
+      priorities: updates.priorities as TimelineItem["priorities"] | undefined,
+    }) ?? [],
+    assignees,
+    assignee_id: assigneeCompat.assignee_id,
+    assignee_team_id: assigneeCompat.assignee_team_id,
+    ...(updates.progress !== undefined ? { progress: updates.progress } : {}),
+    ...(updates.notes !== undefined ? { notes: updates.notes } : {}),
+    ...(updates.color !== undefined ? { color: updates.color } : {}),
+    ...(updates.isMilestone !== undefined ? { is_milestone: updates.isMilestone } : {}),
+    ...(updates.baselineStart !== undefined ? { baseline_start: updates.baselineStart } : {}),
+    ...(updates.baselineEnd !== undefined ? { baseline_end: updates.baselineEnd } : {}),
+    ...(updates.displayOrder !== undefined ? { display_order: updates.displayOrder } : {}),
+    ...(updates.sourceSyncMode !== undefined ? { source_sync_mode: updates.sourceSyncMode } : {}),
+  };
+}
 
 export function useTimelineItems(blockId: string) {
   return useQuery({
@@ -55,14 +204,86 @@ export function useCreateTimelineEvent(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createTimelineEvent,
-    onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
+      const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
+      const tempId = `optimistic-timeline-${Date.now()}`;
+      const optimisticAssignees = buildTimelineAssignees(
+        {
+          assignees: input.assignees as TimelineItem["assignees"] | undefined,
+          assigneeIds: input.assigneeIds,
+          assigneeTeamIds: input.assigneeTeamIds,
+          assigneeId: input.assigneeId,
+          assigneeTeamId: input.assigneeTeamId ?? null,
+        },
+        []
+      );
+      const assigneeCompat = getPrimaryTimelineAssigneeIds(optimisticAssignees);
+      const optimisticItem: TimelineItem = {
+        id: tempId,
+        type: "event",
+        title: input.title,
+        start_date: input.startDate,
+        end_date: input.endDate,
+        statuses: mergeTimelineStatuses([], {
+          status: input.status,
+          statuses: input.statuses as TimelineItem["statuses"] | undefined,
+        }) ?? [{ field_name: "Status", value: "todo" }],
+        priorities: mergeTimelinePriorities([], {
+          priority: input.priority ?? undefined,
+          priorities: input.priorities as TimelineItem["priorities"] | undefined,
+        }) ?? [],
+        assignees: optimisticAssignees,
+        assignee_id: assigneeCompat.assignee_id,
+        assignee_team_id: assigneeCompat.assignee_team_id,
+        parent_event_id: input.parentEventId ?? null,
+        source_entity_type: input.sourceEntityType ?? null,
+        source_entity_id: input.sourceEntityId ?? null,
+        source_sync_mode: input.sourceSyncMode ?? null,
+        progress: input.progress ?? 0,
+        color: input.color ?? null,
+        is_milestone: input.isMilestone ?? false,
+        notes: input.notes ?? null,
+        baseline_start: input.baselineStart ?? null,
+        baseline_end: input.baselineEnd ?? null,
+        display_order:
+          input.displayOrder ??
+          ((previous?.reduce((max, item) => Math.max(max, item.display_order), -1) ?? -1) + 1),
+      };
+
+      qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+        sortTimelineItems([...(current ?? []), optimisticItem])
+      );
+
+      return { previous, tempId };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, _input, context) => {
+      if ("error" in result) {
+        if (context?.previous) {
+          qc.setQueryData(timelineKeys.items(blockId), context.previous);
+        }
+      } else if (context?.tempId) {
+        qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+          sortTimelineItems(
+            (current ?? []).map((item) => (item.id === context.tempId ? toTimelineItem(result.data) : item))
+          )
+        );
+      }
+
       // Invalidate entity properties for the newly created event
       if ("data" in result && result.data?.id) {
         qc.invalidateQueries({
           queryKey: queryKeys.entityProperties("timeline_event", result.data.id),
         });
       }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
     },
   });
 }
@@ -72,7 +293,38 @@ export function useUpdateTimelineEvent(blockId: string) {
   return useMutation({
     mutationFn: (input: { eventId: string; updates: Parameters<typeof updateTimelineEvent>[1] }) =>
       updateTimelineEvent(input.eventId, input.updates),
-    onSuccess: (_result, variables) => {
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
+      const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
+      qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+        sortTimelineItems(
+          (current ?? []).map((item) =>
+            item.id === input.eventId ? patchTimelineItem(item, input.updates) : item
+          )
+        )
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, variables, context) => {
+      if ("error" in result) {
+        if (context?.previous) {
+          qc.setQueryData(timelineKeys.items(blockId), context.previous);
+        }
+      } else {
+        qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+          sortTimelineItems(
+            (current ?? []).map((item) =>
+              item.id === variables.eventId ? toTimelineItem(result.data) : item
+            )
+          )
+        );
+      }
+
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
       // Invalidate entity properties to refresh the Properties section
       qc.invalidateQueries({
@@ -89,9 +341,27 @@ export function useDeleteTimelineEvent(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (eventId: string) => deleteTimelineEvent(eventId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    onMutate: async (eventId) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
+      const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
+      qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+        (current ?? []).filter((item) => item.id !== eventId)
+      );
+      return { previous };
     },
+    onError: (_error, _eventId, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, _eventId, context) => {
+      if ("error" in result && context?.previous) {
+        qc.setQueryData(timelineKeys.items(blockId), context.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    }
   });
 }
 
@@ -99,9 +369,47 @@ export function useDuplicateTimelineEvent(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: duplicateTimelineEvent,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    onMutate: async (eventId) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
+      const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
+      const source = (previous ?? []).find((item) => item.id === eventId);
+      const tempId = `optimistic-timeline-copy-${Date.now()}`;
+
+      if (source) {
+        const optimisticCopy: TimelineItem = {
+          ...source,
+          id: tempId,
+          title: `${source.title} (Copy)`,
+          display_order: source.display_order + 1,
+        };
+        qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+          sortTimelineItems([...(current ?? []), optimisticCopy])
+        );
+      }
+
+      return { previous, tempId };
     },
+    onError: (_error, _eventId, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, _eventId, context) => {
+      if ("error" in result) {
+        if (context?.previous) {
+          qc.setQueryData(timelineKeys.items(blockId), context.previous);
+        }
+      } else if (context?.tempId) {
+        qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+          sortTimelineItems(
+            (current ?? []).map((item) => (item.id === context.tempId ? toTimelineItem(result.data) : item))
+          )
+        );
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    }
   });
 }
 
@@ -110,9 +418,39 @@ export function useSetTimelineEventBaseline(blockId: string) {
   return useMutation({
     mutationFn: (input: { eventId: string; baseline: { start: string | null; end: string | null } }) =>
       setTimelineEventBaseline(input.eventId, input.baseline),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
+      const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
+      qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+        (current ?? []).map((item) =>
+          item.id === input.eventId
+            ? { ...item, baseline_start: input.baseline.start, baseline_end: input.baseline.end }
+            : item
+        )
+      );
+      return { previous };
     },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.items(blockId), context.previous);
+      }
+    },
+    onSuccess: (result, input, context) => {
+      if ("error" in result) {
+        if (context?.previous) {
+          qc.setQueryData(timelineKeys.items(blockId), context.previous);
+        }
+      } else {
+        qc.setQueryData<TimelineItem[]>(timelineKeys.items(blockId), (current) =>
+          (current ?? []).map((item) =>
+            item.id === input.eventId ? toTimelineItem(result.data) : item
+          )
+        );
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+    }
   });
 }
 
@@ -120,6 +458,32 @@ export function useCreateTimelineReference(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createTimelineReference,
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["timelineReferences", input.eventId] });
+      const previous = qc.getQueryData<TimelineReferenceSummary>(["timelineReferences", input.eventId]);
+      const optimistic = {
+        id: `optimistic-timeline-ref-${Date.now()}`,
+        workspace_id: "",
+        event_id: input.eventId,
+        reference_type: input.referenceType,
+        reference_id: input.referenceId,
+        table_id: input.tableId ?? null,
+        created_by: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        title: input.referenceId,
+      };
+      qc.setQueryData<TimelineReferenceSummary>(["timelineReferences", input.eventId], (current) => [
+        optimistic,
+        ...((current ?? []) as TimelineReferenceSummary),
+      ] as TimelineReferenceSummary);
+      return { previous, eventId: input.eventId };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.eventId && context.previous !== undefined) {
+        qc.setQueryData(["timelineReferences", context.eventId], context.previous);
+      }
+    },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
       if (variables?.eventId) {
@@ -146,6 +510,24 @@ export function useDeleteTimelineReference(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: deleteTimelineReference,
+    onMutate: async (referenceId) => {
+      const queries = qc.getQueriesData<TimelineReferenceSummary>({ queryKey: ["timelineReferences"] });
+      for (const [queryKey] of queries) {
+        await qc.cancelQueries({ queryKey });
+      }
+      for (const [queryKey, data] of queries) {
+        qc.setQueryData<TimelineReferenceSummary>(queryKey, () => {
+          const refs = (data ?? []) as TimelineReferenceSummary;
+          return refs.filter((ref) => ref.id !== referenceId) as TimelineReferenceSummary;
+        });
+      }
+      return { previousQueries: queries };
+    },
+    onError: (_error, _referenceId, context) => {
+      for (const [queryKey, data] of context?.previousQueries ?? []) {
+        qc.setQueryData(queryKey, data);
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
       qc.invalidateQueries({ queryKey: ["timelineReferences"] });
@@ -167,6 +549,30 @@ export function useCreateTimelineDependency(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createTimelineDependency,
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.dependencies(blockId) });
+      const previous = qc.getQueryData<TimelineDependency[]>(timelineKeys.dependencies(blockId));
+      const optimistic: TimelineDependency = {
+        id: `optimistic-dependency-${Date.now()}`,
+        timeline_block_id: input.timelineBlockId,
+        workspace_id: "",
+        from_id: input.fromId,
+        to_id: input.toId,
+        dependency_type: input.dependencyType,
+        created_by: null,
+        created_at: new Date().toISOString(),
+      };
+      qc.setQueryData<TimelineDependency[]>(timelineKeys.dependencies(blockId), (current) => [
+        ...((current ?? [])),
+        optimistic,
+      ]);
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.dependencies(blockId), context.previous);
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: timelineKeys.dependencies(blockId) });
     },
@@ -177,6 +583,19 @@ export function useDeleteTimelineDependency(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (dependencyId: string) => deleteTimelineDependency(dependencyId),
+    onMutate: async (dependencyId) => {
+      await qc.cancelQueries({ queryKey: timelineKeys.dependencies(blockId) });
+      const previous = qc.getQueryData<TimelineDependency[]>(timelineKeys.dependencies(blockId));
+      qc.setQueryData<TimelineDependency[]>(timelineKeys.dependencies(blockId), (current) =>
+        (current ?? []).filter((dependency) => dependency.id !== dependencyId)
+      );
+      return { previous };
+    },
+    onError: (_error, _dependencyId, context) => {
+      if (context?.previous) {
+        qc.setQueryData(timelineKeys.dependencies(blockId), context.previous);
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: timelineKeys.dependencies(blockId) });
     },

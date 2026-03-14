@@ -443,6 +443,473 @@ export default function BlockWrapper({
       >
         {!borderless && (
           <div className="absolute top-2 -right-4 flex flex-col items-center gap-1.5 z-[70]">
+            {!readOnly && (block.type === "table" ? (
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    ref={blockMenuTriggerRef}
+                    className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-40 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover space-y-0.5"
+                >
+                  <div className="flex items-center gap-1">
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                        <span className="flex items-center gap-1">
+                          <Plus className="h-3 w-3" />
+                          Above
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                        {blockTypeOptions.map((option) => (
+                          <DropdownMenuItem
+                            key={`add-above-${option.type}`}
+                            onClick={() => {
+                              onAddBlockAbove?.(block.id, option.type);
+                              setMenuOpen(false);
+                            }}
+                            className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
+                          >
+                            {option.icon}
+                            <span>{option.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <Images className="h-3 w-3" />
+                            <span>Gallery</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {galleryLayouts.map((g) => (
+                              <DropdownMenuItem
+                                key={`add-above-gallery-${g.layout}`}
+                                onClick={() => {
+                                  onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <LayoutGrid className="h-3 w-3" />
+                            <span>Cards</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {cardsLayouts.map((c) => (
+                              <DropdownMenuItem
+                                key={`add-above-cards-${c.label}`}
+                                onClick={() => {
+                                  onAddBlockAbove?.(block.id, "cards", c.content);
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{c.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                        <span className="flex items-center gap-1">
+                          <Plus className="h-3 w-3" />
+                          Below
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                        {blockTypeOptions.map((option) => (
+                          <DropdownMenuItem
+                            key={`add-below-${option.type}`}
+                            onClick={() => {
+                              onAddBlockBelow?.(block.id, option.type);
+                              setMenuOpen(false);
+                            }}
+                            className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
+                          >
+                            {option.icon}
+                            <span>{option.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <Images className="h-3 w-3" />
+                            <span>Gallery</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {galleryLayouts.map((g) => (
+                              <DropdownMenuItem
+                                key={`add-below-gallery-${g.layout}`}
+                                onClick={() => {
+                                  onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <LayoutGrid className="h-3 w-3" />
+                            <span>Cards</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {cardsLayouts.map((c) => (
+                              <DropdownMenuItem
+                                key={`add-below-cards-${c.label}`}
+                                onClick={() => {
+                                  onAddBlockBelow?.(block.id, "cards", c.content);
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{c.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </div>
+
+                  {!block.is_template && !block.original_block_id && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setMakeTemplateDialogOpen(true);
+                          setMenuOpen(false);
+                        }}
+                        className="text-[11px]"
+                      >
+                        <Copy className="h-3.5 w-3.5" /> Make Reusable
+                      </DropdownMenuItem>
+                    </>
+                  )}
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      openComments(blockMenuTriggerRef.current);
+                      setMenuOpen(false);
+                    }}
+                    className="text-[11px]"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>{hasComments ? "Comments" : "Add comment"}</span>
+                    {hasComments && (
+                      <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
+                        ({comments.length})
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={openPropertiesMenu} className="text-[11px]">
+                    <Tags className="h-3.5 w-3.5" />
+                    <span>Properties</span>
+                    {hasProperties && (
+                      <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
+                        ({totalPropertiesCount})
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDelete?.(block.id)}
+                    className="text-[11px] text-red-500 focus:bg-red-50 focus:text-red-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    ref={blockMenuTriggerRef}
+                    className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-40 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover space-y-0.5"
+                >
+                  <div className="flex items-center gap-1">
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                        <span className="flex items-center gap-1">
+                          <Plus className="h-3 w-3" />
+                          Above
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                        {blockTypeOptions.map((option) => (
+                          <DropdownMenuItem
+                            key={`add-above-${option.type}`}
+                            onClick={() => {
+                              onAddBlockAbove?.(block.id, option.type);
+                              setMenuOpen(false);
+                            }}
+                            className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
+                          >
+                            {option.icon}
+                            <span>{option.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <Images className="h-3 w-3" />
+                            <span>Gallery</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {galleryLayouts.map((g) => (
+                              <DropdownMenuItem
+                                key={`add-above-gallery-${g.layout}`}
+                                onClick={() => {
+                                  onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <LayoutGrid className="h-3 w-3" />
+                            <span>Cards</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {cardsLayouts.map((c) => (
+                              <DropdownMenuItem
+                                key={`add-above-cards-${c.label}`}
+                                onClick={() => {
+                                  onAddBlockAbove?.(block.id, "cards", c.content);
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{c.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
+                        <span className="flex items-center gap-1">
+                          <Plus className="h-3 w-3" />
+                          Below
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                        {blockTypeOptions.map((option) => (
+                          <DropdownMenuItem
+                            key={`add-below-${option.type}`}
+                            onClick={() => {
+                              onAddBlockBelow?.(block.id, option.type);
+                              setMenuOpen(false);
+                            }}
+                            className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
+                          >
+                            {option.icon}
+                            <span>{option.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <Images className="h-3 w-3" />
+                            <span>Gallery</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {galleryLayouts.map((g) => (
+                              <DropdownMenuItem
+                                key={`add-below-gallery-${g.layout}`}
+                                onClick={() => {
+                                  onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{g.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
+                            <LayoutGrid className="h-3 w-3" />
+                            <span>Cards</span>
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
+                            {cardsLayouts.map((c) => (
+                              <DropdownMenuItem
+                                key={`add-below-cards-${c.label}`}
+                                onClick={() => {
+                                  onAddBlockBelow?.(block.id, "cards", c.content);
+                                  setMenuOpen(false);
+                                }}
+                                className="!py-1 !px-1.5 !text-[10px]"
+                              >
+                                <span>{c.label}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </div>
+
+                  {block.type === "task" && (() => {
+                    const taskContent = (block.content || {}) as Record<string, unknown>;
+                    const hideIcons = taskContent.hideIcons === true;
+                    const showRollup = taskContent.showRollup === true;
+                    const isTempBlock = block.id.startsWith("temp-");
+                    const handleToggleIcons = async () => {
+                      const next = !hideIcons;
+                      const updatedContent = { ...taskContent, hideIcons: next };
+                      onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
+                      setMenuOpen(false);
+                      if (!isTempBlock) {
+                        const result = await updateBlock({ blockId: block.id, content: updatedContent });
+                        if (result.data) onUpdate?.(result.data);
+                      }
+                    };
+                    const handleToggleRollup = async () => {
+                      const next = !showRollup;
+                      const updatedContent = { ...taskContent, showRollup: next };
+                      onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
+                      setMenuOpen(false);
+                      if (!isTempBlock) {
+                        const result = await updateBlock({ blockId: block.id, content: updatedContent });
+                        if (result.data) onUpdate?.(result.data);
+                      }
+                    };
+                    return (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={handleToggleIcons} className="text-[11px]">
+                          {hideIcons ? (
+                            <>
+                              <Eye className="h-3.5 w-3.5 mr-2" />
+                              Show Icons
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="h-3.5 w-3.5 mr-2" />
+                              Hide Icons
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleToggleRollup} className="text-[11px]">
+                          {showRollup ? (
+                            <>
+                              <EyeOff className="h-3.5 w-3.5 mr-2" />
+                              Hide Rollup
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-3.5 w-3.5 mr-2" />
+                              Show Rollup
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                      </>
+                    );
+                  })()}
+
+                  {!block.is_template && !block.original_block_id && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setMakeTemplateDialogOpen(true);
+                          setMenuOpen(false);
+                        }}
+                        className="text-[11px]"
+                      >
+                        <Copy className="h-3.5 w-3.5" /> Make Reusable
+                      </DropdownMenuItem>
+                    </>
+                  )}
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      openComments(blockMenuTriggerRef.current);
+                      setMenuOpen(false);
+                    }}
+                    className="text-[11px]"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>{hasComments ? "Comments" : "Add comment"}</span>
+                    {hasComments && (
+                      <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">({comments.length})</span>
+                    )}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={openPropertiesMenu} className="text-[11px]">
+                    <Tags className="h-3.5 w-3.5" />
+                    <span>Properties</span>
+                    {hasProperties && (
+                      <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
+                        ({totalPropertiesCount})
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+
+                  {block.type === "shopify_product" && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          window.dispatchEvent(new CustomEvent("shopify-product-block-open-picker", { detail: { blockId: block.id } }));
+                          setMenuOpen(false);
+                        }}
+                        className="text-[11px]"
+                      >
+                        <Package className="h-3.5 w-3.5 mr-2" />
+                        <span>Change product</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDelete?.(block.id)}
+                    className="text-[11px] text-red-500 focus:bg-red-50 focus:text-red-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ))}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -531,204 +998,6 @@ export default function BlockWrapper({
                     <AtSign className="h-3.5 w-3.5" />
                   </button>
                 )}
-                {block.type === "table" && (
-                  <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        ref={blockMenuTriggerRef}
-                        className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                      >
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-40 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover space-y-0.5"
-                    >
-                      <div className="flex items-center gap-1">
-                        <DropdownMenuSub>
-                          <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
-                            <span className="flex items-center gap-1">
-                              <Plus className="h-3 w-3" />
-                              Above
-                            </span>
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                            {blockTypeOptions.map((option) => (
-                              <DropdownMenuItem
-                                key={`add-above-${option.type}`}
-                                onClick={() => {
-                                  onAddBlockAbove?.(block.id, option.type);
-                                  setMenuOpen(false);
-                                }}
-                                className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
-                              >
-                                {option.icon}
-                                <span>{option.label}</span>
-                              </DropdownMenuItem>
-                            ))}
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                                <Images className="h-3 w-3" />
-                                <span>Gallery</span>
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                                {galleryLayouts.map((g) => (
-                                  <DropdownMenuItem
-                                    key={`add-above-gallery-${g.layout}`}
-                                    onClick={() => {
-                                      onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
-                                      setMenuOpen(false);
-                                    }}
-                                    className="!py-1 !px-1.5 !text-[10px]"
-                                  >
-                                    <span>{g.label}</span>
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                                <LayoutGrid className="h-3 w-3" />
-                                <span>Cards</span>
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                                {cardsLayouts.map((c) => (
-                                  <DropdownMenuItem
-                                    key={`add-above-cards-${c.label}`}
-                                    onClick={() => {
-                                      onAddBlockAbove?.(block.id, "cards", c.content);
-                                      setMenuOpen(false);
-                                    }}
-                                    className="!py-1 !px-1.5 !text-[10px]"
-                                  >
-                                    <span>{c.label}</span>
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                          </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-                        <DropdownMenuSub>
-                          <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
-                            <span className="flex items-center gap-1">
-                              <Plus className="h-3 w-3" />
-                              Below
-                            </span>
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                            {blockTypeOptions.map((option) => (
-                              <DropdownMenuItem
-                                key={`add-below-${option.type}`}
-                                onClick={() => {
-                                  onAddBlockBelow?.(block.id, option.type);
-                                  setMenuOpen(false);
-                                }}
-                                className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
-                              >
-                                {option.icon}
-                                <span>{option.label}</span>
-                              </DropdownMenuItem>
-                            ))}
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                                <Images className="h-3 w-3" />
-                                <span>Gallery</span>
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                                {galleryLayouts.map((g) => (
-                                  <DropdownMenuItem
-                                    key={`add-below-gallery-${g.layout}`}
-                                    onClick={() => {
-                                      onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
-                                      setMenuOpen(false);
-                                    }}
-                                    className="!py-1 !px-1.5 !text-[10px]"
-                                  >
-                                    <span>{g.label}</span>
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                                <LayoutGrid className="h-3 w-3" />
-                                <span>Cards</span>
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                                {cardsLayouts.map((c) => (
-                                  <DropdownMenuItem
-                                    key={`add-below-cards-${c.label}`}
-                                    onClick={() => {
-                                      onAddBlockBelow?.(block.id, "cards", c.content);
-                                      setMenuOpen(false);
-                                    }}
-                                    className="!py-1 !px-1.5 !text-[10px]"
-                                  >
-                                    <span>{c.label}</span>
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                          </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-                      </div>
-
-                      {!block.is_template && !block.original_block_id && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setMakeTemplateDialogOpen(true);
-                              setMenuOpen(false);
-                            }}
-                            className="text-[11px]"
-                          >
-                            <Copy className="h-3.5 w-3.5" /> Make Reusable
-                          </DropdownMenuItem>
-                        </>
-                      )}
-
-                      <DropdownMenuSeparator />
-
-                      <DropdownMenuItem
-                        onClick={() => {
-                          openComments(blockMenuTriggerRef.current);
-                          setMenuOpen(false);
-                        }}
-                        className="text-[11px]"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        <span>{hasComments ? "Comments" : "Add comment"}</span>
-                        {hasComments && (
-                          <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
-                            ({comments.length})
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-
-                      <DropdownMenuItem onClick={openPropertiesMenu} className="text-[11px]">
-                        <Tags className="h-3.5 w-3.5" />
-                        <span>Properties</span>
-                        {hasProperties && (
-                          <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
-                            ({totalPropertiesCount})
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => onDelete?.(block.id)}
-                        className="text-[11px] text-red-500 focus:bg-red-50 focus:text-red-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
               </>
             )}
           </div>
@@ -736,70 +1005,6 @@ export default function BlockWrapper({
 
         {borderless && !readOnly && (
           <div className="absolute top-2 -right-4 z-[70] flex flex-col items-center gap-1.5">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleToggleLock();
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              disabled={isTogglingLock}
-              className={cn(
-                "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
-                isLocked
-                  ? "border-amber-300 bg-amber-50 text-amber-800"
-                  : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
-              )}
-              title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
-            >
-              {isLocked ? (
-                <Lock className="h-3 w-3" />
-              ) : (
-                <Unlock className="h-3 w-3" />
-              )}
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleComments(e.currentTarget);
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              className={cn(
-                "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
-                commentsOpen
-                  ? "border-[var(--primary)]/30 bg-[var(--primary)]/8 text-[var(--foreground)]"
-                  : hasComments
-                    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
-                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
-              )}
-              title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
-              aria-pressed={commentsOpen}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              {hasComments && !commentsOpen && (
-                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--surface)] text-[8px] font-medium leading-none">
-                  {comments.length > 9 ? "9+" : comments.length}
-                </span>
-              )}
-            </button>
-            {workspaceId && projectId && referencePicker && !isTempBlock && (
-              <button
-                ref={attachmentTriggerRef}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const el = e.currentTarget as HTMLElement;
-                  referencePicker.openPicker({
-                    anchorRect: el.getBoundingClientRect(),
-                    getAnchorRect: () => attachmentTriggerRef.current?.getBoundingClientRect() ?? null,
-                  });
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                title="Attach reference"
-                aria-label="Attach reference"
-              >
-                <AtSign className="h-3.5 w-3.5" />
-              </button>
-            )}
             {block.type === "table" && (
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
@@ -1058,6 +1263,70 @@ export default function BlockWrapper({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleToggleLock();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              disabled={isTogglingLock}
+              className={cn(
+                "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
+                isLocked
+                  ? "border-amber-300 bg-amber-50 text-amber-800"
+                  : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
+              )}
+              title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
+            >
+              {isLocked ? (
+                <Lock className="h-3 w-3" />
+              ) : (
+                <Unlock className="h-3 w-3" />
+              )}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleComments(e.currentTarget);
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={cn(
+                "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+                commentsOpen
+                  ? "border-[var(--primary)]/30 bg-[var(--primary)]/8 text-[var(--foreground)]"
+                  : hasComments
+                    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+              )}
+              title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
+              aria-pressed={commentsOpen}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              {hasComments && !commentsOpen && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--surface)] text-[8px] font-medium leading-none">
+                  {comments.length > 9 ? "9+" : comments.length}
+                </span>
+              )}
+            </button>
+            {workspaceId && projectId && referencePicker && !isTempBlock && (
+              <button
+                ref={attachmentTriggerRef}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const el = e.currentTarget as HTMLElement;
+                  referencePicker.openPicker({
+                    anchorRect: el.getBoundingClientRect(),
+                    getAnchorRect: () => attachmentTriggerRef.current?.getBoundingClientRect() ?? null,
+                  });
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                title="Attach reference"
+                aria-label="Attach reference"
+              >
+                <AtSign className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         )}
 
@@ -1065,283 +1334,6 @@ export default function BlockWrapper({
           <div className="absolute -top-3 left-3 flex items-center gap-1 rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-green-700 shadow-sm">
             <Copy className="h-2.5 w-2.5" />
             {block.template_name || "REUSABLE"}
-          </div>
-        )}
-
-        {!readOnly && block.type !== "table" && (
-          <div
-            className={cn(
-              "absolute right-2.5 top-2 hidden items-center gap-1 text-[var(--tertiary-foreground)] transition-opacity duration-150 ease-out z-[60]",
-              "group-hover:flex group-focus-within:flex",
-              menuOpen && "flex"
-            )}
-          >
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger asChild>
-                <button
-                  ref={blockMenuTriggerRef}
-                  className="flex h-7 w-7 items-center justify-center transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-40 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-popover space-y-0.5"
-              >
-                <div className="flex items-center gap-1">
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
-                      <span className="flex items-center gap-1">
-                        <Plus className="h-3 w-3" />
-                        Above
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                      {blockTypeOptions.map((option) => (
-                        <DropdownMenuItem
-                          key={`add-above-${option.type}`}
-                          onClick={() => {
-                            onAddBlockAbove?.(block.id, option.type);
-                            setMenuOpen(false);
-                          }}
-                          className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
-                        >
-                          {option.icon}
-                          <span>{option.label}</span>
-                        </DropdownMenuItem>
-                      ))}
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                          <Images className="h-3 w-3" />
-                          <span>Gallery</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                          {galleryLayouts.map((g) => (
-                            <DropdownMenuItem
-                              key={`add-above-gallery-${g.layout}`}
-                              onClick={() => {
-                                onAddBlockAbove?.(block.id, "gallery", getGalleryContentPreset(g.layout));
-                                setMenuOpen(false);
-                              }}
-                              className="!py-1 !px-1.5 !text-[10px]"
-                            >
-                              <span>{g.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                          <LayoutGrid className="h-3 w-3" />
-                          <span>Cards</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                          {cardsLayouts.map((c) => (
-                            <DropdownMenuItem
-                              key={`add-above-cards-${c.label}`}
-                              onClick={() => {
-                                onAddBlockAbove?.(block.id, "cards", c.content);
-                                setMenuOpen(false);
-                              }}
-                              className="!py-1 !px-1.5 !text-[10px]"
-                            >
-                              <span>{c.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="flex-1 justify-center rounded-[6px] px-1.5 py-1 text-[11px]">
-                      <span className="flex items-center gap-1">
-                        <Plus className="h-3 w-3" />
-                        Below
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="min-w-0 w-36 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                      {blockTypeOptions.map((option) => (
-                        <DropdownMenuItem
-                          key={`add-below-${option.type}`}
-                          onClick={() => {
-                            onAddBlockBelow?.(block.id, option.type);
-                            setMenuOpen(false);
-                          }}
-                          className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3"
-                        >
-                          {option.icon}
-                          <span>{option.label}</span>
-                        </DropdownMenuItem>
-                      ))}
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                          <Images className="h-3 w-3" />
-                          <span>Gallery</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                          {galleryLayouts.map((g) => (
-                            <DropdownMenuItem
-                              key={`add-below-gallery-${g.layout}`}
-                              onClick={() => {
-                                onAddBlockBelow?.(block.id, "gallery", getGalleryContentPreset(g.layout));
-                                setMenuOpen(false);
-                              }}
-                              className="!py-1 !px-1.5 !text-[10px]"
-                            >
-                              <span>{g.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="!py-1 !px-1.5 !text-[10px] !gap-1 [&_svg]:h-3 [&_svg]:w-3">
-                          <LayoutGrid className="h-3 w-3" />
-                          <span>Cards</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="min-w-0 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 shadow-popover">
-                          {cardsLayouts.map((c) => (
-                            <DropdownMenuItem
-                              key={`add-below-cards-${c.label}`}
-                              onClick={() => {
-                                onAddBlockBelow?.(block.id, "cards", c.content);
-                                setMenuOpen(false);
-                              }}
-                              className="!py-1 !px-1.5 !text-[10px]"
-                            >
-                              <span>{c.label}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                </div>
-
-                {block.type === "task" && (() => {
-                  const taskContent = (block.content || {}) as Record<string, unknown>;
-                  const hideIcons = taskContent.hideIcons === true;
-                  const showRollup = taskContent.showRollup === true;
-                  const isTempBlock = block.id.startsWith("temp-");
-                  const handleToggleIcons = async () => {
-                    const next = !hideIcons;
-                    const updatedContent = { ...taskContent, hideIcons: next };
-                    onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
-                    setMenuOpen(false);
-                    if (!isTempBlock) {
-                      const result = await updateBlock({ blockId: block.id, content: updatedContent });
-                      if (result.data) onUpdate?.(result.data);
-                    }
-                  };
-                  const handleToggleRollup = async () => {
-                    const next = !showRollup;
-                    const updatedContent = { ...taskContent, showRollup: next };
-                    onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
-                    setMenuOpen(false);
-                    if (!isTempBlock) {
-                      const result = await updateBlock({ blockId: block.id, content: updatedContent });
-                      if (result.data) onUpdate?.(result.data);
-                    }
-                  };
-                  return (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={handleToggleIcons} className="text-[11px]">
-                        {hideIcons ? (
-                          <>
-                            <Eye className="h-3.5 w-3.5 mr-2" />
-                            Show Icons
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="h-3.5 w-3.5 mr-2" />
-                            Hide Icons
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={handleToggleRollup} className="text-[11px]">
-                        {showRollup ? (
-                          <>
-                            <EyeOff className="h-3.5 w-3.5 mr-2" />
-                            Hide Rollup
-                          </>
-                        ) : (
-                          <>
-                            <Eye className="h-3.5 w-3.5 mr-2" />
-                            Show Rollup
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                    </>
-                  );
-                })()}
-
-                {!block.is_template && !block.original_block_id && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setMakeTemplateDialogOpen(true);
-                        setMenuOpen(false);
-                      }}
-                      className="text-[11px]"
-                    >
-                      <Copy className="h-3.5 w-3.5" /> Make Reusable
-                    </DropdownMenuItem>
-                  </>
-                )}
-
-                <DropdownMenuSeparator />
-
-                <DropdownMenuItem
-                  onClick={() => {
-                    openComments(blockMenuTriggerRef.current);
-                    setMenuOpen(false);
-                  }}
-                  className="text-[11px]"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  <span>{hasComments ? "Comments" : "Add comment"}</span>
-                  {hasComments && (
-                    <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">({comments.length})</span>
-                  )}
-                </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={openPropertiesMenu} className="text-[11px]">
-                  <Tags className="h-3.5 w-3.5" />
-                  <span>Properties</span>
-                  {hasProperties && (
-                    <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
-                      ({totalPropertiesCount})
-                    </span>
-                  )}
-                </DropdownMenuItem>
-
-                {block.type === "shopify_product" && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent("shopify-product-block-open-picker", { detail: { blockId: block.id } }));
-                        setMenuOpen(false);
-                      }}
-                      className="text-[11px]"
-                    >
-                      <Package className="h-3.5 w-3.5 mr-2" />
-                      <span>Change product</span>
-                    </DropdownMenuItem>
-                  </>
-                )}
-
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => onDelete?.(block.id)}
-                  className="text-[11px] text-red-500 focus:bg-red-50 focus:text-red-600"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         )}
 
