@@ -1359,7 +1359,7 @@ export default function TabCanvas({
     return [...blocks].sort((a, b) => a.position - b.position);
   }, [blocks]);
 
-  const { cardCounts } = useCardCountContext() ?? { cardCounts: {} };
+  const { cardCounts } = useCardCountContext() ?? { cardCounts: {} as Record<string, number> };
 
   const getGridClassForRow = useCallback(
     (row: BlockRow, effectiveCount: number) => {
@@ -1379,12 +1379,12 @@ export default function TabCanvas({
 
   return (
     <FileUrlContext.Provider value={initialFileUrls}>
-      <div className="flex flex-1 min-h-0 w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="flex flex-1 min-h-0 w-full min-w-0 flex-col gap-2 lg:flex-row lg:items-start lg:gap-0">
         <div className="min-w-0 flex-1 flex flex-col min-h-0 space-y-2">
           {!hasBlocks ? (
             <div
               onClick={handleEmptyCanvasClick}
-              className="cursor-text min-h-full rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-6 py-16 transition-colors hover:border-[var(--secondary)]"
+              className="cursor-text min-h-full rounded-xl border border-[var(--border)] bg-[var(--surface)]/60 px-4 py-16 transition-colors hover:border-[var(--secondary)]"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
@@ -1415,7 +1415,7 @@ export default function TabCanvas({
           ) : (
             <div
               className={cn(
-                "px-5 pt-2 pb-6 transition-all duration-300 relative flex-1 min-h-full rounded-xl overflow-hidden",
+                "pl-2 pr-12 pt-2 pb-6 transition-all duration-300 relative flex-1 min-h-full rounded-xl overflow-visible",
                 !currentTheme.containerBg && "bg-[var(--surface)]"
               )}
               style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
@@ -1451,7 +1451,7 @@ export default function TabCanvas({
                   {blockRows.map((row, rowIdx) => (
                     <div
                       key={rowIdx}
-                      className={cn("grid gap-4", getGridClassForRow(row, row.blocks.length))}
+                      className={cn("grid gap-6 md:gap-8", getGridClassForRow(row, row.blocks.length))}
                     >
                       {row.blocks.map((block) => (
                         <div
@@ -1532,7 +1532,7 @@ export default function TabCanvas({
                             items={row.blocks.map((b) => b.id)}
                             strategy={verticalListSortingStrategy}
                           >
-                            <div className={cn("grid gap-4", gridClass)}>
+                            <div className={cn("grid gap-6 md:gap-8", gridClass)}>
                               {row.blocks.map((block) => (
                                 <div
                                   key={`${block.id}-${block.type}`}

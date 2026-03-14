@@ -79,7 +79,7 @@ export default async function ProjectLayout({
                 )}
             </div>
 
-            <div className="flex-1 min-h-0 w-full relative px-2 md:px-3 lg:px-4 bg-[var(--surface)]">
+            <div className="flex-1 min-h-0 w-full relative pl-2 pr-1 md:pl-2 md:pr-1 lg:pl-2 lg:pr-1 bg-[var(--surface)]">
                 {children}
             </div>
         </div>

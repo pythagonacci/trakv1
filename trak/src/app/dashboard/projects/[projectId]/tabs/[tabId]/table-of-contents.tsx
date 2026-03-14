@@ -155,7 +155,7 @@ export default function TableOfContents({
     <>
       {/* Collapsed: show a sticky open button */}
       {!isExpanded && (
-        <div className="hidden lg:flex shrink-0 w-8 items-start pt-1">
+        <div className="hidden lg:flex shrink-0 w-4 items-start pt-1 -ml-8 mr-4">
           <div className="sticky top-20">
             <button
               onClick={onToggle}
