@@ -30,7 +30,6 @@ import {
   useDuplicateTimelineEvent,
   useSetTimelineEventBaseline,
 } from "@/lib/hooks/use-timeline-queries";
-import { getSubEventsByParentIds } from "@/app/actions/timelines/query-actions";
 import { syncSubEventsForTaskEventsBatch } from "@/app/actions/timelines/event-actions";
 import type {
   TimelineBlockContent,
@@ -42,7 +41,10 @@ import type {
   ReferenceType,
 } from "@/types/timeline";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getTaskSubtasksWithProperties } from "@/app/actions/tasks/query-actions";
+import {
+  getTaskSubtasksWithProperties,
+  getTaskSubtasksWithPropertiesBatch,
+} from "@/app/actions/tasks/query-actions";
 import type { TaskSubtaskWithProperties } from "@/app/actions/tasks/query-actions";
 import { createClient } from "@/lib/supabase/client";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/types/properties";
@@ -88,6 +90,7 @@ interface TimelineEvent {
   source_entity_id?: string | null;
   parent_event_id?: string | null;
   sourceSyncMode?: "snapshot" | "live" | null;
+  isPreview?: boolean;
 }
 
 type TimelineEventPatch = Partial<TimelineEvent> & {
@@ -159,6 +162,12 @@ const STATUS_PILL_COLORS: Record<TimelineEventStatus, string> = {
   blocked: "bg-red-300/16 text-red-50 border-red-200/30",
   done: "bg-emerald-300/16 text-emerald-50 border-emerald-200/30",
 };
+
+const PREVIEW_SUBEVENT_ID_PREFIX = "preview-subtask:";
+
+function isPreviewSubEventId(eventId: string) {
+  return eventId.startsWith(PREVIEW_SUBEVENT_ID_PREFIX);
+}
 
 function normalizeTimelinePrioritiesClient(input: unknown): TimelineNamedPriority[] {
   if (!Array.isArray(input)) return [];
@@ -1016,7 +1025,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     });
     return map;
   }, [members]);
-  function extractTimelineUserAssigneeIds(input: unknown): string[] {
+  const extractTimelineUserAssigneeIds = React.useCallback((input: unknown): string[] => {
     if (!Array.isArray(input)) return [];
     const ids: string[] = [];
     for (const field of input as any[]) {
@@ -1028,41 +1037,56 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       }
     }
     return Array.from(new Set(ids));
-  }
+  }, []);
+
+  const toViewEvent = React.useCallback((item: TimelineItem): TimelineEvent => {
+    const props = timelinePropertiesById[item.id];
+    const assigneeIds = extractTimelineUserAssigneeIds((item as any).assignees ?? []);
+    const assigneeId = props?.assignee_id ?? assigneeIds[0] ?? item.assignee_id ?? null;
+    const propertyPriorities = normalizeTimelinePrioritiesClient(props?.priorities ?? []);
+    const itemPriorities = normalizeTimelinePrioritiesClient(item.priorities ?? []);
+    const priorities = propertyPriorities.length > 0 ? propertyPriorities : itemPriorities;
+
+    return {
+      id: item.id,
+      title: item.title,
+      start: item.start_date,
+      end: item.end_date,
+      color: item.color || undefined,
+      statuses: item.statuses ?? [],
+      priorities,
+      assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
+      assignee_ids: assigneeIds,
+      assigneeId,
+      assigneeTeamId: item.assignee_team_id ?? null,
+      progress: item.progress,
+      notes: item.notes ?? undefined,
+      isMilestone: item.is_milestone,
+      baselineStart: item.baseline_start ?? undefined,
+      baselineEnd: item.baseline_end ?? undefined,
+      source_entity_type: item.source_entity_type ?? undefined,
+      source_entity_id: item.source_entity_id ?? undefined,
+      parent_event_id: item.parent_event_id ?? null,
+      sourceSyncMode: item.source_sync_mode ?? null,
+    };
+  }, [extractTimelineUserAssigneeIds, memberMap, timelinePropertiesById]);
 
   const events = useMemo<TimelineEvent[]>(() => {
-    return timelineItems.map((item) => {
-      const props = timelinePropertiesById[item.id];
-      const assigneeIds = extractTimelineUserAssigneeIds((item as any).assignees ?? []);
-      const assigneeId = props?.assignee_id ?? assigneeIds[0] ?? item.assignee_id ?? null;
-      const assigneeTeamId = item.assignee_team_id ?? null;
-      const propertyPriorities = normalizeTimelinePrioritiesClient(props?.priorities ?? []);
-      const itemPriorities = normalizeTimelinePrioritiesClient(item.priorities ?? []);
-      const priorities = propertyPriorities.length > 0 ? propertyPriorities : itemPriorities;
-      return {
-        id: item.id,
-        title: item.title,
-        start: item.start_date,
-        end: item.end_date,
-        color: item.color || undefined,
-        statuses: item.statuses ?? [],
-        priorities,
-        assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
-        assignee_ids: assigneeIds,
-        assigneeId,
-        assigneeTeamId,
-        progress: item.progress,
-        notes: item.notes ?? undefined,
-        isMilestone: item.is_milestone,
-        baselineStart: item.baseline_start ?? undefined,
-        baselineEnd: item.baseline_end ?? undefined,
-        source_entity_type: item.source_entity_type ?? undefined,
-        source_entity_id: item.source_entity_id ?? undefined,
-        parent_event_id: item.parent_event_id ?? null,
-        sourceSyncMode: item.source_sync_mode ?? null,
-      };
-    });
-  }, [timelineItems, timelinePropertiesById, memberMap]);
+    return timelineItems.map(toViewEvent);
+  }, [timelineItems, toViewEvent]);
+
+  const actualSubEventsByParentId = useMemo(() => {
+    const byParentId: Record<string, TimelineEvent[]> = {};
+
+    for (const event of events) {
+      const parentId = event.parent_event_id;
+      if (!parentId) continue;
+      byParentId[parentId] = byParentId[parentId] ?? [];
+      byParentId[parentId].push(event);
+    }
+
+    return byParentId;
+  }, [events]);
 
   // Filter events
   const filteredEvents = useMemo(() => {
@@ -1085,49 +1109,6 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     return filtered;
   }, [events, filters]);
 
-  const parentEventIds = useMemo(() => filteredEvents.map((e) => e.id), [filteredEvents]);
-  const { data: subEventsByParentId = {} } = useQuery({
-    queryKey: ["timelineSubEvents", block.id, parentEventIds.join(",")],
-    queryFn: async () => {
-      const result = await getSubEventsByParentIds(block.id, parentEventIds);
-      if ("error" in result) return {} as Record<string, TimelineEvent[]>;
-      return Object.fromEntries(
-        Object.entries(result.data).map(([parentId, subEvents]) => [
-          parentId,
-          subEvents.map((subEvent) => {
-            const props = timelinePropertiesById[subEvent.id];
-            const subAssigneeIds = extractTimelineUserAssigneeIds((subEvent as any).assignees ?? []);
-            const assigneeId = props?.assignee_id ?? subAssigneeIds[0] ?? subEvent.assignee_id ?? null;
-            return {
-              id: subEvent.id,
-              title: subEvent.title,
-              start: subEvent.start_date,
-              end: subEvent.end_date,
-              color: subEvent.color || undefined,
-              statuses: subEvent.statuses ?? [],
-              priorities: normalizeTimelinePrioritiesClient(subEvent.priorities ?? []),
-              assignee: assigneeId ? memberMap.get(assigneeId) : undefined,
-              assignee_ids: subAssigneeIds,
-              assigneeId,
-              assigneeTeamId: subEvent.assignee_team_id ?? null,
-              progress: subEvent.progress ?? 0,
-              notes: subEvent.notes ?? undefined,
-              isMilestone: subEvent.is_milestone ?? false,
-              baselineStart: subEvent.baseline_start ?? undefined,
-              baselineEnd: subEvent.baseline_end ?? undefined,
-              source_entity_type: subEvent.source_entity_type ?? undefined,
-              source_entity_id: subEvent.source_entity_id ?? undefined,
-              parent_event_id: subEvent.parent_event_id ?? null,
-              sourceSyncMode: subEvent.source_sync_mode ?? null,
-            } as TimelineEvent;
-          }),
-        ])
-      );
-    },
-    enabled: parentEventIds.length > 0,
-    staleTime: 15_000,
-  });
-
   const taskSourcedParents = useMemo(
     () =>
       filteredEvents.filter(
@@ -1140,6 +1121,82 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     [taskSourcedParents]
   );
 
+  const { data: previewSubEventsByParentId = {} } = useQuery({
+    queryKey: ["timelineTaskSubtaskPreviews", block.id, taskSourcedSyncKey],
+    queryFn: async () => {
+      const taskIds = Array.from(
+        new Set(
+          taskSourcedParents
+            .map((event) => event.source_entity_id)
+            .filter((taskId): taskId is string => Boolean(taskId))
+        )
+      );
+      if (taskIds.length === 0) return {} as Record<string, TimelineEvent[]>;
+
+      const result = await getTaskSubtasksWithPropertiesBatch(taskIds);
+      if ("error" in result) return {} as Record<string, TimelineEvent[]>;
+
+      return Object.fromEntries(
+        taskSourcedParents.map((event) => {
+          const taskId = event.source_entity_id!;
+          const previews = (result.data[taskId] ?? [])
+            .map((subtask) => {
+              const start = subtask.due_date?.start ?? subtask.due_date?.end ?? null;
+              const end = subtask.due_date?.end ?? subtask.due_date?.start ?? null;
+              if (!start || !end) return null;
+
+              return {
+                id: `${PREVIEW_SUBEVENT_ID_PREFIX}${event.id}:${subtask.id}`,
+                title: subtask.title,
+                start,
+                end,
+                statuses: [],
+                priorities: [],
+                assigneeTeamId: null,
+                progress: subtask.completed ? 100 : 0,
+                isMilestone: false,
+                source_entity_type: "subtask",
+                source_entity_id: subtask.id,
+                parent_event_id: event.id,
+                sourceSyncMode: "live",
+                isPreview: true,
+              } as TimelineEvent;
+            })
+            .filter((subEvent): subEvent is TimelineEvent => subEvent !== null);
+
+          return [event.id, previews];
+        })
+      );
+    },
+    enabled: taskSourcedParents.length > 0,
+    staleTime: 30_000,
+  });
+
+  const subEventsByParentId = useMemo(() => {
+    const byParentId: Record<string, TimelineEvent[]> = {};
+
+    for (const event of filteredEvents) {
+      const actualChildren = actualSubEventsByParentId[event.id] ?? [];
+      const previewChildren = previewSubEventsByParentId[event.id] ?? [];
+      const actualSubtaskSourceIds = new Set(
+        actualChildren
+          .map((child) => child.source_entity_type === "subtask" ? child.source_entity_id : null)
+          .filter((sourceId): sourceId is string => Boolean(sourceId))
+      );
+      const mergedChildren = [
+        ...actualChildren,
+        ...previewChildren.filter((child) => {
+          const sourceId = child.source_entity_id;
+          return !sourceId || !actualSubtaskSourceIds.has(sourceId);
+        }),
+      ];
+
+      byParentId[event.id] = mergedChildren;
+    }
+
+    return byParentId;
+  }, [actualSubEventsByParentId, filteredEvents, previewSubEventsByParentId]);
+
   useEffect(() => {
     if (readOnly || taskSourcedParents.length === 0) return;
     let cancelled = false;
@@ -1151,7 +1208,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
       }))
     ).then(() => {
       if (cancelled) return;
-      queryClient.invalidateQueries({ queryKey: ["timelineSubEvents", block.id] });
+      queryClient.invalidateQueries({ queryKey: ["timelineItems", block.id] });
     });
     return () => {
       cancelled = true;
@@ -1986,9 +2043,15 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                             <li
                               key={child.id}
                               className={cn(
-                                "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate cursor-pointer hover:text-[var(--foreground)]"
+                                "flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] truncate",
+                                child.isPreview
+                                  ? "cursor-default opacity-80"
+                                  : "cursor-pointer hover:text-[var(--foreground)]"
                               )}
-                              onClick={() => openPanel(child.id)}
+                              onClick={() => {
+                                if (child.isPreview || isPreviewSubEventId(child.id)) return;
+                                openPanel(child.id);
+                              }}
                             >
                               <Minus className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
                               <span className="truncate flex-1 min-w-0">{child.title || "Untitled"}</span>
@@ -2219,10 +2282,18 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                   return (
                     <div
                       key={`subevent-${child.id}`}
-                      className="absolute z-10 rounded-[4px] border-l-2 border-[var(--primary)]/60 bg-[var(--primary)]/20 cursor-pointer hover:bg-[var(--primary)]/30"
+                      className={cn(
+                        "absolute z-10 rounded-[4px] border-l-2 border-[var(--primary)]/60 bg-[var(--primary)]/20",
+                        child.isPreview
+                          ? "cursor-default opacity-80"
+                          : "cursor-pointer hover:bg-[var(--primary)]/30"
+                      )}
                       style={subStyle}
                       data-event-id={child.id}
-                      onClick={() => openPanel(child.id)}
+                      onClick={() => {
+                        if (child.isPreview || isPreviewSubEventId(child.id)) return;
+                        openPanel(child.id);
+                      }}
                       title={child.title}
                     >
                       <span className="absolute inset-0 flex items-center px-2 truncate text-[9px] text-[var(--foreground)]/90">
@@ -3169,8 +3240,17 @@ function EventDetailsPanel({
                       <li key={child.id}>
                         <button
                           type="button"
-                          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                          onClick={() => onSelectEvent(child.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px]",
+                            child.isPreview
+                              ? "cursor-default opacity-80"
+                              : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                          )}
+                          disabled={child.isPreview}
+                          onClick={() => {
+                            if (child.isPreview || isPreviewSubEventId(child.id)) return;
+                            onSelectEvent(child.id);
+                          }}
                         >
                           <span className="truncate flex-1">{child.title}</span>
                           <span className="text-zinc-500 dark:text-zinc-400">{formatSubEventRange(child)}</span>
@@ -3532,8 +3612,17 @@ function EventDetailsPanel({
                     <button
                       key={child.id}
                       type="button"
-                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--surface-hover)]"
-                      onClick={() => onSelectEvent(child.id)}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs",
+                        child.isPreview
+                          ? "cursor-default opacity-80"
+                          : "hover:bg-[var(--surface-hover)]"
+                      )}
+                      disabled={child.isPreview}
+                      onClick={() => {
+                        if (child.isPreview || isPreviewSubEventId(child.id)) return;
+                        onSelectEvent(child.id);
+                      }}
                     >
                       <span className="truncate flex-1">{child.title}</span>
                       <span className="text-[10px] text-[var(--muted-foreground)]">{formatSubEventRange(child)}</span>
