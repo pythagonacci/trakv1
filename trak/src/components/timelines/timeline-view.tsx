@@ -79,6 +79,7 @@ interface TimelineEvent {
   statuses: Array<{ field_name: string; value: string }>;
   priorities: TimelineNamedPriority[];
   assignee?: string;
+  assignee_ids?: string[];
   assigneeId?: string | null;
   assigneeTeamId?: string | null;
   notes?: string;
