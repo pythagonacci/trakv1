@@ -169,12 +169,10 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
   useEffect(() => {
     let cancelled = false;
 
-    const resolveWeather = async () => {
+    const resolveWeather = async (latitude: number, longitude: number) => {
       try {
-        const latitude = 40.7831;
-        const longitude = -73.9712;
         const weatherRes = await fetch(
-          `/api/weather?lat=${latitude}&lon=${longitude}`
+          `/api/weather?lat=${encodeURIComponent(String(latitude))}&lon=${encodeURIComponent(String(longitude))}`
         );
         if (!weatherRes.ok) {
           throw new Error("Weather lookup failed");
@@ -192,11 +190,15 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
           : null;
 
         const summary = describeWeather(code, wind);
+        const location =
+          typeof weatherJson?.location === "string" && weatherJson.location.trim().length > 0
+            ? weatherJson.location
+            : "Location unavailable";
 
         if (!cancelled) {
           setWeather({
             tempF: temp,
-            location: "Manhattan, NY",
+            location,
             summary,
             resolved: true,
           });
@@ -205,7 +207,7 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
         if (!cancelled) {
           setWeather({
             tempF: null,
-            location: "Manhattan, NY",
+            location: "Location unavailable",
             summary: "Weather unavailable",
             resolved: true,
           });
@@ -213,7 +215,39 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       }
     };
 
-    resolveWeather();
+    if (!("geolocation" in navigator)) {
+      setWeather({
+        tempF: null,
+        location: "Location unavailable",
+        summary: "Geolocation unavailable",
+        resolved: true,
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void resolveWeather(position.coords.latitude, position.coords.longitude);
+      },
+      () => {
+        if (!cancelled) {
+          setWeather({
+            tempF: null,
+            location: "Location unavailable",
+            summary: "Location access denied",
+            resolved: true,
+          });
+        }
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 5 * 60 * 1000,
+      }
+    );
+
     return () => {
       cancelled = true;
     };
