@@ -25,6 +25,9 @@ import {
   Sparkles,
   Lock,
   Unlock,
+  Eye,
+  EyeOff,
+  Package,
 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -1215,6 +1218,64 @@ export default function BlockWrapper({
                   </DropdownMenuSub>
                 </div>
 
+                {block.type === "task" && (() => {
+                  const taskContent = (block.content || {}) as Record<string, unknown>;
+                  const hideIcons = taskContent.hideIcons === true;
+                  const showRollup = taskContent.showRollup === true;
+                  const isTempBlock = block.id.startsWith("temp-");
+                  const handleToggleIcons = async () => {
+                    const next = !hideIcons;
+                    const updatedContent = { ...taskContent, hideIcons: next };
+                    onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
+                    setMenuOpen(false);
+                    if (!isTempBlock) {
+                      const result = await updateBlock({ blockId: block.id, content: updatedContent });
+                      if (result.data) onUpdate?.(result.data);
+                    }
+                  };
+                  const handleToggleRollup = async () => {
+                    const next = !showRollup;
+                    const updatedContent = { ...taskContent, showRollup: next };
+                    onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
+                    setMenuOpen(false);
+                    if (!isTempBlock) {
+                      const result = await updateBlock({ blockId: block.id, content: updatedContent });
+                      if (result.data) onUpdate?.(result.data);
+                    }
+                  };
+                  return (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleToggleIcons} className="text-[11px]">
+                        {hideIcons ? (
+                          <>
+                            <Eye className="h-3.5 w-3.5 mr-2" />
+                            Show Icons
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="h-3.5 w-3.5 mr-2" />
+                            Hide Icons
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleToggleRollup} className="text-[11px]">
+                        {showRollup ? (
+                          <>
+                            <EyeOff className="h-3.5 w-3.5 mr-2" />
+                            Hide Rollup
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="h-3.5 w-3.5 mr-2" />
+                            Show Rollup
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                    </>
+                  );
+                })()}
+
                 {!block.is_template && !block.original_block_id && (
                   <>
                     <DropdownMenuSeparator />
@@ -1255,6 +1316,22 @@ export default function BlockWrapper({
                     </span>
                   )}
                 </DropdownMenuItem>
+
+                {block.type === "shopify_product" && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent("shopify-product-block-open-picker", { detail: { blockId: block.id } }));
+                        setMenuOpen(false);
+                      }}
+                      className="text-[11px]"
+                    >
+                      <Package className="h-3.5 w-3.5 mr-2" />
+                      <span>Change product</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
 
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

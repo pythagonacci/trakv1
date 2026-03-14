@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Plus, ChevronDown, MoreHorizontal, Edit, Trash2, Eye, EyeOff, LayoutDashboard, Sparkles } from "lucide-react";
+import { Plus, ChevronDown, MoreVertical, Edit, Trash2, Eye, EyeOff, LayoutDashboard, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTabDialog from "./create-tab-dialog";
 import DeleteTabDialog from "./delete-tab-dialog";
@@ -261,7 +261,8 @@ export default function TabBar({
                 onClick={(e) => handleTabClick(tab, e)}
                 onDoubleClick={(e) => handleDoubleClick(tab, e)}
                 className={cn(
-                  "relative whitespace-nowrap px-3 py-3 text-sm transition-colors flex flex-col items-start gap-0",
+                  "relative whitespace-nowrap py-3 text-sm transition-colors flex flex-col items-start gap-0",
+                  showDropdown ? "pl-3 pr-0" : "px-3",
                   isActive || isParentOfActive
                     ? "text-[var(--foreground)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--foreground)]"
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
@@ -320,9 +321,9 @@ export default function TabBar({
                     e.stopPropagation();
                     e.preventDefault();
                   }}
-                  className="ml-1 inline-flex items-center justify-center rounded-[6px] p-2 text-[var(--tertiary-foreground)] opacity-0 pointer-events-none transition-all duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:pointer-events-auto group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                  className="ml-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded-[6px] text-[var(--tertiary-foreground)] opacity-0 pointer-events-none transition-all duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:pointer-events-auto group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  <MoreVertical className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52" onClick={(e) => e.stopPropagation()}>
@@ -428,9 +429,10 @@ export default function TabBar({
           {tabs.map((tab) => renderTab(tab, 0, variant === "inline"))}
           <button
             onClick={handleAddTab}
-            className="ml-3 inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-dashed border-[var(--border)] px-3 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)] mt-3"
+            title="New tab"
+            className="inline-flex items-start justify-center self-start rounded-[6px] px-1.5 py-3 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           >
-            <Plus className="h-3.5 w-3.5" /> New tab
+            <Plus className="mt-px h-3.5 w-3.5" />
           </button>
         </div>
 
@@ -498,6 +500,7 @@ export default function TabBar({
           ))}
           <button
             onClick={handleAddTab}
+            title="New tab"
             className="flex w-full items-center justify-center gap-2 rounded-[6px] border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
           >
             <Plus className="h-4 w-4" /> New tab

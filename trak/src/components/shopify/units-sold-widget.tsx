@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { getProductUnitsSold } from "@/app/actions/shopify-sales";
+import { getProductUnitsSold, type ProductSalesData } from "@/app/actions/shopify-sales";
+import { cn } from "@/lib/utils";
 
 interface UnitsSoldWidgetProps {
   productId: string;
@@ -14,17 +15,11 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
   const [dateRange, setDateRange] = useState<DateRange>("7d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<ProductSalesData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (dateRange !== "custom") {
-      loadData(dateRange);
-    }
-  }, [dateRange, productId]);
-
-  const getDateRange = (range: DateRange): { start: string; end: string } => {
+  const getDateRange = useCallback((range: DateRange): { start: string; end: string } => {
     const end = new Date();
     const start = new Date();
 
@@ -46,9 +41,9 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
       start: start.toISOString().split("T")[0],
       end: end.toISOString().split("T")[0],
     };
-  };
+  }, [customEnd, customStart]);
 
-  const loadData = async (range: DateRange) => {
+  const loadData = useCallback(async (range: DateRange) => {
     setLoading(true);
     setError(null);
 
@@ -69,46 +64,51 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
     }
 
     setLoading(false);
-  };
+  }, [getDateRange, productId]);
+
+  useEffect(() => {
+    if (dateRange !== "custom") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadData(dateRange);
+    }
+  }, [dateRange, loadData]);
 
   const handleCustomSearch = () => {
     if (customStart && customEnd) {
-      loadData("custom");
+      void loadData("custom");
     }
   };
+
+  const rangeOptions: Array<{ value: DateRange; label: string }> = [
+    { value: "7d", label: "Last 7 Days" },
+    { value: "30d", label: "Last 30 Days" },
+    { value: "60d", label: "Last 60 Days" },
+    { value: "custom", label: "Custom Range" },
+  ];
 
   return (
     <div className="space-y-4">
       {/* Date Range Buttons */}
       <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant={dateRange === "7d" ? "default" : "outline"}
-          onClick={() => setDateRange("7d")}
-        >
-          Last 7 Days
-        </Button>
-        <Button
-          size="sm"
-          variant={dateRange === "30d" ? "default" : "outline"}
-          onClick={() => setDateRange("30d")}
-        >
-          Last 30 Days
-        </Button>
-        <Button
-          size="sm"
-          variant={dateRange === "60d" ? "default" : "outline"}
-          onClick={() => setDateRange("60d")}
-        >
-          Last 60 Days
-        </Button>
-        <Button
-          size="sm"
-          variant={dateRange === "custom" ? "default" : "outline"}
-          onClick={() => setDateRange("custom")}
-        >
-          Custom Range
-        </Button>
+        {rangeOptions.map((option) => {
+          const isActive = dateRange === option.value;
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setDateRange(option.value)}
+              className={cn(
+                "inline-flex h-8 items-center justify-center rounded-[8px] border px-3 text-xs font-medium transition-colors",
+                isActive
+                  ? "border-[var(--primary)]/20 bg-[var(--primary)]/8 text-[var(--primary)] hover:bg-[var(--primary)]/12"
+                  : "border-[var(--border)] bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Custom Date Range Inputs */}
