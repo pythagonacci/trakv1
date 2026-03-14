@@ -1577,12 +1577,15 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                     </button>
                   </div>
                 </div>
-                <div className="h-[calc(500px-41px)] overflow-y-auto p-3">
+                <div
+                  className={cn(
+                    "h-[calc(500px-41px)] overflow-y-auto",
+                    (isLoadingSelectedExpandedComments || selectedExpandedComments.length > 0) && "p-3"
+                  )}
+                >
                   {isLoadingSelectedExpandedComments ? (
                     <div className="text-xs text-[var(--muted-foreground)]">Loading comments...</div>
-                  ) : selectedExpandedComments.length === 0 ? (
-                    <div className="text-xs text-[var(--muted-foreground)]">No comments on this image yet.</div>
-                  ) : (
+                  ) : selectedExpandedComments.length > 0 ? (
                     <div className="space-y-3">
                       {(() => {
                         const roots = selectedExpandedComments.filter((c) => !c.parent_id);
@@ -1671,9 +1674,14 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                         ));
                       })()}
                     </div>
-                  )}
+                  ) : null}
                   {showAddCommentInPanel && (
-                    <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                    <div
+                      className={cn(
+                        selectedExpandedComments.length > 0 && "mt-3 pt-3 border-t border-[var(--border)]",
+                        selectedExpandedComments.length === 0 && "p-3"
+                      )}
+                    >
                       <GalleryImageAddCommentInput
                         onCancel={() => setShowAddCommentInPanel(false)}
                         onSubmit={async (text) => {
