@@ -18,6 +18,8 @@ export function ItemTypeIcon({ type, className = "h-4 w-4" }: ItemTypeIconProps)
       return <Table className={className} />;
     case "block":
       return <FileText className={className} />;
+    case "card":
+      return <FileText className={className} />;
     default:
       return <FileText className={className} />;
   }
@@ -30,6 +32,7 @@ export function getEntityTypeLabel(type: EntityType): string {
     subtask: "Subtask",
     table_row: "Table Row",
     block: "Block",
+    card: "Card",
   };
   return labels[type] || type;
 }
