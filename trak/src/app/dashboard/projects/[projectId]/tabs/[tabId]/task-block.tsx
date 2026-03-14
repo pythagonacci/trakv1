@@ -21,7 +21,6 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  Settings,
   Columns3,
   List,
   Table,
@@ -1738,49 +1737,6 @@ export default function TaskBlock({
     openTaskCommentComposer(parentTaskId, hint);
   };
 
-  const toggleGlobalIcons = async () => {
-    const newHideIcons = !globalHideIcons;
-    setGlobalHideIcons(newHideIcons);
-    const updatedContent = { ...content, hideIcons: newHideIcons };
-
-    // Optimistic update
-    onUpdate?.({
-      ...block,
-      content: updatedContent,
-      updated_at: new Date().toISOString(),
-    });
-
-    // Skip database update if block has temporary ID (not yet saved)
-    if (block.id.startsWith("temp-")) {
-      return;
-    }
-
-    const result = await updateBlock({ blockId: block.id, content: updatedContent });
-    if (result.data) {
-      onUpdate?.(result.data);
-    } else if (result.error) {
-      console.error("Failed to toggle global icons:", result.error);
-      // Revert on error
-      setGlobalHideIcons(!newHideIcons);
-    }
-  };
-
-  const toggleRollup = async () => {
-    const next = !showRollup;
-    setShowRollup(next);
-    const updatedContent = { ...content, showRollup: next };
-    onUpdate?.({ ...block, content: updatedContent, updated_at: new Date().toISOString() });
-    if (!isTempBlock) {
-      const result = await updateBlock({ blockId: block.id, content: updatedContent });
-      if (result.data) {
-        onUpdate?.(result.data);
-      } else if (result.error) {
-        console.error("Failed to toggle rollup:", result.error);
-        setShowRollup(!next);
-      }
-    }
-  };
-
   const toggleTaskIcons = async (taskId: string | number) => {
     const task = tasks.find(t => t.id === taskId);
     const newHideIcons = !task?.hideIcons;
@@ -2912,8 +2868,8 @@ export default function TaskBlock({
 
   return (
     <div className={cn("flex gap-4", (showTaskCard || showSubtaskCard) && "flex-row items-stretch min-h-0")}>
-      <div className={cn("p-3", (showTaskCard || showSubtaskCard) ? "flex-1 min-w-0 min-h-0" : "w-full")}>
-      <div ref={headerRowRef} className="mb-2 flex items-center justify-between gap-2">
+      <div className={cn("pt-0 px-3 pb-3", (showTaskCard || showSubtaskCard) ? "flex-1 min-w-0 min-h-0" : "w-full")}>
+      <div ref={headerRowRef} className="mb-2 flex items-center justify-between gap-2 pr-3">
         <div className="flex-1">
           {editingTitle ? (
             <input
@@ -3068,42 +3024,6 @@ export default function TaskBlock({
             </div>
           )}
         </div>
-        {/* Global Icons Toggle */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
-              <Settings className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={toggleGlobalIcons}>
-              {globalHideIcons ? (
-                <>
-                  <Eye className="mr-2 h-4 w-4" />
-                  Show Icons
-                </>
-              ) : (
-                <>
-                  <EyeOff className="mr-2 h-4 w-4" />
-                  Hide Icons
-                </>
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={toggleRollup}>
-              {showRollup ? (
-                <>
-                  <EyeOff className="mr-2 h-4 w-4" />
-                  Hide Rollup
-                </>
-              ) : (
-                <>
-                  <Eye className="mr-2 h-4 w-4" />
-                  Show Rollup
-                </>
-              )}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
       {hasSourceLinkedCopies && (
         <p className="mb-2 text-[10px] text-[var(--muted-foreground)]">
@@ -3322,7 +3242,7 @@ export default function TaskBlock({
                               setEditingTaskText(e.target.value);
                             }}
                             autoFocus
-                            className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                            className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[13px] font-medium text-[var(--foreground)] shadow-sm focus:outline-none"
                           />
                         ) : (
                           <div className="flex items-start gap-1.5">
@@ -3337,7 +3257,7 @@ export default function TaskBlock({
                                 setEditingTaskText(task.text);
                               }}
                               className={cn(
-                                "flex-1 cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                "flex-1 cursor-text text-[13px] font-medium leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
                                 isDone && "line-through text-[var(--muted-foreground)]"
                               )}
                               dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
@@ -3506,7 +3426,7 @@ export default function TaskBlock({
                                             }
                                           }}
                                           className={cn(
-                                            "w-full text-xs bg-transparent border-none outline-none text-[var(--foreground)] py-0.5",
+                                            "w-full text-[12px] font-medium bg-transparent border-none outline-none text-[var(--foreground)] py-0.5",
                                             subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
                                           )}
                                         />
@@ -4423,7 +4343,7 @@ export default function TaskBlock({
                                   }
                                 }}
                                 autoFocus
-                                className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                                className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[13px] font-medium text-[var(--foreground)] shadow-sm focus:outline-none"
                               />
                             ) : (
                               <div
@@ -4437,7 +4357,7 @@ export default function TaskBlock({
                                   setEditingTaskText(task.text);
                                 }}
                                 className={cn(
-                                  "cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                  "cursor-text text-[13px] font-medium leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
                                   effectiveStatus === "done" && "line-through text-[var(--muted-foreground)]"
                                 )}
                                 dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
@@ -4733,7 +4653,7 @@ export default function TaskBlock({
                                   }
                                 }}
                                 autoFocus
-                                className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                                className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[12px] font-medium text-[var(--foreground)] shadow-sm focus:outline-none"
                               />
                             ) : (
                               <div
@@ -4746,7 +4666,7 @@ export default function TaskBlock({
                                   setEditingSubtaskText(subtask.text);
                                 }}
                                 className={cn(
-                                  "cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                  "cursor-text text-[12px] font-medium leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
                                   subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
                                 )}
                                 dangerouslySetInnerHTML={{ __html: formatTaskText(subtask.text) }}
@@ -4920,7 +4840,7 @@ export default function TaskBlock({
                 return (
                   <div className="rounded-[8px] border border-l-2 border-l-[var(--primary)]/40 border-[var(--border)] bg-[var(--surface)]/80 px-2.5 py-2 text-xs shadow-lg">
                     <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">Subtask</div>
-                    {item.subtask.text || "Subtask"}
+                    <span className="text-[12px] font-medium">{item.subtask.text || "Subtask"}</span>
                   </div>
                 );
               }
@@ -5160,7 +5080,7 @@ export default function TaskBlock({
                                 }
                               }}
                               autoFocus
-                              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] shadow-sm focus:outline-none"
+                              className="w-full rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[13px] font-medium text-[var(--foreground)] shadow-sm focus:outline-none"
                             />
                           ) : (
                             <div
@@ -5174,7 +5094,7 @@ export default function TaskBlock({
                                 setEditingTaskText(task.text);
                               }}
                               className={cn(
-                                "cursor-text text-xs font-normal leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                "cursor-text text-[13px] font-medium leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
                                 isDone && "line-through text-[var(--muted-foreground)]"
                               )}
                               dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
@@ -5611,7 +5531,7 @@ export default function TaskBlock({
                                     }
                                   }}
                                   className={cn(
-                                    "w-full bg-transparent text-[0.95em] leading-snug text-[var(--foreground)] outline-none",
+                                    "w-full bg-transparent text-[12px] font-medium leading-snug text-[var(--foreground)] outline-none",
                                     subtaskStatus === "done" && "line-through text-[var(--muted-foreground)]"
                                   )}
                                 />
