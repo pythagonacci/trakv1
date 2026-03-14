@@ -35,7 +35,7 @@ export async function requireCardsBlockAccess(
   opts?: { authContext?: AuthContext }
 ): Promise<{ error: string } | CardBlockAccessContext> {
   const auth = await getClientAndUser(opts);
-  if ("error" in auth) return auth;
+  if ("error" in auth) return { error: auth.error ?? "Unknown error" };
   const { supabase, userId } = auth;
 
   const { data: block, error } = await supabase
@@ -71,7 +71,7 @@ export async function requireCardAccess(
   opts?: { authContext?: AuthContext }
 ) {
   const auth = await getClientAndUser(opts);
-  if ("error" in auth) return auth;
+  if ("error" in auth) return { error: auth.error ?? "Unknown error" };
   const { supabase, userId } = auth;
 
   const { data: card, error } = await supabase
@@ -93,7 +93,7 @@ export async function requireWorkspaceAccessForCards(
   opts?: { authContext?: AuthContext }
 ) {
   const auth = await getClientAndUser(opts);
-  if ("error" in auth) return auth;
+  if ("error" in auth) return { error: auth.error ?? "Unknown error" };
   const { supabase, userId } = auth;
 
   const membership = await checkWorkspaceMembership(workspaceId, userId);

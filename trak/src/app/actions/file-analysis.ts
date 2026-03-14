@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata, getTabMetadata } from "@/lib/auth-utils";
+import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } from "@/lib/auth-utils";
 import { createBlock } from "@/app/actions/block";
 import { getTable, updateTable } from "@/app/actions/tables/table-actions";
 import { createField, deleteField, updateField } from "@/app/actions/tables/field-actions";
@@ -48,15 +48,21 @@ export async function getOrCreateFileAnalysisSession(params: {
   if (!membership) return { error: "Not a member of this workspace" };
 
   let projectId = params.projectId || null;
-  let tabId = params.tabId || null;
+  const tabId = params.tabId || null;
 
   if (tabId) {
-    const tab = await getTabMetadata(tabId);
-    if (!tab) return { error: "Tab not found" };
-    projectId = tab.project_id;
-  }
+    // Avoid relying on the stricter tab->project inner join used elsewhere.
+    // The workflow page can already be open while that joined metadata lookup
+    // fails under RLS, which incorrectly blocks chat file uploads.
+    const { data: tab, error: tabError } = await supabase
+      .from("tabs")
+      .select("id, project_id")
+      .eq("id", tabId)
+      .maybeSingle();
 
-  if (projectId) {
+    if (tabError || !tab) return { error: "Tab not found" };
+    projectId = tab.project_id ?? null;
+  } else if (projectId) {
     const project = await getProjectMetadata(projectId);
     if (!project) return { error: "Project not found" };
   }

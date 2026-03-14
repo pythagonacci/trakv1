@@ -19,6 +19,7 @@ interface TaskCommentRecord {
 
 interface BlockCommentRecord {
   id: string;
+  parent_id?: string | null;
   author_id: string;
   author_name?: string | null;
   author_email?: string | null;
@@ -367,7 +368,7 @@ export async function createBlockCommentNotifications(input: {
 
     if (resolvedReplyTargetId && resolvedReplyTargetId !== input.actorId) {
       await writeNotification({
-        workspaceId: block.workspaceId,
+        workspaceId: resolvedWorkspaceId,
         eventType: "comment_reply",
         actorId: input.actorId,
         recipientIds: [resolvedReplyTargetId],
@@ -380,9 +381,9 @@ export async function createBlockCommentNotifications(input: {
         commentId: comment.id,
         payload: {
           actor_name: actorName,
-          project_name: block.projectName,
-          tab_name: block.tabName,
-          block_type: block.type,
+          project_name: block?.projectName,
+          tab_name: block?.tabName,
+          block_type: block?.type,
           comment_excerpt: excerpt(comment.text),
         },
       });
@@ -395,7 +396,7 @@ export async function createBlockCommentNotifications(input: {
     await Promise.all(
       mentionIds.map((recipientId) =>
         writeNotification({
-          workspaceId: block.workspaceId,
+          workspaceId: resolvedWorkspaceId,
           eventType: "mention",
           actorId: input.actorId,
         recipientIds: [recipientId],
@@ -408,9 +409,9 @@ export async function createBlockCommentNotifications(input: {
         commentId: comment.id,
           payload: {
             actor_name: actorName,
-            project_name: block.projectName,
-            tab_name: block.tabName,
-            block_type: block.type,
+            project_name: block?.projectName,
+            tab_name: block?.tabName,
+            block_type: block?.type,
             comment_excerpt: excerpt(comment.text),
           },
         })

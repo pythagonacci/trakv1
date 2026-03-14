@@ -30,15 +30,32 @@ async function assertWorkflowTab(tabId: string) {
     .from("tabs")
     .select("id, project:projects!inner(id, workspace_id)")
     .eq("id", tabId)
-    .single();
+    .maybeSingle();
 
-  if (error || !tab) return { error: "Tab not found" } as const;
+  if (!error && tab) {
+    const project = tab.project as { workspace_id: string } | { workspace_id: string }[] | null;
+    const workspaceId = Array.isArray(project) ? project[0]?.workspace_id : project?.workspace_id;
+    if (!workspaceId) return { error: "Invalid tab workspace" } as const;
+    return { data: { workspaceId } } as const;
+  }
 
-  const project = tab.project as { workspace_id: string } | { workspace_id: string }[] | null;
-  const workspaceId = Array.isArray(project) ? project[0]?.workspace_id : project?.workspace_id;
-  if (!workspaceId) return { error: "Invalid tab workspace" } as const;
+  const { data: bareTab } = await supabase
+    .from("tabs")
+    .select("id, project_id")
+    .eq("id", tabId)
+    .maybeSingle();
 
-  return { data: { workspaceId } } as const;
+  if (!bareTab?.project_id) return { error: "Tab not found" } as const;
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, workspace_id")
+    .eq("id", bareTab.project_id)
+    .maybeSingle();
+
+  if (!project?.workspace_id) return { error: "Invalid tab workspace" } as const;
+
+  return { data: { workspaceId: project.workspace_id } } as const;
 }
 
 export async function getOrCreateWorkflowSession(params: {

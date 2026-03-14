@@ -83,8 +83,38 @@ export const getTabMetadata = cache(async (tabId: string) => {
     .from('tabs')
     .select('id, project_id, projects!inner(id, workspace_id)')
     .eq('id', tabId)
-    .single();
-  return tab;
+    .maybeSingle();
+
+  if (tab) {
+    return tab;
+  }
+
+  // Fallback for workflow/tab contexts where the joined relation can fail
+  // even though the tab itself is still directly readable.
+  const { data: bareTab } = await supabase
+    .from('tabs')
+    .select('id, project_id')
+    .eq('id', tabId)
+    .maybeSingle();
+
+  if (!bareTab?.project_id) {
+    return null;
+  }
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, workspace_id')
+    .eq('id', bareTab.project_id)
+    .maybeSingle();
+
+  if (!project) {
+    return null;
+  }
+
+  return {
+    ...bareTab,
+    projects: project,
+  };
 });
 
 /**

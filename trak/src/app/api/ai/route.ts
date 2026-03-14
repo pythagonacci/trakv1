@@ -5,10 +5,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { aiDebug, aiTiming, isAITimingEnabled } from "@/lib/ai/debug"; // Added imports
 import { getBlockWithContext } from "@/app/actions/ai-context";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
-import {
-  resolveProjectIdFromParam,
-  resolveTabIdFromParam,
-} from "@/lib/dashboard-route-resolvers";
+import { resolveRouteContextFromPathname } from "@/lib/route-context";
 
 /**
  * POST /api/ai
@@ -22,24 +19,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const referer = request.headers.get("referer");
-    let currentProjectParam: string | undefined;
-    let currentTabParam: string | undefined;
+    let refererPathname: string | null = null;
 
     if (referer) {
       try {
         const url = new URL(referer);
-        // Try to match tab page first: /dashboard/projects/[projectId]/tabs/[tabId]
-        let match = url.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
-        if (match) {
-          currentProjectParam = match[1];
-          currentTabParam = match[2];
-        } else {
-          // If not on a tab page, try to match project page: /dashboard/projects/[projectId]
-          match = url.pathname.match(/\/dashboard\/projects\/([^/]+)(?:\/|$)/);
-          if (match) {
-            currentProjectParam = match[1];
-          }
-        }
+        refererPathname = url.pathname;
       } catch {
         // Ignore malformed referer
       }
@@ -60,11 +45,14 @@ export async function POST(request: NextRequest) {
 
     let currentProjectId: string | undefined;
     let currentTabId: string | undefined;
-    if (currentProjectParam) {
-      currentProjectId = (await resolveProjectIdFromParam(supabase, workspaceId, currentProjectParam)) ?? undefined;
-      if (currentProjectId && currentTabParam) {
-        currentTabId = (await resolveTabIdFromParam(supabase, currentProjectId, currentTabParam)) ?? undefined;
-      }
+    if (refererPathname) {
+      const resolvedRoute = await resolveRouteContextFromPathname({
+        supabase,
+        workspaceId,
+        pathname: refererPathname,
+      });
+      currentProjectId = resolvedRoute.projectId ?? undefined;
+      currentTabId = resolvedRoute.tabId ?? undefined;
     }
 
     // 3. Get workspace and user details for context

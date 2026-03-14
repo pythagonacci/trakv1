@@ -27,6 +27,7 @@ import { buildScopeHints, selectFilesForQuery } from "@/lib/file-analysis/select
 import { logger } from "@/lib/logger";
 import { IndexingQueue } from "@/lib/search/job-queue";
 import { executeAICommand, type AIMessage, type ExecutionResult } from "@/lib/ai/executor";
+import { resolveRouteContextFromPathname } from "@/lib/route-context";
 
 interface FileAnalysisRequest {
   sessionId?: string;
@@ -242,11 +243,33 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) {
       return NextResponse.json({ success: false, error: "No workspace selected" }, { status: 400 });
     }
+    const supabase = await createClient();
 
     const body = (await request.json()) as FileAnalysisRequest;
     const message = body.message?.trim() || "";
-    const tabId = body.tabId || null;
-    const projectId = body.projectId || null;
+
+    let projectId = body.projectId?.trim() || null;
+    let tabId = body.tabId?.trim() || null;
+    const referer = request.headers.get("referer");
+    if (referer) {
+      try {
+        const refererUrl = new URL(referer);
+        const resolvedRoute = await resolveRouteContextFromPathname({
+          supabase,
+          workspaceId,
+          pathname: refererUrl.pathname,
+        });
+
+        if (resolvedRoute.projectId) {
+          projectId = resolvedRoute.projectId;
+        }
+        if (resolvedRoute.tabId) {
+          tabId = resolvedRoute.tabId;
+        }
+      } catch {
+        // Ignore malformed referer
+      }
+    }
 
     const sessionResult = await getOrCreateFileAnalysisSession({
       workspaceId,
@@ -259,7 +282,6 @@ export async function POST(request: NextRequest) {
     }
 
     const session = sessionResult.data;
-    const supabase = await createClient();
 
     if (body.mode === "upload_summary") {
       const fileIds = body.fileIds || [];

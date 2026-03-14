@@ -38,7 +38,7 @@ async function requireBlockCommentAccess(blockId: string) {
 
 export async function listBlockComments(blockId: string): Promise<ActionResult<BlockComment[]>> {
   const access = await requireBlockCommentAccess(blockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   try {
     const rows = await listBlockCommentRows(access.supabase, blockId);
     return { data: rows.map(mapBlockCommentRow) };
@@ -53,7 +53,7 @@ export async function createBlockComment(input: {
   parentId?: string | null;
 }): Promise<ActionResult<BlockComment[]>> {
   const access = await requireBlockCommentAccess(input.blockId);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   const { supabase, user, workspaceId, projectId, tabId } = access;
 
   const previousRows = await listBlockCommentRows(supabase, input.blockId);
@@ -115,7 +115,7 @@ export async function deleteBlockComment(commentId: string): Promise<ActionResul
   if (commentError || !comment) return { error: "Comment not found" };
 
   const access = await requireBlockCommentAccess(comment.block_id);
-  if ("error" in access) return access;
+  if ("error" in access) return { error: access.error ?? "Unknown error" };
   if (comment.author_user_id && comment.author_user_id !== user.id) {
     return { error: "Only the author can delete this comment" };
   }

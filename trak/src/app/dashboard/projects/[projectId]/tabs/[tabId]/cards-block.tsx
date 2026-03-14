@@ -10,7 +10,7 @@ import { useCardCountContext } from "./card-count-context";
 import { useEntitiesProperties, useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import { AssigneeBadge, DueDateBadge, PriorityBadge, PropertyMenu, StatusBadge, TagBadge } from "@/components/properties";
 import { cn } from "@/lib/utils";
-import type { DueDateRange, Priority, Status } from "@/types/properties";
+import type { DueDateRange, NamedField, Priority, Status } from "@/types/properties";
 import type { CardWidth, CardHeight } from "@/types/card";
 import {
   Calendar,
@@ -190,7 +190,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const getEffectiveStatusFields = (card: (typeof cards)[number]) => {
     const props = getCardProperties(card);
     const rows =
-      props?.statuses?.map((entry) => ({
+      props?.statuses?.map((entry: NamedField<Status>) => ({
         id: entry.id,
         field_name: entry.field_name,
         value: entry.value,
@@ -208,9 +208,9 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
 
     const seen = new Set<string>();
     const normalized = fallbackRows
-      .map((entry) => {
+      .map((entry: { id: string; field_name: string; value: unknown }) => {
         const fieldName = String(entry.field_name ?? "").trim() || "Status";
-        const value = normalizeStatusValue(entry.value ?? null);
+        const value = normalizeStatusValue(entry.value as string | null | undefined);
         if (!value) return null;
         const key = fieldName.toLowerCase();
         if (seen.has(key)) return null;
@@ -221,7 +221,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
           value,
         };
       })
-      .filter((entry): entry is { id: string; field_name: string; value: Status } => Boolean(entry));
+      .filter((entry: { id: string; field_name: string; value: Status } | null): entry is { id: string; field_name: string; value: Status } => Boolean(entry));
 
     if (normalized.length > 0) return normalized;
     if (props?.status) {
@@ -233,7 +233,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const getEffectivePriorityFields = (card: (typeof cards)[number]) => {
     const props = getCardProperties(card);
     const rows =
-      props?.priorities?.map((entry) => ({
+      props?.priorities?.map((entry: NamedField<Priority>) => ({
         id: entry.id,
         field_name: entry.field_name,
         value: entry.value,
@@ -251,9 +251,9 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
 
     const seen = new Set<string>();
     const normalized = fallbackRows
-      .map((entry) => {
+      .map((entry: { id: string; field_name: string; value: unknown }) => {
         const fieldName = String(entry.field_name ?? "").trim() || "Priority";
-        const value = normalizePriorityValue(entry.value ?? null);
+        const value = normalizePriorityValue(entry.value as string | null | undefined);
         if (!value) return null;
         const key = fieldName.toLowerCase();
         if (seen.has(key)) return null;
@@ -264,7 +264,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
           value,
         };
       })
-      .filter((entry): entry is { id: string; field_name: string; value: Priority } => Boolean(entry));
+      .filter((entry: { id: string; field_name: string; value: Priority } | null): entry is { id: string; field_name: string; value: Priority } => Boolean(entry));
 
     if (normalized.length > 0) return normalized;
     if (props?.priority) {
@@ -284,7 +284,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const getEffectiveAssigneeFields = (card: (typeof cards)[number]) => {
     const props = getCardProperties(card);
     const rows =
-      props?.assignees?.map((entry) => ({
+      props?.assignees?.map((entry: NamedField<string[]>) => ({
         id: entry.id,
         field_name: entry.field_name,
         value: Array.isArray(entry.value) ? entry.value : [],
@@ -302,7 +302,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
 
     const seen = new Set<string>();
     const normalized = fallbackRows
-      .map((entry) => {
+      .map((entry: { id: string; field_name: string; value: string[] }) => {
         const fieldName = String(entry.field_name ?? "").trim() || "Assignee";
         const value = entry.value.filter((memberId): memberId is string => typeof memberId === "string" && memberId.trim().length > 0);
         if (value.length === 0) return null;
@@ -315,7 +315,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
           value,
         };
       })
-      .filter((entry): entry is { id: string; field_name: string; value: string[] } => Boolean(entry));
+      .filter((entry: { id: string; field_name: string; value: string[] } | null): entry is { id: string; field_name: string; value: string[] } => Boolean(entry));
 
     if (normalized.length > 0) return normalized;
 
@@ -346,7 +346,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const getEffectiveDueDateFields = (card: (typeof cards)[number]) => {
     const props = getCardProperties(card);
     const rows =
-      props?.due_dates?.map((entry) => ({
+      props?.due_dates?.map((entry: NamedField<DueDateRange>) => ({
         id: entry.id,
         field_name: entry.field_name,
         value: entry.value,
@@ -364,7 +364,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
 
     const seen = new Set<string>();
     const normalized = fallbackRows
-      .map((entry) => {
+      .map((entry: { id: string; field_name: string; value: unknown }) => {
         const fieldName = String(entry.field_name ?? "").trim() || "Due Date";
         const value = normalizeDueDateRange(entry.value);
         if (!value) return null;
@@ -377,7 +377,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
           value,
         };
       })
-      .filter((entry): entry is { id: string; field_name: string; value: DueDateRange } => Boolean(entry));
+      .filter((entry: { id: string; field_name: string; value: DueDateRange } | null): entry is { id: string; field_name: string; value: DueDateRange } => Boolean(entry));
 
     if (normalized.length > 0) return normalized;
 
@@ -428,21 +428,21 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
 
     return (
       <>
-        {statusFields.map((field) => (
+        {statusFields.map((field: { id: string; field_name: string; value: Status }) => (
           <StatusBadge
             key={field.id}
             status={field.value}
             label={field.field_name}
           />
         ))}
-        {priorityFields.map((field) => (
+        {priorityFields.map((field: { id: string; field_name: string; value: Priority }) => (
           <PriorityBadge
             key={field.id}
             priority={field.value}
             label={field.field_name}
           />
         ))}
-        {tags.map((tag, index) => (
+        {tags.map((tag: string, index: number) => (
           <TagBadge key={`${card.id}-tag-${tag}-${index}`} tag={tag} />
         ))}
       </>
@@ -875,13 +875,13 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                         <div className="space-y-2 rounded-[6px] bg-[#faf8f5] p-2.5">
                           {(statusFields.length > 0 || priorityFields.length > 0 || tags.length > 0) ? (
                             <div className="flex flex-wrap items-center gap-1">
-                              {statusFields.map((field) => (
+                              {statusFields.map((field: { id: string; field_name: string; value: Status }) => (
                                 <StatusBadge key={field.id} status={field.value} label={field.field_name} />
                               ))}
-                              {priorityFields.map((field) => (
+                              {priorityFields.map((field: { id: string; field_name: string; value: Priority }) => (
                                 <PriorityBadge key={field.id} priority={field.value} label={field.field_name} />
                               ))}
-                              {tags.map((tag, tagIndex) => (
+                              {tags.map((tag: string, tagIndex: number) => (
                                 <TagBadge key={`${card.id}-grid-tag-${tag}-${tagIndex}`} tag={tag} />
                               ))}
                             </div>
@@ -985,7 +985,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                     {showStatusColumn ? (
                       <div className="w-[180px]">
                         <div className="flex flex-wrap gap-1">
-                          {statusFields.map((field) => (
+                          {statusFields.map((field: { id: string; field_name: string; value: Status }) => (
                             <StatusBadge key={field.id} status={field.value} label={field.field_name} />
                           ))}
                         </div>
@@ -994,7 +994,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                     {showPriorityColumn ? (
                       <div className="w-[180px]">
                         <div className="flex flex-wrap gap-1">
-                          {priorityFields.map((field) => (
+                          {priorityFields.map((field: { id: string; field_name: string; value: Priority }) => (
                             <PriorityBadge key={field.id} priority={field.value} label={field.field_name} />
                           ))}
                         </div>
@@ -1003,7 +1003,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                     {showTagsColumn ? (
                       <div className="w-[180px]">
                         <div className="flex flex-wrap gap-1">
-                          {tags.map((tag, tagIndex) => (
+                          {tags.map((tag: string, tagIndex: number) => (
                             <TagBadge key={`${card.id}-list-tag-${tag}-${tagIndex}`} tag={tag} />
                           ))}
                         </div>
@@ -1109,7 +1109,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                   content:
                     selectedCardStatusFields.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {selectedCardStatusFields.map((field) => (
+                        {selectedCardStatusFields.map((field: { id: string; field_name: string; value: Status }) => (
                           <StatusBadge key={field.id} status={field.value} label={field.field_name} />
                         ))}
                       </div>
@@ -1122,7 +1122,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                   content:
                     selectedCardPriorityFields.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {selectedCardPriorityFields.map((field) => (
+                        {selectedCardPriorityFields.map((field: { id: string; field_name: string; value: Priority }) => (
                           <PriorityBadge key={field.id} priority={field.value} label={field.field_name} />
                         ))}
                       </div>
@@ -1135,7 +1135,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                   content:
                     selectedCardTags.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {selectedCardTags.map((tag, index) => (
+                        {selectedCardTags.map((tag: string, index: number) => (
                           <TagBadge key={`${selectedCard.id}-detail-tag-${tag}-${index}`} tag={tag} />
                         ))}
                       </div>
@@ -1148,7 +1148,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                   content:
                     selectedCardAssigneeFields.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {selectedCardAssigneeFields.map((field) => (
+                        {selectedCardAssigneeFields.map((field: { id: string; field_name: string; value: string[] }) => (
                           <AssigneeBadge
                             key={field.id}
                             label={field.field_name}
@@ -1165,7 +1165,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                   content:
                     selectedCardDueDateFields.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {selectedCardDueDateFields.map((field) => (
+                        {selectedCardDueDateFields.map((field: { id: string; field_name: string; value: DueDateRange }) => (
                           <DueDateBadge
                             key={field.id}
                             label={field.field_name}
@@ -1213,7 +1213,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
               <div className="mt-5">
                 <div className="mb-2.5 text-[12px] font-medium text-[#aaa]">Comments</div>
                 <div className="space-y-3">
-                  {selectedCard.comments.map((comment) => (
+                  {selectedCard.comments.map((comment: { id: string; author: string; text: string; timestamp: string }) => (
                     <div key={comment.id} className="flex gap-2.5">
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#d9b6b2] text-[10px] text-white">
                         {getInitials(comment.author)}

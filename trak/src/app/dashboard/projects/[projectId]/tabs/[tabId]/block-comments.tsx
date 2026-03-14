@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { Plus, Reply, Trash2, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -231,7 +231,7 @@ export default function BlockComments({
 
   const floatingStyle = getFixedSidePanelPosition(anchorRect, side);
 
-  const renderComment = (comment: BlockComment, depth = 0): JSX.Element => {
+  const renderComment = (comment: BlockComment, depth = 0): ReactElement => {
     const children = commentsByParent.get(comment.id) ?? [];
     const isOwnComment = currentUser && comment.author_id === currentUser.id;
     const isExternal = comment.source === "external";

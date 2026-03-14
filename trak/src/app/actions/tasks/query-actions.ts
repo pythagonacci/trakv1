@@ -170,7 +170,7 @@ export async function getTaskItemsByBlock(taskBlockId: string): Promise<ActionRe
     subtasksByTask.set(subtask.task_id, list);
   }
 
-  const commentsByTask = new Map<string, Array<{ id: string; author: string; text: string; timestamp: string }>>();
+  const commentsByTask = new Map<string, Array<{ id: string; author: string; text: string; timestamp: string; parentId?: string | null }>>();
   for (const comment of comments) {
     const list = commentsByTask.get(comment.task_id) || [];
     list.push({

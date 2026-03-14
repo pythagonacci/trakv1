@@ -4,10 +4,7 @@ import type { AIMessage } from "@/lib/ai/executor";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
-import {
-  resolveProjectIdFromParam,
-  resolveTabIdFromParam,
-} from "@/lib/dashboard-route-resolvers";
+import { resolveRouteContextFromPathname } from "@/lib/route-context";
 
 /**
  * POST /api/ai/stream
@@ -58,30 +55,26 @@ export async function POST(request: NextRequest) {
     }
 
     const referer = request.headers.get("referer");
-    let refererProjectParam: string | undefined;
-    let refererTabId: string | undefined;
+    let refererPathname: string | null = null;
     if (referer) {
       try {
         const refererUrl = new URL(referer);
-        const projectTabMatch = refererUrl.pathname.match(/\/dashboard\/projects\/([^/]+)\/tabs\/([^/]+)/);
-        const tabMatch = refererUrl.pathname.match(/\/tabs\/([^/]+)/);
-        const workflowMatch = refererUrl.pathname.match(/\/dashboard\/workflow\/([^/]+)/);
-        refererProjectParam = projectTabMatch?.[1];
-        refererTabId = projectTabMatch?.[2] || tabMatch?.[1] || workflowMatch?.[1];
+        refererPathname = refererUrl.pathname;
       } catch {
         // Ignore malformed referer
       }
     }
 
-    let resolvedTabId = (tabId || refererTabId || "").trim();
+    let resolvedTabId = (tabId || "").trim();
     const workspaceId = await getCurrentWorkspaceId();
-    if (workspaceId && refererProjectParam && refererTabId) {
-      const resolvedProjectId = await resolveProjectIdFromParam(supabase, workspaceId, refererProjectParam);
-      if (resolvedProjectId) {
-        const resolvedFromSlug = await resolveTabIdFromParam(supabase, resolvedProjectId, refererTabId);
-        if (resolvedFromSlug) {
-          resolvedTabId = resolvedFromSlug;
-        }
+    if (workspaceId && refererPathname) {
+      const resolvedRoute = await resolveRouteContextFromPathname({
+        supabase,
+        workspaceId,
+        pathname: refererPathname,
+      });
+      if (resolvedRoute.tabId) {
+        resolvedTabId = resolvedRoute.tabId;
       }
     }
 
